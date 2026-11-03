@@ -130,12 +130,19 @@ const livekit = liveKitConfig(env);
 const deepgram = deepgramConfig(env);
 const cartesia = cartesiaConfig(env);
 const callsLogger = pino(createLoggerOptions(env)).child({ component: 'calls' });
+// Grok voice settings for every xAI key (XAI_TTS_*).
+const xaiTtsSettings = {
+  ...(env.XAI_TTS_OPTIMIZE_LATENCY !== undefined && {
+    optimizeStreamingLatency: env.XAI_TTS_OPTIMIZE_LATENCY,
+  }),
+};
 const tts =
   deepgram &&
   createTtsRouter({
     deepgram,
     cartesia,
     cartesiaDefaults: { ttsModel: env.CARTESIA_TTS_MODEL, ttsSpeed: env.CARTESIA_TTS_SPEED },
+    xaiDefaults: xaiTtsSettings,
     logger: callsLogger,
     onCartesiaFallback: (voiceId) =>
       callsLogger.warn(
@@ -163,6 +170,7 @@ const xaiOwnKeyTts =
         deepgram: { apiKey: '', ttsModel: env.DEEPGRAM_TTS_MODEL },
         cartesia,
         cartesiaDefaults: { ttsModel: env.CARTESIA_TTS_MODEL, ttsSpeed: env.CARTESIA_TTS_SPEED },
+        xaiDefaults: xaiTtsSettings,
       })
     : undefined;
 const xaiCallVoice =
