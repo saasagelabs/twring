@@ -77,7 +77,7 @@ Do not add Nx/Turborepo until measured build/task orchestration pain justifies i
 
 ### CI/CD
 
-Codemagic (`codemagic.yaml`) + Expo EAS Build/Submit. See ADR-011 in `DECISIONS.md`.
+GitHub Actions (`.github/workflows/`): Verify, the Android APK, the iPhone simulator build check and the signed TestFlight build. See ADR-016 in `DECISIONS.md`.
 
 Minimum CI:
 

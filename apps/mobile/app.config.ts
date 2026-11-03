@@ -77,7 +77,7 @@ function readVersionCode(value: string | undefined): number {
   return code;
 }
 
-/** TestFlight uploads of the same version need rising build numbers; Codemagic supplies BUILD_NUMBER. */
+/** TestFlight uploads of the same version need rising build numbers; the TestFlight workflow supplies CORD_IOS_BUILD_NUMBER. */
 function readIosBuildNumber(value: string | undefined): string {
   if (value === undefined || value.trim() === '') return '1';
   const code = Number(value);
