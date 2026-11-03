@@ -77,6 +77,11 @@ archive() {
   # Manual signing on the app target only (Pods targets stay unsigned).
   IOS_PROJECT="${projects[0]}" ruby -rxcodeproj -e '
     project = Xcodeproj::Project.open(ENV.fetch("IOS_PROJECT"))
+    extensions = project.targets.select { |t| t.product_type.to_s.include?("app-extension") }
+    unless extensions.empty?
+      abort("This build signs only the app target. Add an App Store profile for: " +
+        extensions.map(&:name).join(", "))
+    end
     project.targets.select { |t| t.product_type == "com.apple.product-type.application" }.each do |t|
       t.build_configurations.each do |c|
         s = c.build_settings

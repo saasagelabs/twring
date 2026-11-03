@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
@@ -35,6 +36,14 @@ describe('ios-testflight.sh check-env', () => {
     for (const value of ['cDg=', 'client', 'https://dsn', 'cHJv']) {
       expect(stderr + stdout).not.toContain(value);
     }
+  });
+
+  it('stops before signing when the project has an app extension it has no profile for', () => {
+    const text = readFileSync(script, 'utf8');
+    const guard = text.indexOf('app-extension');
+    expect(guard).toBeGreaterThan(-1);
+    expect(guard).toBeLessThan(text.indexOf('CODE_SIGN_STYLE'));
+    expect(text).toMatch(/abort\(".*profile/);
   });
 
   it('rejects an unknown command', () => {

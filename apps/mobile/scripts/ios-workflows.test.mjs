@@ -21,6 +21,18 @@ describe('ios-testflight.yml', () => {
     expect(text).toMatch(/environment:\s*testflight/);
   });
 
+  it('gives signing secrets only to the steps that need them, never job-wide', () => {
+    const jobEnv = text.slice(text.indexOf('    env:\n'), text.indexOf('    steps:\n'));
+    expect(jobEnv).not.toMatch(/secrets\.(ASC_|IOS_)/);
+    const steps = text.slice(text.indexOf('    steps:\n')).split(/\n {6}- /);
+    for (const step of steps) {
+      if (!/secrets\.(ASC_|IOS_)/.test(step)) continue;
+      expect(step).toMatch(
+        /name: (Check secrets|Signing keychain and profile|Next build number|Upload to App Store Connect)/,
+      );
+    }
+  });
+
   it('always removes the signing material and never keeps the IPA', () => {
     expect(text).toMatch(
       /if: always\(\)\s*\n\s+run: bash apps\/mobile\/scripts\/ios-testflight\.sh cleanup/,
