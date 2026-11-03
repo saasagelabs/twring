@@ -300,22 +300,20 @@ The rules are validated by `@twring/config`:
 
 ## CI
 
-Codemagic's free tier has few macOS minutes (ADR-016), so every Codemagic workflow runs only on pull requests to `main`, never again after the merge, and the costly ones only when they can matter.
+GitHub Actions runs everything. Public repositories get the Linux and macOS runners free.
 
-| Where | Workflow | Runs on | What it checks | Output |
-| --- | --- | --- | --- | --- |
-| Codemagic | `verify` | every PR to `main` (~1.5 min) | frozen install, format, lint, typecheck, unit and integration tests, gateway build plus HTTP smoke test, expo-doctor | None |
-| Codemagic | `ios-build-check` | manual start only, when a PR touches native inputs: `apps/mobile/package.json`, `apps/mobile/app.config.ts`, root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `codemagic.yaml` (a skipped changeset run still billed ~2.4 min of Mac time) | iOS prebuild with pods, then an unsigned arm64-only simulator `xcodebuild` on `mac_mini_m2` | None (compile check only) |
-| Codemagic | `android-apk` | manual start only | Android prebuild, then `assembleRelease`; checks the APK signature | APK artifact |
-| GitHub Actions | `verify.yml`, `android.yml` | manual only while the account's Actions billing is blocked | same as the Codemagic jobs, on free Linux runners | `cord-staging-apk` artifact |
+| Workflow | Runs on | What it does | Output |
+| --- | --- | --- | --- |
+| `verify.yml` | every pull request to `main` | frozen install, audit, format, lint, typecheck, unit and integration tests, gateway build plus HTTP smoke test, expo-doctor | None |
+| `android.yml` | pull requests that can change the app binary | Android prebuild, `assembleRelease`, signature check | `cord-staging-apk` artifact |
+| `ios-build-check.yml` | pull requests that change native inputs (`apps/mobile/package.json`, `app.config.ts`, `plugins/`, `modules/`, root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), and by hand | iOS prebuild with pods, then an unsigned simulator `xcodebuild` | None |
+| `ios-testflight.yml` | by hand from `main` only; the maintainer approves each run | signed App Store build uploaded to App Store Connect (TestFlight); `upload: false` signs and exports only | logs and dSYMs (never the IPA) |
 
-Phone testing uses local Gradle builds (see "Android dev build" above), so PRs don't need a CI APK. When GitHub Actions billing works again, restore the `pull_request` triggers noted at the top of each workflow and drop Codemagic `verify` to save its minutes.
+`main` is protected: changes arrive through pull requests, `verify` and `DCO` must pass, and every commit carries a sign-off (`git commit -s`).
 
-**Run manually:** Codemagic → the CORD app → "Start new build" → pick the workflow and a branch. GitHub → Actions → pick the workflow → "Run workflow" (once billing works).
+The TestFlight build reads its signing certificate, profile and App Store Connect key from the `testflight` environment's secrets, which only runs from `main` can use. The build number is one higher than the highest build App Store Connect already has.
 
-**The APK** is a standalone release build with its JS bundle embedded, so it runs without Metro. It is signed with the Expo template's debug keystore. That means it installs on any phone or emulator (`adb install <apk>`, or open the file on the phone), but Google Play won't accept it. It uses the staging identity (`com.twring.app.staging`, "Twring Staging"), so it installs alongside a local `.dev` development build. Its API address is the `.invalid` staging placeholder, because Milestone 0 makes no network calls. For a Metro-connected development build, use `pnpm android` or the EAS `development` profile.
-
-**One-time setup:** at codemagic.io, add the GitHub repository as an application and pick the `codemagic.yaml` workflow configuration. The Codemagic GitHub app then installs the webhook that starts builds for PRs. No secrets or variable groups are needed yet.
+**The APK** from `android.yml` is a standalone release build with its JS bundle embedded, signed with the Expo template's debug keystore. It installs on any phone or emulator (`adb install <apk>`), but Google Play won't accept it. It uses the staging identity (`com.twring.app.staging`, "Twring Staging"), so it installs alongside a local `.dev` development build. For a Metro-connected development build, use `pnpm android`.
 
 ## Names you will still see
 

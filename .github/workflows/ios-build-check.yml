@@ -1,0 +1,69 @@
+# Unsigned iPhone simulator build: catches iPhone-only compile breaks before a release. Runs on
+# pull requests that change native inputs, and by hand. No secrets.
+name: 'iOS: simulator build check'
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/mobile/package.json'
+      - 'apps/mobile/app.config.ts'
+      - 'apps/mobile/plugins/**'
+      - 'apps/mobile/modules/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/ios-build-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm (corepack)
+        run: |
+          corepack enable pnpm
+          echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - name: Cache pnpm store and pods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PNPM_STORE }}
+            ~/Library/Caches/CocoaPods
+          key: ios-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ios-${{ runner.os }}-
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Generate iOS project and install pods (CNG)
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform ios --clean
+      - name: Build for iOS Simulator (unsigned)
+        working-directory: apps/mobile/ios
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          WORKSPACES=(*.xcworkspace)
+          [ "${#WORKSPACES[@]}" -gt 0 ] || { echo "expo prebuild did not generate an .xcworkspace" >&2; exit 1; }
+          WORKSPACE="${WORKSPACES[0]}"
+          SCHEME="$(basename "$WORKSPACE" .xcworkspace)"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
