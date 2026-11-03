@@ -13,6 +13,17 @@ export const FAKE_CREDENTIALS_KEY = 'BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc
  */
 export const FAKE_PRODUCTION_CREDENTIALS_KEY = 'gTmc8iH5BIEkm28IJR67ghCGXbPFOV9zicKE0Y/mcGw=';
 
+let makeDataDir: (() => string) | undefined;
+
+/**
+ * Gives every later `gatewayEnvFixture` a data folder of its own unless the test names one. The
+ * gateway's vitest setup calls this, so no test writes the real `./data`: test files run in
+ * parallel, and Windows refuses to rename a temp file over one another process has open.
+ */
+export function useGatewayDataDirs(make: () => string): void {
+  makeDataDir = make;
+}
+
 export function gatewayEnvFixture(overrides: EnvFixture = {}): EnvFixture {
   const deployed = overrides.CORD_ENV !== undefined && overrides.CORD_ENV !== 'development';
   return {
@@ -26,6 +37,7 @@ export function gatewayEnvFixture(overrides: EnvFixture = {}): EnvFixture {
       AUTH_MODE: 'supabase',
       SUPABASE_URL: 'https://cord-test.supabase.invalid',
     }),
+    ...(makeDataDir && { CORD_DATA_DIR: makeDataDir() }),
     CORD_ENV: 'development',
     CORD_RELEASE: 'test-release',
     HOST: '127.0.0.1',
