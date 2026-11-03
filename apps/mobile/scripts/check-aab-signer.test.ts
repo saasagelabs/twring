@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { signerProblem } from './check-aab-signer.mjs';
 
-/** The codemagic `android-release` signer check, fed `keytool -printcert -jarfile` output. */
+/** The release AAB signer check, fed `keytool -printcert -jarfile` output. */
 
 const UPLOAD_SHA256 =
   'AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89';

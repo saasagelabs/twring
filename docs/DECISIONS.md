@@ -228,6 +228,8 @@ Decided 2026-10-07: `com.twring.app` (owner).
 - **Budget:** about 1.5 min of Verify per PR push, plus about 5–7 iOS runs at an estimated 10–12 min each, through Milestone 11: roughly 95 of the 200 minutes.
 - **Revisit when:** GitHub Actions billing is cleared, or the Codemagic budget resets or changes.
 
+**Amended 2026-11-03:** with the repository public, every CI job runs on GitHub Actions (Linux and macOS runners are free for public repositories), including the signed TestFlight build (protected environment, stored distribution certificate). Codemagic is retired.
+
 ---
 
 ## ADR-017: Floor-control words and short barge-in grace

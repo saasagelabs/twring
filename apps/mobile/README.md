@@ -26,7 +26,7 @@ pnpm --filter @twring/mobile android    # build, install and launch on a connect
 pnpm --filter @twring/mobile start      # Metro only, once the app is installed
 ```
 
-iPhone builds come from Codemagic (`codemagic.yaml`, workflow "iOS: TestFlight build"). Three variants exist, each with its own app ID and link scheme: development, staging and production (`app.config.ts`).
+iPhone builds come from GitHub Actions (`.github/workflows/ios-testflight.yml`, workflow "iOS: TestFlight build", started by hand from `main`). Three variants exist, each with its own app ID and link scheme: development, staging and production (`app.config.ts`).
 
 ## Test
 

@@ -1,5 +1,4 @@
-# Installable Android APK on PRs that can change the app binary. Ported from the former
-# Codemagic `android-apk` workflow (see docs/DEVELOPMENT.md → CI).
+# Installable Android APK on PRs that can change the app binary (see docs/DEVELOPMENT.md → CI).
 name: 'Android: installable APK'
 
 # On PRs that can change the app binary (GitHub Actions billing cleared 2026-10-12, ADR-016).

@@ -6,7 +6,7 @@
 # Writes <dir>/upload-keystore.p12 (PKCS12, RSA 4096, 10000 days) and <dir>/upload-keystore.password
 # (mode 600; store and key share it, as PKCS12 requires). The password is never printed. Prints
 # the keystore path and its SHA-1/SHA-256 fingerprints (for the Google OAuth Android client).
-# Then move both into your password manager and Codemagic (group cord_upload_key).
+# Then move both into your password manager.
 set -euo pipefail
 
 die() { echo "create-upload-keystore: $*" >&2; exit 1; }

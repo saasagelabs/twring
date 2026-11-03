@@ -1,9 +1,7 @@
-# Verify on every PR to main. Ported from the former Codemagic `verify` workflow
-# (see docs/DEVELOPMENT.md → CI).
+# Verify on every PR to main (see docs/DEVELOPMENT.md → CI).
 name: 'Verify: format, lint, types, tests'
 
-# Runs on GitHub Actions again since the billing block was cleared (2026-10-12): Linux, about five
-# minutes per PR, instead of Codemagic's macOS minutes (ADR-016).
+# Linux, about five minutes per PR (ADR-016).
 on:
   pull_request:
     branches: [main]
