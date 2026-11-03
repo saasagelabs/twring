@@ -48,6 +48,14 @@ describe('both iOS workflows', () => {
       expect(read(name)).toMatch(/SENTRY_DISABLE_AUTO_UPLOAD: 'true'/);
     },
   );
+
+  it.each(['ios-build-check.yml', 'ios-testflight.yml'])(
+    '%s pins the Xcode version, so a runner update cannot change a release build',
+    (name) => {
+      expect(read(name)).toMatch(/xcode-version: '\d+\.\d+'/);
+      expect(read(name)).not.toMatch(/latest-stable/);
+    },
+  );
 });
 
 describe('ios-build-check.yml', () => {
