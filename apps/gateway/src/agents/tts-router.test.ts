@@ -337,6 +337,23 @@ describe('Grok voices', () => {
   }
   const grokId = XAI_VOICES[0]!.id;
 
+  it('passes the server xAI latency setting to every Grok voice', () => {
+    const seen: (number | undefined)[] = [];
+    const r = createTtsRouter({
+      deepgram: DEEPGRAM,
+      xaiDefaults: { optimizeStreamingLatency: 2 },
+      createXai: (o) => {
+        seen.push(o.optimizeStreamingLatency);
+        return new FakeTtsProvider();
+      },
+    });
+    r.forCall(grokId, {
+      deepgram: { apiKey: 'twring-dg', source: 'twring' },
+      xai: { apiKey: 'own-xai', source: 'own' },
+    });
+    expect(seen).toEqual([2]);
+  });
+
   it('speaks a Grok voice on the own xAI key and never fails over', async () => {
     const { r, made } = xaiRouter();
     const tts = r.forCall(grokId, {

@@ -14,6 +14,8 @@ export interface TtsRouterOptions {
   cartesia?: { apiKey: string; ttsModel: string; ttsSpeed?: number } | undefined;
   /** Cartesia model settings for a person's own Cartesia key when the server has no key. */
   cartesiaDefaults?: { ttsModel: string; ttsSpeed?: number };
+  /** Grok voice settings (XAI_TTS_*), for every xAI key. */
+  xaiDefaults?: { optimizeStreamingLatency?: number };
   logger?: CallLogger;
   /** Called the first time a Cartesia voice falls back because Cartesia is not configured. */
   onCartesiaFallback?: (voiceId: string) => void;
@@ -54,7 +56,9 @@ export function createTtsRouter(options: TtsRouterOptions): TtsRouter {
     const grok = xaiVoice(voiceId);
     // Grok voices exist only on the person's own xAI key; without one there is no provider.
     if (grok !== undefined) {
-      return keys.xai === undefined ? undefined : xai({ apiKey: keys.xai, voice: grok });
+      return keys.xai === undefined
+        ? undefined
+        : xai({ apiKey: keys.xai, voice: grok, ...options.xaiDefaults });
     }
     const voice = cartesiaVoice(voiceId);
     if (voice === undefined || keys.cartesia === undefined || cartesiaSettings === undefined) {
