@@ -9,7 +9,7 @@
 # production and production-apk require CORD_GOOGLE_SERVICES_FILE (push), CORD_PROD_API_BASE_URL (https://) and the upload key:
 #   CORD_UPLOAD_STORE_FILE, CORD_UPLOAD_STORE_PASSWORD, CORD_UPLOAD_KEY_ALIAS, CORD_UPLOAD_KEY_PASSWORD
 # staging needs CORD_STAGING_API_BASE_URL (the staging server address, kept private).
-# Optional: CORD_VERSION_CODE (default 1; Play uploads come from CI build numbers),
+# Optional: CORD_VERSION_CODE (default 1; raise it for every Play upload),
 #           CORD_APP_NAME (brand name), SENTRY_AUTH_TOKEN + SENTRY_ORG + SENTRY_PROJECT.
 #
 # Runs `expo prebuild --clean` (regenerates android/ for that variant), then Gradle.
