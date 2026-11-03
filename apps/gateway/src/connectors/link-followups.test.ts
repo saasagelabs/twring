@@ -53,9 +53,7 @@ const cancel = (g: ConnectorGateway, link: CreateLinkResponse, token = link.poll
 
 describe('the account a computer joined', () => {
   it('names the owner by display name, else by masked email, else not at all', () => {
-    expect(ownerDisplayName({ name: 'Gowri Shankar', email: 'g@example.com' })).toBe(
-      'Gowri Shankar',
-    );
+    expect(ownerDisplayName({ name: 'Ada Lovelace', email: 'g@example.com' })).toBe('Ada Lovelace');
     expect(ownerDisplayName({ email: 'owner@example.com' })).toBe('o***@example.com');
     expect(ownerDisplayName({ name: '  ', email: 'x@y.org' })).toBe('x***@y.org');
     expect(ownerDisplayName({ name: 'Eve‮\u0007' })).toBe('Eve');
