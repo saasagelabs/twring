@@ -1,0 +1,92 @@
+# Signed iPhone build uploaded to App Store Connect (TestFlight). Start by hand from main:
+# Actions, "iOS: TestFlight build", Run workflow. The owner approves each run (environment
+# testflight). Upload only: external testing and App Store submission stay in App Store Connect.
+name: 'iOS: TestFlight build'
+
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: 'Upload to App Store Connect (off: sign and export only)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    if: github.ref == 'refs/heads/main'
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: testflight
+    env:
+      APP_VARIANT: production
+      EXPO_PUBLIC_CORD_ENV: production
+      EXPO_PUBLIC_API_BASE_URL: https://api.twring.com
+      EXPO_PUBLIC_SUPABASE_URL: https://gifdayffysmzskxdgmgp.supabase.co
+      EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_JOl2BTQPnkT0cN4lQA3Lrw_7lZRFovX
+      EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: 605371988164-rtamegb6hegcll2kbu2e2i7o1udaordu.apps.googleusercontent.com
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+      EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+      IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+      IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+      IOS_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROFILE_BASE64 }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check secrets
+        run: bash apps/mobile/scripts/ios-testflight.sh check-env
+      - uses: maxim-lukiyanov/setup-xcode@v1.6.0
+        with:
+          xcode-version: latest-stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm (corepack)
+        run: |
+          corepack enable pnpm
+          echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - name: Cache pnpm store and pods
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PNPM_STORE }}
+            ~/Library/Caches/CocoaPods
+          key: ios-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: ios-${{ runner.os }}-
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Signing keychain and profile
+        run: bash apps/mobile/scripts/ios-testflight.sh setup-signing
+      - name: Next build number
+        run: bash apps/mobile/scripts/ios-testflight.sh build-number
+      - name: Generate iOS project (CNG)
+        run: bash apps/mobile/scripts/ios-testflight.sh prebuild
+      - name: Archive and export
+        run: bash apps/mobile/scripts/ios-testflight.sh archive
+      - name: Upload to App Store Connect
+        if: inputs.upload
+        run: bash apps/mobile/scripts/ios-testflight.sh upload
+      - name: Keep logs and symbols
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-testflight-logs-and-symbols
+          retention-days: 14
+          if-no-files-found: ignore
+          path: |
+            ~/Library/Logs/gym/*.log
+            ${{ runner.temp }}/Twring.xcarchive/dSYMs/**
+      - name: Remove signing material
+        if: always()
+        run: bash apps/mobile/scripts/ios-testflight.sh cleanup
