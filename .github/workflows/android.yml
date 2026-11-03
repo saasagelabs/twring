@@ -1,0 +1,95 @@
+# Installable Android APK on PRs that can change the app binary. Ported from the former
+# Codemagic `android-apk` workflow (see docs/DEVELOPMENT.md → CI).
+name: 'Android: installable APK'
+
+# On PRs that can change the app binary (GitHub Actions billing cleared 2026-10-12, ADR-016).
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      [
+        'apps/mobile/**',
+        'packages/**',
+        'package.json',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        '.github/workflows/android.yml',
+        '!**/*.md',
+      ]
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Staging identity + placeholder endpoint: the binary installs beside local dev builds
+    # (different app ID) and never points at production. No secrets: EXPO_PUBLIC_* ship in the app.
+    env:
+      APP_VARIANT: staging
+      EXPO_PUBLIC_CORD_ENV: staging
+      EXPO_PUBLIC_API_BASE_URL: https://api.staging.cord.invalid
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm (corepack)
+        run: |
+          corepack enable pnpm
+          node --version
+          pnpm --version
+          echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Generate Android project (CNG)
+        working-directory: apps/mobile
+        run: pnpm exec expo prebuild --platform android --clean --no-install
+      - name: Assemble release APK
+        working-directory: apps/mobile/android
+        # Release = JS bundle embedded, runs without a Metro server. Expo's template signs
+        # release with the debug keystore, which is installable but not Play-uploadable.
+        # arm64-v8a covers physical phones; x86_64 covers emulators on Intel/AMD hosts.
+        run: |
+          ./gradlew :app:assembleRelease --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a,x86_64
+      - name: Verify APK signature and stage artifact
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BUILD_TOOLS="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
+          APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          # awk reads the whole stream; `head` would exit early and SIGPIPE aapt2 (exit 141
+          # under pipefail).
+          "$BUILD_TOOLS/aapt2" dump badging "$APK" | awk 'NR <= 3'
+          mkdir -p dist
+          cp "$APK" "dist/cord-staging-${GITHUB_RUN_NUMBER}-${HEAD_SHA:0:7}.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cord-staging-apk
+          path: dist/*.apk
+          if-no-files-found: error
+          retention-days: 7

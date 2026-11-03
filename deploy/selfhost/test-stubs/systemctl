@@ -1,0 +1,5 @@
+#!/bin/sh
+{
+  printf '@@ systemctl\n'
+  for a in "$@"; do printf '%s\n' "$a"; done
+} >>"$STUB_DIR/calls.log"

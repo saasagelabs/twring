@@ -1,0 +1,4 @@
+#!/bin/sh
+# `getent passwd <name>`: every user lives in ${STUB_HOME_BASE:-/home}/<name>.
+[ "$1" = passwd ] && [ -n "${2:-}" ] || exit 2
+printf '%s:x:1000:1000::%s/%s:/bin/sh\n' "$2" "${STUB_HOME_BASE:-/home}" "$2"

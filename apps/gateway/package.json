@@ -1,0 +1,46 @@
+{
+  "name": "@twring/gateway",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/main.ts",
+    "start": "node dist/main.js",
+    "build": "node scripts/build.mjs",
+    "smoke": "node scripts/smoke.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --dir src",
+    "test:integration": "vitest run --dir test",
+    "gen:privacy": "tsx scripts/gen-privacy-page.ts",
+    "export:signups": "tsx scripts/export-signups.ts",
+    "beta:members": "tsx scripts/beta-members.ts",
+    "invite:codes": "tsx scripts/invite-codes.ts",
+    "livekit:smoke": "tsx --env-file-if-exists=.env scripts/livekit-smoke.ts",
+    "voice:smoke": "tsx --env-file-if-exists=.env scripts/voice-smoke.ts",
+    "conversation:smoke": "tsx --env-file-if-exists=.env scripts/conversation-smoke.ts",
+    "load:test": "tsx --env-file-if-exists=.env scripts/load-test.ts"
+  },
+  "dependencies": {
+    "@livekit/rtc-node": "^1.1.0",
+    "@sentry/node": "^11.0.0",
+    "@twring/agent-adapter": "workspace:*",
+    "@twring/config": "workspace:*",
+    "@twring/contracts": "workspace:*",
+    "@twring/push": "workspace:*",
+    "fastify": "^5.12.5",
+    "jose": "^6.2.12",
+    "livekit-server-sdk": "^2.19.1",
+    "pino": "^10.3.1",
+    "qrcode": "1.5.4",
+    "ws": "^8.21.3",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@twring/test-fixtures": "workspace:*",
+    "@types/qrcode": "1.5.5",
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15"
+  }
+}

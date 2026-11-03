@@ -1,0 +1,8 @@
+#!/bin/sh
+# Test stand-in for runuser: records the call and the folder it was started from.
+{
+  printf '@@ runuser\n'
+  for a in "$@"; do printf '%s\n' "$a"; done
+  # `pwd -W` gives a Windows-style path under Git's sh (the tests' paths); plain pwd elsewhere.
+  printf 'CWD %s\n' "$(pwd -W 2>/dev/null || pwd)"
+} >>"$STUB_DIR/calls.log"

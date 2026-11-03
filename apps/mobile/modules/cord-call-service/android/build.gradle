@@ -1,0 +1,33 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.twring.app'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.cordcallservice"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // FCM data messages for incoming agent calls (Ring.kt). The app applies the google-services
+  // Gradle plugin only when android.googleServicesFile is set (CORD_GOOGLE_SERVICES_FILE).
+  implementation platform('com.google.firebase:firebase-bom:34.19.0')
+  implementation 'com.google.firebase:firebase-messaging'
+  // Firebase alone pulls androidx.core 1.9.0 onto the runtime classpath, and consistent resolution
+  // then pins compile to it: no NotificationCompat.CallStyle or ServiceCompat.startForeground(…, type).
+  // Match the version expo-modules-core already brings.
+  implementation 'androidx.core:core-ktx:1.17.0'
+  // Opens sealed pushes from a person's own server (Sealed.kt): XChaCha20-Poly1305.
+  implementation 'com.google.crypto.tink:tink-android:1.24.0'
+
+  testImplementation 'junit:junit:4.13.2'
+  testImplementation 'com.google.crypto.tink:tink-android:1.24.0'
+  // Android's org.json is a stub in JVM unit tests.
+  testImplementation 'org.json:json:20250517'
+}

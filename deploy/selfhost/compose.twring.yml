@@ -1,0 +1,63 @@
+# Twring self-hosted server, Twring call audio, inside a sandbox that already gives it a public
+# HTTPS address: no Caddy and no LiveKit. The installer fills {{TWRING_IMAGE}} (pinned by digest),
+# {{PUBLIC_URL}} (from TWRING_PUBLIC_URL), {{LISTEN_PORT}} (from TWRING_LISTEN_PORT, default
+# 8080) and {{TRUSTED_PROXIES}} (`false` unless the sandbox's proxy addresses are known). Those two TWRING_* names are installer inputs only; the server reads CORD_PUBLIC_URL and
+# PORT. Secrets live only in twring.env. The admin listener (127.0.0.1:8081 inside the container)
+# is never published.
+
+name: twring
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  twring:
+    image: '{{TWRING_IMAGE}}'
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Node is not an init: tini reaps children and forwards SIGTERM, and calls get 30 s to end.
+    init: true
+    stop_grace_period: 30s
+    env_file:
+      - twring.env
+    environment:
+      NODE_ENV: production
+      CORD_ENV: production
+      TWRING_MODE: selfhost
+      AUTH_MODE: pairing
+      TWRING_AUDIO: twring
+      # Chats, voice notes and files (off by default in the gateway's config).
+      THREADS_ENABLED: 'true'
+      FILES_ENABLED: 'true'
+      HOST: 0.0.0.0
+      PORT: '{{LISTEN_PORT}}'
+      CORD_DATA_DIR: /data
+      CORD_PUBLIC_URL: '{{PUBLIC_URL}}'
+      # `false` by default: the sandbox's proxy address is unknown. The installer may fill the
+      # sandbox proxy's addresses (TRUST_PROXY list form) so each phone keeps its own rate limit.
+      TRUST_PROXY: '{{TRUSTED_PROXIES}}'
+    ports:
+      - '{{LISTEN_PORT}}:{{LISTEN_PORT}}/tcp'
+    volumes:
+      - twring-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:' + process.env.PORT + '/health/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  twring-data:
+    name: twring_twring-data

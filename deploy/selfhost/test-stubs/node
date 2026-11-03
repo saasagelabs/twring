@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test stand-in for node on the host (the connector): records the call.
+{
+  printf '@@ node\n'
+  for a in "$@"; do printf '%s\n' "$a"; done
+} >>"$STUB_DIR/calls.log"

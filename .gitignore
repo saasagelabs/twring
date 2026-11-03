@@ -1,0 +1,51 @@
+# Local credentials and environment files
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+# Android signing keys (the RN debug.keystore is generated into android/, never tracked)
+*.jks
+*.keystore
+*.p12
+upload-keystore*
+
+# Gateway file store (saved agents, sealed credentials, call history)
+apps/gateway/data/
+
+# JavaScript and Expo outputs
+node_modules/
+.expo/
+dist/
+build/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Native and local tooling outputs
+android/.gradle/
+ios/Pods/
+.venv/
+venv/
+__pycache__/
+.DS_Store
+Thumbs.db
+
+# Personal agent settings
+.claude/settings.local.json
+.claude/worktrees/
+.gemini/.env
+
+# Firebase client config: read from CORD_GOOGLE_SERVICES_FILE, never committed
+google-services.json
+GoogleService-Info.plist
+
+# Impeccable design skill (third-party, installed locally for site work)
+.claude/skills/impeccable/
+
+# Plan workspaces (subagent-driven development scratch)
+.superpowers/
+
+# Twring's private notes and operations checkout (not part of this repository)
+private/

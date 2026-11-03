@@ -1,0 +1,52 @@
+# Twring self-hosted server, own call audio. The installer fills {{ADDRESS}} (a domain, or
+# <ip-with-dashes>.sslip.io). Caddy gets the certificates itself. Access logs drop the
+# Authorization and Cookie headers, the file-link signature (sig, exp) and any access_token in
+# the query string, so no credential reaches a log. HTTP/3 is off because 443/udp is not published.
+# With Twring call audio the installer deletes the own-audio block (no LiveKit).
+
+{
+	servers {
+		protocols h1 h2
+	}
+}
+
+{{ADDRESS}} {
+	encode gzip
+	reverse_proxy twring:8080
+	log {
+		output stderr
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				request>uri query {
+					delete sig
+					delete exp
+					delete access_token
+				}
+			}
+		}
+	}
+}
+
+# own-audio:begin
+livekit.{{ADDRESS}} {
+	reverse_proxy livekit:7880
+	log {
+		output stderr
+		format filter {
+			wrap console
+			fields {
+				request>headers>Authorization delete
+				request>headers>Cookie delete
+				request>uri query {
+					delete sig
+					delete exp
+					delete access_token
+				}
+			}
+		}
+	}
+}
+# own-audio:end

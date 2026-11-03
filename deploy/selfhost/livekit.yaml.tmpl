@@ -1,0 +1,13 @@
+# LiveKit for a Twring self-hosted server (own call audio). Copied as /opt/twring/livekit.yaml.
+# Its key pair comes from the LIVEKIT_KEYS environment variable (compose builds it from
+# twring.env), so this file holds nothing secret. Signalling on 7880 stays internal behind Caddy;
+# media uses one UDP port, 7882, with TCP 7881 as the fallback for networks that block UDP.
+
+port: 7880
+log_level: info
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: true
+room:
+  empty_timeout: 300

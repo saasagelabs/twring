@@ -1,0 +1,68 @@
+packages:
+  - apps/*
+  - packages/*
+  - examples/*
+  - deploy/*
+
+# React Native / Metro and Gradle autolinking expect a flat node_modules layout.
+nodeLinker: hoisted
+
+# Dependencies allowed to run install scripts.
+allowBuilds:
+  '@sentry/cli': true
+  esbuild: true
+
+# pnpm's minimum-release-age supply-chain gate, bypassed only for the Expo SDK 57 patch
+# releases this workspace was initialized on. Remove entries once they age past the window.
+minimumReleaseAgeExclude:
+  - '@expo/cli@57.0.27 || 57.0.28 || 57.0.29 || 57.0.31'
+  - '@expo/router-server@57.0.11 || 57.0.12 || 57.0.13'
+  - '@expo/ui@57.0.20 || 57.0.21 || 57.0.22 || 57.0.23 || 57.0.25'
+  - babel-preset-expo@57.0.13 || 57.0.14 || 57.0.15 || 57.0.16
+  - expo-glass-effect@57.0.4
+  - expo-linking@57.0.11 || 57.0.12
+  - expo-modules-core@57.0.19 || 57.0.20 || 57.0.21 || 57.0.22
+  - expo-modules-jsi@57.1.1 || 57.1.2
+  - expo-router@57.0.23 || 57.0.24 || 57.0.25 || 57.0.26 || 57.0.28
+  - expo@57.0.25 || 57.0.26 || 57.0.27 || 57.0.28 || 57.0.30
+  - expo-constants@57.0.20 || 57.0.21
+  - '@expo/config-plugins@57.0.10'
+  - '@expo/config@57.0.10'
+  - '@expo/image-utils@0.11.6'
+  - '@expo/metro-config@57.0.13'
+  - '@expo/metro-file-map@57.0.4'
+  - '@expo/prebuild-config@57.0.17 || 57.0.18'
+  - '@expo/require-utils@57.0.6'
+  - expo-asset@57.0.19
+  - expo-modules-autolinking@57.0.14 || 57.0.15
+  - '@expo/fingerprint@0.20.14'
+  - '@expo/inline-modules@0.1.8'
+  - '@expo/local-build-cache-provider@57.0.9'
+  - expo-dev-client@57.0.20
+  - expo-dev-launcher@57.0.21
+  - expo-dev-menu@57.0.20
+  - expo-splash-screen@57.0.10
+
+# Security patches for transitive dependencies flagged by pnpm audit (2026-10-07, 2026-11-02).
+overrides:
+  shell-quote: ^1.11.0
+  source-map-js: ^1.2.2
+  node-forge: ^1.4.1
+  vite: ^8.3.3
+  'zod@>=4.0.0 <4.6.6': ^4.6.6
+
+# Advisories with no usable patched release. Each line says why it is safe to carry; remove it once
+# a fixed version ships.
+auditConfig:
+  ignoreGhsas:
+    # 2026-10-07. braces reaches Twring only through build-time tooling (Metro/micromatch).
+    - GHSA-vfj7-8cjw-p6xm # braces <=3.0.3 (via micromatch)
+    # 2026-11-02. zod <4.6.6 (memory on oversized input): every Twring package asks for
+    # zod ^4.6.6; only @expo/cli still bundles zod 3.25 (no patched 3.x release), used only by the
+    # local development server to read dev-tools plugin settings, never in the app or on a server.
+    - GHSA-mrhx-c7xc-m3w5 # zod 3.25 (via @expo/cli)
+    # 2026-11-02. decode-uri-component <=0.5.0 (slow decode of a crafted string): reached via
+    # expo-router > query-string 7, which loads it with require(); the fixed 0.5.1 is ESM only, so
+    # forcing it would break link parsing in the app. Worst case is a slow parse of a crafted link
+    # on the person's own phone. Remove once expo-router moves to a fixed query-string.
+    - GHSA-qr28-fpjm-wq7f # decode-uri-component 0.2.2 (via expo-router > query-string)

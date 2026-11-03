@@ -1,0 +1,8 @@
+#!/bin/sh
+# `id -u` is root unless STUB_UID says otherwise; `id -u <name>` knows every user but STUB_NOUSER.
+if [ "$1" = -u ] && [ -n "${2:-}" ]; then
+  [ "$2" = "${STUB_NOUSER:-}" ] && exit 1
+  printf '1000\n'
+  exit 0
+fi
+printf '%s\n' "${STUB_UID:-0}"

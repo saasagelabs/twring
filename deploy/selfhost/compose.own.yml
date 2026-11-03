@@ -1,0 +1,133 @@
+# Twring self-hosted server, own call audio: the server, Caddy (HTTPS) and LiveKit (call audio).
+# The installer fills the placeholders (the image pinned by digest, the address, the audio mode
+# and a free internal /24 with fixed addresses for Caddy, the server and LiveKit), writes this
+# file as /opt/twring/compose.yml and always runs it as `docker compose --env-file twring.env ...` so
+# LiveKit's keys come from twring.env. Secrets live only in twring.env, never in this file.
+#
+# Ports: 80/tcp and 443/tcp (Caddy), 7881/tcp and 7882/udp (LiveKit). The server's 8080 stays
+# on the internal network; its admin listener (127.0.0.1:8081 inside the container) is never
+# published.
+#
+# Twring call audio with a public address (media ports closed, 80/443 open): the installer sets
+# AUDIO to `twring` and deletes every own-audio block (from a line that is only the begin
+# marker to the next line that is only the end marker), so Caddy stays and LiveKit goes.
+
+name: twring
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  twring:
+    image: '{{TWRING_IMAGE}}'
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Node is not an init: tini reaps children and forwards SIGTERM, and calls get 30 s to end.
+    init: true
+    stop_grace_period: 30s
+    env_file:
+      - twring.env
+    environment:
+      NODE_ENV: production
+      CORD_ENV: production
+      TWRING_MODE: selfhost
+      AUTH_MODE: pairing
+      TWRING_AUDIO: '{{AUDIO}}'
+      # Chats, voice notes and files (off by default in the gateway's config).
+      THREADS_ENABLED: 'true'
+      FILES_ENABLED: 'true'
+      HOST: 0.0.0.0
+      PORT: '8080'
+      CORD_DATA_DIR: /data
+      CORD_PUBLIC_URL: 'https://{{ADDRESS}}'
+      # own-audio:begin
+      LIVEKIT_URL: 'wss://livekit.{{ADDRESS}}'
+      # own-audio:end
+      # Only Caddy's fixed address is trusted for X-Forwarded-For, so each phone keeps its own
+      # pairing rate limit and nobody else can spoof one.
+      TRUST_PROXY: '{{CADDY_IP}}'
+    volumes:
+      - twring-data:/data
+    networks:
+      twring:
+        ipv4_address: '{{SERVER_IP}}'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/health/ready').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+  caddy:
+    image: caddy:2.10.0@sha256:133b5eb7ef9d42e34756ba206b06d84f4e3eb308044e268e182c2747083f09de
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Caddy runs as root inside its container; binding 80/443 is the one capability it keeps.
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - 80:80/tcp
+      - 443:443/tcp
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      twring:
+        ipv4_address: '{{CADDY_IP}}'
+    # Started, not healthy: Caddy also fronts LiveKit, which the server needs to become ready.
+    depends_on:
+      twring:
+        condition: service_started
+
+  # own-audio:begin
+  livekit:
+    image: livekit/livekit-server:v1.13.10@sha256:89ca9ce0791e18d6e03bf6e2c49ceb27e1c754eae8bd50c989386c1a5963791a
+    restart: unless-stopped
+    logging: *logging
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # Only high ports, so LiveKit needs no capability and runs as an unprivileged user.
+    user: '65532:65532'
+    command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: '${LIVEKIT_API_KEY:?set in twring.env}: ${LIVEKIT_API_SECRET:?set in twring.env}'
+    ports:
+      - 7881:7881/tcp
+      - 7882:7882/udp
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    networks:
+      twring:
+        ipv4_address: '{{LIVEKIT_IP}}'
+  # own-audio:end
+
+networks:
+  twring:
+    ipam:
+      config:
+        - subnet: '{{SUBNET}}'
+
+volumes:
+  # Named, so the installer and `twring` can reach it as `twring_twring-data` (it holds the keys).
+  twring-data:
+    name: twring_twring-data
+  caddy-data:
+  caddy-config:

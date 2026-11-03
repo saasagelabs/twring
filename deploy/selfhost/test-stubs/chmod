@@ -1,0 +1,9 @@
+#!/bin/sh
+# Records the mode change, then makes it.
+{
+  printf '@@ chmod\n'
+  for a in "$@"; do printf '%s\n' "$a"; done
+} >>"$STUB_DIR/calls.log"
+for real in /usr/bin/chmod /bin/chmod; do
+  if [ -x "$real" ]; then exec "$real" "$@"; fi
+done

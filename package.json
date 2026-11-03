@@ -1,0 +1,36 @@
+{
+  "name": "twring",
+  "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
+  "packageManager": "pnpm@11.17.0",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-no-em-dash.mjs",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "test": "pnpm -r run test",
+    "test:integration": "pnpm -r --if-present run test:integration",
+    "build": "pnpm -r --if-present run build",
+    "audit:prod": "pnpm audit --prod --audit-level high",
+    "audit:all": "pnpm audit --audit-level high",
+    "expo:doctor": "pnpm --filter @twring/mobile run expo:doctor",
+    "gateway:dev": "pnpm --filter @twring/gateway run dev",
+    "fake-agent": "pnpm --filter @twring/agent-adapter exec tsx src/fake-native-server-cli.ts",
+    "fake-rest-agent": "pnpm --filter @twring/agent-adapter exec tsx src/fake-rest-server-cli.ts",
+    "claude-agent": "pnpm --filter @twring/example-claude-code-agent run start"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.6",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "prettier": "^3.9.9",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}

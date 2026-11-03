@@ -1,0 +1,289 @@
+# Codemagic CI for Twring (see docs/DEVELOPMENT.md -> CI, and ADR-016).
+#
+# The free tier's macOS minutes are scarce, so only verify runs automatically, on pull requests
+# to main (never again after merge):
+#   verify            format, lint, types, tests, smoke, expo-doctor: every PR (~1.5 min)
+#   ios-build-check   unsigned iOS simulator compile, arm64 slice: manual start only. A changeset
+#                     `when` still boots a Mac to decide to skip (a skipped run billed ~2.4 min on
+#                     PR #5), so start it by hand when native inputs change: apps/mobile/package.json,
+#                     apps/mobile/app.config.ts, root package.json, pnpm-lock.yaml,
+#                     pnpm-workspace.yaml, codemagic.yaml
+#   ios-testflight    signed iOS build uploaded to App Store Connect: manual start only
+#   android-apk       release APK: manual start only; phone tests use local Gradle builds
+#   android-release   production AAB signed with the upload key: manual start only (Twring's operations notes, private)
+#
+# .github/workflows/ runs Verify and the Android APK on every PR (GitHub Actions, Linux). Codemagic
+# keeps macOS work: the iOS build check and release builds. Its Verify stays as a manual fallback.
+
+definitions:
+  triggering: &pr_to_main
+    events:
+      - pull_request
+    branch_patterns:
+      - pattern: main # pull requests targeting main
+        include: true
+        source: false
+    cancel_previous_builds: true
+
+  # Staging identity + placeholder endpoint; matches the Android APK on GitHub Actions.
+  # No secrets: EXPO_PUBLIC_* ship in the app.
+  mobile_vars: &mobile_vars
+    APP_VARIANT: staging
+    EXPO_PUBLIC_CORD_ENV: staging
+    EXPO_PUBLIC_API_BASE_URL: https://api.staging.cord.invalid
+    SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+    COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+
+  scripts:
+    - &install
+      name: Install dependencies (pnpm via corepack, frozen lockfile)
+      script: |
+        set -euo pipefail
+        corepack enable pnpm
+        node --version
+        pnpm --version
+        pnpm install --frozen-lockfile
+
+workflows:
+  verify:
+    name: 'Verify: format, lint, types, tests'
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      node: 24
+      vars:
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    # Manual start only: GitHub Actions runs Verify on every PR (saves macOS minutes).
+    scripts:
+      - *install
+      - name: Dependency audit (fails on high or critical only)
+        script: pnpm audit:all
+      - name: Format check
+        script: pnpm format:check
+      - name: Lint
+        script: pnpm lint
+      - name: Typecheck
+        script: pnpm typecheck
+      - name: Unit tests
+        script: pnpm test
+      - name: Integration tests
+        script: pnpm test:integration
+      - name: Gateway build + HTTP smoke
+        script: |
+          set -euo pipefail
+          pnpm --filter @twring/gateway run build
+          pnpm --filter @twring/gateway run smoke
+      - name: Expo doctor
+        script: pnpm expo:doctor
+
+  android-apk:
+    name: 'Android: installable APK'
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 24
+      java: 17
+      vars:
+        <<: *mobile_vars
+    # Manual start only (Codemagic, Start new build) when a release APK is needed.
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+    scripts:
+      - *install
+      - name: Generate Android project (CNG)
+        working_directory: apps/mobile
+        script: pnpm exec expo prebuild --platform android --clean --no-install
+      - name: Assemble release APK
+        working_directory: apps/mobile/android
+        # Release = JS bundle embedded, runs without a Metro server. Expo's template signs
+        # release with the debug keystore, which is installable but not Play-uploadable.
+        # arm64-v8a covers physical phones; x86_64 covers emulators on Intel/AMD hosts.
+        script: |
+          ./gradlew :app:assembleRelease --no-daemon \
+            -PreactNativeArchitectures=arm64-v8a,x86_64
+      - name: Verify APK signature and stage artifact
+        script: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          BUILD_TOOLS="$(ls -d "$SDK"/build-tools/* | sort -V | tail -1)"
+          APK=apps/mobile/android/app/build/outputs/apk/release/app-release.apk
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          # awk reads the whole stream; `head` would exit early and SIGPIPE aapt2 (exit 141
+          # under pipefail).
+          "$BUILD_TOOLS/aapt2" dump badging "$APK" | awk 'NR <= 3'
+          mkdir -p dist
+          cp "$APK" "dist/cord-staging-${CM_BUILD_NUMBER:-local}-${CM_COMMIT:0:7}.apk"
+    artifacts:
+      - dist/*.apk
+
+  android-release:
+    name: 'Android: production AAB (upload key)'
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    # No `triggering`: manual start only (ADR-016). Never runs on push or PR.
+    environment:
+      node: 24
+      java: 17
+      # Encrypted group, set up by the owner (Twring's operations notes, private):
+      #   CORD_UPLOAD_KEYSTORE_BASE64  base64 of upload-keystore.p12
+      #   CORD_UPLOAD_STORE_PASSWORD, CORD_UPLOAD_KEY_ALIAS, CORD_UPLOAD_KEY_PASSWORD
+      #   CORD_PROD_API_BASE_URL       https://api.twring.com (the production gateway)
+      #   CORD_UPLOAD_CERT_SHA256      optional: the upload certificate's SHA-256 fingerprint
+      #   CORD_GOOGLE_SERVICES_BASE64  base64 of google-services.json (Firebase cord-push, with com.twring.app)
+      groups:
+        - cord_upload_key
+      vars:
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    cache:
+      cache_paths:
+        - $HOME/.gradle/caches
+    scripts:
+      - *install
+      - name: Restore upload keystore
+        script: |
+          set -euo pipefail
+          # Never echo these values; only the file path goes into the environment.
+          KEYSTORE="$CM_BUILD_DIR/../cord-upload-keystore.p12"
+          echo "$CORD_UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          echo "CORD_UPLOAD_STORE_FILE=$KEYSTORE" >> "$CM_ENV"
+      - name: Restore Firebase config (incoming calls)
+        script: |
+          set -euo pipefail
+          # Without it agents can never ring the app; the build script refuses to build.
+          SERVICES="$CM_BUILD_DIR/../google-services.json"
+          echo "$CORD_GOOGLE_SERVICES_BASE64" | base64 --decode > "$SERVICES"
+          echo "CORD_GOOGLE_SERVICES_FILE=$SERVICES" >> "$CM_ENV"
+      - name: Build signed AAB
+        script: |
+          set -euo pipefail
+          CORD_VERSION_CODE="$BUILD_NUMBER" apps/mobile/scripts/build-android-release.sh production
+      - name: Verify signature and stage artifact
+        script: |
+          set -euo pipefail
+          AAB=apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
+          # Fails if unsigned; prints only the signer's public certificate fingerprints.
+          # (Output captured first: `grep -q` in a pipe could SIGPIPE jarsigner under pipefail.)
+          VERIFY="$(jarsigner -verify "$AAB")"
+          grep -q 'jar verified' <<<"$VERIFY" || { echo "AAB is not signed" >&2; exit 1; }
+          # Fails on the Android debug certificate, or (when CORD_UPLOAD_CERT_SHA256 is set in the
+          # group) on any signer other than that upload certificate.
+          CERTS="$(keytool -printcert -jarfile "$AAB")"
+          node apps/mobile/scripts/check-aab-signer.mjs <<<"$CERTS"
+          mkdir -p dist
+          cp "$AAB" "dist/cord-production-${BUILD_NUMBER}-${CM_COMMIT:0:7}.aab"
+          rm -f "$CM_BUILD_DIR/../cord-upload-keystore.p12"
+    artifacts:
+      - dist/*.aab
+
+  ios-build-check:
+    name: 'iOS: simulator build check'
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      node: 24
+      xcode: latest
+      cocoapods: default
+      vars:
+        <<: *mobile_vars
+    # Manual start only (see the header): run it when native inputs change.
+    cache:
+      cache_paths:
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - *install
+      - name: Generate iOS project and install pods (CNG)
+        working_directory: apps/mobile
+        script: pnpm exec expo prebuild --platform ios --clean
+      - name: Build for iOS Simulator (unsigned)
+        working_directory: apps/mobile/ios
+        script: |
+          set -euo pipefail
+          # Glob, not `ls | head`: no pipeline that can SIGPIPE under pipefail.
+          shopt -s nullglob
+          WORKSPACES=(*.xcworkspace)
+          if [ "${#WORKSPACES[@]}" -eq 0 ]; then
+            echo "expo prebuild did not generate an .xcworkspace" >&2
+            exit 1
+          fi
+          WORKSPACE="${WORKSPACES[0]}"
+          SCHEME="$(basename "$WORKSPACE" .xcworkspace)"
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO build \
+            | if command -v xcpretty >/dev/null; then xcpretty; else cat; fi
+
+  ios-testflight:
+    name: 'iOS: TestFlight build'
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    # No `triggering`: manual start only.
+    # Owner creates this App Store Connect API key integration under this exact name (Twring's operations notes, private).
+    integrations:
+      app_store_connect: Twring App Store Connect
+    environment:
+      node: 24
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.twring.app
+      # Encrypted owner group: EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID (iOS OAuth client for
+      # com.twring.app) and EXPO_PUBLIC_SENTRY_DSN (twring-app DSN).
+      groups:
+        - twring_ios
+      # Public values only; these ship in the app.
+      vars:
+        APP_VARIANT: production
+        EXPO_PUBLIC_CORD_ENV: production
+        EXPO_PUBLIC_API_BASE_URL: https://api.twring.com
+        EXPO_PUBLIC_SUPABASE_URL: https://gifdayffysmzskxdgmgp.supabase.co
+        EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_JOl2BTQPnkT0cN4lQA3Lrw_7lZRFovX
+        EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: 605371988164-rtamegb6hegcll2kbu2e2i7o1udaordu.apps.googleusercontent.com
+        SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+        COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    cache:
+      cache_paths:
+        - $HOME/Library/Caches/CocoaPods
+    scripts:
+      - *install
+      - name: Check the iOS sign-in client is set
+        script: |
+          set -euo pipefail
+          if [ -z "${EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID:-}" ]; then
+            echo "Set EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID in twring_ios; sign-in cannot work on iPhone without it." >&2
+            exit 1
+          fi
+      - name: Generate iOS project (CNG)
+        working_directory: apps/mobile
+        script: CORD_IOS_BUILD_NUMBER="$BUILD_NUMBER" pnpm exec expo prebuild --platform ios --clean
+      - name: Apply signing profiles
+        working_directory: apps/mobile/ios
+        # Only the app's own project: the default glob would also walk Pods and node_modules.
+        script: xcode-project use-profiles --project "*.xcodeproj"
+      - name: Build IPA
+        working_directory: apps/mobile/ios
+        script: |
+          set -euo pipefail
+          shopt -s nullglob
+          WORKSPACES=(*.xcworkspace)
+          if [ "${#WORKSPACES[@]}" -eq 0 ]; then
+            echo "expo prebuild did not generate an .xcworkspace" >&2
+            exit 1
+          fi
+          WORKSPACE="${WORKSPACES[0]}"
+          SCHEME="$(basename "$WORKSPACE" .xcworkspace)"
+          xcode-project build-ipa --workspace "$WORKSPACE" --scheme "$SCHEME"
+    artifacts:
+      # build-ipa writes under the directory it runs in (apps/mobile/ios).
+      - apps/mobile/ios/build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      # Upload only. Internal testers get the build in App Store Connect; the owner starts
+      # external testing (Beta App Review) when ready.
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false

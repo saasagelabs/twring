@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Twring · Call your agents. Let them call you.</title>
+<meta name="description" content="Twring gives the AI agents you already run a live voice. Call Hermes, Claude Code, Codex or Gemini CLI, and let them call you when a job is done or needs your OK.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://twring.com/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Twring · Call your agents. Let them call you.">
+<meta property="og:description" content="A live voice for the AI agents you already run. By SaaSage Labs.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%2305070A'/%3E%3Cpath d='M50 50 L66 34 L82 50 L66 66 Z M50 50 L34 34 L18 50 L34 66 Z' fill='none' stroke='%2319D6F2' stroke-width='6' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preload" href="/assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/site.css?v=2">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="#how">How it works</a>
+      <a href="#ring">Rings</a>
+      <a href="#faq">FAQ</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero">
+    <div class="wrap">
+      <h1><span>Call your agents.</span><span class="you">Let them call you.</span></h1>
+      <div class="hero-in">
+      <div class="hero-copy">
+        <p class="lead">Twring gives the AI agents you already run a live voice. Press Call and talk to Hermes, Claude Code, Codex or Gemini CLI. When a job is done or needs your OK, your agent rings your phone.</p>
+        <div class="hero-ctas">
+          <a class="btn btn-primary" href="/beta/">Get an invite</a>
+          <a class="btn btn-quiet" href="#how">How it works</a>
+        </div>
+      </div>
+        <div class="next">
+          <p class="next-title">After you ask, we email you the steps.</p>
+          <dl>
+            <dt>iPhone</dt><dd>Install through TestFlight, Apple's app for early releases.</dd>
+            <dt>Android</dt><dd>Open the download link in the email and tap Install.</dd>
+            <dt>Then</dt><dd>Sign in, connect your agent, press Call.</dd>
+          </dl>
+        </div>
+      <figure class="hero-film">
+        <div class="film">
+          <video id="film" src="/media/twring-in-30-seconds.mp4" poster="/media/twring-in-30-seconds.jpg" muted loop playsinline preload="metadata" aria-describedby="filmText"></video>
+          <button class="film-sound" id="filmSound" type="button" aria-pressed="false" hidden>
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path id="filmWaves" d="M15.5 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" opacity=".35"/></svg>
+            <span id="filmSoundLabel">Sound on</span>
+          </button>
+        </div>
+        <figcaption class="film-cap">Twring in 30 seconds.</figcaption>
+        <p class="sr" id="filmText">A short film: your agents are working while you watch. Twring gives them a voice: you call and talk naturally, your agent calls you when it matters, and when it asks for permission, you decide.</p>
+      </figure>
+      </div>
+    </div>
+  </section>
+
+  <div class="works">
+    <div class="wrap">
+      <p><span>Works with the agents you already run:</span> <b>Hermes</b> <b>Claude Code</b> <b>Codex</b> <b>Gemini CLI</b> <span>and any agent you can reach at its own web address.</span></p>
+    </div>
+  </div>
+
+  <section class="band" id="how">
+    <div class="wrap split">
+      <div>
+        <h2>Your agent keeps its brain. Twring gives it a voice.</h2>
+        <p class="lead" style="margin-top: 1.25rem">A call feels like talking to a colleague who's at their desk. Nothing about your agent moves or changes.</p>
+        <div class="facts">
+          <div><h3>You talk</h3><p>Twring turns your words into text and hands them to your agent, like a chat message.</p></div>
+          <div><h3>Your agent works</h3><p>With its own brain, memory and tools, where it runs today. Twring never runs its tools.</p></div>
+          <div><h3>You hear the reply</h3><p>Twring speaks it back. When your agent needs permission, it asks you on the call first.</p></div>
+        </div>
+      </div>
+      <div>
+        <figure class="call-wrap">
+        <div class="call">
+          <div class="call-top"><span><b>HERMES</b> &nbsp;on your computer</span><span class="mono">04:12</span></div>
+          <ol>
+            <li class="line u"><span class="who">YOU</span><p>Is the deploy for session 41 ready?</p></li>
+            <li class="line a"><span class="who">HERMES</span><p>Tests passed on all three services. I need your OK to push to production.</p></li>
+            <li class="line a"><span class="who"></span>
+              <div class="ask">
+                <p>Allow Hermes to push to production?</p>
+                <div class="ask-bts" aria-hidden="true"><span class="y">Allow</span><span class="n">Deny</span></div>
+                <small>Say yes or no, or tap. 1:52 left.</small>
+              </div>
+            </li>
+            <li class="line u"><span class="who">YOU</span><p>Yes, push it.</p></li>
+            <li class="line a"><span class="who">HERMES</span><p>Pushing now. I'll ring you when it's live.</p></li>
+          </ol>
+        </div>
+        <figcaption class="call-note">An example call.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="ring">
+    <div class="wrap split rev">
+      <div>
+        <div class="phone" aria-label="The phone ringing with a call from Hermes" role="img">
+          <div class="phone-screen" aria-hidden="true">
+            <div class="lbl">TWRING CALL</div>
+            <div class="av">H</div>
+            <div class="name">Hermes</div>
+            <div class="why">Deploy is blocked on your approval for the production branch.</div>
+            <div class="reply">Reply to your agent</div>
+            <div class="acts">
+              <div class="ring-btn no"><span><svg width="26" height="26" viewBox="0 0 24 24"><path d="M3.2 14.6c4.9-4.1 12.7-4.1 17.6 0 .6.5.7 1.4.2 2l-1.5 1.8c-.4.5-1.1.6-1.7.3l-2.7-1.4c-.5-.3-.8-.8-.7-1.4l.2-1.7a12 12 0 0 0-5.2 0l.2 1.7c.1.6-.2 1.1-.7 1.4l-2.7 1.4c-.6.3-1.3.2-1.7-.3L3 16.6c-.5-.6-.4-1.5.2-2z" fill="#fff"/></svg></span>Decline</div>
+              <div class="ring-btn yes"><span><svg width="24" height="24" viewBox="0 0 24 24"><path d="M5 4h3.5l1.6 4.2-2.2 1.4a11 11 0 0 0 6.5 6.5l1.4-2.2L20 15.5V19a1.5 1.5 0 0 1-1.6 1.5A16.5 16.5 0 0 1 3.5 5.6 1.5 1.5 0 0 1 5 4z" fill="#001620"/></svg></span>Answer</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <h2>When it matters, your agent calls.</h2>
+        <p class="lead" style="margin-top: 1.25rem">Stop checking terminals and chat threads. Your agent rings you the moment a job is done or it needs your OK.</p>
+        <ul class="points">
+          <li><h3>Rings like a real call</h3><p>Full screen, even on a locked phone. Answer and you're straight into a conversation, with the reason it called.</p></li>
+          <li><h3>Decline with a reply</h3><p>Busy, Outside, Let's text, or type up to 60 characters. Your agent gets the message.</p></li>
+          <li><h3>Quiet hours</h3><p>Pick the hours when no agent can ring you. You can still call them any time.</p></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="promises">
+    <div class="wrap">
+      <h2>Ask on a call. It gets done.</h2>
+      <p class="lead" style="margin-top: 1.25rem; max-width: 44rem">A request made out loud is easy to lose when the call ends. So Twring gives your agent a short guide, and the guide makes it keep a written list.</p>
+      <ol class="steps">
+        <li><div><h3>It says what it will do</h3><p>One short line on the call, so you know it heard you.</p></div></li>
+        <li><div><h3>It writes it down, right then</h3><p>In that same turn, in a list where your agent runs (a file called <code>twring-requests.md</code>, or its own task list): your words and the time. Never a password or a key.</p></div></li>
+        <li><div><h3>It reads the list after every call</h3><p>And works through what's open, oldest first, without being reminded.</p></div></li>
+        <li><div><h3>It reports back in your chat</h3><p>Each result goes to its Twring chat, and the item is marked done with where the result is. If it can't do something, it tells you why.</p></div></li>
+      </ol>
+      <p class="aside">If your agent can't write anything down (some setups run it read-only), it says so on the call and asks you to type the request in its chat, where it stays. The guide is added for Hermes, Claude Code and Codex when your agent links your computer. Any other agent can use it: <a href="/downloads/twring-skill.tar.gz">download the guide</a>.</p>
+    </div>
+  </section>
+
+  <section class="band" id="trust">
+    <div class="wrap">
+      <h2>You stay in charge.</h2>
+      <div class="trust">
+        <div><h3>No recordings</h3><p>Twring listens only while a call is on, and never records or keeps your audio.</p></div>
+        <div><h3>Your agent, your tools</h3><p>Twring never runs your agent's tools. What it does stays under its own control.</p></div>
+        <div><h3>Keys stay sealed</h3><p>An agent's key is stored encrypted and never shown again.</p></div>
+        <div><h3>Your account only</h3><p>Only you can see and call your agents. Delete your data any time. <a href="/privacy">Privacy notice</a></p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <div class="faq">
+        <details><summary>What is Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>A phone app that lets you call the AI agents you already use, and lets them ring you. It gives your agent a live voice without replacing its brain, tools or memory.</p></div></details>
+        <details><summary>Which agents work with Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Agents you run yourself on your computer or server, like Hermes, Claude Code, Codex and Gemini CLI. Agents you can reach at their own web address connect online. AI apps like Claude can also message you and ring you: <a href="/connector/">connect an AI app</a>.</p></div></details>
+        <details><summary>How do I install it?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Ask for an invite and we email you the steps.</p><ol><li>On iPhone, install TestFlight from the App Store, then open the link in the email.</li><li>On Android, open the download link in the email and tap Install. If Android or Play Protect asks, allow it.</li><li>Sign in with Google, or Apple on iPhone, using the email you gave us. Then connect your agent and press Call.</li></ol><p>Google Play and the App Store are coming.</p></div></details>
+        <details><summary>Does Twring record my calls?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
+        <details><summary>Is it free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK.</p></div></details>
+        <details><summary>Can I run Twring on my own server?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. One command sets up Twring on your own Linux server, next to your agents, with your own speech account. Your chats and files stay there, and so do your calls unless your server uses Twring's audio service. <a href="/self-hosting/">Self-hosting</a> explains how, and why it will have a yearly charge (free while we launch).</p></div></details>
+        <details><summary>Why an invite?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>We let people in in waves so every call works well.</p></div></details>
+        <details><summary>Who makes Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Built by Rish at SaaSage Labs. Say hi on X: <a href="https://x.com/rishflips">@rishflips</a>.</p></div></details>
+        <details><summary>Where do I get help?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>The <a href="/support/">support page</a> answers the common questions. For anything else, write to <a href="mailto:support@twring.com">support@twring.com</a>: a person reads every email and replies within 2 working days.</p></div></details>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="access">
+    <div class="wrap close">
+      <h2>Your agents are waiting<br>for your call.</h2>
+      <p class="lead">Ask for an invite and we'll email you the steps for your iPhone or Android phone.</p>
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="#how">How it works</a><a href="#ring">Rings</a><a href="#faq">FAQ</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/connector/">Connect an AI app</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=1"></script>
+<script>
+(function () {
+  // The film plays muted while it is on screen. With reduced motion it waits for a tap on its controls.
+  var film = document.getElementById('film'), sound = document.getElementById('filmSound');
+  var label = document.getElementById('filmSoundLabel'), waves = document.getElementById('filmWaves');
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still) {
+    film.controls = true;
+  } else {
+    sound.hidden = false;
+    var play = function () { var p = film.play(); if (p && p.catch) p.catch(function () { film.controls = true; sound.hidden = true; }); };
+    // Already on screen at load: start now rather than wait for the first observer report.
+    var box = film.getBoundingClientRect();
+    if (box.top < window.innerHeight && box.bottom > 0) play();
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) play(); else film.pause(); }); }, { threshold: 0.35 }).observe(film);
+    } else {
+      play();
+    }
+    sound.addEventListener('click', function () {
+      film.muted = !film.muted;
+      if (!film.muted && film.paused) play();
+      sound.setAttribute('aria-pressed', String(!film.muted));
+      label.textContent = film.muted ? 'Sound on' : 'Sound off';
+      waves.setAttribute('opacity', film.muted ? '.35' : '1');
+    });
+  }
+})();
+</script>
+</body>
+</html>

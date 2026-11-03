@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Let your AI ring your phone | Twring</title>
+<meta name="description" content="Add Twring to Claude, ChatGPT, Grok, Cursor or another AI app, so it can ring you and message you.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%2305070A'/%3E%3Cpath d='M50 50 L66 34 L82 50 L66 66 Z M50 50 L34 34 L18 50 L34 66 Z' fill='none' stroke='%2319D6F2' stroke-width='6' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&family=Manrope:wght@200;300&display=swap">
+<style>
+:root {
+  --bg: #000; --card: rgba(255,255,255,0.025); --line: rgba(255,255,255,0.08); --line-strong: rgba(255,255,255,0.14);
+  --cyan: #19D6F2; --cyan-bright: #5FF2FF; --cyan-dim: #0A8AAA; --cyan-line: rgba(25,214,242,0.35); --cyan-tint: rgba(25,214,242,0.07);
+  --text: #fff; --text-sec: rgba(255,255,255,0.64); --text-ter: rgba(255,255,255,0.46); --on-cyan: #001620;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: radial-gradient(ellipse at 50% -10%, rgba(25,214,242,0.16), transparent 55%), var(--bg); color: var(--text); font: 16px/1.6 "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; min-height: 100vh; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--cyan-bright); outline-offset: 3px; }
+:focus:not(:focus-visible) { outline: none; }
+html { -webkit-tap-highlight-color: transparent; }
+a, button, summary, input { -webkit-tap-highlight-color: transparent; }
+.wrap { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+.logo { display: inline-flex; align-items: center; gap: 12px; text-decoration: none; }
+.logo svg { filter: drop-shadow(0 0 4px var(--cyan)) drop-shadow(0 0 12px rgba(25,214,242,0.5)); }
+.wordmark { font: 200 26px/1 "Manrope", system-ui, sans-serif; letter-spacing: -0.02em; text-shadow: 0 0 18px rgba(25,214,242,0.35); }
+.beta { display: inline-flex; align-items: center; height: 22px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--cyan-line); background: var(--cyan-tint); color: var(--cyan); font: 500 10.5px/1 "JetBrains Mono", monospace; letter-spacing: 1.6px; text-transform: uppercase; }
+h1 { font: 200 clamp(38px, 9vw, 56px)/1.05 "Manrope", system-ui, sans-serif; letter-spacing: -0.04em; margin: 48px 0 0; }
+.lead { color: var(--text-sec); font-size: 17px; margin: 18px 0 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 10px; min-height: 52px; padding: 0 26px; border-radius: 999px; font: 600 15px/1 "Inter", sans-serif; text-decoration: none; background: linear-gradient(180deg, var(--cyan), var(--cyan-dim)); color: var(--on-cyan); box-shadow: 0 0 0 1px rgba(25,214,242,0.45), 0 10px 34px rgba(25,214,242,0.35), inset 0 1px 0 rgba(255,255,255,0.4); margin-top: 30px; }
+.meta { margin-top: 12px; font: 12px/1.6 "JetBrains Mono", monospace; color: var(--text-ter); letter-spacing: .3px; word-break: break-all; }
+ol { list-style: none; padding: 0; margin: 40px 0 0; border-top: 1px solid var(--line); counter-reset: s; }
+ol li { counter-increment: s; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 14px; padding: 20px 0; border-bottom: 1px solid var(--line); }
+ol li::before { content: counter(s, decimal-leading-zero); font: 12px/1.9 "JetBrains Mono", monospace; color: var(--cyan); }
+ol b { display: block; font-weight: 500; }
+ol p { margin: 4px 0 0; color: var(--text-sec); font-size: 15px; }
+.note { margin-top: 32px; padding: 20px; border-radius: 20px; border: 1px solid var(--line); background: var(--card); color: var(--text-sec); font-size: 15px; }
+.note b { color: var(--text); font-weight: 500; }
+footer { margin-top: 48px; font-size: 13px; color: var(--text-ter); display: flex; gap: 18px; flex-wrap: wrap; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.get { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
+.get input { flex: 1 1 220px; min-width: 0; min-height: 52px; padding: 0 20px; border-radius: 999px; border: 1px solid var(--line-strong); background: rgba(255,255,255,0.03); color: var(--text); font: 15px "Inter", sans-serif; outline: none; }
+.get input:focus { border-color: var(--cyan); box-shadow: 0 0 18px rgba(25,214,242,0.3); }
+.get .btn { margin-top: 0; border: none; cursor: pointer; }
+.btn:active { transform: scale(.98); }
+.btn:disabled { opacity: .55; cursor: default; transform: none; }
+.form-note { min-height: 22px; margin: 12px 0 0; font-size: 14px; color: var(--text-ter); }
+.done { margin-top: 30px; padding: 20px; border-radius: 20px; border: 1px solid var(--cyan-line); background: var(--cyan-tint); }
+.done b { display: block; font-weight: 500; color: var(--text); }
+.done p { margin: 6px 0 0; color: var(--text-sec); font-size: 15px; word-break: break-word; }
+.ver { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0 0; padding: 0; list-style: none; }
+.ver li { display: inline-flex; align-items: center; height: 26px; padding: 0 11px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--text-sec); font: 500 12px/1 "JetBrains Mono", monospace; letter-spacing: .3px; }
+.ver li:first-child { border-color: var(--cyan-line); background: var(--cyan-tint); color: var(--cyan); }
+.can { list-style: none; padding: 0; margin: 28px 0 0; border-top: 1px solid var(--line); }
+.can li { padding: 14px 0 14px 30px; border-bottom: 1px solid var(--line); position: relative; color: var(--text-sec); font-size: 15px; }
+.can li::before { content: ""; position: absolute; left: 4px; top: 22px; width: 8px; height: 8px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 10px var(--cyan); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
+.row .btn { margin-top: 0; border: none; cursor: pointer; flex: 1 1 160px; }
+.btn.ghost { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.who { margin-top: 18px; color: var(--text-ter); font-size: 14px; }
+.who button { background: none; border: none; color: var(--cyan); font: inherit; cursor: pointer; padding: 0 0 0 6px; text-decoration: underline; }
+.scopes { margin-top: 14px; font: 12px/1.6 "JetBrains Mono", monospace; color: var(--text-ter); }
+.code { display: flex; gap: 10px; align-items: center; margin-top: 24px; padding: 14px 18px; border-radius: 16px; border: 1px solid var(--cyan-line); background: var(--cyan-tint); font: 500 15px/1.4 "JetBrains Mono", monospace; word-break: break-all; }
+.code button { margin-left: auto; flex: none; min-height: 44px; padding: 0 16px; border-radius: 999px; border: 1px solid var(--cyan-line); background: transparent; color: var(--cyan); font: 600 13px "Inter", sans-serif; cursor: pointer; }
+h2 { font: 300 24px/1.2 "Manrope", system-ui, sans-serif; margin: 44px 0 0; letter-spacing: -0.02em; }
+details { border-bottom: 1px solid var(--line); padding: 16px 0; }
+details summary { cursor: pointer; font-weight: 500; }
+details p { color: var(--text-sec); font-size: 15px; margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <a class="logo" href="/" aria-label="twring home">
+    <svg width="38" height="25" viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg>
+    <span class="wordmark">twring</span>
+  </a>
+
+  <h1>Let your AI ring your phone.</h1>
+  <p class="lead">Add Twring to Claude, ChatGPT or another AI app that lets you add a custom connector in its settings. When it needs you, it can ring your phone or send you a message in Twring, and read your reply.</p>
+
+  <div class="code"><span id="url">https://api.twring.com/mcp</span><button type="button" id="copy">Copy</button></div>
+  <p class="form-note" id="copied" aria-live="polite"></p>
+
+  <h2>What it can do</h2>
+  <ul class="can">
+    <li>Ring your phone with a short reason when it needs you.</li>
+    <li>Send messages and files to your Twring chat.</li>
+    <li>Read the replies you send it in that chat.</li>
+  </ul>
+  <div class="note">It can't read your other chats, your agents, or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.</div>
+
+  <h2>Add it</h2>
+  <ol>
+    <li><div><b>Claude</b><p>Settings, Connectors, Add custom connector. Paste the address above, then sign in and allow.</p></div></li>
+    <li><div><b>ChatGPT</b><p>Settings, Apps and Connectors (or Developer mode, Create). Paste the address above, then sign in and allow.</p></div></li>
+    <li><div><b>Grok, Cursor and other apps</b><p>Look for Connectors in the app's settings, add a custom connector with the address above, then sign in and allow.</p></div></li>
+  </ol>
+  <div class="note"><b>Need Twring first?</b> Twring is an iPhone and Android app for calling and texting your AI agents. <a href="/beta/">Get an invite</a>, then sign in here the same way you sign in to the app: Google, or Apple.</div>
+
+  <h2>Questions</h2>
+  <details><summary>Can I call Claude from Twring?</summary><p>Not the Claude or ChatGPT app itself: AI chat apps don't take incoming calls. Your connected AI can ring you, and you can reply in its Twring chat. For live calls, connect an agent you run, such as Claude Code, Codex or Hermes.</p></details>
+  <details><summary>What do I hear when it rings?</summary><p>Twring reads the reason it gave, then opens its chat so you can answer by voice or text. It reads your answer the next time it checks.</p></details>
+  <details><summary>How do I remove it?</summary><p>In Twring: Settings, Connected AI apps, Remove. It can't reach you again unless you allow it.</p></details>
+  <details><summary>What data does it get?</summary><p>Only what you write or say in its own Twring chat. Not your other chats, agents or calls. See the <a href="/privacy">privacy notice</a>.</p></details>
+  <footer><a href="/">twring.com</a><a href="/connector/">Connector</a><a href="/privacy">Privacy</a><a href="mailto:support@twring.com">support@twring.com</a></footer>
+</main>
+<script>
+(function () {
+  var btn = document.getElementById('copy'), note = document.getElementById('copied');
+  btn.addEventListener('click', function () {
+    var text = document.getElementById('url').textContent;
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(
+      function () { note.textContent = 'Copied.'; },
+      function () { note.textContent = 'Select the address and copy it.'; });
+  });
+})();
+</script>
+</body>
+</html>

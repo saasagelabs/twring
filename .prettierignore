@@ -1,0 +1,21 @@
+pnpm-lock.yaml
+node_modules/
+dist/
+coverage/
+.expo/
+apps/mobile/android/
+apps/mobile/ios/
+apps/mobile/expo-env.d.ts
+apps/mobile/assets/
+apps/connector/src/skill-files.ts
+apps/gateway/src/pages/privacy.generated.ts
+
+# Hand-authored product/architecture docs keep their own formatting.
+*.md
+.claude/
+.codex/
+
+# Hand-tuned static site (twring.com); published with scripts/deploy-site.sh
+apps/site/
+
+LICENSES/

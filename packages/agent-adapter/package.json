@@ -1,0 +1,25 @@
+{
+  "name": "@twring/agent-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./conformance": "./src/conformance.ts",
+    "./fake-native-server": "./src/fake-native-server.ts",
+    "./fake-rest-server": "./src/fake-rest-server.ts"
+  },
+  "dependencies": {
+    "@twring/contracts": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  }
+}

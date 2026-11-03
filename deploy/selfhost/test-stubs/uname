@@ -1,0 +1,5 @@
+#!/bin/sh
+case $1 in
+  -s) printf '%s\n' "${STUB_OS:-Linux}" ;;
+  -m) printf '%s\n' "${STUB_ARCH:-x86_64}" ;;
+esac

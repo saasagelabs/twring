@@ -1,0 +1,22 @@
+{
+  "name": "@twring/example-claude-code-agent",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "dependencies": {
+    "@twring/agent-adapter": "workspace:*",
+    "@twring/contracts": "workspace:*",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "probe": "tsx scripts/probe.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}

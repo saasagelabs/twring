@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Run Twring on your own server</title>
+<meta name="description" content="Run Twring on your own server with one command, next to your agents, with your own speech account.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/self-hosting/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%2305070A'/%3E%3Cpath d='M50 50 L66 34 L82 50 L66 66 Z M50 50 L34 34 L18 50 L34 66 Z' fill='none' stroke='%2319D6F2' stroke-width='6' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/site.css?v=3">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/self-hosting/" aria-current="page">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <div class="wrap">
+    <h1>Run Twring on your own server</h1>
+    <p class="lead">One command sets it up, with your own speech account. Your chats, files and agents stay on your server, and so do your calls unless your server uses Twring's audio service. You use the same Twring app on your phone (the app update that connects to your own server is coming).</p>
+
+    <div class="prose">
+      <h2>Who it is for</h2>
+      <p>Developers and teams who already run agents like Hermes on a VPS or in a cloud sandbox, and want Twring right next to them. If you just want to call your agent, you don't need any of this: <a href="/beta/">get an invite</a> and use Twring as it is.</p>
+
+      <h2>Install</h2>
+      <p>On the Linux machine where your agents run, as root (or with <code>sudo</code> in front of <code>sh</code>):</p>
+      <pre><code>curl -fsSL https://twring.com/install.sh | sh</code></pre>
+      <p>It asks for an email address and your speech account key (typing them when asked is the safest way), sets everything up, and shows a code to scan with the Twring app. Your agents on that machine are linked for you.</p>
+      <p>To give your answers ahead of time with <code>sudo</code>, export them and keep them with <code>-E</code>:</p>
+      <pre><code>export TWRING_EMAIL=you@example.com
+export TWRING_SPEECH_KEY=your-deepgram-key
+curl -fsSL https://twring.com/install.sh | sudo -E sh</code></pre>
+      <p>Don't write <code>sudo TWRING_SPEECH_KEY=... sh</code>: that puts the key where other people on the machine can see it.</p>
+
+      <h2>What you need</h2>
+      <ul>
+        <li>A Linux machine, x86_64 or arm64, with Docker and Docker Compose.</li>
+        <li>Ports 80 and 443 open, plus 7881 (TCP) and 7882 (UDP) for call audio. If the audio ports can't be opened, as in most cloud sandboxes, Twring's audio service carries your calls instead.</li>
+        <li>A speech account key: Deepgram or xAI.</li>
+      </ul>
+      <p>The <a href="/self-hosting/guide/">server guide</a> covers ports and firewalls, updates, backups, removing people and phones, and what to do when something doesn't work.</p>
+
+      <h2 id="yearly-charge">Why self-hosting will have a yearly charge</h2>
+      <p>When your phone is locked, only Apple and Google can make it ring, and they deliver those rings only to Twring's app, sent with Twring's keys. A server you run yourself can't hold those keys. So rings for every self-hosted server go through a ring service that Twring runs and maintains, together with the app itself.</p>
+      <p>A yearly charge, paid in the app, pays for that work: keeping the ring service running and keeping the app working with your server.</p>
+      <p>Your server and your chats work without it while the app is open, and so do calls on a server with its own call audio. If your server uses Twring's audio service, calls need the ring service too. What the ring service adds for everyone is your phone ringing when it's locked or the app is closed.</p>
+      <p>The ring service needs the email address you give at install to be confirmed. If it isn't confirmed within 7 days, rings pause, and so do calls on servers that use Twring's audio service, until you click the link.</p>
+      <p><strong>Right now it's free while we launch.</strong> Before any charge starts, you'll be told in the app and by email, with the price. Nothing is charged without your OK.</p>
+
+      <h2>What Twring receives from your server</h2>
+      <ul>
+        <li>The email address you give at install, to confirm the server is yours and to tell you about changes, and whether you want news.</li>
+        <li>Your server's address, so the ring service can check it can be reached.</li>
+        <li>Your phones' push tokens, so Apple and Google can deliver rings.</li>
+        <li>Counts of rings, notifications and call minutes, so the ring service can keep fair limits.</li>
+        <li>Notification contents sealed on your server for your phone. Twring passes them on and can't read them.</li>
+        <li>If your server uses Twring's audio service (common in sandboxes), call audio passes through it, encrypted in transit, and is never stored. Twring keeps a record of each call's time and length for 90 days.</li>
+      </ul>
+      <p>Everything else stays on your server: your agents, chats, files, people and phones, and your speech key. Twring keeps what it receives while your server is registered. Running <code>twring uninstall</code> deletes it from the ring service too, or write to <a href="mailto:support@twring.com">support@twring.com</a>. The <a href="/privacy">privacy notice</a> has the details.</p>
+
+      <h2>Sharing agents with your team</h2>
+      <p>Agents are shared only if you choose to. A shared agent runs as the login that linked it, so people you add can ask it to read files and use anything it can use without asking. Use a separate login for shared agents, with no keys or personal files. Each person has their own conversation, but whoever runs the computer can read them all, and the agent's own memory is shared. The <a href="/self-hosting/guide/#memory">guide</a> explains how.</p>
+
+      <h2>Questions</h2>
+      <p>Write to <a href="mailto:support@twring.com">support@twring.com</a>. A person reads every email.</p>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="legal" style="margin-top: 0; padding-top: 0; border-top: 0">
+      <span><a href="/">twring.com</a> · <a href="/support/">Support</a> · <a href="/privacy">Privacy</a> · <a href="/terms/">Terms</a></span>
+      <span>© 2026 SaaSage Labs</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=1"></script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "@twring/selfhost-deploy",
+  "version": "0.0.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "yaml": "^2.9.1"
+  }
+}

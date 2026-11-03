@@ -1,0 +1,147 @@
+#!/bin/sh
+# Test stand-in for docker (install.test.ts). Records each call (one argument per line after a
+# `@@ docker` header, plus whether TWRING_SPEECH_KEY was in its environment) and answers from
+# STUB_* settings. Never touches a real Docker.
+log="$STUB_DIR/calls.log"
+{
+  printf '@@ docker\n'
+  for a in "$@"; do printf '%s\n' "$a"; done
+  if [ -n "${TWRING_SPEECH_KEY:-}" ]; then printf 'ENV TWRING_SPEECH_KEY=%s\n' "$TWRING_SPEECH_KEY"; fi
+} >>"$log"
+
+has() {
+  needle=$1
+  shift
+  for a in "$@"; do [ "$a" = "$needle" ] && return 0; done
+  return 1
+}
+# The host side of `-v host:/backup`.
+backup_dir() {
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = -v ]; then
+      case $a in *:/backup) printf '%s' "${a%:/backup}" ;; esac
+    fi
+    prev=$a
+  done
+}
+
+case $1 in
+  info | pull | rm) exit 0 ;;
+  logs)
+    # The probe echo says when it listens (STUB_ECHO_SILENT: it never does).
+    [ -n "${STUB_ECHO_SILENT:-}" ] || printf 'probe echo listening on 7881/tcp and 7882/udp\n'
+    exit 0
+    ;;
+  compose)
+    if has version "$@"; then exit 0; fi
+    compose_file=""
+    prev=""
+    for a in "$@"; do
+      [ "$prev" = -f ] && compose_file=$a
+      prev=$a
+    done
+    if has up "$@" && [ -n "${STUB_UP_FAIL:-}" ]; then
+      echo "Error response from daemon: $STUB_UP_FAIL" >&2
+      exit 1
+    fi
+    if has exec "$@"; then
+      # STUB_EXEC_DOWN: the server container keeps restarting, so nothing can run inside it.
+      [ -z "${STUB_EXEC_DOWN:-}" ] || exit 1
+      # A command that reads stdin (as some do) must not eat the rest of a piped installer.
+      if [ -n "${STUB_EXEC_READS_STDIN:-}" ]; then cat >>"$STUB_DIR/exec-stdin"; fi
+      if has -e "$@"; then
+        # The ready check.
+        [ "${STUB_READY:-ok}" = ok ] || exit 1
+        if [ -n "${STUB_READY_BAD:-}" ] && grep -q "$STUB_READY_BAD" "$compose_file"; then exit 1; fi
+        exit 0
+      fi
+      if has code "$@" && has --qr "$@"; then
+        printf '[QR]\nLink: twring://pair?server=https%%3A%%2F%%2F203-0-113-7.sslip.io&code=K7QM-2XPA&id=srv_abc\n'
+        printf 'Or type the address https://203-0-113-7.sslip.io and code K7QM-2XPA (valid 10 minutes).\n'
+      elif has code "$@"; then
+        printf '{"code":"K7QM-2XPA","expires_at":"2026-10-29T12:10:00.000Z"}\n'
+      elif has status "$@"; then
+        if [ -n "${STUB_STATUS:-}" ]; then
+          printf '%s\n' "$STUB_STATUS"
+        else
+          printf '{"server_id":"srv_abc","people":1,"admins":1,"devices":1}\n'
+        fi
+      elif has first-admin "$@"; then
+        [ -n "${STUB_FIRST_ADMIN:-}" ] || exit 1
+        printf '%s\n' "$STUB_FIRST_ADMIN"
+      elif has connector-code "$@"; then
+        printf '{"code":"ABCD-EFGH","expires_at":"2026-10-29T12:10:00.000Z"}\n'
+      elif has probe "$@"; then
+        probe=${STUB_WEB_PROBE:-}
+        [ -n "$probe" ] || probe='{"https":{"ok":true,"ms":40},"http":{"ok":true},"tcp7881":{"ok":true,"ms":41},"udp7882":{"ok":true}}'
+        printf '%s\n' "$probe"
+      fi
+      exit 0
+    fi
+    exit 0
+    ;;
+  image)
+    image=""
+    for a in "$@"; do image=$a; done
+    if [ -n "${STUB_DIGEST_MISMATCH:-}" ]; then
+      printf 'ghcr.io/saasagelabs/twring@sha256:%s\n' "$(printf 'f%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63 64)"
+    else
+      printf '%s\n' "$image"
+    fi
+    exit 0
+    ;;
+  volume)
+    if [ "$2" = inspect ]; then [ -n "${STUB_VOLUME_EXISTS:-}" ] && exit 0 || exit 1; fi
+    exit 0
+    ;;
+  network)
+    if [ "$2" = ls ]; then
+      [ -n "${STUB_NETWORKS:-}" ] && printf 'net1\n'
+      exit 0
+    fi
+    for n in ${STUB_NETWORKS:-}; do printf '%s\n' "$n"; done
+    exit 0
+    ;;
+  run)
+    if has dist/check-speech-key.js "$@"; then exit "${STUB_SPEECH_EXIT:-0}"; fi
+    if has dist/probe-echo.js "$@"; then exit 0; fi
+    if has dist/admin-cli.js "$@"; then
+      if has ip "$@"; then
+        printf '%s\n' "${STUB_IP:-203.0.113.7}"
+      elif has unregister "$@"; then
+        [ -z "${STUB_UNREGISTER_FAIL:-}" ] || exit 3
+        printf 'unregistered
+'
+      elif has register "$@"; then
+        if [ -n "${STUB_REGISTER_FAIL:-}" ]; then
+          printf '%s\n' "$STUB_REGISTER_FAIL"
+          exit 3
+        fi
+        printf '{"server_id":"srv_abc","install_id":"inst_1","verified":false}\n'
+      elif has probe "$@"; then
+        probe=${STUB_PROBE:-}
+        [ -n "$probe" ] || probe='{"tcp7881":{"ok":true},"udp7882":{"ok":true}}'
+        printf '%s\n' "$probe"
+      fi
+      exit 0
+    fi
+    dir=$(backup_dir "$@")
+    if has -cf "$@" && [ -n "$dir" ]; then
+      printf 'DATA:%s\n' "${STUB_DATA:-volume}" >"$dir/data.tar"
+      exit 0
+    fi
+    if has -c "$@"; then
+      script=""
+      for a in "$@"; do script=$a; done
+      case $script in
+        *tar\ -xpf*) cp "$dir/data.tar" "$STUB_DIR/restored-data.tar" ;;
+        *cat\ \>*) cat >"$STUB_DIR/volume-stdin" ;;
+        test\ -s*) [ -s "$STUB_DIR/volume-stdin" ] || exit 1 ;;
+      esac
+      exit 0
+    fi
+    exit 0
+    ;;
+esac
+exit 0

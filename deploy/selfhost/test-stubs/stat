@@ -1,0 +1,3 @@
+#!/bin/sh
+# `stat -c '%u %a' <dir>`: owner uid and mode from STUB_KIT_STAT (default: root, 755).
+printf '%s\n' "${STUB_KIT_STAT:-0 755}"

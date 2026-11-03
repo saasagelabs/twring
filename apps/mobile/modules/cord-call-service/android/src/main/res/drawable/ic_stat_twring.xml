@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Twring mark A ("Twin rings") as the status-bar icon: a white stroke Android tints. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="104"
+    android:viewportHeight="104">
+  <group android:translateX="2" android:translateY="19">
+    <path
+        android:pathData="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="9"
+        android:strokeLineCap="square"
+        android:strokeLineJoin="miter" />
+  </group>
+</vector>

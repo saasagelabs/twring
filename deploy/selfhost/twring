@@ -1,0 +1,614 @@
+#!/bin/sh
+# twring: look after a Twring self-hosted server. Run as root.
+#
+#   twring status                 is it running, and its address
+#   twring pair [--admin]         a code for a teammate's phone (--admin: a new admin phone)
+#   twring people [remove <id> [--purge]]  people and their phones; remove someone
+#                                 (--purge: also delete all their data)
+#   twring link [--shared]        link this machine's agents to the first admin (--shared: also
+#                                 let people you add use them)
+#   twring register               register this server again with the ring service (after a move)
+#   twring audio check [--full]   can phones reach call audio (--full: also 7882/udp)
+#   twring update                 newest version of your track, with automatic roll back
+#   twring backup [file]          encrypted backup of everything (asks for a passphrase)
+#   twring restore <file>         bring a backup back
+#   twring logs                   the server's recent logs
+#   twring start | stop           start or stop the server
+#   twring uninstall [--keep-data]
+
+set -eu
+
+ROOT="${TWRING_ROOT:-/opt/twring}"
+BIN_DIR="${TWRING_BIN_DIR:-/usr/local/bin}"
+VERSIONS_URL="https://twring.com/selfhost/versions.json"
+CONNECT_URL="https://twring.com/downloads/twring-connect.mjs"
+REPO="ghcr.io/saasagelabs/twring"
+VOLUME="twring_twring-data"
+YES=no
+WORK=""
+
+say() { printf '%s\n' "$*"; }
+die() {
+  printf 'Stopped: %s\n' "$*" >&2
+  exit 1
+}
+cleanup() { if [ -n "$WORK" ]; then rm -rf "$WORK"; fi; }
+trap cleanup EXIT
+trap 'exit 1' INT TERM
+
+new_work() {
+  WORK=$(mktemp -d)
+  chmod 700 "$WORK"
+}
+
+load() {
+  [ -f "$ROOT/install.conf" ] && [ -f "$ROOT/twring.env" ] ||
+    die "Twring is not installed here ($ROOT). Install it with: curl -fsSL https://twring.com/install.sh | sh"
+  # shellcheck disable=SC1091
+  . "$ROOT/install.conf"
+}
+
+dc() { docker compose --env-file "$ROOT/twring.env" -f "$ROOT/compose.yml" -p twring "$@"; }
+# No stdin: a command run here must never read what the caller piped in.
+admin() { dc exec -T twring node dist/admin-cli.js "$@" </dev/null; }
+fetch() { curl --proto '=https' --tlsv1.2 -fsSL "$@"; }
+
+# The value of "key":"..." in a line of JSON.
+json_field() { printf '%s' "$2" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
+
+json_digest() {
+  key=$(printf '%s' "$1" | sed 's/[.]/[.]/g')
+  printf '%s' "$VERSIONS" | tr -d '\n' |
+    sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\(sha256:[0-9a-f]\{64\}\)\".*/\1/p"
+}
+
+file_sha256() { openssl dgst -sha256 -r "$1" | cut -c1-64; }
+
+probe_ok() { printf '%s' "$1" | grep -q "\"$2\":{\"ok\":true"; }
+
+wait_ready() {
+  tries=$(($1 / 2))
+  while [ "$tries" -gt 0 ]; do
+    if dc exec -T twring node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/health/ready').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))" >/dev/null 2>&1 </dev/null; then
+      return 0
+    fi
+    tries=$((tries - 1))
+    sleep 2
+  done
+  return 1
+}
+
+# A terminal to ask on. In a subshell: dash exits the whole script, silently, when a redirect
+# fails on a special builtin like `:`.
+has_tty() { [ "$YES" != yes ] && ( : </dev/tty ) 2>/dev/null; }
+
+confirm() {
+  [ "$YES" = yes ] && return 0
+  has_tty || die "Add --yes to confirm: $1"
+  printf '%s [y/N] ' "$1" >/dev/tty
+  IFS= read -r answer </dev/tty || answer=""
+  case $answer in y | Y | yes) return 0 ;; *) die "Nothing was changed." ;; esac
+}
+
+# --- pair, people, status, link ------------------------------------------------------------------
+
+cmd_pair() {
+  # The server draws the QR, the link and the code itself (nothing to install on this machine).
+  if [ "${1:-}" = --admin ]; then
+    say "Scan this with the Twring app: Use my own server."
+    admin code --admin --qr || die "The server did not give a code. Is it running? Try: twring status"
+  else
+    say "For a teammate: scan this with the Twring app, Use my own server."
+    admin code member --qr || die "The server did not give a code. Is it running? Try: twring status"
+  fi
+}
+
+cmd_people() {
+  case ${1:-} in
+    '') admin people ;;
+    remove)
+      [ -n "${2:-}" ] || die "Usage: twring people remove <id> (ids are in twring people)"
+      case ${3:-} in
+        '') admin remove "$2" && say "Removed $2 and their phones." ;;
+        --purge) admin remove "$2" --purge && say "Removed $2, their phones and all their data." ;;
+        *) die "Usage: twring people remove <id> [--purge]" ;;
+      esac
+      ;;
+    *) die "Usage: twring people [remove <id> [--purge]]" ;;
+  esac
+}
+
+# One plain line for the ring service, from /admin/status's ring_service.
+ring_line() {
+  state=$(printf '%s' "$1" | sed -n 's/.*"ring_service":{"state":"\([a-z]*\)".*/\1/p')
+  until=$(printf '%s' "$1" | sed -n 's/.*"ring_service":{[^}]*"paid_until":"\([0-9-]\{10\}\).*/\1/p')
+  case $state in
+    active) say "Ring service: active until $until" ;;
+    unverified) say "Ring service: active until $until. Confirm the email Twring sent you within 7 days, or rings pause." ;;
+    paused) say "Ring service: paused until your email is confirmed" ;;
+    expired) say "Ring service: ended" ;;
+    unregistered) say "Ring service: not registered: run twring register" ;;
+    *) say "Ring service: unknown" ;;
+  esac
+}
+
+cmd_status() {
+  say "Address: $TWRING_ADDRESS"
+  if [ "$TWRING_AUDIO" = own ]; then
+    if [ "${TWRING_MEDIA:-}" = tcp ]; then
+      say "Call audio: this server (media over TCP only)"
+    else
+      say "Call audio: this server"
+    fi
+  else
+    say "Call audio: Twring's audio service"
+  fi
+  say "Version: $TWRING_VERSION ($TWRING_IMAGE)"
+  dc ps
+  if out=$(admin status 2>/dev/null); then
+    ring_line "$out"
+    count() { printf '%s' "$out" | sed -n "s/.*\"$1\":\([0-9]*\).*/\1/p"; }
+    admins=$(count admins)
+    if [ "$admins" = 1 ]; then admins="1 admin"; else admins="$admins admins"; fi
+    say "People: $(count people) ($admins), phones: $(count devices)"
+    say "Server id: $(printf '%s' "$out" | sed -n 's/.*"server_id":"\([a-z0-9_]*\)".*/\1/p')"
+  else
+    say "The server is not answering yet."
+  fi
+}
+
+# Whose agents to link: --user, else TWRING_AGENT_USER, else the person who ran sudo, else asked.
+# Never root: agents and their settings belong to a person. Sets LINK_USER and LINK_HOME, or
+# explains and returns 1.
+link_user() {
+  user=${1:-}
+  if [ -z "$user" ]; then user=${TWRING_AGENT_USER:-}; fi
+  if [ -z "$user" ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then user=$SUDO_USER; fi
+  if [ -z "$user" ] && has_tty; then
+    printf "Which user's agents should Twring link (the login that runs them)? " >/dev/tty
+    IFS= read -r user </dev/tty || user=""
+  fi
+  hint="To link a person's agents later, run: twring link --user <their login name>"
+  if [ -z "$user" ] || [ "$user" = root ]; then
+    say "Agents are linked for a person, not for root. $hint"
+    return 1
+  fi
+  case $user in
+    *[!A-Za-z0-9._-]* | -*)
+      say "$user is not a login name. $hint"
+      return 1
+      ;;
+  esac
+  if ! id -u "$user" >/dev/null 2>&1; then
+    say "There is no user named $user on this machine. $hint"
+    return 1
+  fi
+  LINK_HOME=$(getent passwd "$user" | cut -d: -f6)
+  [ -n "$LINK_HOME" ] || {
+    say "Could not find the home folder of $user. $hint"
+    return 1
+  }
+  [ -d "$LINK_HOME" ] || {
+    say "The home folder of $user ($LINK_HOME) does not exist. $hint"
+    return 1
+  }
+  LINK_USER=$user
+}
+
+# Runs the connector as LINK_USER with their own HOME and no stdin.
+# Runs the connector as LINK_USER in a login shell: their PATH (~/.local/bin, nvm) and HOME,
+# started from their home folder (the connector finds agents and sets its service folder from
+# there), with XDG_RUNTIME_DIR so systemd --user works, and no stdin. The shell gets one command
+# line, so every word is single-quoted and checked to hold no quote first.
+as_user() {
+  run_dir="${TWRING_RUN_USER_DIR:-/run/user}/$(id -u "$LINK_USER")"
+  line="cd '$LINK_HOME' &&"
+  if [ -d "$run_dir" ]; then line="$line XDG_RUNTIME_DIR='$run_dir'"; fi
+  line="$line exec $1"
+  shift
+  for word in "$@"; do
+    case $word in *\'*) die "Unexpected quote in $word." ;; esac
+    case $word in *[!a-z-]*) line="$line '$word'" ;; *) line="$line $word" ;; esac
+  done
+  case $LINK_HOME$run_dir in *\'*) die "Unexpected quote in a folder name." ;; esac
+  if command -v runuser >/dev/null 2>&1; then
+    (cd "$LINK_HOME" && runuser -l "$LINK_USER" -c "$line" </dev/null)
+  else
+    (cd "$LINK_HOME" && su -l "$LINK_USER" -c "$line" </dev/null)
+  fi
+}
+
+cmd_link() {
+  admin_id=""
+  wait=no
+  wanted=""
+  share=no
+  ask_share=no
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --wait) wait=yes ;;
+      --shared) share=yes ;;
+      --ask-share) ask_share=yes ;;
+      --user)
+        if [ $# -lt 2 ]; then
+          say "Name the person after --user. To link a person's agents, run: twring link --user <their login name>"
+          return 0
+        fi
+        wanted=$2
+        shift
+        ;;
+    esac
+    shift
+  done
+  link_user "$wanted" || return 0
+  if [ "$wait" = yes ]; then
+    say ""
+    say "Waiting for your phone to pair (up to 10 minutes)..."
+    tries=300
+    while [ "$tries" -gt 0 ]; do
+      if admin_id=$(admin first-admin 2>/dev/null) && [ -n "$admin_id" ]; then break; fi
+      admin_id=""
+      tries=$((tries - 1))
+      sleep 2
+    done
+    if [ -z "$admin_id" ]; then
+      say "No phone paired yet. After pairing, link this machine's agents with: twring link"
+      return 0
+    fi
+    say "Your phone is paired."
+  else
+    admin_id=$(admin first-admin 2>/dev/null) || admin_id=""
+    [ -n "$admin_id" ] || die "Pair your phone first (twring pair --admin), then run twring link."
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    say "Linking agents uses Node.js 20 or newer on this machine, and it is not installed."
+    say "Install Node.js (https://nodejs.org), then run: twring link"
+    return 0
+  fi
+  connector="$ROOT/twring-connect.mjs"
+  if [ ! -f "$connector" ]; then
+    new_work
+    VERSIONS=$(fetch "$VERSIONS_URL") || die "Could not reach twring.com."
+    expected=$(json_digest connect)
+    [ -n "$expected" ] || die "The published version list has no connector checksum."
+    fetch "$CONNECT_URL" -o "$WORK/twring-connect.mjs" || die "Could not download the connector."
+    [ "sha256:$(file_sha256 "$WORK/twring-connect.mjs")" = "$expected" ] ||
+      die "The connector does not match its published checksum. Nothing was linked."
+    mv "$WORK/twring-connect.mjs" "$connector"
+    chmod 644 "$connector"
+  fi
+  out=$(admin connector-code "$admin_id") || die "The server did not give a linking code. Try: twring link"
+  code=$(json_field code "$out")
+  [ -n "$code" ] || die "The server did not give a linking code. Try: twring link"
+  case $code in *[!A-Z0-9-]*) die "The server gave an unexpected linking code. Try: twring link" ;; esac
+  # Sharing is opt-in: people you add could make these agents read files and use anything they
+  # can use without asking, as this login. The installer asks (default no) after the admin pairs.
+  if [ "$share" = no ] && [ "$ask_share" = yes ]; then
+    case ${TWRING_SHARE_AGENTS:-} in
+      yes | y | Y) share=yes ;;
+      no | n | N) ;;
+      *)
+        if has_tty; then
+          printf 'Share these agents with people you add? They can make the agent read files and use anything it can use without asking, as %s. [y/N] ' "$LINK_USER" >/dev/tty
+          IFS= read -r answer </dev/tty || answer=""
+          case $answer in y | Y | yes) share=yes ;; esac
+        fi
+        ;;
+    esac
+  fi
+  set -- setup --code "$code" --server "$TWRING_ADDRESS"
+  if [ -n "${TWRING_AGENTS:-}" ]; then
+    case $TWRING_AGENTS in *[!A-Za-z0-9,_-]*) die "TWRING_AGENTS is a comma-separated list of agent ids." ;; esac
+    set -- "$@" --agents "$TWRING_AGENTS"
+  fi
+  if [ "$share" = yes ]; then set -- "$@" --shared; fi
+  say "Linking the agents of $LINK_USER$([ "$share" = yes ] && echo ', shared with people you add')..."
+  as_user node "$connector" "$@"
+}
+
+# --- audio check ---------------------------------------------------------------------------------
+
+report() {
+  for check in "$@"; do
+    case $check in
+      https) name="HTTPS (443/tcp)" port=443/tcp ;;
+      http) name="HTTP (80/tcp)" port=80/tcp ;;
+      tcp7881) name="Call audio over TCP (7881/tcp)" port=7881/tcp ;;
+      udp7882) name="Call audio over UDP (7882/udp)" port=7882/udp ;;
+    esac
+    if probe_ok "$RESULT" "$check"; then
+      ms=$(printf '%s' "$RESULT" | sed -n "s/.*\"$check\":{\"ok\":true,\"ms\":\([0-9.]*\).*/\1/p")
+      say "  $name: open${ms:+ ($ms ms)}"
+    else
+      say "  $name: closed (open it with: ufw allow $port)"
+      CLOSED=yes
+    fi
+  done
+}
+
+cmd_audio() {
+  [ "${1:-}" = check ] || die "Usage: twring audio check [--full]"
+  CLOSED=no
+  if [ "$TWRING_SETUP" != own ]; then
+    RESULT=$(admin probe --address "$TWRING_PROBE_ADDRESS" --checks https) || die "Twring's ring service could not run the check. Try again in a minute."
+    report https
+  elif [ "${2:-}" = --full ]; then
+    confirm "This stops call audio for up to 10 seconds (do not run it during a call). Continue?"
+    dc stop livekit >/dev/null 2>&1
+    docker run -d --rm --name twring-probe-echo -p 7881:7881/tcp -p 7882:7882/udp \
+      -e TWRING_PROBE_ECHO_SECONDS=10 "$TWRING_IMAGE" node dist/probe-echo.js >/dev/null 2>&1 || true
+    RESULT=$(admin probe --address "$TWRING_PROBE_ADDRESS" --checks https,tcp7881,udp7882) || RESULT=""
+    docker rm -f twring-probe-echo >/dev/null 2>&1 || true
+    dc start livekit >/dev/null 2>&1
+    report https tcp7881 udp7882
+  else
+    RESULT=$(admin probe --address "$TWRING_PROBE_ADDRESS" --checks https,tcp7881) || die "Twring's ring service could not run the check. Try again in a minute."
+    report https tcp7881
+    say "  (7882/udp is checked by: twring audio check --full)"
+  fi
+  if [ "$CLOSED" = yes ]; then
+    say "If the server is at a cloud provider, open the same ports in its firewall or security group too."
+  fi
+}
+
+# --- backup and restore --------------------------------------------------------------------------
+# openssl enc has no authenticated mode, so the encrypted file gets an HMAC-SHA256 beside it, with
+# a key derived from the same passphrase (PBKDF2, its own salt) and checked before anything is
+# decrypted. Secrets travel only through the environment and pipes, never on a command line.
+
+passphrase() {
+  if [ -z "${TWRING_BACKUP_PASSPHRASE:-}" ] && has_tty; then
+    printf 'Backup passphrase (hidden): ' >/dev/tty
+    stty -echo </dev/tty 2>/dev/null || true
+    IFS= read -r TWRING_BACKUP_PASSPHRASE </dev/tty || TWRING_BACKUP_PASSPHRASE=""
+    stty echo </dev/tty 2>/dev/null || true
+    printf '\n' >/dev/tty
+  fi
+  [ -n "${TWRING_BACKUP_PASSPHRASE:-}" ] ||
+    die "A backup needs a passphrase. Set TWRING_BACKUP_PASSPHRASE or type one when asked."
+  export TWRING_BACKUP_PASSPHRASE
+}
+
+mac_key() {
+  openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -S "$1" \
+    -pass env:TWRING_BACKUP_PASSPHRASE -P | sed -n 's/^key *= *//p'
+}
+
+# Bytes from hex, with printf's octal escapes (printf is a shell builtin: nothing on a command line).
+hex_bytes() {
+  rest=$1 fmt=""
+  while [ -n "$rest" ]; do
+    pair=$(printf '%.2s' "$rest")
+    rest=${rest#??}
+    fmt="$fmt\\$(printf '%03o' "0x$pair")"
+  done
+  # shellcheck disable=SC2059
+  printf "$fmt"
+}
+
+# The 64-byte block of key XOR pad (the key is 32 bytes, zero padded).
+padded_key() {
+  rest=$1 out="" n=0
+  while [ "$n" -lt 64 ]; do
+    if [ -n "$rest" ]; then
+      pair=$(printf '%.2s' "$rest")
+      rest=${rest#??}
+    else
+      pair=00
+    fi
+    out="$out$(printf '%02x' $((0x$pair ^ 0x$2)))"
+    n=$((n + 1))
+  done
+  printf '%s' "$out"
+}
+
+hmac_file() {
+  inner=$({
+    hex_bytes "$(padded_key "$1" 36)"
+    cat "$2"
+  } | openssl dgst -sha256 -r | cut -c1-64)
+  {
+    hex_bytes "$(padded_key "$1" 5c)"
+    hex_bytes "$inner"
+  } | openssl dgst -sha256 -r | cut -c1-64
+}
+
+cmd_backup() {
+  passphrase
+  out=${1:-$PWD/twring-backup-$(date +%Y%m%d-%H%M%S).tar.enc}
+  new_work
+  say "Pausing the server for a moment to take a consistent copy..."
+  dc stop twring >/dev/null 2>&1
+  status=0
+  docker run --rm --user 0:0 -v "$VOLUME:/data:ro" -v "$WORK:/backup" --entrypoint tar \
+    "$TWRING_IMAGE" -cf /backup/data.tar -C /data . || status=$?
+  dc start twring >/dev/null 2>&1
+  [ "$status" = 0 ] || die "Could not copy the data volume."
+  tar -cf "$WORK/settings.tar" -C "$ROOT" --exclude=./rollback --exclude=./twring-connect.mjs .
+  tar -cf "$WORK/backup.tar" -C "$WORK" data.tar settings.tar
+  umask 077
+  openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 -salt \
+    -pass env:TWRING_BACKUP_PASSPHRASE -in "$WORK/backup.tar" -out "$out"
+  salt=$(openssl rand -hex 8)
+  printf 'twring-backup-hmac-v1 %s %s\n' "$salt" "$(hmac_file "$(mac_key "$salt")" "$out")" >"$out.hmac"
+  say "Backup written: $out (and its check file $out.hmac). Keep both, and the passphrase."
+}
+
+# Checks the backup against its HMAC file and decrypts it into $WORK, or stops.
+open_backup() {
+  file=$1
+  [ -f "$file" ] && [ -f "$file.hmac" ] || die "Need both $file and $file.hmac."
+  passphrase
+  read -r tag salt expected <"$file.hmac" || true
+  [ "${tag:-}" = twring-backup-hmac-v1 ] || die "$file.hmac is not a Twring backup check file."
+  case ${salt:-} in '' | *[!0-9a-f]*) die "$file.hmac is damaged." ;; esac
+  actual=$(hmac_file "$(mac_key "$salt")" "$file")
+  [ "$actual" = "${expected:-}" ] ||
+    die "This backup does not match its check file: it was changed or damaged, or the passphrase is wrong. Nothing was restored."
+  new_work
+  openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -md sha256 \
+    -pass env:TWRING_BACKUP_PASSPHRASE -in "$file" -out "$WORK/backup.tar" ||
+    die "The backup could not be decrypted."
+  tar -xf "$WORK/backup.tar" -C "$WORK" data.tar settings.tar
+}
+
+# Replaces the data volume's contents with <dir>/data.tar.
+restore_volume() {
+  docker run --rm --user 0:0 -v "$VOLUME:/data" -v "$1:/backup" --entrypoint sh "$TWRING_IMAGE" \
+    -c "find /data -mindepth 1 -delete && tar -xpf /backup/data.tar -C /data"
+}
+
+cmd_restore() {
+  [ -n "${1:-}" ] || die "Usage: twring restore <backup file>"
+  open_backup "$1"
+  confirm "This replaces this server's data and settings with the backup. Continue?"
+  if [ -f "$ROOT/compose.yml" ] && [ -f "$ROOT/twring.env" ]; then dc down >/dev/null 2>&1 || true; fi
+  mkdir -p "$ROOT"
+  umask 077
+  tar -xpf "$WORK/settings.tar" -C "$ROOT"
+  umask 022
+  # shellcheck disable=SC1091
+  . "$ROOT/install.conf"
+  docker pull "$TWRING_IMAGE" >/dev/null || die "Could not download the Twring image."
+  docker volume create --label com.docker.compose.project=twring \
+    --label com.docker.compose.volume=twring-data "$VOLUME" >/dev/null
+  restore_volume "$WORK"
+  dc up -d >/dev/null 2>&1 || die "Docker could not start Twring. See: twring logs"
+  wait_ready 60 || die "The restored server did not report ready. See: twring logs"
+  say "Restored. Twring is running at $TWRING_ADDRESS"
+}
+
+# --- update --------------------------------------------------------------------------------------
+
+cmd_update() {
+  version=${TWRING_VERSION_OVERRIDE:-$TWRING_VERSION}
+  case $version in
+    '' | *[!A-Za-z0-9.]*) die "TWRING_VERSION may only contain letters, digits and dots, like 1 or 1.2.0." ;;
+  esac
+  VERSIONS=$(fetch "$VERSIONS_URL") || die "Could not reach twring.com to look up versions."
+  digest=$(json_digest "$version")
+  [ -n "$digest" ] || die "Version $version is not published."
+  new_image="$REPO@$digest"
+  if [ "$new_image" = "$TWRING_IMAGE" ]; then
+    say "Twring is up to date ($version)."
+    return 0
+  fi
+  say "Downloading Twring $version ($digest)..."
+  docker pull "$new_image" >/dev/null || die "Could not download the new version."
+  docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$new_image" | grep -qx "$new_image" ||
+    die "The downloaded image does not match the published digest. Nothing was changed."
+
+  say "Saving a copy to go back to if the new version does not start..."
+  mkdir -p "$ROOT/rollback"
+  chmod 700 "$ROOT/rollback"
+  cp "$ROOT/compose.yml" "$ROOT/rollback/compose.yml"
+  cp "$ROOT/install.conf" "$ROOT/rollback/install.conf"
+  dc stop twring >/dev/null 2>&1
+  docker run --rm --user 0:0 -v "$VOLUME:/data:ro" -v "$ROOT/rollback:/backup" --entrypoint tar \
+    "$TWRING_IMAGE" -cf /backup/data.tar -C /data . || {
+    dc start twring >/dev/null 2>&1
+    die "Could not copy the data volume. Nothing was changed."
+  }
+
+  sed "s|image: '$TWRING_IMAGE'|image: '$new_image'|" "$ROOT/rollback/compose.yml" >"$ROOT/compose.yml.new"
+  mv "$ROOT/compose.yml.new" "$ROOT/compose.yml"
+  sed "s|^TWRING_IMAGE=.*|TWRING_IMAGE='$new_image'|" "$ROOT/rollback/install.conf" >"$ROOT/install.conf.new"
+  chmod 600 "$ROOT/install.conf.new"
+  mv "$ROOT/install.conf.new" "$ROOT/install.conf"
+  dc up -d >/dev/null 2>&1 || true
+  if wait_ready 60; then
+    # The copy is only for going back; it holds the data unencrypted, so it goes now.
+    rm -f "$ROOT/rollback/data.tar"
+    say "Updated to $version. Twring is running at $TWRING_ADDRESS"
+    return 0
+  fi
+
+  say "The new version did not report ready within 60 seconds. Going back to the previous version and data..."
+  dc stop twring >/dev/null 2>&1 || true
+  cp "$ROOT/rollback/compose.yml" "$ROOT/compose.yml"
+  cp "$ROOT/rollback/install.conf" "$ROOT/install.conf"
+  restore_volume "$ROOT/rollback"
+  # Back in the volume: the unencrypted copy goes now, as after a good update.
+  rm -f "$ROOT/rollback/data.tar"
+  dc up -d >/dev/null 2>&1 || true
+  if wait_ready 60; then
+    die "Rolled back: the previous version is running again with its data. See twring logs for what went wrong."
+  fi
+  die "Rolled back, but the previous version is not ready either. See: twring logs"
+}
+
+# --- the rest ------------------------------------------------------------------------------------
+
+# admin-cli's offline commands (Twring's ring service), run in a one-off container with the data
+# volume, so they work whether or not the server is running.
+relay_cli() {
+  docker run --rm --user 10001:10001 -v "$VOLUME:/data" --env-file "$ROOT/twring.env" \
+    "$TWRING_IMAGE" node dist/admin-cli.js "$@" </dev/null
+}
+
+# Registers this server again with Twring's ring service, with the same server key (after its
+# registration was deleted, for example by `twring uninstall` on a machine it was moved from).
+cmd_register() {
+  email=${TWRING_EMAIL:-}
+  if [ -z "$email" ] && has_tty; then
+    printf 'Email for the ring service (a confirmation link goes there): ' >/dev/tty
+    IFS= read -r email </dev/tty || email=""
+  fi
+  [ -n "$email" ] || die "An email is needed. Set TWRING_EMAIL=you@example.com, or run twring register without --yes."
+  if ! answer=$(relay_cli register --email "$email" --news "${TWRING_NEWS:-no}" --address "$TWRING_PROBE_ADDRESS" 2>&1); then
+    die "Could not register with Twring's ring service: $answer"
+  fi
+  say "Registered again with Twring's ring service. Confirm the email sent to $email within 7 days."
+}
+
+cmd_uninstall() {
+  if [ "${1:-}" = --keep-data ]; then
+    confirm "Stop and remove Twring's containers, keeping its data and settings?"
+    dc down >/dev/null 2>&1 || true
+    say "Twring is stopped. Its data ($VOLUME) and settings ($ROOT) are kept; start again with: twring start"
+    return 0
+  fi
+  confirm "Remove Twring and ALL its data (people, phones, chats, keys)? This cannot be undone."
+  # Twring's ring service forgets this server (its phones, counts and call records) first,
+  # while the server key is still in the volume. Best effort: removal goes on either way.
+  if relay_cli unregister >/dev/null 2>&1; then
+    say "Twring's ring service deleted this server's records."
+  else
+    say "Could not reach Twring's ring service to delete this server's records there."
+    say "Write to support@twring.com with this server's address ($TWRING_ADDRESS) and we will delete them."
+  fi
+  dc down -v >/dev/null 2>&1 || true
+  docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+  rm -rf "$ROOT"
+  rm -f "$BIN_DIR/twring"
+  say "Twring is removed."
+}
+
+command=${1:-}
+[ $# -gt 0 ] && shift
+# Drops --yes wherever it is, keeping every other argument exactly as given (spaces included).
+count=$#
+while [ "$count" -gt 0 ]; do
+  arg=$1
+  shift
+  if [ "$arg" = --yes ] || [ "$arg" = -y ]; then YES=yes; else set -- "$@" "$arg"; fi
+  count=$((count - 1))
+done
+
+case $command in
+  status) load && cmd_status ;;
+  pair) load && cmd_pair "$@" ;;
+  people) load && cmd_people "$@" ;;
+  link) load && cmd_link "$@" ;;
+  audio) load && cmd_audio "$@" ;;
+  update) load && cmd_update ;;
+  backup) load && cmd_backup "$@" ;;
+  restore) cmd_restore "$@" ;;
+  logs) load && dc logs --tail 200 "$@" ;;
+  start) load && dc up -d && say "Twring is starting." ;;
+  stop) load && dc stop && say "Twring is stopped." ;;
+  register) load && cmd_register ;;
+  uninstall) load && cmd_uninstall "$@" ;;
+  '' | help | --help | -h) sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "Unknown command $command. Run twring help." ;;
+esac

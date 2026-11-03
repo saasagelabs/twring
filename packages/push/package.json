@@ -1,0 +1,19 @@
+{
+  "name": "@twring/push",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@twring/contracts": "workspace:*",
+    "jose": "^6.2.12",
+    "zod": "^4.6.6"
+  }
+}

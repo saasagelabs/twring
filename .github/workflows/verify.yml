@@ -1,0 +1,63 @@
+# Verify on every PR to main. Ported from the former Codemagic `verify` workflow
+# (see docs/DEVELOPMENT.md → CI).
+name: 'Verify: format, lint, types, tests'
+
+# Runs on GitHub Actions again since the billing block was cleared (2026-10-12): Linux, about five
+# minutes per PR, instead of Codemagic's macOS minutes (ADR-016).
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Enable pnpm (corepack)
+        run: |
+          corepack enable pnpm
+          node --version
+          pnpm --version
+          echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+      - name: Dependency audit (fails on high or critical only)
+        run: pnpm audit:all
+      - name: Format check
+        run: pnpm format:check
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Integration tests
+        run: pnpm test:integration
+      - name: Gateway build + HTTP smoke
+        run: |
+          set -euo pipefail
+          pnpm --filter @twring/gateway run build
+          pnpm --filter @twring/gateway run smoke
+      - name: Expo doctor
+        run: pnpm expo:doctor

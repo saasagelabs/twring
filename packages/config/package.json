@@ -1,0 +1,22 @@
+{
+  "name": "@twring/config",
+  "version": "0.0.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./gateway": "./src/gateway.ts",
+    "./mobile": "./src/mobile.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@twring/contracts": "workspace:*",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@twring/test-fixtures": "workspace:*"
+  }
+}

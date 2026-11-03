@@ -1,0 +1,29 @@
+{
+  "name": "@twring/connector",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "twring-connect: lets the Twring phone app call the agents on your computer.",
+  "type": "module",
+  "bin": {
+    "twring-connect": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@twring/contracts": "workspace:*",
+    "uqr": "0.1.3",
+    "ws": "^8.21.3",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15"
+  },
+  "scripts": {
+    "start": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "gen:skill": "node scripts/gen-skill.mjs",
+    "bundle": "node scripts/bundle.mjs"
+  }
+}

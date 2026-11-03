@@ -1,0 +1,4 @@
+#!/bin/sh
+# `ss -Hltnp`: listening sockets from STUB_SS (one per line).
+[ -n "${STUB_SS:-}" ] && printf '%s\n' "$STUB_SS"
+exit 0

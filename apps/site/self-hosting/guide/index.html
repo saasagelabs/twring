@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Twring server guide</title>
+<meta name="description" content="How to install, run, update, back up and fix a Twring server you host yourself.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/self-hosting/guide/">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%2305070A'/%3E%3Cpath d='M50 50 L66 34 L82 50 L66 66 Z M50 50 L34 34 L18 50 L34 66 Z' fill='none' stroke='%2319D6F2' stroke-width='6' stroke-linecap='square'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/assets/site.css?v=3">
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <div class="wrap">
+    <h1>Server guide</h1>
+    <p class="lead">For the person who runs a Twring server. People who only use the app don't need this. New here? Start with <a href="/self-hosting/">Self-hosting</a>.</p>
+
+    <div class="prose">
+      <h2 id="needs">What you need</h2>
+      <ul>
+        <li>Linux on x86_64 or arm64, with Docker and the Docker Compose plugin. The installer never installs Docker for you.</li>
+        <li>Ports 80 and 443 reachable from the internet. A domain is optional: without one, the installer uses an <code>sslip.io</code> name for your public IP.</li>
+        <li>For your own call audio: 7881/tcp and 7882/udp reachable. Without them, calls use Twring's audio service (see <a href="#audio">Call audio</a>).</li>
+        <li>A speech account key: Deepgram, or xAI.</li>
+        <li>An email address. Twring's ring service sends one confirmation link. If it isn't confirmed within 7 days, rings pause, and so do calls on servers that use Twring's audio service.</li>
+        <li>Node.js 20 or newer, only if you want the installer to link the agents on this machine.</li>
+      </ul>
+
+      <h2 id="install">Install</h2>
+      <p>As root, or with <code>sudo</code> in front of <code>sh</code>:</p>
+      <pre><code>curl -fsSL https://twring.com/install.sh | sh</code></pre>
+      <p>Let it ask for your email and speech key: the key is hidden as you type, and neither answer reaches your shell history. To answer ahead of time with <code>sudo</code>, export the settings and keep them with <code>-E</code>:</p>
+      <pre><code>export TWRING_EMAIL=you@example.com
+export TWRING_SPEECH_KEY=your-deepgram-key   # and TWRING_SPEECH_PROVIDER=xai for an xAI key
+curl -fsSL https://twring.com/install.sh | sudo -E sh</code></pre>
+      <p>Never write <code>sudo TWRING_SPEECH_KEY=... sh</code>: values on a command line can be seen by other users of the machine and land in shell history. Exported keys stay in your shell until you close it or run <code>unset TWRING_SPEECH_KEY</code>.</p>
+      <p>Other settings, all optional: <code>TWRING_DOMAIN</code>, <code>TWRING_NEWS</code> (yes or no), <code>TWRING_AUDIO</code> (auto, own or twring), <code>TWRING_LINK_AGENTS</code> (yes or no), <code>TWRING_AGENT_USER</code>, <code>TWRING_SHARE_AGENTS</code> (yes or no, default no: see <a href="#memory">Sharing agents</a>), <code>TWRING_VERSION</code>, and for sandboxes <code>TWRING_PUBLIC_URL</code>, <code>TWRING_LISTEN_PORT</code> (default 8080) and <code>TWRING_TRUSTED_PROXIES</code>. Add <code>--yes</code> (<code>sh -s -- --yes</code>) to ask nothing.</p>
+      <p>The installer checks the server image and the installer kit against <a href="/selfhost/versions.json">the published checksums</a>, writes its settings to <code>/opt/twring</code>, keeps keys in the <code>twring</code> data volume, installs the <code>twring</code> command, starts the server and shows an admin code to scan with the Twring app (in the app update that connects to your own server, coming soon).</p>
+      <p>Agents are linked as a person, never as root: the user named in <code>TWRING_AGENT_USER</code>, else the user who ran <code>sudo</code>. After a root login with <code>--yes</code>, linking is skipped; run <code>twring link --user &lt;name&gt;</code> later. A machine links to one server at a time: linking its agents to your own server replaces that machine's link to Twring's service.</p>
+
+      <h3>Sandboxes</h3>
+      <p>In a cloud sandbox, give the public address the sandbox publishes for your port:</p>
+      <pre><code>export TWRING_PUBLIC_URL=https://abc123.sandbox.example.dev TWRING_LISTEN_PORT=8080</code></pre>
+      <p>Calls then use Twring's audio service. The server does not trust proxy headers by default, because a published port can sometimes be reached directly and callers could fake their address. If your sandbox always sits behind a known proxy, set <code>TWRING_TRUSTED_PROXIES</code> to its addresses so per-person limits see real addresses; otherwise limits apply to the whole server.</p>
+
+      <h2 id="ports">Ports and firewalls</h2>
+      <ul>
+        <li><strong>80/tcp:</strong> the HTTPS certificate and redirect.</li>
+        <li><strong>443/tcp:</strong> the app, chats and files.</li>
+        <li><strong>7881/tcp and 7882/udp:</strong> call audio, when your server carries it.</li>
+      </ul>
+      <p>Open them in your cloud provider's firewall (security group, or the networking tab) and on the machine:</p>
+      <pre><code># ufw
+ufw allow 80/tcp &amp;&amp; ufw allow 443/tcp &amp;&amp; ufw allow 7881/tcp &amp;&amp; ufw allow 7882/udp
+# firewalld
+firewall-cmd --permanent --add-port={80,443,7881}/tcp --add-port=7882/udp &amp;&amp; firewall-cmd --reload</code></pre>
+
+      <h2 id="audio">Call audio</h2>
+      <ul>
+        <li><strong>Your server:</strong> call audio runs on 7881/tcp and 7882/udp and goes only between your server and the phones.</li>
+        <li><strong>Twring's audio service:</strong> call audio passes through Twring, encrypted in transit, and is never stored. Twring counts minutes, with daily limits, and these calls need the ring service (a confirmed email, and later the yearly charge).</li>
+        <li><strong>Automatic</strong> (the default): at install, Twring's ring service checks your server's address. Audio ports open: your server. Closed: Twring's audio service. HTTPS on 443 is needed either way.</li>
+      </ul>
+      <p><code>twring audio check</code> tells you whether phones can reach your audio. <code>twring audio check --full</code> also checks 7882/udp, and stops call audio for about 10 seconds while it does: don't run it during a call.</p>
+      <p>The audio choice is made at install. Changing it means uninstalling and installing again, which deletes people, phones, chats and keys and registers the server again with a new email confirmation. Usually it's simpler to open the ports and keep what you have.</p>
+
+      <h2 id="commands">The twring command</h2>
+      <ul>
+        <li><code>twring status</code>: is it running, its address, call audio, and whether the ring service is active.</li>
+        <li><code>twring pair [--admin]</code>: a code for a teammate's phone (<code>--admin</code>: a new admin phone).</li>
+        <li><code>twring people</code>: people and their phones.</li>
+        <li><code>twring people remove &lt;id&gt; [--purge]</code>: remove someone (<code>--purge</code>: also delete all their data).</li>
+        <li><code>twring link [--user &lt;name&gt;] [--shared]</code>: link this machine's agents (<code>--shared</code>: let people you add use them too; read <a href="#memory">Sharing agents</a> first).</li>
+        <li><code>twring register</code>: register this server again with Twring's ring service (asks for the email again), when it is no longer registered.</li>
+        <li><code>twring audio check [--full]</code>: can phones reach call audio.</li>
+        <li><code>twring update</code>: the newest version, rolling back by itself if it fails.</li>
+        <li><code>twring backup [file]</code> and <code>twring restore &lt;file&gt;</code>: encrypted backup and restore.</li>
+        <li><code>twring logs</code>, <code>twring start</code>, <code>twring stop</code>.</li>
+        <li><code>twring uninstall [--keep-data]</code>: remove Twring.</li>
+      </ul>
+
+      <h2 id="update">Update and roll back</h2>
+      <p><code>twring update</code> pulls the newest checked image for your version track, keeps copies of <code>compose.yml</code>, <code>install.conf</code> and your data, starts the new version and checks it. If the check fails, it puts the old version back. The server stops briefly while it updates, so calls in progress drop: update when nobody is on a call. The copy of your data is removed afterwards, whether the update worked or was rolled back. Update the server with <code>twring update</code> before anyone on it switches to Twring's service in the app: older servers keep ringing iPhones that switched away.</p>
+
+      <h2 id="backup">Backup and restore</h2>
+      <p><code>twring backup /root/twring.tar.enc</code> writes an encrypted backup of the data and settings, plus a check file ending in <code>.hmac</code>. It asks for a passphrase (or reads <code>TWRING_BACKUP_PASSPHRASE</code>). Keep both files and the passphrase: without it the backup can't be opened. The server stops briefly during a backup, so calls in progress drop. <code>twring restore &lt;file&gt;</code> checks the backup before changing anything.</p>
+      <p><strong>Moving to a new machine:</strong> restore the backup on the new machine, then on the old one run <code>twring uninstall --keep-data</code> and remove its data by hand (<code>docker volume rm twring_twring-data</code>). Don't run a plain <code>twring uninstall</code> on the old machine: both machines share one registration with Twring's ring service, and it would delete it for the new one too. If that happened, run <code>twring register</code> on the new machine.</p>
+
+      <h2 id="people">Removing people and phones</h2>
+      <ul>
+        <li><code>twring people remove &lt;id&gt;</code> removes the person and their phones, computer links and rings at once. Their chats and settings stay on the server until purged.</li>
+        <li><code>twring people remove &lt;id&gt; --purge</code> also deletes all their data. An admin can do the same in the app (coming with the app update).</li>
+        <li>A server always needs one admin. If the last admin deletes their own data, run <code>twring pair --admin</code> for a new one.</li>
+        <li><strong>A lost or stolen phone:</strong> on the server run <code>twring people</code>, then <code>twring people remove &lt;id&gt;</code> for that person (or remove just the phone in the app from another admin's phone). Their calls end and the phone is signed out at once. If it was the only admin's phone, run <code>twring pair --admin</code> on the server for a new admin phone first.</li>
+      </ul>
+
+      <h2 id="memory">Sharing agents</h2>
+      <p>Agents are not shared unless you say so: the installer asks after your phone pairs (the answer is no unless you type y), and <code>twring link --shared</code> shares them later. A shared link makes every agent that machine offers visible to everyone on your server.</p>
+      <p><strong>Think before sharing.</strong> A shared agent runs as the login that linked it. Anyone you add can ask it to read files and to use anything it can use without asking first, as that login: your files, saved passwords and keys (SSH, cloud), and Twring's own link on that computer. Approval prompts from others are declined, but an agent set to act without asking never prompts.</p>
+      <ul>
+        <li>For shared agents, use a separate login on the computer made just for them, with no SSH or cloud keys and none of your personal files.</li>
+        <li>Each person gets their own conversation, but <strong>the agent's own memory lives on its computer and is shared:</strong> anything someone tells it may be remembered and come up for others.</li>
+        <li>Whoever runs the computer can read every person's conversations with its agents, stored on that computer.</li>
+        <li>If a computer's link is opened from somewhere else, its owner gets a message in Twring. If that wasn't you, run <code>twring link</code> again.</li>
+      </ul>
+      <p>Tell your team.</p>
+
+      <h2 id="keys">Keys</h2>
+      <ul>
+        <li>The server key, in the data volume, is your server's identity with Twring's ring service. If it is lost, the server has to register again, with a new email confirmation.</li>
+        <li>Changing <code>CORD_CREDENTIALS_KEY</code> makes stored agent and speech keys unreadable (enter them again) and starts everyone on new agent conversations.</li>
+        <li><code>twring.env</code> can be read only by root. Don't paste its contents anywhere.</li>
+      </ul>
+
+      <h2 id="removing">Removing Twring</h2>
+      <p><code>twring uninstall</code> asks Twring's ring service to delete everything it keeps for your server (phones, counts and call records), then removes the server and all its data. If the ring service can't be reached, it says so: write to <a href="mailto:support@twring.com">support@twring.com</a> with your server's address and we'll delete them. <code>twring uninstall --keep-data</code> only stops the server. If you moved this server to a new machine, see <a href="#backup">Moving to a new machine</a> first.</p>
+
+      <h2 id="trouble">When something doesn't work</h2>
+      <ul>
+        <li><strong>Ports 80 or 443 already in use:</strong> another web server (nginx, Apache, Caddy) holds them. The installer names it and stops; stop it (for example <code>systemctl stop nginx</code>) and run the installer again, or install sandbox-style with <code>TWRING_PUBLIC_URL</code>.</li>
+        <li><strong>Calls connect but there's no sound:</strong> the audio ports are closed somewhere (cloud firewall or the machine). Run <code>twring audio check --full</code> when nobody is on a call, then open 7881/tcp and 7882/udp.</li>
+        <li><strong>Phones don't ring when locked, or calls are refused:</strong> confirm the email Twring's ring service sent at install (check spam). Rings, and calls through Twring's audio service, pause 7 days after install until it is confirmed.</li>
+        <li><strong>"This server is no longer registered with the ring service" in <code>twring logs</code>:</strong> its registration was deleted, usually by <code>twring uninstall</code> on a machine it was moved from. Run <code>twring register</code>, then confirm the email.</li>
+        <li><strong>Call minutes look wrong with Twring's audio service:</strong> minutes are counted by Twring; there's nothing to set on your server. Write to support.</li>
+        <li><strong>Anything else:</strong> <code>twring logs</code>, then <a href="mailto:support@twring.com">support@twring.com</a>.</li>
+      </ul>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="legal" style="margin-top: 0; padding-top: 0; border-top: 0">
+      <span><a href="/">twring.com</a> · <a href="/support/">Support</a> · <a href="/privacy">Privacy</a> · <a href="/terms/">Terms</a></span>
+      <span>© 2026 SaaSage Labs</span>
+    </div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=1"></script>
+</body>
+</html>
