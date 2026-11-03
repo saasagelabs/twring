@@ -41,6 +41,15 @@ describe('ios-testflight.yml', () => {
   });
 });
 
+describe('both iOS workflows', () => {
+  it.each(['ios-build-check.yml', 'ios-testflight.yml'])(
+    '%s turns off the Sentry upload during builds (no Sentry account in CI)',
+    (name) => {
+      expect(read(name)).toMatch(/SENTRY_DISABLE_AUTO_UPLOAD: 'true'/);
+    },
+  );
+});
+
 describe('ios-build-check.yml', () => {
   const text = read('ios-build-check.yml');
 
