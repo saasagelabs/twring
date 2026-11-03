@@ -1,6 +1,7 @@
 import type { SpeechProvider } from '@twring/contracts';
 import { CARTESIA_API_VERSION } from './cartesia-tts.js';
 import { isKeyRefusal } from './key-refusal.js';
+import { xaiStatus } from './xai-errors.js';
 
 export type KeyCheckResult = 'ok' | 'refused' | 'unavailable';
 
@@ -54,7 +55,8 @@ export async function checkSpeechKey(
       signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
     if (response.ok) return 'ok';
-    if (isKeyRefusal(response.status)) return 'refused';
+    const status = provider === 'xai' ? await xaiStatus(response) : response.status;
+    if (isKeyRefusal(status)) return 'refused';
     return 'unavailable';
   } catch {
     return 'unavailable';

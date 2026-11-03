@@ -498,6 +498,17 @@ export class CallRegistry {
     };
     const ownKeyProviders =
       agent && speech && ownKeySides(agent.voiceId, speech, this.options.speaksServerXai === true);
+    if (voice) {
+      // Which providers this call runs on and whose key: provider names only, never a key.
+      logger.info({
+        event: 'call_speech',
+        call_id: ids.callId,
+        listening: voice.stt.name,
+        listening_key: ownKeyProviders?.stt ? 'own' : 'twring',
+        voice: voice.tts.name,
+        voice_key: ownKeyProviders?.tts ? 'own' : 'twring',
+      });
+    }
     // The providers hold what they need; the record keeps no plaintext key from here on.
     delete record.speech;
     const createAgent = agent?.createAgent ?? this.options.createAgent;

@@ -20,9 +20,47 @@ export type SocketFactory = (url: string, headers: Record<string, string>) => Pr
 
 /** Largest provider message accepted; bigger frames are a protocol error, not buffered. */
 const MAX_PAYLOAD_BYTES = 4 * 1024 * 1024;
+/** How much of a refused handshake's answer is kept, and how long it is waited for. */
+const REFUSAL_BODY_CHARS = 1024;
+const REFUSAL_BODY_WAIT_MS = 2000;
+
+/**
+ * The provider answered the upgrade with an HTTP status instead of a socket. The message keeps
+ * the `ws` wording ("Unexpected server response: 401") that the status mappers read; `body` is
+ * the start of the provider's answer, for providers whose status alone is ambiguous. Never
+ * shown to users.
+ */
+export class HandshakeRefusedError extends Error {
+  constructor(
+    readonly status: number,
+    readonly body: string,
+  ) {
+    super(`Unexpected server response: ${status}`);
+    this.name = 'HandshakeRefusedError';
+  }
+}
 
 export const wsSocketFactory: SocketFactory = (url, headers) => {
   const socket = new WebSocket(url, { headers, maxPayload: MAX_PAYLOAD_BYTES });
+  socket.on('unexpected-response', (_request, response) => {
+    let body = '';
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      socket.emit('error', new HandshakeRefusedError(response.statusCode ?? 0, body));
+      socket.terminate();
+    };
+    const timer = setTimeout(finish, REFUSAL_BODY_WAIT_MS);
+    response.setEncoding('utf8');
+    response.on('data', (chunk: string) => {
+      body = (body + chunk).slice(0, REFUSAL_BODY_CHARS);
+    });
+    response.on('end', finish);
+    response.on('error', finish);
+    response.on('close', finish);
+  });
   return {
     send: (data) => socket.send(data),
     ping: () => {

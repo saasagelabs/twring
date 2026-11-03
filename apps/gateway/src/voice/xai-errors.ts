@@ -1,4 +1,5 @@
 import { connectError } from './deepgram-stt';
+import { HandshakeRefusedError } from './socket';
 import type { VoiceError } from './types';
 
 /** Error wording that means the key itself was refused. "quota" alone is a rate limit, not this. */
@@ -18,8 +19,28 @@ export function isXaiKeyProblem(message: string): boolean {
   );
 }
 
-/** Handshake failures: 401/402/403 refuse the key, 400/404 are a bad request, else retryable. */
+/**
+ * xAI answers a wrong, revoked or unknown key with 400 "Incorrect API key provided", where the
+ * other providers say 401. True for that answer only, so it can join the shared refusal rule.
+ */
+function isXaiKeyRefusal(status: number, body: string): boolean {
+  return status === 400 && isXaiKeyProblem(body);
+}
+
+/** An HTTP answer's status, with xAI's wrong-key 400 reported as 401. Reads the body only then. */
+export async function xaiStatus(response: Response): Promise<number> {
+  if (response.status !== 400) return response.status;
+  const body = await response.text().catch(() => '');
+  return isXaiKeyRefusal(400, body.slice(0, 1024)) ? 401 : 400;
+}
+
+/**
+ * Handshake failures: 401/402/403 (and xAI's wrong-key 400) refuse the key, other 400s and 404
+ * are a bad request, else retryable.
+ */
 export function xaiConnectError(error: unknown): VoiceError {
+  if (error instanceof HandshakeRefusedError && isXaiKeyRefusal(error.status, error.body))
+    return { code: 'auth_failed', recoverable: false };
   const message = error instanceof Error ? error.message : '';
   if (/\b40[04]\b/.test(message)) return { code: 'provider_error', recoverable: false };
   return connectError(error);

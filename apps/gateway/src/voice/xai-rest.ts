@@ -5,6 +5,7 @@ import {
   TRANSCRIBE_RETRY_MS,
   withTranscribeRetry,
 } from './deepgram-prerecorded';
+import { xaiStatus } from './xai-errors';
 import { cleanKeyterms } from './xai-stt';
 import type { XaiVoice } from './xai-tts';
 
@@ -67,8 +68,8 @@ async function withTimeout<T>(
 }
 
 /**
- * Transcribes one audio file. A refused key (401/402/403) keeps its status, so the caller's key
- * refusal rule applies; nothing is retried here.
+ * Transcribes one audio file. A refused key (401/402/403, or xAI's wrong-key 400 reported as
+ * 401) keeps its status, so the caller's key refusal rule applies; nothing is retried here.
  */
 export function transcribeWithXai(
   apiKey: string,
@@ -99,7 +100,7 @@ export function transcribeWithXai(
         signal,
       });
       if (!response.ok)
-        throw new PrerecordedTranscriptionError('provider_failure', response.status);
+        throw new PrerecordedTranscriptionError('provider_failure', await xaiStatus(response));
       const parsed = transcriptSchema.safeParse(await response.json());
       if (!parsed.success) throw new PrerecordedTranscriptionError('provider_failure');
       const text = parsed.data.text.trim();
@@ -180,7 +181,7 @@ export function synthesizeWithXai(
         redirect: 'error',
         signal,
       });
-      if (!response.ok) throw new XaiSynthesisError('provider_failure', response.status);
+      if (!response.ok) throw new XaiSynthesisError('provider_failure', await xaiStatus(response));
       const bytes = Buffer.from(await response.arrayBuffer());
       if (bytes.length === 0) throw new XaiSynthesisError('empty');
       return bytes;
