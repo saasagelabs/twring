@@ -271,3 +271,33 @@ describe('createXaiTranscriber retry policy', () => {
     expect(sent.length).toBeLessThanOrEqual(1);
   });
 });
+
+describe('an xAI key refused with 400', () => {
+  const refused = () =>
+    new Response(
+      '{"error":"Incorrect API key provided. You can obtain an API key from https://console.x.ai."}',
+      { status: 400 },
+    );
+
+  it('reaches transcription callers as a refused key (401)', async () => {
+    const { fetchImpl } = fakeFetch(refused);
+    const error = await caught(
+      transcribeWithXai(KEY, AUDIO, 'audio/mp4', [], { fetch: fetchImpl }),
+    );
+    expect(error).toBeInstanceOf(PrerecordedTranscriptionError);
+    expect((error as PrerecordedTranscriptionError).status).toBe(401);
+  });
+
+  it('reaches synthesis callers as a refused key (401)', async () => {
+    const { fetchImpl } = fakeFetch(refused);
+    const error = await caught(synthesizeWithXai(KEY, 'eve', 'Hi', { fetch: fetchImpl }));
+    expect(error).toBeInstanceOf(XaiSynthesisError);
+    expect((error as XaiSynthesisError).status).toBe(401);
+  });
+
+  it('leaves a 400 about something else as 400', async () => {
+    const { fetchImpl } = fakeFetch(() => new Response('{"error":"bad voice"}', { status: 400 }));
+    const error = await caught(synthesizeWithXai(KEY, 'eve', 'Hi', { fetch: fetchImpl }));
+    expect((error as XaiSynthesisError).status).toBe(400);
+  });
+});

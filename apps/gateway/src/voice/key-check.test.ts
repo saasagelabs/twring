@@ -85,6 +85,30 @@ describe('checkSpeechKey', () => {
     );
   });
 
+  it('treats xAI 400 "Incorrect API key provided" as a refused key', async () => {
+    const body = JSON.stringify({
+      code: 'Client specified an invalid argument',
+      error: 'Incorrect API key provided. You can obtain an API key from https://console.x.ai.',
+    });
+    const f = vi.fn(() => Promise.resolve(new Response(body, { status: 400 })));
+    expect(await checkSpeechKey('xai', KEY, { fetch: f as unknown as typeof fetch })).toBe(
+      'refused',
+    );
+  });
+
+  it('keeps any other 400 unavailable', async () => {
+    const answer = (body: string) =>
+      vi.fn(() => Promise.resolve(new Response(body, { status: 400 })));
+    const bad = answer('{"error":"invalid voice"}');
+    expect(await checkSpeechKey('xai', KEY, { fetch: bad as unknown as typeof fetch })).toBe(
+      'unavailable',
+    );
+    const deepgram = answer('Incorrect API key provided');
+    expect(
+      await checkSpeechKey('deepgram', KEY, { fetch: deepgram as unknown as typeof fetch }),
+    ).toBe('unavailable');
+  });
+
   it('reports unavailable when fetch throws, without leaking the key', async () => {
     const f = vi.fn(() => {
       return Promise.reject(new Error(`boom ${KEY}`));

@@ -105,6 +105,23 @@ describe('calls on the person’s own speech keys', () => {
     expect(ttss.map((t) => t.speech)).toEqual([alice, bob]);
   });
 
+  it('logs which providers hear and speak the call, and whose key, never the key', async () => {
+    const { registry, logger } = setup();
+    const call = await registry.create(agentFor('alice', cartesiaId), 'alice', {
+      speech: own(OWN_DG),
+    });
+    const logged = logger.events.find((e) => e.fields.event === 'call_speech');
+    expect(logged?.fields).toEqual({
+      event: 'call_speech',
+      call_id: call.call_id,
+      listening: 'fake-stt',
+      listening_key: 'own',
+      voice: 'fake-tts',
+      voice_key: 'twring',
+    });
+    expect(JSON.stringify(logger.events)).not.toContain(OWN_DG);
+  });
+
   it('keeps no key on the call record once it has started or ended', async () => {
     const { registry } = setup();
     const records = () =>
