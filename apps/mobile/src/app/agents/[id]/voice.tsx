@@ -152,6 +152,9 @@ export default function VoiceScreen() {
             {group.label !== undefined && (
               <Text style={[type.caption, { color: palette.textSecondary }]}>{group.label}</Text>
             )}
+            {group.note !== undefined && (
+              <Text style={[type.caption, { color: palette.textSecondary }]}>{group.note}</Text>
+            )}
             {group.voices.map((voice) => (
               <View
                 key={voice.id}

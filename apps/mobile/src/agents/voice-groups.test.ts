@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { pickerSelection, savedVoiceLabel, savedVoiceMissing, voiceGroups } from './voice-groups';
+import {
+  GROK_VOICE_NOTE,
+  pickerSelection,
+  savedVoiceLabel,
+  savedVoiceMissing,
+  voiceGroups,
+} from './voice-groups';
 
 const voice = (id: string, label: string) => ({ id, label });
 
@@ -15,8 +21,12 @@ describe('voice picker groups', () => {
     const eve = voice('xai-eve-en', 'Eve · Grok');
     expect(voiceGroups([eve, usual])).toEqual([
       { label: undefined, voices: [usual] },
-      { label: 'Grok', voices: [eve] },
+      { label: 'Grok', note: GROK_VOICE_NOTE, voices: [eve] },
     ]);
+  });
+
+  it('tells people Grok voices start a little later, in plain words', () => {
+    expect(GROK_VOICE_NOTE).toBe('Grok voices start talking about a second later than the others.');
   });
 
   it('returns no groups for an empty list', () => {
