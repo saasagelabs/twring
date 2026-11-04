@@ -45,8 +45,14 @@ describe('gateway smoke script', { timeout: 20_000 }, () => {
   });
 
   it.each([
-    ['stall-headers.mjs', /did not respond within 2000ms \(last: (TimeoutError|AbortError)/],
-    ['stall-body.mjs', /did not respond within 2000ms \(last: (TimeoutError|AbortError)/],
+    [
+      'stall-headers.mjs',
+      /did not respond within 2000ms \(last: (TimeoutError|AbortError|Error: overall deadline reached)/,
+    ],
+    [
+      'stall-body.mjs',
+      /did not respond within 2000ms \(last: (TimeoutError|AbortError|Error: overall deadline reached)/,
+    ],
   ])('fails within the deadline when a probe stalls (%s)', async (fixture, message) => {
     const result = await runSmoke(fixture);
     expect(result.code).toBe(1);

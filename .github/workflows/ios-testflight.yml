@@ -48,7 +48,7 @@ jobs:
         run: bash apps/mobile/scripts/ios-testflight.sh check-env
       - uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
-          xcode-version: latest-stable
+          xcode-version: '26.3'
       - uses: actions/setup-node@v4
         with:
           node-version: 24
