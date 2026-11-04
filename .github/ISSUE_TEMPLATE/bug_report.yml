@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in Twring doesn't work as it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please don't include keys, tokens, phone numbers or private chat content.
+        Found a security problem? Don't open an issue: see SECURITY.md.
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - Phone app (iPhone)
+        - Phone app (Android)
+        - A call (voice, turn-taking, interruptions)
+        - Rings or notifications
+        - Chats, voice notes or files
+        - Connecting an agent or an AI app
+        - My own server (self-hosted)
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can we see it happen?
+      placeholder: |
+        1. Open ...
+        2. Press ...
+        3. See ...
+  - type: input
+    id: ref
+    attributes:
+      label: Call or error reference
+      description: If the app showed a reference such as `call_...` or an error code, paste it here.
+  - type: input
+    id: version
+    attributes:
+      label: App build and phone
+      placeholder: Android build 16 on a Pixel 8, or iPhone build 19 on an iPhone 15
+  - type: input
+    id: agent
+    attributes:
+      label: Which agent?
+      placeholder: Claude Code, Codex, Hermes, Gemini CLI, an AI app, or your own
