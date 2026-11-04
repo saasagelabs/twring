@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fakeSocketFactory } from './testing';
 import { VoiceProviderError, type TtsEvent } from './types';
-import { createXaiTts } from './xai-tts';
+import { XAI_PAUSE_FLUSH_MS, createXaiTts } from './xai-tts';
 
 const KEY = 'fake-xai-key';
 
@@ -167,6 +167,81 @@ describe('xAI streaming TTS', () => {
     delta([3, 3]);
     expect(audio()).toEqual([['g3', 3, 3]]);
     expect(events.filter((e) => e.type === 'done')).toEqual([]);
+  });
+
+  describe('when the agent pauses mid-reply', () => {
+    const pauseTimers = (timers: { ms: number; cancelled: boolean; fire: () => void }[]) =>
+      timers.filter((t) => t.ms === XAI_PAUSE_FLUSH_MS);
+    const firePause = (timers: { ms: number; cancelled: boolean; fire: () => void }[]) => {
+      const live = pauseTimers(timers).filter((t) => !t.cancelled);
+      expect(live).toHaveLength(1);
+      live[0]!.cancelled = true;
+      live[0]!.fire();
+    };
+
+    it('asks xAI to speak what it has, and later text is a new piece of the same reply', async () => {
+      const { session, socket, events, sent, timers } = await openTts();
+      session.speak('g1', 'Let me check the files');
+      firePause(timers);
+      session.speak('g1', ' in your project.');
+      session.flush('g1');
+      expect(sent()).toEqual([
+        { type: 'text.delta', delta: 'Let me check the files' },
+        { type: 'text.done' },
+        { type: 'text.delta', delta: ' in your project.' },
+        { type: 'text.done' },
+      ]);
+      socket.receive({ type: 'audio.done' });
+      expect(events).toEqual([]);
+      socket.receive({ type: 'audio.done' });
+      expect(events).toEqual([{ type: 'done', generationId: 'g1' }]);
+    });
+
+    it('restarts the wait on every piece of text, so steady text is never split', async () => {
+      const { session, timers } = await openTts();
+      session.speak('g1', 'One ');
+      session.speak('g1', 'two ');
+      session.speak('g1', 'three');
+      const waits = pauseTimers(timers);
+      expect(waits).toHaveLength(3);
+      expect(waits.slice(0, 2).every((t) => t.cancelled)).toBe(true);
+      expect(waits[2]!.cancelled).toBe(false);
+    });
+
+    it('a reply that ends during the pause finishes as one piece', async () => {
+      const { session, sent, timers } = await openTts();
+      session.speak('g1', 'Done.');
+      session.flush('g1');
+      expect(pauseTimers(timers).every((t) => t.cancelled)).toBe(true);
+      expect(sent().filter((m) => (m as { type: string }).type === 'text.done')).toHaveLength(1);
+    });
+
+    it('a pause on spaces only sends nothing', async () => {
+      const { session, sent, timers } = await openTts();
+      session.speak('g1', 'Hi.');
+      firePause(timers);
+      session.speak('g1', '  ');
+      firePause(timers);
+      expect(sent().filter((m) => (m as { type: string }).type === 'text.done')).toHaveLength(1);
+    });
+
+    it('finishes at once when every piece was already spoken', async () => {
+      const { session, socket, events, sent, timers } = await openTts();
+      session.speak('g1', 'Let me check');
+      firePause(timers);
+      socket.receive({ type: 'audio.done' });
+      session.flush('g1');
+      expect(sent().filter((m) => (m as { type: string }).type === 'text.done')).toHaveLength(1);
+      expect(events).toEqual([{ type: 'done', generationId: 'g1' }]);
+    });
+
+    it('a cancelled reply never sends a late piece', async () => {
+      const { session, sent, timers } = await openTts();
+      session.speak('g1', 'Let me check');
+      session.cancel('g1');
+      expect(pauseTimers(timers).every((t) => t.cancelled)).toBe(true);
+      expect(sent().filter((m) => (m as { type: string }).type === 'text.done')).toHaveLength(0);
+    });
   });
 
   it('audio.done for an unflushed generation is not done', async () => {

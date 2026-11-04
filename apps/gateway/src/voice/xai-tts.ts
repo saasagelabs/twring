@@ -47,6 +47,12 @@ const realTimer: Timer = (callback, ms) => {
 
 /** How long xAI may take to acknowledge a `text.clear` before the socket is presumed stuck. */
 export const XAI_CLEAR_TIMEOUT_MS = 2000;
+/**
+ * xAI holds back the last, unfinished sentence until `text.done` (measured 2026-11-04), so an
+ * agent that pauses mid-sentence (often to start a tool) left the call silent. After this long
+ * with no new text, what was sent is spoken as one piece and later text starts the next piece.
+ */
+export const XAI_PAUSE_FLUSH_MS = 350;
 /** Refusal wording that does not name the key (checked after `isXaiKeyProblem`). */
 const REFUSAL_WORDING = /forbidden|unauthori[sz]ed|permission/i;
 /** Recently ended generation ids remembered so late text for them is ignored. */
@@ -85,7 +91,13 @@ export function createXaiTts(options: XaiTtsOptions): TtsProvider {
 interface Generation {
   generationId: string;
   chars: number;
+  /** Twring ended the generation: no more text will come. */
   flushed: boolean;
+  /** Text sent since the last `text.done`. */
+  piece: string;
+  /** `text.done`s sent whose `audio.done` has not arrived; the generation is done at zero. */
+  piecesInFlight: number;
+  cancelPause: (() => void) | undefined;
   /** A PCM16 byte left over from an odd-length chunk, prepended to the next one. */
   carry: number | undefined;
 }
@@ -114,6 +126,7 @@ class XaiTtsSession implements TtsSession {
       this.closing = true;
       this.stopClearTimer();
       const generationId = this.active?.generationId;
+      this.active?.cancelPause?.();
       this.active = undefined;
       this.onEvent({ type: 'error', generationId, error: closeError(code) });
     });
@@ -128,7 +141,15 @@ class XaiTtsSession implements TtsSession {
       this.cancel(this.active.generationId);
     }
     if (this.active === undefined) {
-      this.active = { generationId, chars: 0, flushed: false, carry: undefined };
+      this.active = {
+        generationId,
+        chars: 0,
+        flushed: false,
+        piece: '',
+        piecesInFlight: 0,
+        cancelPause: undefined,
+        carry: undefined,
+      };
     }
     const generation = this.active;
     if (generation.flushed) return;
@@ -138,7 +159,21 @@ class XaiTtsSession implements TtsSession {
     if (chunk.length < text.length && /[\uD800-\uDBFF]$/.test(chunk)) chunk = chunk.slice(0, -1);
     if (chunk === '') return;
     generation.chars += chunk.length;
+    generation.piece += chunk;
     this.send({ type: 'text.delta', delta: chunk });
+    generation.cancelPause?.();
+    generation.cancelPause = this.timer(() => {
+      generation.cancelPause = undefined;
+      if (this.active === generation && !generation.flushed) this.endPiece(generation);
+    }, XAI_PAUSE_FLUSH_MS);
+  }
+
+  /** Ends the piece in progress with `text.done`, if it has any words. */
+  private endPiece(generation: Generation): void {
+    if (generation.piece.trim() === '') return;
+    generation.piece = '';
+    generation.piecesInFlight += 1;
+    this.send({ type: 'text.done' });
   }
 
   /**
@@ -155,7 +190,17 @@ class XaiTtsSession implements TtsSession {
     }
     if (generation.generationId !== generationId || generation.flushed) return;
     generation.flushed = true;
-    this.send({ type: 'text.done' });
+    generation.cancelPause?.();
+    generation.cancelPause = undefined;
+    this.endPiece(generation);
+    // Every piece was already spoken (the reply ended after a pause): nothing more will come.
+    if (generation.piecesInFlight === 0) this.finish(generation);
+  }
+
+  private finish(generation: Generation): void {
+    this.active = undefined;
+    this.end(generation.generationId);
+    this.onEvent({ type: 'done', generationId: generation.generationId });
   }
 
   cancel(generationId: string): void {
@@ -170,6 +215,7 @@ class XaiTtsSession implements TtsSession {
     if (this.closing) return Promise.resolve();
     this.closing = true;
     this.stopClearTimer();
+    this.active?.cancelPause?.();
     this.active = undefined;
     if (this.socket.isOpen) this.socket.close(1000);
     return Promise.resolve();
@@ -183,6 +229,7 @@ class XaiTtsSession implements TtsSession {
 
   /** Drops the active utterance and asks xAI to clear it; its audio drains unheard. */
   private abandon(): void {
+    this.active?.cancelPause?.();
     this.active = undefined;
     this.pendingClears += 1;
     this.send({ type: 'text.clear' });
@@ -223,10 +270,9 @@ class XaiTtsSession implements TtsSession {
       case 'audio.done': {
         if (this.pendingClears > 0) return;
         const generation = this.active;
-        if (generation === undefined || !generation.flushed) return;
-        this.active = undefined;
-        this.end(generation.generationId);
-        this.onEvent({ type: 'done', generationId: generation.generationId });
+        if (generation === undefined || generation.piecesInFlight === 0) return;
+        generation.piecesInFlight -= 1;
+        if (generation.flushed && generation.piecesInFlight === 0) this.finish(generation);
         return;
       }
       case 'audio.clear':
@@ -289,6 +335,7 @@ class XaiTtsSession implements TtsSession {
     const generationId = this.active?.generationId;
     this.closing = true;
     this.stopClearTimer();
+    this.active?.cancelPause?.();
     this.active = undefined;
     if (this.socket.isOpen) this.socket.close(1011);
     this.onEvent({ type: 'error', generationId, error });
