@@ -214,14 +214,6 @@ describe('loadGatewayEnv', () => {
     });
   });
 
-  it('leaves the xAI voice latency setting to xAI unless set, and bounds it', () => {
-    expect(loadGatewayEnv({}).XAI_TTS_OPTIMIZE_LATENCY).toBeUndefined();
-    expect(loadGatewayEnv({ XAI_TTS_OPTIMIZE_LATENCY: '0' }).XAI_TTS_OPTIMIZE_LATENCY).toBe(0);
-    expect(loadGatewayEnv({ XAI_TTS_OPTIMIZE_LATENCY: '2' }).XAI_TTS_OPTIMIZE_LATENCY).toBe(2);
-    expect(() => loadGatewayEnv({ XAI_TTS_OPTIMIZE_LATENCY: '3' })).toThrow();
-    expect(() => loadGatewayEnv({ XAI_TTS_OPTIMIZE_LATENCY: '1.5' })).toThrow();
-  });
-
   it('defaults xAI listening settings and bounds them', () => {
     const env = loadGatewayEnv({});
     expect(env.XAI_STT_ENDPOINTING_MS).toBe(400);

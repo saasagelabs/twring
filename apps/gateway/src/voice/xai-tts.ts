@@ -31,8 +31,6 @@ export type XaiVoice = 'eve' | 'ara' | 'rex' | 'sal' | 'leo';
 export interface XaiTtsOptions {
   apiKey: string;
   voice: XaiVoice;
-  /** xAI's `optimize_streaming_latency` (0 to 2); unset leaves xAI's default. */
-  optimizeStreamingLatency?: number;
   socketFactory?: SocketFactory;
   /** Override for tests; production always uses xAI's endpoint. */
   baseUrl?: string;
@@ -71,11 +69,6 @@ export function createXaiTts(options: XaiTtsOptions): TtsProvider {
       url.searchParams.set('voice', options.voice);
       url.searchParams.set('codec', 'pcm');
       url.searchParams.set('sample_rate', String(SAMPLE_RATE));
-      if (options.optimizeStreamingLatency !== undefined)
-        url.searchParams.set(
-          'optimize_streaming_latency',
-          String(options.optimizeStreamingLatency),
-        );
       const socket = connect(url.toString(), { Authorization: `Bearer ${options.apiKey}` });
       try {
         await waitForOpen(socket, signal);

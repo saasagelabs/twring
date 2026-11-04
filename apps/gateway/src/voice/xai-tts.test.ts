@@ -45,19 +45,6 @@ describe('xAI streaming TTS', () => {
     expect(socket.headers).toEqual({ Authorization: `Bearer ${KEY}` });
   });
 
-  it('asks for lower time to first audio only when configured', async () => {
-    const factory = fakeSocketFactory();
-    const tts = createXaiTts({
-      apiKey: KEY,
-      voice: 'eve',
-      socketFactory: factory,
-      optimizeStreamingLatency: 1,
-    });
-    await tts.open(() => undefined, new AbortController().signal);
-    const url = new URL(factory.sockets[0]!.url);
-    expect(url.searchParams.get('optimize_streaming_latency')).toBe('1');
-  });
-
   it('sends text.delta for speak and text.done for flush', async () => {
     const { session, sent } = await openTts();
     session.speak('g1', 'Hello, ');
