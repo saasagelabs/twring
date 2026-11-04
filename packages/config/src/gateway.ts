@@ -437,11 +437,6 @@ export const gatewayEnvSchema = z
     XAI_STT_SMART_TURN: z.coerce.number().min(0).max(1).optional(),
     /** Smart-turn timeout (ms). */
     XAI_STT_SMART_TURN_TIMEOUT_MS: z.coerce.number().int().min(1).max(5000).optional(),
-    /**
-     * Grok voices: xAI's `optimize_streaming_latency` (0 best quality, 1 moderate, 2 lowest time
-     * to first audio). Unset leaves xAI's default.
-     */
-    XAI_TTS_OPTIMIZE_LATENCY: z.coerce.number().int().min(0).max(2).optional(),
 
     // Agent rings the owner (ADR-024): FCM HTTP v1 push.
     /**
