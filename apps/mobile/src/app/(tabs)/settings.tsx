@@ -258,7 +258,7 @@ ${usageReset}`
           {voiceAccounts && (
             <SettingsRow
               label="Your own voice accounts"
-              value="Use your own Deepgram or Cartesia"
+              value="Use your own Deepgram, Cartesia or xAI"
               onPress={() => router.push('/settings/voice-accounts')}
               divider={false}
             />

@@ -1,9 +1,17 @@
 /** Voice ids for Grok voices; the server lists them only for people with their own xAI key. */
 const GROK_PREFIX = 'xai-';
 
+/**
+ * Grok voices take about a second to start each reply (xAI's own time, measured 2026-11-04), where
+ * the usual voices start almost at once; said up front so the pause does not feel like a fault.
+ */
+export const GROK_VOICE_NOTE = 'Grok voices start talking about a second later than the others.';
+
 export interface VoiceGroup<V> {
   /** Undefined for the usual voices, which need no heading. */
   label: 'Grok' | undefined;
+  /** A line shown under the heading. */
+  note?: string;
   voices: V[];
 }
 
@@ -13,7 +21,7 @@ export function voiceGroups<V extends { id: string }>(voices: readonly V[]): Voi
   const grok = voices.filter((voice) => voice.id.startsWith(GROK_PREFIX));
   const groups: VoiceGroup<V>[] = [];
   if (usual.length > 0) groups.push({ label: undefined, voices: usual });
-  if (grok.length > 0) groups.push({ label: 'Grok', voices: grok });
+  if (grok.length > 0) groups.push({ label: 'Grok', note: GROK_VOICE_NOTE, voices: grok });
   return groups;
 }
 
