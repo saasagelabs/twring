@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas
+    url: https://github.com/saasagelabs/twring/discussions
+    about: Ask how something works, share what you built, or float an idea.
+  - name: Help with your account or the app
+    url: https://twring.com/support/
+    about: Sign-in, invites, billing or anything about your own account.
+  - name: Report a security problem
+    url: https://github.com/saasagelabs/twring/security/policy
+    about: Please report security issues privately, never in a public issue.
