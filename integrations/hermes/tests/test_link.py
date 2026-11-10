@@ -60,7 +60,7 @@ def test_start_link_offers_hermes_and_returns_the_code():
     assert seen["url"] == f"{SERVER}/v1/connectors/link-requests"
     assert seen["body"] == {
         "computer_name": "my-vps (Hermes)",
-        "agents": [{"id": "hermes", "label": "Hermes", "kind": "acp"}],
+        "agents": [{"local_agent": "hermes", "kind": "acp", "label": "Hermes"}],
     }
     assert seen["auth"] is None
     assert link.code == "ABCD-EFGH"

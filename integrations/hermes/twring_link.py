@@ -76,7 +76,8 @@ def start_link(client: httpx.Client, server: str, computer_name: str) -> LinkReq
             f"{server}/v1/connectors/link-requests",
             json={
                 "computer_name": (computer_name.strip() or "Hermes")[:MAX_COMPUTER_NAME],
-                "agents": [{"id": AGENT_ID, "label": AGENT_LABEL, "kind": AGENT_KIND}],
+                # Link requests name the agent `local_agent` (the relay hello uses `id`).
+                "agents": [{"local_agent": AGENT_ID, "kind": AGENT_KIND, "label": AGENT_LABEL}],
             },
         )
     except httpx.HTTPError as error:
