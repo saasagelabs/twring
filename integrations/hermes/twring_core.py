@@ -146,9 +146,20 @@ class ReplyStream:
         return self._advance(content)
 
     def final(self, content: str) -> str:
-        delta = self._advance(content)
+        """The finished answer. Words already sent are not repeated: when only the formatting
+        changed (markdown removed, punctuation added), just the new words are added. An answer
+        unlike what was sent (a progress note went first) is said whole as a new paragraph: losing
+        an answer is worse than repeating a few words."""
         self._draft_id = None
-        return delta
+        if self._sent == "" or content.startswith(self._sent):
+            return self._advance(content)
+        sent, said = _words(self._sent), _words(content)
+        if sent and said.startswith(sent):
+            rest = _after_words(content, len(sent))
+            self._sent = content
+            return rest if _words(rest) else ""
+        self._sent = content
+        return "\n\n" + content if content else ""
 
     def _advance(self, content: str) -> str:
         if self._sent == "":
@@ -163,6 +174,22 @@ class ReplyStream:
             self._sent = content
             return delta
         return ""
+
+
+def _words(text: str) -> str:
+    """Letters and digits only, lower case: the words, without formatting."""
+    return "".join(c.lower() for c in text if c.isalnum())
+
+
+def _after_words(text: str, count: int) -> str:
+    """What follows the first `count` letters and digits of `text`."""
+    seen = 0
+    for index, char in enumerate(text):
+        if char.isalnum():
+            seen += 1
+            if seen == count:
+                return text[index + 1 :]
+    return ""
 
 
 def _cut(text: str, limit: int) -> str:

@@ -107,6 +107,12 @@ def _socket_url(server: str) -> str:
     return "ws://" + server[len("http://") :] + "/v1/connectors/socket"
 
 
+def _turn_key(channel: str, turn_id: str) -> str:
+    """Twring numbers turns per call (turn_1, turn_2...), so a turn is unique only within its channel;
+    Hermes refuses a repeated message id, so the key names both."""
+    return f"{channel}/{turn_id}"
+
+
 def _first_sentence(text: str, limit: int = 140) -> str:
     clean = " ".join(text.replace("⟪hangup⟫", " ").split())
     for index, char in enumerate(clean):
@@ -139,11 +145,11 @@ class TwringAdapter(BasePlatformAdapter):
         self._stopping = False
         self._fatal: Optional[tuple[str, str]] = None
         self._channels: dict[str, str] = {}  # channel -> agent session id (once hello'd)
-        self._turns: dict[str, TurnState] = {}  # turn id -> turn still owed an answer
+        self._turns: dict[str, TurnState] = {}  # turn key -> turn still owed an answer
         self._current: Optional[TurnState] = None  # the turn Hermes is answering now
         self._last_activity: dict[str, float] = {}
-        self._approvals: dict[str, tuple[str, str]] = {}  # approval id -> (session key, turn id)
-        self._orphan_text: dict[str, str] = {}  # turn id -> reply text after its call hung up
+        self._approvals: dict[str, tuple[str, str]] = {}  # approval id -> (session key, turn key)
+        self._orphan_text: dict[str, str] = {}  # turn key -> reply text after its call hung up
         self._dedup = MessageDeduplicator(ttl_seconds=600)
         self._http: Any = None
 
@@ -289,9 +295,9 @@ class TwringAdapter(BasePlatformAdapter):
 
     def _drop_open_turns(self) -> None:
         """A dropped link fails Twring's running turn there; Hermes's answer goes to the chat instead."""
-        for turn in list(self._turns.values()):
+        for key, turn in list(self._turns.items()):
             if not turn.finished:
-                self._orphan_text.setdefault(turn.turn_id, "")
+                self._orphan_text.setdefault(key, "")
         self._channels.clear()
 
     # ── Twring → Hermes ───────────────────────────────────────────────────────────────────────
@@ -310,10 +316,10 @@ class TwringAdapter(BasePlatformAdapter):
             return
         if kind == "channel.close":
             self._channels.pop(channel, None)
-            for turn in self._turns.values():
+            for key, turn in self._turns.items():
                 if turn.channel == channel and not turn.finished:
                     # Hung up mid-answer: the rest of the reply goes to the chat (and may ring).
-                    self._orphan_text.setdefault(turn.turn_id, "")
+                    self._orphan_text.setdefault(key, "")
             return
         if kind != "channel.message" or channel not in self._channels:
             return
@@ -332,7 +338,7 @@ class TwringAdapter(BasePlatformAdapter):
         elif kind == "user.turn":
             await self._on_user_turn(channel, message)
         elif kind == "turn.cancel":
-            turn = self._turns.get(str(message.get("turn_id")))
+            turn = self._turns.get(_turn_key(channel, str(message.get("turn_id"))))
             if turn is not None and not turn.finished:
                 await self._emit(turn, turn.finish("cancelled"))
         elif kind == "approval.decision":
@@ -341,11 +347,14 @@ class TwringAdapter(BasePlatformAdapter):
     async def _on_user_turn(self, channel: str, message: dict[str, Any]) -> None:
         turn_id = message.get("turn_id")
         text = message.get("text")
-        if not isinstance(turn_id, str) or not isinstance(text, str) or self._dedup.is_duplicate(turn_id):
+        if not isinstance(turn_id, str) or not isinstance(text, str):
+            return
+        key = _turn_key(channel, turn_id)
+        if self._dedup.is_duplicate(key):
             return
         surface = "text" if message.get("surface") == "text" else "call"
         turn = TurnState(channel, turn_id, surface)
-        self._turns[turn_id] = turn
+        self._turns[key] = turn
         logger.info("Twring: %s turn %s on %s", surface, turn_id, channel)
         if not self._message_handler:
             await self._emit(turn, turn.finish("failed"))
@@ -357,7 +366,7 @@ class TwringAdapter(BasePlatformAdapter):
                 text=body,
                 message_type=MessageType.TEXT,
                 source=source,
-                message_id=turn_id,
+                message_id=key,
                 timestamp=datetime.datetime.now(),
             )
         )
@@ -367,7 +376,7 @@ class TwringAdapter(BasePlatformAdapter):
         entry = self._approvals.pop(approval_id, None)
         if entry is None:
             return
-        session_key, turn_id = entry
+        session_key, turn_key = entry
         decision = "approve" if message.get("decision") == "approve" else "deny"
         from tools.approval import resolve_gateway_approval_card
 
@@ -378,7 +387,7 @@ class TwringAdapter(BasePlatformAdapter):
             actor_id=OWNER_ID,
             extra=getattr(self.config, "extra", None),
         )
-        turn = self._turns.get(turn_id)
+        turn = self._turns.get(turn_key)
         if turn is not None and not turn.finished:
             by = "owner" if resolved else "timeout"
             final = decision if resolved else "deny"
@@ -407,10 +416,11 @@ class TwringAdapter(BasePlatformAdapter):
             return
         if self._current is turn:
             self._current = None
-        self._last_activity.pop(turn.turn_id, None)
+        key = event.message_id or ""
+        self._last_activity.pop(key, None)
         status = {ProcessingOutcome.SUCCESS: "completed", ProcessingOutcome.CANCELLED: "cancelled"}.get(outcome, "failed")
-        if turn.turn_id in self._orphan_text:
-            text = self._orphan_text.pop(turn.turn_id).strip()
+        if key in self._orphan_text:
+            text = self._orphan_text.pop(key).strip()
             if text and status == "completed":
                 await self._post_result(turn, text)
             return
@@ -419,8 +429,9 @@ class TwringAdapter(BasePlatformAdapter):
     async def _deliver_text(self, turn: TurnState, delta: str) -> None:
         if not delta:
             return
-        if turn.turn_id in self._orphan_text or turn.channel not in self._channels:
-            self._orphan_text[turn.turn_id] = self._orphan_text.get(turn.turn_id, "") + delta
+        key = _turn_key(turn.channel, turn.turn_id)
+        if key in self._orphan_text or turn.channel not in self._channels:
+            self._orphan_text[key] = self._orphan_text.get(key, "") + delta
             return
         await self._emit(turn, turn.text(delta))
 
@@ -477,12 +488,13 @@ class TwringAdapter(BasePlatformAdapter):
     async def send_typing(self, chat_id: str, metadata=None) -> None:
         """Hermes's typing heartbeat keeps Twring's turn alive and the phone showing 'working'."""
         turn = self._turn_for()
-        if turn is None or turn.finished or turn.turn_id in self._orphan_text:
+        key = _turn_key(turn.channel, turn.turn_id) if turn is not None else ""
+        if turn is None or turn.finished or key in self._orphan_text:
             return
         now = asyncio.get_running_loop().time()
-        if now - self._last_activity.get(turn.turn_id, 0.0) < ACTIVITY_EVERY_S:
+        if now - self._last_activity.get(key, 0.0) < ACTIVITY_EVERY_S:
             return
-        self._last_activity[turn.turn_id] = now
+        self._last_activity[key] = now
         await self._emit(turn, [turn.event("activity", label="Working…", kind="working")])
 
     def format_tool_event(self, event: Any, *, mode: str = "all", preview_max_len: int = 40) -> Optional[str]:
@@ -491,7 +503,7 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def _send_exec_approval_prompt(self, prompt: ExecApprovalPrompt) -> SendResult:
         turn = self._turn_for()
-        if turn is None or turn.finished or turn.turn_id in self._orphan_text:
+        if turn is None or turn.finished or _turn_key(turn.channel, turn.turn_id) in self._orphan_text:
             return SendResult(success=False, error="No Twring call or chat is open for this approval")
         if "once" not in prompt.choices or not prompt.request_id:
             # Hermes could not show the whole command on the card: nobody approves what they cannot read.
@@ -501,7 +513,7 @@ class TwringAdapter(BasePlatformAdapter):
                 "declined from the phone. Approve it at the computer if you want it to run.",
             )
             return SendResult(success=True)
-        self._approvals[prompt.request_id] = (prompt.session_key, turn.turn_id)
+        self._approvals[prompt.request_id] = (prompt.session_key, _turn_key(turn.channel, turn.turn_id))
         await self._emit(turn, [approval_required(turn, prompt.request_id, prompt.command, prompt.description)])
         return SendResult(success=True, message_id=prompt.request_id)
 
@@ -601,6 +613,10 @@ def register(ctx) -> None:
         allowed_users_env="TWRING_ALLOWED_USERS",
         allow_all_env="TWRING_ALLOW_ALL_USERS",
         max_message_length=0,
+        # A phone call: no tool-progress notes, interim chatter or long-run notices are spoken or
+        # posted (they arrived as the "answer" in the first live test); answers still stream.
+        display_tier="low",
+        display_overrides={"streaming": True},
         emoji="📞",
         pii_safe=True,
         platform_hint=CALL_HINT,

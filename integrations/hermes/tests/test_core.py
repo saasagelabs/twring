@@ -110,12 +110,28 @@ class TestReplyStream:
         stream.draft(1, "Let me check.")
         assert stream.draft(2, "It passed.") == "\n\nIt passed."
 
-    def test_a_rewritten_draft_is_never_said_twice(self):
+    def test_a_final_answer_unlike_what_was_sent_is_still_said(self):
+        """Live test: a progress note went out first and the real answer was dropped."""
+        stream = ReplyStream()
+        stream.draft(1, "Updating memory")
+        assert stream.final("Yes, I can hear you.") == "\n\nYes, I can hear you."
+
+    def test_a_final_answer_that_only_tidies_the_draft_is_not_repeated(self):
+        stream = ReplyStream()
+        stream.draft(1, "The build **passed**")
+        assert stream.final("The build passed.") == ""
+
+    def test_a_rewritten_draft_is_not_repeated_while_drafting_and_its_answer_is_never_lost(self):
         stream = ReplyStream()
         stream.draft(1, "Hello wrld")
         assert stream.draft(1, "Hello world") == ""
         assert stream.draft(1, "Hello world, again") == ""
-        assert stream.final("Hello world, again") == ""
+        assert stream.final("Hello world, again") == "\n\nHello world, again"
+
+    def test_a_tidied_final_adds_only_its_new_words(self):
+        stream = ReplyStream()
+        stream.draft(1, "The build **passed**")
+        assert stream.final("The build passed. All 40 tests are green.") == ". All 40 tests are green."
 
 
 class TestApprovals:

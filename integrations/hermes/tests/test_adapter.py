@@ -102,8 +102,8 @@ async def turn(fake, events, text="Hello", surface=None, turn_id="t1"):
         frame["surface"] = surface
     await fake.agent(frame)
     for _ in range(100):
-        if any(e.message_id == turn_id for e in events):
-            return next(e for e in events if e.message_id == turn_id)
+        if any(e.message_id == f"ch_1/{turn_id}" for e in events):
+            return next(e for e in events if e.message_id == f"ch_1/{turn_id}")
         await asyncio.sleep(0.02)
     raise AssertionError("turn never reached Hermes")
 
@@ -234,3 +234,22 @@ async def test_only_a_scheduled_job_rings_other_notices_are_quiet_chat_messages(
         ("Backup finished: 3 files.", True),
         ("Nightly report.", False),
     ]
+
+
+async def test_turn_numbers_restart_each_call_so_a_second_call_still_reaches_hermes(linked):
+    """Twring numbers turns per call (turn_1, turn_2...); Hermes refuses a repeated message id."""
+    _, fake, events = linked
+    first = await turn(fake, events, "First call", turn_id="turn_1")
+    await fake.send({"type": "channel.open", "channel": "ch_2", "agent": "hermes"})
+    await fake.send({"type": "channel.message", "channel": "ch_2", "message": {
+        "type": "session.hello", "protocol": "cord-agent/1", "session_id": "s2", "call_id": "c2", "capabilities_requested": []}})
+    await fake.send({"type": "channel.message", "channel": "ch_2", "message": {
+        "type": "user.turn", "session_id": "s2", "turn_id": "turn_1", "text": "Second call",
+        "started_at": "x", "committed_at": "x"}})
+    for _ in range(100):
+        if len(events) == 2:
+            break
+        await asyncio.sleep(0.02)
+    assert [e.text for e in events] == ["First call", "Second call"]
+    assert events[0].message_id != events[1].message_id == events[1].message_id
+    assert first.message_id != events[1].message_id
