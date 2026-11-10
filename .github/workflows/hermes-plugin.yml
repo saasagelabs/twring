@@ -57,8 +57,6 @@ jobs:
           echo "PYTHONPATH=$RUNNER_TEMP/testlibs" >> "$GITHUB_ENV"
       - name: Adapter inside Hermes, against a fake Twring server
         run: |
-          cd "$HOME"
-          "$HERMES_PY" -m pytest -q -p no:cacheprovider -c "$GITHUB_WORKSPACE/integrations/hermes/pytest.ini" \
-            --rootdir "$GITHUB_WORKSPACE/integrations/hermes" "$GITHUB_WORKSPACE/integrations/hermes/tests/test_adapter.py"
+          "$HERMES_PY" -m pytest -q -p no:cacheprovider -W ignore::DeprecationWarning tests/test_adapter.py
       - name: Hermes catalog check
         run: hermes plugins validate . --install-deps
