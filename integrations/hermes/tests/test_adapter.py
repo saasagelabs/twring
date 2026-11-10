@@ -215,3 +215,22 @@ async def test_a_revoked_link_stops_without_retrying(monkeypatch):
         assert not await adapter.connect()
         await asyncio.sleep(1.5)
         assert len(fake.auth) == 1
+
+
+async def test_only_a_scheduled_job_rings_other_notices_are_quiet_chat_messages(linked, monkeypatch):
+    adapter, _, _ = linked
+    calls = []
+
+    async def fake_deliver(http, server, token, content, *, ring):
+        calls.append((content, ring))
+        return {"success": True, "message_id": "m"}
+
+    monkeypatch.setattr(twring, "deliver", fake_deliver)
+    await adapter.send("owner", "Gateway shutting down.")
+    await adapter.send("owner", "Backup finished: 3 files.", metadata={"job_id": "job_1", "notify": True})
+    await adapter.send("owner", "Nightly report.", metadata={"job_id": "job_2", "notify": False})
+    assert calls == [
+        ("Gateway shutting down.", False),
+        ("Backup finished: 3 files.", True),
+        ("Nightly report.", False),
+    ]

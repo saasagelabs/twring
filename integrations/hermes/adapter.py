@@ -282,6 +282,7 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def _emit(self, turn: TurnState, events: list[dict[str, Any]]) -> None:
         if turn.channel not in self._channels:
+            logger.info("Twring: channel %s is closed; %d event(s) for turn %s not sent", turn.channel, len(events), turn.turn_id)
             return
         for event in events:
             await self._send(channel_message(turn.channel, event))
@@ -345,6 +346,7 @@ class TwringAdapter(BasePlatformAdapter):
         surface = "text" if message.get("surface") == "text" else "call"
         turn = TurnState(channel, turn_id, surface)
         self._turns[turn_id] = turn
+        logger.info("Twring: %s turn %s on %s", surface, turn_id, channel)
         if not self._message_handler:
             await self._emit(turn, turn.finish("failed"))
             return
@@ -394,11 +396,13 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def on_processing_start(self, event: MessageEvent) -> None:
         turn = self._turns.get(event.message_id or "")
+        logger.info("Twring: Hermes started on %s (known turn: %s)", event.message_id, turn is not None)
         if turn is not None:
             self._current = turn
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
         turn = self._turns.pop(event.message_id or "", None)
+        logger.info("Twring: Hermes finished %s (%s, known turn: %s)", event.message_id, outcome, turn is not None)
         if turn is None:
             return
         if self._current is turn:
@@ -448,17 +452,21 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata=None) -> SendResult:
         turn = self._turn_for()
+        logger.info("Twring: reply of %d chars for %s", len(content), turn.turn_id if turn else "no open turn")
         if turn is not None and not turn.finished:
             await self._deliver_text(turn, turn.reply.final(content))
             return SendResult(success=True, message_id=f"{turn.turn_id}-m")
-        return await self._deliver_proactive(content)
+        return await self._deliver_proactive(content, metadata)
 
-    async def _deliver_proactive(self, content: str) -> SendResult:
-        """Text with no call or chat turn waiting (a scheduled job, `hermes send`): post it to the
-        Twring chat, then ring the owner with its first sentence when ring-on-delivery is on."""
+    async def _deliver_proactive(self, content: str, metadata: Optional[dict] = None) -> SendResult:
+        """Text with no call or chat turn waiting: post it to the Twring chat. Only a scheduled job's
+        result (Hermes marks it with `job_id`, and `notify` not off) also rings the phone with its
+        first sentence; gateway notices such as a restart arrive as a quiet chat message."""
         if self._http is None or self._server is None:
             return SendResult(success=False, error="Twring is not connected")
-        result = await deliver(self._http, self._server, self._token, content, ring=self._ring_on_delivery)
+        meta = metadata or {}
+        ring = self._ring_on_delivery and bool(meta.get("job_id")) and meta.get("notify", True) is not False
+        result = await deliver(self._http, self._server, self._token, content, ring=ring)
         if not result.get("success"):
             return SendResult(success=False, error=str(result.get("error", "Twring refused the message")))
         return SendResult(success=True, message_id=str(result.get("message_id", "")))
