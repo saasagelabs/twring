@@ -20,6 +20,16 @@ import adapter as twring  # noqa: E402
 TOKEN = "cct_" + "e" * 43
 
 
+@pytest.fixture(autouse=True)
+def twring_platform_registered(monkeypatch):
+    """Hermes accepts `Platform("twring")` once the plugin has registered it; registration itself
+    is covered by `hermes plugins validate`, so the adapter tests only need the name known."""
+    from gateway.platform_registry import platform_registry
+
+    real = platform_registry.is_registered
+    monkeypatch.setattr(platform_registry, "is_registered", lambda name: name == "twring" or real(name))
+
+
 class FakeTwring:
     """Plays the Twring server's side of `cord-relay/1`."""
 
@@ -74,6 +84,7 @@ async def linked(monkeypatch):
             events.append(event)
 
         monkeypatch.setattr(adapter, "handle_message", capture)
+        monkeypatch.setattr(adapter, "_message_handler", capture)  # the gateway attaches one in real runs
         monkeypatch.setattr(adapter, "_acquire_platform_lock", lambda *a, **k: True)
         monkeypatch.setattr(adapter, "_release_platform_lock", lambda *a, **k: None)
         assert await adapter.connect()
