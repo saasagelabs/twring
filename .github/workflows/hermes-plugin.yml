@@ -1,0 +1,41 @@
+# The Twring plugin for Hermes Agent (integrations/hermes): its own tests, then the adapter inside
+# real Hermes against a fake Twring server, then Hermes's catalog check (`hermes plugins validate`).
+name: 'Hermes plugin: tests and catalog check'
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'integrations/hermes/**'
+      - '.github/workflows/hermes-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-plugin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: integrations/hermes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Plugin tests (protocol, linking, CLI)
+        run: |
+          python -m pip install --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3" "httpx==0.28.1" "websockets==15.0.1"
+          python -m pytest -q -p no:cacheprovider tests
+      - name: Install Hermes Agent v0.23.1
+        run: python -m pip install --quiet "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@v0.23.1"
+      - name: Adapter inside Hermes, against a fake Twring server
+        run: python -m pytest -q -p no:cacheprovider tests/test_adapter.py
+      - name: Hermes catalog check
+        run: hermes plugins validate . --install-deps

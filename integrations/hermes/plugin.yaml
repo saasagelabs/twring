@@ -1,0 +1,37 @@
+name: twring
+label: Twring
+kind: platform
+version: 0.1.0
+manifest_version: 1
+description: >
+  Call Hermes from your phone and let it call you back, through the Twring app (iPhone and
+  Android). Live two-way voice calls and typed chat in one conversation with your own Hermes,
+  dangerous-command approvals answered by voice or tap, and a phone ring when a scheduled job
+  finishes. Twring does the speech; Hermes keeps its own model, memory and tools.
+author: SaaSage Labs
+license: Apache-2.0
+homepage: https://twring.com
+requires_hermes: '>=0.23.1'
+tags: [voice, phone, calls, approvals, platform]
+requires_env:
+  - name: TWRING_TOKEN
+    description: "This computer's Twring link token. Run `hermes twring link` to get it from the Twring app; it is saved for you."
+    prompt: 'Twring link token (run `hermes twring link` instead of pasting one)'
+    password: true
+optional_env:
+  - name: TWRING_SERVER
+    description: "Twring server (default https://api.twring.com; set your own server's address if you self-host Twring)"
+    prompt: 'Twring server'
+    password: false
+  - name: TWRING_ALLOWED_USERS
+    description: 'Who may talk to Hermes through Twring; `owner` (the linked Twring account) is set by `hermes twring link`'
+    prompt: 'Allowed users'
+    password: false
+  - name: TWRING_HOME_CHANNEL
+    description: 'Where scheduled-job results go (`owner`, set by `hermes twring link`)'
+    prompt: 'Home channel'
+    password: false
+  - name: TWRING_RING_ON_DELIVERY
+    description: 'Ring your phone when a scheduled job delivers a result (true or false, default true)'
+    prompt: 'Ring on delivery? (true/false)'
+    password: false
