@@ -50,7 +50,11 @@ jobs:
           done
           if [ -z "$HERMES_PY" ]; then echo "Hermes's Python was not found"; find "$HOME/.hermes" -maxdepth 4 -name 'python*' | head; exit 1; fi
           echo "HERMES_PY=$HERMES_PY" >> "$GITHUB_ENV"
-          uv pip install --python "$HERMES_PY" --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3"
+          # Hermes keeps its own uv under ~/.hermes/tools; the test tools go in their own folder so
+          # Hermes's environment stays exactly as installed.
+          UV="$(find "$HOME/.hermes/tools" -name uv -type f | head -1)"
+          "$UV" pip install --python "$HERMES_PY" --target "$RUNNER_TEMP/testlibs" --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3"
+          echo "PYTHONPATH=$RUNNER_TEMP/testlibs" >> "$GITHUB_ENV"
       - name: Adapter inside Hermes, against a fake Twring server
         run: |
           cd "$HOME"
