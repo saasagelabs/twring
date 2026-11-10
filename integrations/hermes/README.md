@@ -1,5 +1,7 @@
 # Twring for Hermes
 
+![Twring for Hermes: when it matters, Hermes calls you](assets/banner.png)
+
 **Call your Hermes. Hermes calls you.**
 
 Twring is a phone app (iPhone and Android) for the AI agents you already run. This plugin makes Twring a Hermes messaging platform, like Telegram, except you can also **talk**:
