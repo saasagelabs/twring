@@ -360,7 +360,10 @@ class TwringAdapter(BasePlatformAdapter):
             await self._emit(turn, turn.finish("failed"))
             return
         source = self.build_source(chat_id=CHAT_ID, chat_name="Twring", chat_type="dm", user_id=OWNER_ID, user_name="Owner")
-        body = f"{TEXT_TURN_TAG}\n{text}" if surface == "text" else text
+        # Typed turns carry the tag so Hermes writes rather than speaks; a slash command such as
+        # `/approve` reaches Hermes as typed, or the gateway would not see the command.
+        tagged = surface == "text" and not text.lstrip().startswith("/")
+        body = f"{TEXT_TURN_TAG}\n{text}" if tagged else text
         await self.handle_message(
             MessageEvent(
                 text=body,
@@ -505,6 +508,10 @@ class TwringAdapter(BasePlatformAdapter):
         turn = self._turn_for()
         if turn is None or turn.finished or _turn_key(turn.channel, turn.turn_id) in self._orphan_text:
             return SendResult(success=False, error="No Twring call or chat is open for this approval")
+        if turn.surface == "text":
+            # The Twring app shows approval prompts on calls; in a typed chat Hermes's own text
+            # prompt (reply /approve or /deny) is the way to answer.
+            return SendResult(success=False, error="Twring shows approval prompts on calls only")
         if "once" not in prompt.choices or not prompt.request_id:
             # Hermes could not show the whole command on the card: nobody approves what they cannot read.
             await self._deliver_text(

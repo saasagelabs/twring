@@ -253,3 +253,25 @@ async def test_turn_numbers_restart_each_call_so_a_second_call_still_reaches_her
     assert [e.text for e in events] == ["First call", "Second call"]
     assert events[0].message_id != events[1].message_id == events[1].message_id
     assert first.message_id != events[1].message_id
+
+
+async def test_a_typed_chat_approval_falls_back_to_hermes_text_prompt(linked):
+    """The Twring app shows approval prompts on calls only; in a typed chat Hermes's own
+    `/approve` text prompt is the way to answer, so the card is declined there."""
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", surface="text", turn_id="t7")
+    await adapter.on_processing_start(event)
+    prompt = ExecApprovalPrompt(
+        chat_id="owner", session_key="sk1", text="", actions=[("Allow", "once", "primary"), ("Deny", "deny", "danger")],
+        command="rm -rf build", description="", smart_denied=False, request_id="req7",
+    )
+    result = await adapter._send_exec_approval_prompt(prompt)
+    assert not result.success
+    await asyncio.sleep(0.1)
+    assert not any(m["type"] == "approval.required" for m in fake.agent_frames())
+
+
+async def test_a_typed_slash_command_reaches_hermes_untagged(linked):
+    _, fake, events = linked
+    event = await turn(fake, events, "/approve", surface="text", turn_id="t8")
+    assert event.text == "/approve"
