@@ -33,9 +33,28 @@ jobs:
         run: |
           python -m pip install --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3" "httpx==0.28.1" "websockets==15.0.1"
           python -m pytest -q -p no:cacheprovider tests
+      # Hermes ships only through its own installer (no pip wheels); pinned to v0.23.1's commit.
       - name: Install Hermes Agent v0.23.1
-        run: python -m pip install --quiet "hermes-agent @ git+https://github.com/NousResearch/hermes-agent@v0.23.1"
+        run: |
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- \
+            --commit b65acf3fdc1d43bd889211ea8e37032974b395a5 \
+            --non-interactive --skip-browser --skip-computer-use
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Find Hermes's Python and add the test tools to it
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes --version
+          HERMES_PY=""
+          for candidate in $(find "$HOME/.hermes" -path '*/bin/python3' 2>/dev/null); do
+            if "$candidate" -c 'import gateway.platforms.base' 2>/dev/null; then HERMES_PY="$candidate"; break; fi
+          done
+          if [ -z "$HERMES_PY" ]; then echo "Hermes's Python was not found"; find "$HOME/.hermes" -maxdepth 4 -name 'python*' | head; exit 1; fi
+          echo "HERMES_PY=$HERMES_PY" >> "$GITHUB_ENV"
+          uv pip install --python "$HERMES_PY" --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3"
       - name: Adapter inside Hermes, against a fake Twring server
-        run: python -m pytest -q -p no:cacheprovider tests/test_adapter.py
+        run: |
+          cd "$HOME"
+          "$HERMES_PY" -m pytest -q -p no:cacheprovider -c "$GITHUB_WORKSPACE/integrations/hermes/pytest.ini" \
+            --rootdir "$GITHUB_WORKSPACE/integrations/hermes" "$GITHUB_WORKSPACE/integrations/hermes/tests/test_adapter.py"
       - name: Hermes catalog check
         run: hermes plugins validate . --install-deps
