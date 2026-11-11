@@ -114,6 +114,11 @@ class TurnState:
             )
         return events
 
+    @property
+    def answered(self) -> bool:
+        """Whether any reply text has gone out for this turn."""
+        return self._message_id is not None
+
     def finish(self, status: str) -> list[dict[str, Any]]:
         """Ends the turn (`completed`, `failed` or `cancelled`); later text is dropped."""
         if self.finished:

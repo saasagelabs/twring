@@ -163,6 +163,7 @@ class TwringAdapter(BasePlatformAdapter):
         self._stopped: set[str] = set()  # turn keys the owner cancelled, so Hermes was stopped
         self._own_ids: set[str] = set()  # message ids of the plugin's own `/stop` commands
         self._joined: dict[str, str] = {}  # turn key -> key of the run it arrived during
+        self._awaiting: set[str] = set()  # turn keys Hermes returned from before answering
         self._dedup = MessageDeduplicator(ttl_seconds=600)
         self._http: Any = None
 
@@ -369,6 +370,11 @@ class TwringAdapter(BasePlatformAdapter):
             self._orphan_text.setdefault(key, "")
             return
         await self._emit(turn, turn.finish("cancelled"))
+        if key in self._awaiting:  # Hermes already returned from it: nothing to stop
+            self._awaiting.discard(key)
+            self._turns.pop(key, None)
+            self._started.discard(key)
+            return
         if key in self._started and self._current is turn:
             self._stopped.add(key)
             await self._stop_hermes(key)
@@ -486,12 +492,26 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
         key = event.message_id or ""
-        turn = self._turns.pop(key, None)
+        turn = self._turns.get(key)
         logger.info("Twring: Hermes finished %s (%s, known turn: %s)", event.message_id, outcome, turn is not None)
         if turn is None:
             return
         if self._current is turn:
             self._current = None
+        if (
+            outcome == ProcessingOutcome.SUCCESS
+            and not turn.finished
+            and not turn.answered
+            and key not in self._orphan_text
+            and key not in self._awaiting
+        ):
+            # Busy with other work, Hermes took the turn and returned at once; its answer follows
+            # as its own message. The turn stays open so that answer is spoken, not posted.
+            self._awaiting.add(key)
+            logger.info("Twring: %s has no answer yet; keeping it open for Hermes's reply", key)
+            return
+        self._turns.pop(key, None)
+        self._awaiting.discard(key)
         self._last_activity.pop(key, None)
         self._started.discard(key)
         self._joined.pop(key, None)
@@ -569,6 +589,13 @@ class TwringAdapter(BasePlatformAdapter):
         logger.info("Twring: reply of %d chars for %s", len(content), turn.turn_id if turn else "no open turn")
         if turn is not None and not turn.finished:
             await self._deliver_text(turn, turn.reply.final(content))
+            key = _turn_key(turn.channel, turn.turn_id)
+            if key in self._awaiting:
+                # The answer Hermes owed a turn it had returned from: that turn is now complete.
+                self._awaiting.discard(key)
+                self._turns.pop(key, None)
+                self._started.discard(key)
+                await self._emit(turn, turn.finish("completed"))
             return SendResult(success=True, message_id=f"{turn.turn_id}-m")
         return await self._deliver_proactive(content, metadata)
 
