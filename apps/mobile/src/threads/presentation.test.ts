@@ -195,6 +195,11 @@ describe('chat presentation', () => {
   it('folds after forty lines', () => {
     expect(shouldFold(Array(40).fill('x').join('\n'))).toBe(false);
     expect(shouldFold(Array(41).fill('x').join('\n'))).toBe(true);
+    // A long unbroken line wraps to many visible lines (device test 2026-11-11).
+    expect(shouldFold('x'.repeat(45 * 40))).toBe(false);
+    expect(shouldFold('x'.repeat(45 * 40 + 1))).toBe(true);
+    expect(shouldFold(Array(20).fill('y'.repeat(90)).join('\n'))).toBe(false);
+    expect(shouldFold(Array(21).fill('y'.repeat(90)).join('\n'))).toBe(true);
   });
 });
 

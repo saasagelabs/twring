@@ -172,8 +172,17 @@ export function segmentText(input: string): TextSegment[] {
   return result;
 }
 
+/** Characters per wrapped line, kept low so a long paragraph or code line is not under-counted. */
+const FOLD_LINE_CHARS = 45;
+
+/** Fold past about 40 visible lines, counting a long line by how many lines it wraps to. */
 export function shouldFold(text: string): boolean {
-  return text.split('\n').length > 40;
+  let lines = 0;
+  for (const line of text.split('\n')) {
+    lines += Math.max(1, Math.ceil(line.length / FOLD_LINE_CHARS));
+    if (lines > 40) return true;
+  }
+  return false;
 }
 
 /** The working row's activity, or undefined for the connector's generic "Working…" keep-alive. */
