@@ -356,9 +356,11 @@ class TwringAdapter(BasePlatformAdapter):
             await self._on_approval_decision(message)
 
     async def _on_turn_cancel(self, channel: str, message: dict[str, Any]) -> None:
-        """Twring cancels a turn when the owner talks over it or says stop (Hermes's run stops too,
-        as with Twring's own connector), or as the call ends (a hang-up: Hermes keeps working and
-        its answer goes to the chat)."""
+        """Twring cancels a running turn only when the owner's next turn replaces it (`superseded`;
+        ADR-015: talking over the agent or saying "stop" cuts its speech, not its work, ADR-017),
+        when the turn times out, or as the call ends. A replaced or timed-out turn's run is stopped,
+        as Twring's own connector aborts it; a hang-up (`call_ended`) lets Hermes finish (ADR-030)
+        and its answer goes to the chat."""
         key = _turn_key(channel, str(message.get("turn_id")))
         turn = self._turns.get(key)
         if turn is None or turn.finished:

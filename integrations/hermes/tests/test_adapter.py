@@ -300,9 +300,9 @@ async def test_hanging_up_mid_answer_keeps_hermes_working_and_saves_the_rest(lin
     assert posted == [("Done: 2 GB saved.", "call_turn", "t9")]
 
 
-async def test_the_owner_cutting_in_stops_hermes_and_its_stop_note_is_not_spoken(linked):
-    """Twring cancels a turn when the owner talks over it or says stop; Hermes's run stops too,
-    as with Twring's own connector, and Hermes's "stopped" note is not read out."""
+async def test_a_replaced_turn_stops_hermes_and_its_stop_note_is_not_spoken(linked):
+    """Twring cancels a running turn when the owner's next turn replaces it; Hermes's run stops
+    too, as with Twring's own connector, and Hermes's "stopped" note is not read out."""
     adapter, fake, events = linked
     event = await turn(fake, events, "Clean up the logs", turn_id="t10")
     await adapter.on_processing_start(event)
