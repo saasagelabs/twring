@@ -419,3 +419,20 @@ async def test_an_unanchored_leftover_from_a_stopped_run_is_not_posted_to_the_ch
     await adapter.send("owner", "There are 120 files.")
     await adapter.send("owner", "Backup done.", metadata={"job_id": "job_9"})
     assert posted == ["Backup done."]
+
+
+async def test_a_turn_hermes_queued_behind_other_work_still_gets_its_answer_spoken(linked):
+    """Busy with other work (a background delegation's result), Hermes takes a spoken turn and
+    returns at once, answering it a few seconds later; the answer is spoken on the call, not
+    posted to the chat (seen live on 2026-11-11)."""
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Are you there?", turn_id="t23")
+    await adapter.on_processing_start(event)
+    await adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+    await asyncio.sleep(0.1)
+    assert not any(m["type"] == "done" and m["turn_id"] == "t23" for m in fake.agent_frames())
+    await adapter.send("owner", "Yes, I'm here.")
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t23")
+    frames = [m for m in fake.agent_frames() if m.get("turn_id") == "t23"]
+    assert "".join(m.get("delta", "") for m in frames) == "Yes, I'm here."
+    assert frames[-1]["status"] == "completed"
