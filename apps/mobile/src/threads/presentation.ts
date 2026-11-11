@@ -172,17 +172,15 @@ export function segmentText(input: string): TextSegment[] {
   return result;
 }
 
-/** Characters per wrapped line, kept low so a long paragraph or code line is not under-counted. */
-const FOLD_LINE_CHARS = 45;
+/** Visible height of a folded message: 40 lines of body text. */
+export const FOLD_HEIGHT = 40 * 23;
 
-/** Fold past about 40 visible lines, counting a long line by how many lines it wraps to. */
-export function shouldFold(text: string): boolean {
-  let lines = 0;
-  for (const line of text.split('\n')) {
-    lines += Math.max(1, Math.ceil(line.length / FOLD_LINE_CHARS));
-    if (lines > 40) return true;
-  }
-  return false;
+/**
+ * Fold when the rendered message is taller than the fold. Measured after layout, so screen
+ * width, font scale and wrapped code lines all count (a character estimate misses them).
+ */
+export function shouldFold(renderedHeight: number): boolean {
+  return renderedHeight > FOLD_HEIGHT;
 }
 
 /** The working row's activity, or undefined for the connector's generic "Working…" keep-alive. */
