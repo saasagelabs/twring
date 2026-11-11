@@ -583,7 +583,10 @@ class TwringAdapter(BasePlatformAdapter):
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata=None) -> SendResult:
         current = self._current
         winding_down = current is not None and _turn_key(current.channel, current.turn_id) in self._stopped
-        if self._is_note(reply_to) or (winding_down and not (metadata or {}).get("job_id")):
+        if (metadata or {}).get("job_id"):
+            # A scheduled job's result is its own chat message, and it rings; never part of a turn.
+            return await self._deliver_proactive(content, metadata)
+        if self._is_note(reply_to) or winding_down:
             logger.info("Twring: kept Hermes's note of %d chars about %s off the phone", len(content), reply_to)
             return SendResult(success=True, message_id=f"{reply_to}-note")
         turn = self._turn_for()

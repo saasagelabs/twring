@@ -453,3 +453,22 @@ async def test_a_late_answer_to_a_replaced_waiting_turn_is_not_spoken_in_the_nex
     await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t25")
     spoken = "".join(m.get("delta", "") for m in fake.agent_frames() if m.get("turn_id") == "t25")
     assert spoken == "It's noon."
+
+
+async def test_a_scheduled_job_result_rings_even_while_a_turn_is_open(linked, monkeypatch):
+    """A cron job's result is its own message that rings the phone; it is never folded into the
+    reply of whatever call or chat turn happens to be open (seen live on 2026-11-11)."""
+    adapter, fake, events = linked
+    calls = []
+
+    async def fake_deliver(http, server, token, content, *, ring):
+        calls.append((content, ring))
+        return {"success": True, "message_id": "m"}
+
+    monkeypatch.setattr(twring, "deliver", fake_deliver)
+    event = await turn(fake, events, "Hello?", surface="text", turn_id="t26")
+    await adapter.on_processing_start(event)
+    await adapter.send("owner", "There are 11 GB free.", metadata={"job_id": "job_3"})
+    await asyncio.sleep(0.1)
+    assert calls == [("There are 11 GB free.", True)]
+    assert not any("11 GB" in m.get("delta", "") for m in fake.agent_frames())
