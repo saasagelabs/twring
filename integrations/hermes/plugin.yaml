@@ -1,7 +1,7 @@
 name: twring
 label: Twring
 kind: platform
-version: 0.1.0
+version: 0.1.1
 manifest_version: 1
 description: >
   Call Hermes from your phone and let it call you back, through the Twring app (iPhone and

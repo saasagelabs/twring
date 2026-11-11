@@ -177,3 +177,10 @@ class TestParseFrame:
     )
     def test_anything_else_is_dropped(self, raw):
         assert parse_frame(raw) is None
+
+
+def test_an_activity_event_can_carry_its_own_kind():
+    """Twring's activity events have a `kind` field; it must not clash with the event's type."""
+    turn = TurnState("ch_1", "t1", "call")
+    event = turn.event("activity", label="Working…", kind="working")
+    assert event["type"] == "activity" and event["kind"] == "working" and event["label"] == "Working…"

@@ -95,10 +95,11 @@ class TurnState:
         self._message_id: str | None = None
         self.finished = False
 
-    def event(self, kind: str, **fields: Any) -> dict[str, Any]:
+    def event(self, event_type: str, /, **fields: Any) -> dict[str, Any]:
+        """One event for this turn; `fields` may include Twring's own `kind` (activity events)."""
         seq = self._seq
         self._seq += 1
-        return {"type": kind, "event_id": f"{self.turn_id}-{seq}", "turn_id": self.turn_id, "seq": seq, **fields}
+        return {"type": event_type, "event_id": f"{self.turn_id}-{seq}", "turn_id": self.turn_id, "seq": seq, **fields}
 
     def text(self, delta: str) -> list[dict[str, Any]]:
         """Events that add `delta` to the spoken or written reply."""
@@ -113,6 +114,11 @@ class TurnState:
                 self.event("text.delta", message_id=self._message_id, delta=delta[start : start + MAX_DELTA_CHARS])
             )
         return events
+
+    @property
+    def answered(self) -> bool:
+        """Whether any reply text has gone out for this turn."""
+        return self._message_id is not None
 
     def finish(self, status: str) -> list[dict[str, Any]]:
         """Ends the turn (`completed`, `failed` or `cancelled`); later text is dropped."""
