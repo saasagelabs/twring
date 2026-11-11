@@ -490,3 +490,35 @@ async def test_a_delayed_answer_after_hang_up_reaches_the_chat(linked, monkeypat
     await asyncio.sleep(0.1)
     await adapter.send("owner", "11 GB are free.")
     assert posted == [("11 GB are free.", "call_turn", "t27")]
+
+
+async def test_hanging_up_before_hermes_returns_still_saves_the_late_answer_as_the_calls_result(linked, monkeypatch):
+    adapter, fake, events = linked
+    posted = []
+
+    async def fake_post(http, server, token, text, *, origin="agent", turn_id=None):
+        posted.append((text, origin, turn_id))
+
+    monkeypatch.setattr(twring, "post_message", fake_post)
+    event = await turn(fake, events, "How much disk is free?", turn_id="t28")
+    await adapter.on_processing_start(event)
+    await fake.agent({"type": "turn.cancel", "turn_id": "t28", "reason": "call_ended"})
+    await fake.send({"type": "channel.close", "channel": "ch_1"})
+    await asyncio.sleep(0.1)
+    await adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+    await adapter.send("owner", "11 GB are free.")
+    assert posted == [("11 GB are free.", "call_turn", "t28")]
+
+
+async def test_a_late_answer_goes_to_the_turn_that_waits_for_it_not_a_newer_one(linked):
+    adapter, fake, events = linked
+    owed = await turn(fake, events, "Are you there?", turn_id="t29")
+    await adapter.on_processing_start(owed)
+    await turn(fake, events, "Hello?", turn_id="t30")
+    await adapter.on_processing_complete(owed, ProcessingOutcome.SUCCESS)
+    await adapter.send("owner", "Yes, I'm here.")
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t29")
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t30")
+    first = "".join(m.get("delta", "") for m in fake.agent_frames() if m.get("turn_id") == "t29")
+    assert first == "Yes, I'm here."
+    assert not any(m.get("delta") for m in fake.agent_frames() if m.get("turn_id") == "t30")
