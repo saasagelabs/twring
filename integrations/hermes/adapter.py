@@ -599,7 +599,12 @@ class TwringAdapter(BasePlatformAdapter):
                 self._awaiting.discard(key)
                 self._turns.pop(key, None)
                 self._started.discard(key)
-                await self._emit(turn, turn.finish("completed"))
+                if key in self._orphan_text:  # the call hung up meanwhile: the answer goes to the chat
+                    text = self._orphan_text.pop(key).strip()
+                    if text:
+                        await self._post_result(turn, text)
+                else:
+                    await self._emit(turn, turn.finish("completed"))
             return SendResult(success=True, message_id=f"{turn.turn_id}-m")
         return await self._deliver_proactive(content, metadata)
 

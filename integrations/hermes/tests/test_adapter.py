@@ -472,3 +472,21 @@ async def test_a_scheduled_job_result_rings_even_while_a_turn_is_open(linked, mo
     await asyncio.sleep(0.1)
     assert calls == [("There are 11 GB free.", True)]
     assert not any("11 GB" in m.get("delta", "") for m in fake.agent_frames())
+
+
+async def test_a_delayed_answer_after_hang_up_reaches_the_chat(linked, monkeypatch):
+    adapter, fake, events = linked
+    posted = []
+
+    async def fake_post(http, server, token, text, *, origin="agent", turn_id=None):
+        posted.append((text, origin, turn_id))
+
+    monkeypatch.setattr(twring, "post_message", fake_post)
+    event = await turn(fake, events, "How much disk is free?", turn_id="t27")
+    await adapter.on_processing_start(event)
+    await adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+    await fake.agent({"type": "turn.cancel", "turn_id": "t27", "reason": "call_ended"})
+    await fake.send({"type": "channel.close", "channel": "ch_1"})
+    await asyncio.sleep(0.1)
+    await adapter.send("owner", "11 GB are free.")
+    assert posted == [("11 GB are free.", "call_turn", "t27")]
