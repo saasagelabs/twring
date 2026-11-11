@@ -1,0 +1,62 @@
+# The Twring plugin for Hermes Agent (integrations/hermes): its own tests, then the adapter inside
+# real Hermes against a fake Twring server, then Hermes's catalog check (`hermes plugins validate`).
+name: 'Hermes plugin: tests and catalog check'
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'integrations/hermes/**'
+      - '.github/workflows/hermes-plugin.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-plugin-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: integrations/hermes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Plugin tests (protocol, linking, CLI)
+        run: |
+          python -m pip install --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3" "httpx==0.28.1" "websockets==15.0.1"
+          python -m pytest -q -p no:cacheprovider tests
+      # Hermes ships only through its own installer (no pip wheels); pinned to v0.23.1's commit.
+      - name: Install Hermes Agent v0.23.1
+        run: |
+          curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- \
+            --commit b65acf3fdc1d43bd889211ea8e37032974b395a5 \
+            --non-interactive --skip-browser --skip-computer-use
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Find Hermes's Python and add the test tools to it
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          hermes --version
+          HERMES_PY=""
+          for candidate in $(find "$HOME/.hermes" -path '*/bin/python3' 2>/dev/null); do
+            if "$candidate" -c 'import gateway.platforms.base' 2>/dev/null; then HERMES_PY="$candidate"; break; fi
+          done
+          if [ -z "$HERMES_PY" ]; then echo "Hermes's Python was not found"; find "$HOME/.hermes" -maxdepth 4 -name 'python*' | head; exit 1; fi
+          echo "HERMES_PY=$HERMES_PY" >> "$GITHUB_ENV"
+          # Hermes keeps its own uv under ~/.hermes/tools; the test tools go in their own folder so
+          # Hermes's environment stays exactly as installed.
+          UV="$(find "$HOME/.hermes/tools" -name uv -type f | head -1)"
+          "$UV" pip install --python "$HERMES_PY" --target "$RUNNER_TEMP/testlibs" --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3"
+          echo "PYTHONPATH=$RUNNER_TEMP/testlibs" >> "$GITHUB_ENV"
+      - name: Adapter inside Hermes, against a fake Twring server
+        run: |
+          "$HERMES_PY" -m pytest -q -p no:cacheprovider -W ignore::DeprecationWarning tests/test_adapter.py
+      - name: Hermes catalog check
+        run: hermes plugins validate . --install-deps
