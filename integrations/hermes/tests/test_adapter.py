@@ -540,3 +540,12 @@ async def test_a_turn_waiting_for_its_late_answer_keeps_telling_twring_hermes_is
     count = len([m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"])
     await asyncio.sleep(0.2)
     assert len([m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"]) == count
+
+
+async def test_hermes_typing_tells_twring_it_is_working(linked):
+    """The typing heartbeat keeps a long turn alive on Twring (it ends a quiet turn after 30 s)."""
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Run the backups", turn_id="t32")
+    await adapter.on_processing_start(event)
+    await adapter.send_typing("owner")
+    await fake.wait_for(lambda m: m["type"] == "activity" and m["turn_id"] == "t32")
