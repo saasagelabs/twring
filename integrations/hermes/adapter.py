@@ -166,6 +166,7 @@ class TwringAdapter(BasePlatformAdapter):
         self._own_ids: set[str] = set()  # message ids of the plugin's own `/stop` commands
         self._joined: dict[str, str] = {}  # turn key -> key of the run it arrived during
         self._awaiting: dict[str, float] = {}  # turn key -> when Hermes returned from it unanswered
+        self._tasks: set[asyncio.Task] = set()  # background tasks, kept so they are not collected
         self._dedup = MessageDeduplicator(ttl_seconds=600)
         self._http: Any = None
 
@@ -475,6 +476,11 @@ class TwringAdapter(BasePlatformAdapter):
         open_turns = [t for t in self._turns.values() if not t.finished]
         return open_turns[-1] if open_turns else None
 
+    def _spawn(self, coro) -> None:
+        task = asyncio.get_running_loop().create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
     async def _keep_awaiting_alive(self, key: str, turn: TurnState) -> None:
         """Twring ends a turn that stays quiet for 30 s; while one waits for Hermes's late answer,
         it says Hermes is working."""
@@ -493,7 +499,7 @@ class TwringAdapter(BasePlatformAdapter):
                 self._orphan_text.pop(key, None)
                 self._started.discard(key)
                 if turn is not None and not turn.finished and turn.channel in self._channels:
-                    asyncio.get_running_loop().create_task(self._emit(turn, turn.finish("failed")))
+                    self._spawn(self._emit(turn, turn.finish("failed")))
 
     def _is_note(self, reply_to: Optional[str]) -> bool:
         """Hermes anchors its own notes to the message they are about: its reply to the plugin's
@@ -516,7 +522,7 @@ class TwringAdapter(BasePlatformAdapter):
         if turn.finished and key not in self._orphan_text:
             # Twring cancelled this turn before Hermes reached it: run nothing for it.
             self._stopped.add(key)
-            asyncio.get_running_loop().create_task(self._stop_hermes(key))
+            self._spawn(self._stop_hermes(key))
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
         key = event.message_id or ""
@@ -535,7 +541,7 @@ class TwringAdapter(BasePlatformAdapter):
             # Busy with other work, Hermes took the turn and returned at once; its answer follows
             # as its own message. The turn stays open so that answer is spoken, not posted.
             self._awaiting[key] = asyncio.get_running_loop().time()
-            asyncio.get_running_loop().create_task(self._keep_awaiting_alive(key, turn))
+            self._spawn(self._keep_awaiting_alive(key, turn))
             logger.info("Twring: %s has no answer yet; keeping it open for Hermes's reply", key)
             return
         self._turns.pop(key, None)
