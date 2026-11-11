@@ -522,3 +522,21 @@ async def test_a_late_answer_goes_to_the_turn_that_waits_for_it_not_a_newer_one(
     first = "".join(m.get("delta", "") for m in fake.agent_frames() if m.get("turn_id") == "t29")
     assert first == "Yes, I'm here."
     assert not any(m.get("delta") for m in fake.agent_frames() if m.get("turn_id") == "t30")
+
+
+async def test_a_turn_waiting_for_its_late_answer_keeps_telling_twring_hermes_is_working(linked, monkeypatch):
+    """Twring ends a quiet turn after 30 s, so a turn waiting for Hermes's late answer sends
+    activity while it waits."""
+    adapter, fake, events = linked
+    monkeypatch.setattr(twring, "ACTIVITY_EVERY_S", 0.05)
+    event = await turn(fake, events, "Are you there?", turn_id="t31")
+    await adapter.on_processing_start(event)
+    await adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+    await asyncio.sleep(0.3)
+    beats = [m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"]
+    assert len(beats) >= 2
+    await adapter.send("owner", "Yes, I'm here.")
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t31")
+    count = len([m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"])
+    await asyncio.sleep(0.2)
+    assert len([m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"]) == count

@@ -475,6 +475,13 @@ class TwringAdapter(BasePlatformAdapter):
         open_turns = [t for t in self._turns.values() if not t.finished]
         return open_turns[-1] if open_turns else None
 
+    async def _keep_awaiting_alive(self, key: str, turn: TurnState) -> None:
+        """Twring ends a turn that stays quiet for 30 s; while one waits for Hermes's late answer,
+        it says Hermes is working."""
+        while key in self._awaiting and not turn.finished and turn.channel in self._channels:
+            await self._emit(turn, [turn.event("activity", label="Working…", kind="working")])
+            await asyncio.sleep(ACTIVITY_EVERY_S)
+
     def _expire_awaiting(self) -> None:
         """A turn Hermes returned from without ever answering is given up after AWAIT_ANSWER_S, so
         it cannot capture an unrelated later message."""
@@ -528,6 +535,7 @@ class TwringAdapter(BasePlatformAdapter):
             # Busy with other work, Hermes took the turn and returned at once; its answer follows
             # as its own message. The turn stays open so that answer is spoken, not posted.
             self._awaiting[key] = asyncio.get_running_loop().time()
+            asyncio.get_running_loop().create_task(self._keep_awaiting_alive(key, turn))
             logger.info("Twring: %s has no answer yet; keeping it open for Hermes's reply", key)
             return
         self._turns.pop(key, None)
