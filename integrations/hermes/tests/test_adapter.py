@@ -436,3 +436,20 @@ async def test_a_turn_hermes_queued_behind_other_work_still_gets_its_answer_spok
     frames = [m for m in fake.agent_frames() if m.get("turn_id") == "t23"]
     assert "".join(m.get("delta", "") for m in frames) == "Yes, I'm here."
     assert frames[-1]["status"] == "completed"
+
+
+async def test_a_late_answer_to_a_replaced_waiting_turn_is_not_spoken_in_the_next(linked):
+    adapter, fake, events = linked
+    first = await turn(fake, events, "Are you there?", turn_id="t24")
+    await adapter.on_processing_start(first)
+    await adapter.on_processing_complete(first, ProcessingOutcome.SUCCESS)
+    await fake.agent({"type": "turn.cancel", "turn_id": "t24", "reason": "superseded"})
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t24")
+    second = await turn(fake, events, "What time is it?", turn_id="t25")
+    await adapter.on_processing_start(second)
+    await adapter.send("owner", "Yes, I'm here.", reply_to=first.message_id)
+    await adapter.send("owner", "It's noon.", reply_to=second.message_id)
+    await adapter.on_processing_complete(second, ProcessingOutcome.SUCCESS)
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t25")
+    spoken = "".join(m.get("delta", "") for m in fake.agent_frames() if m.get("turn_id") == "t25")
+    assert spoken == "It's noon."

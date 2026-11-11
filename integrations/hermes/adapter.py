@@ -374,6 +374,7 @@ class TwringAdapter(BasePlatformAdapter):
             self._awaiting.discard(key)
             self._turns.pop(key, None)
             self._started.discard(key)
+            self._stopped.add(key)  # its late answer must not be spoken in the next turn
             return
         if key in self._started and self._current is turn:
             self._stopped.add(key)
