@@ -6,7 +6,7 @@
 
 Twring is a phone app (iPhone and Android) for the AI agents you already run. This plugin makes Twring a Hermes messaging platform, like Telegram, except you can also **talk**:
 
-- **Live two-way calls.** Press Call in the Twring app and talk to your own Hermes. Twring turns your speech into text, Hermes streams its answer, and Twring speaks it as it arrives. You can interrupt at any time.
+- **Live two-way calls.** Press Call in the Twring app and talk to your own Hermes. Twring turns your speech into text, Hermes streams its answer, and Twring speaks it as it arrives. Talk over Hermes or say "stop" at any time: Hermes stops what it was doing (as if you typed `/stop`) and answers what you just said. Hang up instead, and Hermes keeps working.
 - **Calls and chat in one conversation.** Typed messages in the Twring app and spoken turns on a call reach the same Hermes conversation.
 - **Approvals by voice or tap.** When Hermes needs your OK for a risky command, the request appears on your phone. Say "yes" or "no", or tap. The answer goes back through Hermes's own approval system: the plugin never approves anything for you, and silence means no.
 - **It rings you back.** When a scheduled Hermes job delivers to `twring`, its result lands in your Twring chat and your phone rings with the first sentence. Hang up while Hermes is still working, and the rest of its answer reaches your chat, with a ring if your Twring settings allow.
@@ -76,6 +76,7 @@ Twring links agents on your own machine through one outbound WebSocket (`cord-re
 | `activity` (the phone shows "working") | the typing heartbeat |
 | `approval.required` / `approval.decision` | native approval card / `resolve_gateway_approval_card` |
 | a ring and a chat message | cron delivery to `twring` |
+| `turn.cancel` (you talked over Hermes or said stop) | `/stop` for the run; a hang-up does not stop it |
 
 ## Develop
 

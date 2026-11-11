@@ -66,7 +66,7 @@ except ImportError:  # loaded directly (tests)
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.1.1"
 TEXT_TURN_TAG = "[Twring message]"
 #: Twring ends a quiet turn after 30 s; a working Hermes says so at least this often.
 ACTIVITY_EVERY_S = 10.0
@@ -82,14 +82,23 @@ _TRUTHY = {"1", "true", "yes", "on"}
 
 CALL_HINT = (
     "You are connected to your owner through Twring, by live phone calls and by typed messages, "
-    "in one conversation. On a call everything you write is spoken aloud: answer in short, plain "
-    "spoken sentences, with no markdown, lists, tables or code. Stay on the line until your owner "
-    "says goodbye or asks you to hang up; only then end that reply with ⟪hangup⟫. Finishing an "
-    "answer or giving your news does not end the call. A turn that starts with "
-    f"{TEXT_TURN_TAG} was typed in the Twring chat: answer in normal written text; markdown, lists "
-    "and code are fine there, and the call rules do not apply. If a call ends while you are still "
-    "working on something your owner asked for, keep going and finish it: your final reply reaches "
-    "their Twring chat, and Twring may ring them with it."
+    "in one conversation. On a call everything you write is spoken aloud as you write it, and your "
+    "owner cannot see or scroll back. Answer first, in one to three short sentences, then stop and "
+    "let them talk; they will ask for more. Plain speech only: no markdown, lists, tables, code, "
+    "paths, IDs or links. Summarise instead of listing, and offer to put details in the chat. Ask "
+    "one question at a time and end your reply there. Speech recognition mishears words: if a "
+    "request is unclear, ask, and before anything hard to undo, read the key detail back. Twring "
+    "already says a short holding line while you work, so do not start with 'one moment'. Before "
+    "a command that needs approval, say in one sentence what you will run and why; Twring then "
+    "asks your owner to say yes or no. If they talk over you, answer what they just said. Stay on "
+    "the line until your owner says goodbye or asks you to hang up; only then end that reply with "
+    "⟪hangup⟫. Finishing an answer or giving your news does not end the call. A turn that starts "
+    f"with {TEXT_TURN_TAG} was typed in the Twring chat: answer in normal written text; markdown, "
+    "lists and code are fine there, and the call rules do not apply. If a call ends while you are "
+    "still working on something your owner asked for, keep going and finish it: your final reply "
+    "reaches their Twring chat, and Twring may ring them with it. To call your owner back later, "
+    "schedule a cron job that delivers to twring; its result rings their phone. Never read or use "
+    "TWRING_TOKEN, and never call the Twring server yourself."
 )
 
 
@@ -150,6 +159,10 @@ class TwringAdapter(BasePlatformAdapter):
         self._last_activity: dict[str, float] = {}
         self._approvals: dict[str, tuple[str, str]] = {}  # approval id -> (session key, turn key)
         self._orphan_text: dict[str, str] = {}  # turn key -> reply text after its call hung up
+        self._started: set[str] = set()  # turn keys Hermes has begun working on
+        self._stopped: set[str] = set()  # turn keys the owner cancelled, so Hermes was stopped
+        self._own_ids: set[str] = set()  # message ids of the plugin's own `/stop` commands
+        self._joined: dict[str, str] = {}  # turn key -> key of the run it arrived during
         self._dedup = MessageDeduplicator(ttl_seconds=600)
         self._http: Any = None
 
@@ -338,11 +351,44 @@ class TwringAdapter(BasePlatformAdapter):
         elif kind == "user.turn":
             await self._on_user_turn(channel, message)
         elif kind == "turn.cancel":
-            turn = self._turns.get(_turn_key(channel, str(message.get("turn_id"))))
-            if turn is not None and not turn.finished:
-                await self._emit(turn, turn.finish("cancelled"))
+            await self._on_turn_cancel(channel, message)
         elif kind == "approval.decision":
             await self._on_approval_decision(message)
+
+    async def _on_turn_cancel(self, channel: str, message: dict[str, Any]) -> None:
+        """Twring cancels a turn when the owner talks over it or says stop (Hermes's run stops too,
+        as with Twring's own connector), or as the call ends (a hang-up: Hermes keeps working and
+        its answer goes to the chat)."""
+        key = _turn_key(channel, str(message.get("turn_id")))
+        turn = self._turns.get(key)
+        if turn is None or turn.finished:
+            return
+        if message.get("reason") == "call_ended":
+            self._orphan_text.setdefault(key, "")
+            return
+        await self._emit(turn, turn.finish("cancelled"))
+        if key in self._started and self._current is turn:
+            self._stopped.add(key)
+            await self._stop_hermes(key)
+
+    async def _stop_hermes(self, key: str) -> None:
+        """Stops Hermes's current run the way the owner would, with `/stop`; Hermes's reply to it
+        is not spoken."""
+        stop_id = f"{key}#stop"
+        self._own_ids.add(stop_id)
+        logger.info("Twring: the owner cancelled %s; stopping Hermes", key)
+        await self.handle_message(
+            MessageEvent(
+                text="/stop",
+                message_type=MessageType.TEXT,
+                source=self._owner_source(),
+                message_id=stop_id,
+                timestamp=datetime.datetime.now(),
+            )
+        )
+
+    def _owner_source(self):
+        return self.build_source(chat_id=CHAT_ID, chat_name="Twring", chat_type="dm", user_id=OWNER_ID, user_name="Owner")
 
     async def _on_user_turn(self, channel: str, message: dict[str, Any]) -> None:
         turn_id = message.get("turn_id")
@@ -355,11 +401,15 @@ class TwringAdapter(BasePlatformAdapter):
         surface = "text" if message.get("surface") == "text" else "call"
         turn = TurnState(channel, turn_id, surface)
         self._turns[key] = turn
+        running = self._current
+        if running is not None and not running.finished:
+            # Hermes folds a message sent while it works into that run (its default busy mode).
+            self._joined[key] = _turn_key(running.channel, running.turn_id)
         logger.info("Twring: %s turn %s on %s", surface, turn_id, channel)
         if not self._message_handler:
             await self._emit(turn, turn.finish("failed"))
             return
-        source = self.build_source(chat_id=CHAT_ID, chat_name="Twring", chat_type="dm", user_id=OWNER_ID, user_name="Owner")
+        source = self._owner_source()
         # Typed turns carry the tag so Hermes writes rather than speaks; a slash command such as
         # `/approve` reaches Hermes as typed, or the gateway would not see the command.
         tagged = surface == "text" and not text.lstrip().startswith("/")
@@ -401,33 +451,76 @@ class TwringAdapter(BasePlatformAdapter):
     def _turn_for(self, event: Optional[MessageEvent] = None) -> Optional[TurnState]:
         if event is not None and event.message_id in self._turns:
             return self._turns[event.message_id]
-        if self._current is not None and not self._current.finished:
-            return self._current
+        current = self._current
+        if current is not None and _turn_key(current.channel, current.turn_id) in self._stopped:
+            return None  # Hermes is winding down a run the owner stopped: nothing more is said
+        if current is not None and not current.finished:
+            return current
         open_turns = [t for t in self._turns.values() if not t.finished]
         return open_turns[-1] if open_turns else None
 
+    def _is_note(self, reply_to: Optional[str]) -> bool:
+        """Hermes anchors its own notes to the message they are about: its reply to the plugin's
+        `/stop`, leftovers of a stopped run, and busy notes ("Redirected current run...") about a
+        message it has not started. None of them is an answer to speak or post."""
+        if not reply_to:
+            return False
+        if reply_to in self._own_ids or reply_to in self._stopped:
+            return True
+        return reply_to in self._turns and reply_to not in self._started
+
     async def on_processing_start(self, event: MessageEvent) -> None:
-        turn = self._turns.get(event.message_id or "")
+        key = event.message_id or ""
+        turn = self._turns.get(key)
         logger.info("Twring: Hermes started on %s (known turn: %s)", event.message_id, turn is not None)
-        if turn is not None:
-            self._current = turn
+        if turn is None:
+            return
+        self._started.add(key)
+        self._current = turn
+        if turn.finished and key not in self._orphan_text:
+            # Twring cancelled this turn before Hermes reached it: run nothing for it.
+            self._stopped.add(key)
+            asyncio.get_running_loop().create_task(self._stop_hermes(key))
 
     async def on_processing_complete(self, event: MessageEvent, outcome: ProcessingOutcome) -> None:
-        turn = self._turns.pop(event.message_id or "", None)
+        key = event.message_id or ""
+        turn = self._turns.pop(key, None)
         logger.info("Twring: Hermes finished %s (%s, known turn: %s)", event.message_id, outcome, turn is not None)
         if turn is None:
             return
         if self._current is turn:
             self._current = None
-        key = event.message_id or ""
         self._last_activity.pop(key, None)
+        self._started.discard(key)
+        self._joined.pop(key, None)
         status = {ProcessingOutcome.SUCCESS: "completed", ProcessingOutcome.CANCELLED: "cancelled"}.get(outcome, "failed")
         if key in self._orphan_text:
             text = self._orphan_text.pop(key).strip()
             if text and status == "completed":
                 await self._post_result(turn, text)
-            return
-        await self._emit(turn, turn.finish(status))
+        else:
+            await self._emit(turn, turn.finish(status))
+        await self._close_joined(key)
+        self._forget_old_notes()
+
+    async def _close_joined(self, key: str) -> None:
+        """Messages Hermes folded into the run that just ended were answered by it; Hermes never
+        starts them on their own, so Twring would otherwise wait on them."""
+        for joined, run in list(self._joined.items()):
+            if run != key or joined in self._started:
+                continue
+            self._joined.pop(joined, None)
+            turn = self._turns.pop(joined, None)
+            if turn is not None and not turn.finished:
+                await self._emit(turn, turn.finish("completed"))
+
+    def _forget_old_notes(self) -> None:
+        """Keeps the note filters small over a long-running gateway. A late note about a forgotten
+        id is posted to the chat, never spoken, so forgetting can cost a stray message at most."""
+        if len(self._own_ids) > 200:
+            self._own_ids.clear()
+        if len(self._stopped) > 200:
+            self._stopped.clear()
 
     async def _deliver_text(self, turn: TurnState, delta: str) -> None:
         if not delta:
@@ -465,6 +558,11 @@ class TwringAdapter(BasePlatformAdapter):
         return SendResult(success=True)
 
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata=None) -> SendResult:
+        current = self._current
+        winding_down = current is not None and _turn_key(current.channel, current.turn_id) in self._stopped
+        if self._is_note(reply_to) or (winding_down and not (metadata or {}).get("job_id")):
+            logger.info("Twring: kept Hermes's note of %d chars about %s off the phone", len(content), reply_to)
+            return SendResult(success=True, message_id=f"{reply_to}-note")
         turn = self._turn_for()
         logger.info("Twring: reply of %d chars for %s", len(content), turn.turn_id if turn else "no open turn")
         if turn is not None and not turn.finished:

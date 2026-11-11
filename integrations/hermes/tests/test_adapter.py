@@ -275,3 +275,147 @@ async def test_a_typed_slash_command_reaches_hermes_untagged(linked):
     _, fake, events = linked
     event = await turn(fake, events, "/approve", surface="text", turn_id="t8")
     assert event.text == "/approve"
+
+
+async def test_hanging_up_mid_answer_keeps_hermes_working_and_saves_the_rest(linked, monkeypatch):
+    """Twring cancels the running turn as the call ends (`call_ended`); that is a hang-up, not the
+    owner saying stop, so Hermes is not stopped and the rest of its answer goes to the chat."""
+    adapter, fake, events = linked
+    posted, stops = [], []
+
+    async def fake_post(http, server, token, text, *, origin="agent", turn_id=None):
+        posted.append((text, origin, turn_id))
+
+    monkeypatch.setattr(twring, "post_message", fake_post)
+    event = await turn(fake, events, "Back up the database and tell me", turn_id="t9")
+    await adapter.on_processing_start(event)
+    await adapter.send_draft("owner", 1, "Starting the backup.")
+    await fake.agent({"type": "turn.cancel", "turn_id": "t9", "reason": "call_ended"})
+    await fake.send({"type": "channel.close", "channel": "ch_1"})
+    await asyncio.sleep(0.1)
+    stops = [e for e in events if e.text == "/stop"]
+    await adapter.send("owner", "Starting the backup. Done: 2 GB saved.")
+    await adapter.on_processing_complete(event, ProcessingOutcome.SUCCESS)
+    assert stops == []
+    assert posted == [("Done: 2 GB saved.", "call_turn", "t9")]
+
+
+async def test_the_owner_cutting_in_stops_hermes_and_its_stop_note_is_not_spoken(linked):
+    """Twring cancels a turn when the owner talks over it or says stop; Hermes's run stops too,
+    as with Twring's own connector, and Hermes's "stopped" note is not read out."""
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up the logs", turn_id="t10")
+    await adapter.on_processing_start(event)
+    await adapter.send_draft("owner", 1, "Cleaning up")
+    await fake.agent({"type": "turn.cancel", "turn_id": "t10", "reason": "barge_in"})
+    for _ in range(100):
+        if any(e.text == "/stop" for e in events):
+            break
+        await asyncio.sleep(0.02)
+    stop = next(e for e in events if e.text == "/stop")
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t10")
+    assert next(m for m in fake.agent_frames() if m["type"] == "done")["status"] == "cancelled"
+    nxt = await turn(fake, events, "Actually, leave them", turn_id="t11")
+    await adapter.send("owner", "⚡ Stopped.", reply_to=stop.message_id)
+    await adapter.on_processing_start(nxt)
+    await adapter.send("owner", "Okay, I left them alone.", reply_to=nxt.message_id)
+    await adapter.on_processing_complete(nxt, ProcessingOutcome.SUCCESS)
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t11")
+    spoken = "".join(m.get("delta", "") for m in fake.agent_frames() if m.get("turn_id") == "t11")
+    assert spoken == "Okay, I left them alone."
+
+
+async def test_a_cancelled_turn_hermes_has_not_started_does_not_stop_the_running_one(linked):
+    adapter, fake, events = linked
+    running = await turn(fake, events, "Run the report", turn_id="t12")
+    await adapter.on_processing_start(running)
+    await turn(fake, events, "and email it", turn_id="t13")
+    await fake.agent({"type": "turn.cancel", "turn_id": "t13", "reason": "superseded"})
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t13")
+    assert not any(e.text == "/stop" for e in events)
+
+
+async def test_hermes_busy_notes_about_a_waiting_turn_are_not_spoken(linked):
+    """Speaking while Hermes works makes Hermes note it ("Redirected current run..."), anchored to
+    the new turn; on a phone call that note is noise, so it is dropped."""
+    adapter, fake, events = linked
+    running = await turn(fake, events, "What's using the disk?", turn_id="t14")
+    await adapter.on_processing_start(running)
+    later = await turn(fake, events, "only the big ones", turn_id="t15")
+    result = await adapter.send("owner", "↪ Redirected current run. I'll adjust.", reply_to=later.message_id)
+    assert result.success
+    await asyncio.sleep(0.1)
+    assert not any("Redirected" in m.get("delta", "") for m in fake.agent_frames())
+
+
+async def test_a_message_hermes_folded_into_the_running_turn_is_closed_when_it_ends(linked):
+    """A message typed while Hermes works is folded into that run (Hermes's default); Hermes never
+    starts it on its own, so it is closed when the run it joined ends, not left waiting."""
+    adapter, fake, events = linked
+    running = await turn(fake, events, "What's using the disk?", surface="text", turn_id="t16")
+    await adapter.on_processing_start(running)
+    await turn(fake, events, "only the big ones", surface="text", turn_id="t17")
+    await adapter.send("owner", "The logs folder, at 4 GB.", reply_to=running.message_id)
+    await adapter.on_processing_complete(running, ProcessingOutcome.SUCCESS)
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t17")
+    first = [m for m in fake.agent_frames() if m.get("turn_id") == "t16"]
+    assert "".join(m.get("delta", "") for m in first) == "The logs folder, at 4 GB."
+    folded = [m for m in fake.agent_frames() if m.get("turn_id") == "t17"]
+    assert [m["type"] for m in folded] == ["done"] and folded[0]["status"] == "completed"
+
+
+async def test_text_left_over_from_a_stopped_turn_is_not_spoken_in_the_next(linked):
+    adapter, fake, events = linked
+    stopped = await turn(fake, events, "Count the files", turn_id="t18")
+    await adapter.on_processing_start(stopped)
+    await fake.agent({"type": "turn.cancel", "turn_id": "t18", "reason": "barge_in"})
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t18")
+    await turn(fake, events, "Never mind", turn_id="t19")
+    await adapter.send("owner", "There are 120 files.", reply_to=stopped.message_id)
+    await adapter.on_processing_complete(stopped, ProcessingOutcome.CANCELLED)
+    await asyncio.sleep(0.1)
+    assert not any("120" in m.get("delta", "") for m in fake.agent_frames())
+
+
+def test_call_instructions_keep_answers_short_and_keep_hermes_off_the_token():
+    hint = twring.CALL_HINT
+    assert "one to three short sentences" in hint
+    assert "TWRING_TOKEN" in hint and "cron" in hint
+    assert "\u2014" not in hint
+
+
+async def test_a_turn_cancelled_before_hermes_reached_it_is_stopped_when_it_starts(linked):
+    """Twring merges a superseded, unheard turn into the next one; if Hermes reaches the old one
+    later anyway, it is stopped at once and nothing from it is spoken."""
+    adapter, fake, events = linked
+    old = await turn(fake, events, "Check the", turn_id="t20")
+    await fake.agent({"type": "turn.cancel", "turn_id": "t20", "reason": "superseded"})
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t20")
+    await turn(fake, events, "Check the backups", turn_id="t21")
+    await adapter.on_processing_start(old)
+    for _ in range(100):
+        if any(e.text == "/stop" for e in events):
+            break
+        await asyncio.sleep(0.02)
+    assert any(e.text == "/stop" for e in events)
+    await adapter.send_draft("owner", 1, "Checking the")
+    await asyncio.sleep(0.1)
+    assert not any(m.get("turn_id") == "t21" for m in fake.agent_frames())
+
+
+async def test_an_unanchored_leftover_from_a_stopped_run_is_not_posted_to_the_chat(linked, monkeypatch):
+    adapter, fake, events = linked
+    posted = []
+
+    async def fake_deliver(http, server, token, content, *, ring):
+        posted.append(content)
+        return {"success": True, "message_id": "m"}
+
+    monkeypatch.setattr(twring, "deliver", fake_deliver)
+    stopped = await turn(fake, events, "Count the files", turn_id="t22")
+    await adapter.on_processing_start(stopped)
+    await fake.agent({"type": "turn.cancel", "turn_id": "t22", "reason": "barge_in"})
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t22")
+    await adapter.send("owner", "There are 120 files.")
+    await adapter.send("owner", "Backup done.", metadata={"job_id": "job_9"})
+    assert posted == ["Backup done."]

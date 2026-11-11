@@ -19,7 +19,7 @@ except ImportError:  # loaded directly (tests)
     from twring_core import CHAT_ID, DEFAULT_SERVER, OWNER_ID  # type: ignore[no-redef]
     from twring_link import LinkError, check_server, start_link, wait_for_approval  # type: ignore[no-redef]
 
-USER_AGENT = "twring-hermes/0.1.0"
+USER_AGENT = "twring-hermes/0.1.1"
 
 
 def qr_payload(code: str, server: str) -> str:
