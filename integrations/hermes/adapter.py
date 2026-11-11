@@ -221,6 +221,9 @@ class TwringAdapter(BasePlatformAdapter):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._task
         self._task = None
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
         if self._http is not None:
             with contextlib.suppress(Exception):
                 await self._http.aclose()
