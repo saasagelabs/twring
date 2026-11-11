@@ -549,3 +549,14 @@ async def test_hermes_typing_tells_twring_it_is_working(linked):
     await adapter.on_processing_start(event)
     await adapter.send_typing("owner")
     await fake.wait_for(lambda m: m["type"] == "activity" and m["turn_id"] == "t32")
+
+
+async def test_a_message_folded_into_a_failed_run_is_closed_as_failed(linked):
+    adapter, fake, events = linked
+    running = await turn(fake, events, "Check the server", surface="text", turn_id="t33")
+    await adapter.on_processing_start(running)
+    await turn(fake, events, "and the disk", surface="text", turn_id="t34")
+    await adapter.on_processing_complete(running, ProcessingOutcome.FAILURE)
+    await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t34")
+    folded = next(m for m in fake.agent_frames() if m["type"] == "done" and m["turn_id"] == "t34")
+    assert folded["status"] == "failed"

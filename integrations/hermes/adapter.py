@@ -559,10 +559,10 @@ class TwringAdapter(BasePlatformAdapter):
                 await self._post_result(turn, text)
         else:
             await self._emit(turn, turn.finish(status))
-        await self._close_joined(key)
+        await self._close_joined(key, status)
         self._forget_old_notes()
 
-    async def _close_joined(self, key: str) -> None:
+    async def _close_joined(self, key: str, status: str = "completed") -> None:
         """Messages Hermes folded into the run that just ended were answered by it; Hermes never
         starts them on their own, so Twring would otherwise wait on them."""
         for joined, run in list(self._joined.items()):
@@ -571,7 +571,7 @@ class TwringAdapter(BasePlatformAdapter):
             self._joined.pop(joined, None)
             turn = self._turns.pop(joined, None)
             if turn is not None and not turn.finished:
-                await self._emit(turn, turn.finish("completed"))
+                await self._emit(turn, turn.finish(status))
 
     def _forget_old_notes(self) -> None:
         """Keeps the note filters small over a long-running gateway. A late note about a forgotten
