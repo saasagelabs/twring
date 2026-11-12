@@ -18,7 +18,7 @@ vi.mock('@/theme/tokens', () => ({
 }));
 vi.mock('@/threads/files', () => ({ humanSize: (n: number) => `${n} B` }));
 
-const { AttachmentTray, REMOVE_HIT_SLOP } = await import('./AttachmentTray');
+const { AttachmentTray } = await import('./AttachmentTray');
 
 type El = ReactElement<{ children?: ReactNode; style?: unknown; [k: string]: unknown }>;
 
@@ -53,7 +53,11 @@ describe('AttachmentTray', () => {
     const style = flat(remove?.props.style);
     expect(style.top as number).toBeGreaterThanOrEqual(0);
     expect(style.right as number).toBeGreaterThanOrEqual(0);
-    expect((style.width as number) + 2 * REMOVE_HIT_SLOP).toBeGreaterThanOrEqual(44);
+    // Android drops touches outside the tile, so hitSlop past its edge does not count: the
+    // pressable itself is the 44 px target, inside the 72 px tile.
+    expect(style.width as number).toBeGreaterThanOrEqual(44);
+    expect(style.height as number).toBeGreaterThanOrEqual(44);
+    expect(remove?.props.hitSlop).toBeUndefined();
   });
 
   it('uses the app icon, not a text glyph', () => {
