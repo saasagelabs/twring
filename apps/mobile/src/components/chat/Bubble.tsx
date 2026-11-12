@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { font } from '@/theme/fonts';
 import { usePalette } from '@/theme/tokens';
-import { shouldFold } from '@/threads/presentation';
+import { FOLD_HEIGHT, shouldFold } from '@/threads/presentation';
 import { MessageText } from './MessageText';
 import { Icon } from '@/components/Icon';
 import { callDuration } from '@/threads/presentation';
@@ -38,7 +38,8 @@ export function Bubble({
   const palette = usePalette();
   const [all, setAll] = useState(false);
   const [copied, setCopied] = useState(false);
-  const folded = shouldFold(text) && !all;
+  const [height, setHeight] = useState(0);
+  const folded = shouldFold(height) && !all;
   return (
     <View style={[styles.wrap, { alignItems: own ? 'flex-end' : 'flex-start' }]}>
       <Pressable
@@ -75,8 +76,12 @@ export function Bubble({
           />
         )}
         {!!text && (
-          <View style={folded ? styles.fold : undefined}>
-            <MessageText text={text} onLink={onLink} />
+          // Clipped until Show all, so a tall message never flashes full height before it is
+          // measured; the inner view keeps its full height, which decides the fold.
+          <View style={all ? undefined : styles.fold}>
+            <View onLayout={(event) => setHeight(event.nativeEvent.layout.height)}>
+              <MessageText text={text} onLink={onLink} />
+            </View>
             {folded && (
               <LinearGradient
                 pointerEvents="none"
@@ -115,7 +120,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 8,
   },
-  fold: { maxHeight: 40 * 23, overflow: 'hidden' },
+  fold: { maxHeight: FOLD_HEIGHT, overflow: 'hidden' },
   fade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 56 },
   showAll: { minHeight: 48, justifyContent: 'center' },
   time: { fontFamily: font.mono, fontSize: 11, alignSelf: 'flex-end', marginTop: 5 },

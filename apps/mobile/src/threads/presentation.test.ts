@@ -193,9 +193,10 @@ describe('chat presentation', () => {
       { kind: 'code', value: 'let x = 1\n' },
     ]);
   });
-  it('folds after forty lines', () => {
-    expect(shouldFold(Array(40).fill('x').join('\n'))).toBe(false);
-    expect(shouldFold(Array(41).fill('x').join('\n'))).toBe(true);
+  it('folds when the rendered message is taller than forty lines', () => {
+    expect(shouldFold(0)).toBe(false);
+    expect(shouldFold(40 * 23)).toBe(false);
+    expect(shouldFold(40 * 23 + 1)).toBe(true);
   });
 });
 

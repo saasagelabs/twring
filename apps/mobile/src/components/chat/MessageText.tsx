@@ -1,4 +1,4 @@
-import { ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { font } from '@/theme/fonts';
 import { usePalette } from '@/theme/tokens';
 import { segmentText, type TextSegment } from '@/threads/presentation';
@@ -15,9 +15,10 @@ export function MessageText({ text, onLink }: { text: string; onLink: (url: stri
     <View>
       {blocks.map((parts, index) =>
         parts[0].kind === 'code' ? (
-          <ScrollView
+          // Wrapped, not a horizontal ScrollView: an unbounded line grows the Text past
+          // Android's max texture size, which draws nothing (blank bubble, 2026-11-11).
+          <View
             key={index}
-            horizontal
             style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8, marginVertical: 4 }}
           >
             <Text
@@ -26,12 +27,13 @@ export function MessageText({ text, onLink }: { text: string; onLink: (url: stri
                 color: palette.textPrimary,
                 fontFamily: font.mono,
                 fontSize: 12,
+                lineHeight: 17,
                 padding: 10,
               }}
             >
               {parts[0].value}
             </Text>
-          </ScrollView>
+          </View>
         ) : (
           <Text
             key={index}

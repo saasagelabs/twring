@@ -174,8 +174,15 @@ export function segmentText(input: string): TextSegment[] {
   return result;
 }
 
-export function shouldFold(text: string): boolean {
-  return text.split('\n').length > 40;
+/** Visible height of a folded message: 40 lines of body text. */
+export const FOLD_HEIGHT = 40 * 23;
+
+/**
+ * Fold when the rendered message is taller than the fold. Measured after layout, so screen
+ * width, font scale and wrapped code lines all count (a character estimate misses them).
+ */
+export function shouldFold(renderedHeight: number): boolean {
+  return renderedHeight > FOLD_HEIGHT;
 }
 
 /** The working row's activity, or undefined for the connector's generic "Working…" keep-alive. */
