@@ -106,7 +106,8 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 12,
   },
-  headerSlot: { width: 36, alignItems: 'center' },
+  // Grows for wider controls (the connect steps' progress); empty slots keep the title centred.
+  headerSlot: { minWidth: 36, alignItems: 'center' },
   headerCenter: { flex: 1, alignItems: 'center' },
   content: { paddingHorizontal: 22, paddingVertical: 16, gap: 18 },
   footer: {

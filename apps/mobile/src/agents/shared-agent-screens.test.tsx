@@ -202,7 +202,11 @@ describe('agent detail screen', () => {
     elements(render())
       .find((e) => e.props.label === 'Advanced')
       ?.props.onPress?.();
-    expect(names(render())).toEqual(expect.arrayContaining(['Edit connection', 'Address']));
+    expect(names(render())).toEqual(
+      expect.arrayContaining(['Edit connection', 'Connection method']),
+    );
+    // A computer agent's internal connector address is not shown.
+    expect(names(render())).not.toContain('Address');
   });
 
   it('can_edit false hides edit, delete, voice, words and connection controls', async () => {

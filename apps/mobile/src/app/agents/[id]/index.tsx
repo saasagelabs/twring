@@ -300,9 +300,10 @@ export default function AgentDetailScreen() {
         {!aiApp && showAdvanced && (
           <Row label="Connection method" value={protocolLabel(agent.protocol)} />
         )}
-        {showAdvanced && editable && agent.protocol !== 'mcp-app' && (
-          <Row label="Address" value={agent.endpoint_url} />
-        )}
+        {showAdvanced &&
+          editable &&
+          agent.protocol !== 'mcp-app' &&
+          agent.protocol !== 'cord-connector' && <Row label="Address" value={agent.endpoint_url} />}
         {showAdvanced && agent.protocol === 'openai-chat' && agent.model && (
           <Row label="Model" value={agent.model} />
         )}
