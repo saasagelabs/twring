@@ -65,7 +65,7 @@ To remove an app, go to Settings, Connected AI apps, Remove. This deletes its ch
 | Call summaries                   | Last 200 calls per user, or until you delete your data                                   |
 | Daily usage counters             | Two days                                                                                 |
 | Invite request email             | Until you are invited or ask us to remove it ({{CONTACT_EMAIL}})                         |
-| Push tokens, ring settings       | Until you remove the phone (sign out) or delete your data                                |
+| Push tokens, ring settings       | Until you remove the phone (sign out), switch its notifications off (Android), or delete your data |
 | Ring history                     | One day for the ring itself; a missed ring stays with your call summaries                |
 | Server logs and crash reports    | 30 days                                                                                  |
 
@@ -114,7 +114,7 @@ Under Play's definitions, data sent to a service provider that processes it for 
 | Personal info → Name | Yes | No | Account management | No | Profile name from sign-in |
 | Personal info → User IDs | Yes | No | App functionality, account management | No | Sign-in account id and Twring user id |
 | Personal info → Other info | Yes | No | App functionality | Yes | User-entered agent name and address, linked computer name |
-| Device or other IDs | Yes | No | App functionality | No (registered when the user signs in) | Push token per phone, so an agent can ring it; sent at sign-in even if notifications are off |
+| Device or other IDs | Yes | No | App functionality | Yes (sent only once the user allows notifications) | Push token per phone, so an agent can ring it; withdrawn again if notifications are switched off |
 | Messages → Other in-app messages | Yes (stored, encrypted at rest) | No | App functionality | Yes (chats are optional) | Chats with the user's agents and connected AI apps; deletable (Clear chat, Delete agent, Delete my data) |
 | App activity → Other user-generated content | Yes (in transit) | No | App functionality | Required for calls | Text of what the user says, sent to their own agent; not stored by Twring |
 | App activity → App interactions | Yes | No | App functionality, analytics (usage counts) | No | Call summaries (last 200 calls), ring history |
