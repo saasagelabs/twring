@@ -1205,6 +1205,185 @@ describe('ConversationController held speech edge cases (verifier)', () => {
     expect(scheduler.pending).toBe(0);
   });
 
+  /** The agent is working on turn_1 and the caller is talking again. */
+  async function caller() {
+    const ctx = setup();
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    return { ...ctx, agent: ctx.adapter.channels[0]! };
+  }
+
+  // Keep talking (2026-11-12, owner's Hermes calls): the agent answered the first half of a request
+  // while the caller paused, the caller went on, and that answer was dropped unheard. It now plays
+  // first, then the answer to the rest; nothing is sent to the agent twice.
+  it('an answer the agent finished while the caller kept talking plays before the next answer', async () => {
+    const { speech, conversation, agent, adapter, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    expect(speech.calls).toEqual([]);
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    expect(speech.calls).toEqual(['begin gen_1', 'append gen_1 It is sunny. ']);
+    expect(
+      logger.events.find((e) => e.fields.event === 'unheard_answer_carried')?.fields,
+    ).toMatchObject({ from_turn_id: 'turn_1', turn_id: 'turn_2', text_chars: 12 });
+    expect(logger.names()).not.toContain('turn_merged');
+    expect(adapter.channels[1]?.turn.text).toBe('and tomorrow?');
+    const next = adapter.channels[1]!;
+    next.text('Rain tomorrow.');
+    next.done();
+    await flushMicrotasks();
+    expect(speech.calls.slice(2)).toEqual([
+      'append gen_1 Rain ',
+      'append gen_1 tomorrow.',
+      'end gen_1',
+    ]);
+  });
+
+  it('a carried answer still unheard is carried again when the caller goes on before the next answer', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    // Neither played nor answered yet: the caller adds more.
+    conversation.userTurn('and on Friday?');
+    await flushMicrotasks();
+    const carried = logger.events.filter((e) => e.fields.event === 'unheard_answer_carried');
+    expect(carried.map((e) => e.fields)).toMatchObject([
+      { from_turn_id: 'turn_1', turn_id: 'turn_2', text_chars: 12 },
+      { from_turn_id: 'turn_2', turn_id: 'turn_3', text_chars: 12 },
+    ]);
+    expect(speech.calls.at(-1)).toMatch(/^append gen_\d+ It is sunny\. $/);
+  });
+
+  it('a carried answer is not carried again once it has been heard', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    conversation.userSpeechStarted();
+    conversation.userPartial('wait'); // a barge-in on the carried answer
+    conversation.userTurn('never mind');
+    await flushMicrotasks();
+    expect(logger.names().filter((n) => n === 'unheard_answer_carried')).toHaveLength(1);
+    expect(speech.calls.filter((c) => c.includes('sunny'))).toHaveLength(1);
+  });
+
+  it('a long unheard answer stays in the chat and is not read out', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text(`${'word '.repeat(200)}end.`);
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    expect(speech.calls).toEqual([]);
+    expect(logger.names()).not.toContain('unheard_answer_carried');
+  });
+
+  it('a carried answer is the speech-filtered text, not raw markdown', async () => {
+    const { speech, conversation, agent } = await caller();
+    agent.text('**Sunny** and `warm`.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    const said = speech.calls.filter((c) => c.startsWith('append')).join('|');
+    expect(said).toContain('Sunny');
+    expect(said).not.toContain('**');
+    expect(said).not.toContain('`');
+  });
+
+  it('no heard-you tone or progress line plays over a carried answer', async () => {
+    const ctx = setup(undefined, undefined, undefined, { presenceCues: true });
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    const agent = ctx.adapter.channels[0]!;
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    ctx.conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    ctx.conversation.speechState('gen_1', 'playing');
+    ctx.scheduler.advance(30_000);
+    expect(ctx.logger.names()).not.toContain('presence_tone');
+    expect(ctx.logger.names()).not.toContain('ack_line');
+    expect(ctx.speech.calls.filter((c) => c.startsWith('begin'))).toEqual(['begin gen_1']);
+    ctx.conversation.close();
+  });
+
+  it('the carried answer is echo-protected: hearing it back is not a barge-in', async () => {
+    const { speech, conversation, agent, logger, floors } = await caller();
+    agent.text('It is sunny today in the city.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    conversation.userSpeechStarted();
+    conversation.userPartial('it is');
+    expect(speech.calls).not.toContain('cancel barge_in');
+    expect(logger.names()).toContain('echo_rejected');
+    expect(floors().at(-1)).toBe('agent_speaking');
+  });
+
+  it('the next turn failing while the carried answer plays ends speech and gives the floor back', async () => {
+    const { speech, conversation, agent, adapter, floors, scheduler } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    adapter.channels[1]!.fail(new Error('socket reset'));
+    await flushMicrotasks();
+    expect(speech.calls).toContain('end gen_1');
+    conversation.speechState('gen_1', 'finished');
+    await flushMicrotasks();
+    expect(floors().at(-1)).toBe('listening');
+    conversation.close();
+    expect(scheduler.pending).toBe(0);
+  });
+
+  // Probe: once the carried answer has finished playing and the agent is still silent on the new
+  // turn, the generation stays open, so progressDue sees it as busy for as long as the agent thinks.
+  it('a progress line can still play after the carried answer finished and the agent is silent', async () => {
+    const ctx = setup(undefined, undefined, undefined, { presenceCues: true });
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    const agent = ctx.adapter.channels[0]!;
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    ctx.conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    ctx.conversation.speechState('gen_1', 'playing');
+    ctx.conversation.speechState('gen_1', 'finished');
+    ctx.scheduler.advance(25_000);
+    expect(ctx.logger.names()).toContain('progress_line');
+    ctx.conversation.close();
+  });
+
+  it('closing the call right after a carry cancels it and leaves no timers', async () => {
+    const { speech, conversation, agent, scheduler } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    conversation.close();
+    expect(speech.calls.at(-1)).toBe('cancel call_ended');
+    expect(scheduler.pending).toBe(0);
+  });
+
   it("a superseded turn's held text never leaks into the next turn's speech", async () => {
     const { speech, conversation, adapter } = await held();
     conversation.userTurn('never mind that one');
