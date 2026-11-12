@@ -8,6 +8,7 @@ import {
   messageStatus,
   rowSecondLine,
   rowLine,
+  rowTime,
   segmentText,
   shouldFold,
   sortChatAgents,
@@ -217,5 +218,21 @@ describe('markdown links (device test 2026-10-13)', () => {
     expect(segmentText('[x](javascript:alert(1))')).toEqual([
       { kind: 'text', value: '[x](javascript:alert(1))' },
     ]);
+  });
+});
+
+describe('rowTime', () => {
+  const now = new Date(2026, 10, 12, 15, 0);
+  const at = (days: number, hour = 9) => new Date(2026, 10, 12 - days, hour, 5).toISOString();
+
+  it('shows the time today, then Yesterday, then the weekday within a week', () => {
+    expect(rowTime(at(0), now)).toBe('09:05');
+    expect(rowTime(at(1), now)).toBe('Yesterday');
+    expect(rowTime(at(3), now)).toBe('Mon');
+  });
+
+  it('writes older dates the way Recents and agent pages do', () => {
+    expect(rowTime(at(8), now)).toBe('Nov 4');
+    expect(rowTime(new Date(2025, 9, 29, 9).toISOString(), now)).toBe('Oct 29, 2025');
   });
 });

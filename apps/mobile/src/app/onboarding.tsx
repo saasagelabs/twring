@@ -47,7 +47,6 @@ export default function OnboardingScreen() {
                   {
                     width: index === page ? 28 : 8,
                     backgroundColor: index === page ? palette.accent : 'rgba(255,255,255,0.2)',
-                    boxShadow: index === page ? `0 0 8px ${palette.accent}` : undefined,
                   },
                 ]}
               />
@@ -82,7 +81,6 @@ export default function OnboardingScreen() {
         />
       </View>
       <View style={styles.copy}>
-        <Text style={[type.microLabel, { color: palette.accent }]}>{`STEP ${page + 1} OF 3`}</Text>
         <Text
           accessibilityRole="header"
           style={[type.display, styles.title, { color: palette.textPrimary }]}

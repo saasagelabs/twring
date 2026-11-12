@@ -127,6 +127,8 @@ type Props = {
   accessibilityLabel?: string;
   children?: ReactNode;
   footer?: ReactNode;
+  headerRight?: ReactNode;
+  onPress?: () => void;
 };
 function elements(node: ReactNode): ReactElement<Props>[] {
   if (!isValidElement(node)) return [];
@@ -135,6 +137,7 @@ function elements(node: ReactNode): ReactElement<Props>[] {
     element,
     ...Children.toArray(element.props.children).flatMap(elements),
     ...elements(element.props.footer),
+    ...elements(element.props.headerRight),
   ];
 }
 const agent = {
@@ -185,11 +188,25 @@ describe('agent detail screen', () => {
         'Edit agent',
         'Voice',
         'Words to recognise',
-        'Edit connection',
+        'Advanced',
         'Delete agent',
       ]),
     );
     expect(everything((await screen('index'))())).not.toContain(SHARED_AGENT_NOTE);
+  });
+
+  it('keeps connection details behind Advanced until it is opened', async () => {
+    detail({});
+    const render = await screen('index');
+    expect(names(render())).not.toContain('Edit connection');
+    elements(render())
+      .find((e) => e.props.label === 'Advanced')
+      ?.props.onPress?.();
+    expect(names(render())).toEqual(
+      expect.arrayContaining(['Edit connection', 'Connection method']),
+    );
+    // A computer agent's internal connector address is not shown.
+    expect(names(render())).not.toContain('Address');
   });
 
   it('can_edit false hides edit, delete, voice, words and connection controls', async () => {

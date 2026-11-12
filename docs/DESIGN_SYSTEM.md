@@ -23,7 +23,12 @@ Avoid:
 - neon overload;
 - chatbot bubbles as main call surface;
 - fake equalizers;
-- excessive blur/glass that reduces readability.
+- excessive blur/glass that reduces readability;
+- a glow, a gradient fill and a hairline stacked on the same element. Pick one way to lift an element off black. (Audit 2026-11-12: `/connector/` and `/oauth/consent/` carried a glowing logo, haloed gradient buttons and glowing bullets while the home page beside them was flat; they now share the site's stylesheet.)
+
+Glow means "live". Buttons, switches, focused fields, progress bars and the header wordmark are flat; only things happening right now glow: the call orb, a speaking waveform, the online dot and status pill, and a ringing Answer button. (Owner decision 2026-11-12, audit P1: the app's primary button carried a gradient, a cyan halo and an inner highlight while the site's was flat.)
+
+The website and the app are one product. A screen in either should be recognisable as the other's: black stage, white type, cyan for the user and for the one action on the screen.
 
 ## 3. Tokens
 
@@ -39,26 +44,31 @@ xl  = 24
 3xl = 48
 ```
 
-Suggested radii:
+Radii (the values in `apps/mobile/src/theme/tokens.ts`; this section used to suggest 10/16/24, which the app never used):
 
 ```text
-sm = 10
-md = 16
-lg = 24
+xs = 10
+sm = 12
+md = 14   rows, cards, fields
+lg = 18   agent cards, chat bubbles
+xl = 22
+xxl = 28  sheets, primary buttons
 pill = 999
 ```
 
-Typography roles:
+Typography roles (family, size):
 
-- display;
-- title;
-- headline;
-- body;
-- body-emphasis;
-- caption;
-- diagnostic/mono.
+- display (Manrope ExtraLight 34): one-off hero lines such as sign-in and the call outcome;
+- screenTitle (Manrope ExtraLight 30): the title at the top of every screen. Added in the 2026-11-12 audit: Agents and Chats drew their titles at 34 while Settings and Recents drew theirs at 30, so the title jumped when switching tabs;
+- title (Manrope Light 24);
+- headline (Manrope Regular 19);
+- body (Inter 15/22);
+- body-emphasis (Inter SemiBold 15/22);
+- caption (Inter 13);
+- microLabel (Inter SemiBold 11, tracked): group headings;
+- diagnostic/mono (JetBrains Mono 13).
 
-Do not hardcode type sizes in feature components.
+Do not hardcode type sizes, radii or colors in feature components. The 2026-11-12 audit counted 14 distinct font sizes, 24 distinct radius values and about 50 raw color literals in screens and components. New and touched code uses the tokens; when a value is missing, add a token here first.
 
 ## 4. Semantic colors
 
@@ -79,6 +89,17 @@ Define tokens:
 - reconnecting.
 
 Brand palette remaps semantic tokens.
+
+Text colors and their contrast on the black background (WCAG AA needs 4.5:1 for text):
+
+```text
+textPrimary    #FFFFFF          21:1
+textSecondary  white at 62%     7.8:1   supporting copy
+textTertiary   white at 54%     6.0:1   the quietest text people must read
+textMuted      white at 28%     2.3:1   disabled controls and decoration only
+```
+
+`textTertiary` was white at 42% (3.9:1) until the 2026-11-12 audit. It carried the explanation under every Settings row, the time and outcome lines in Recents, field labels and hints, and the live captions on the call screen, all at 11 to 13 px. `textMuted` is never used for text that must be read: the audit moved field placeholders and the Muted call status off it.
 
 ## 5. Theme scope
 
@@ -166,9 +187,13 @@ Use one coherent icon family.
 
 Do not mix emoji into primary controls.
 
+Text glyphs standing in for icons count too. Known leftovers (audit 2026-11-12, not yet replaced): the file glyph and the multiplication-sign remove button in the chat attachment tray.
+
 ## 14. Touch targets
 
 Meet platform accessibility minimums; call controls should exceed them comfortably.
+
+App: 48 by 48 for anything tappable, counting hit slop. Site: 44 px tall for buttons and standalone links; links inside a sentence are exempt.
 
 ## 15. Safe areas
 
@@ -239,7 +264,17 @@ For core screens verify:
 - slow device;
 - rapid call-state changes.
 
-## 21. Acceptance principle
+## 21. The website
+
+`apps/site` follows the same system through `assets/site.css`:
+
+- every page uses that one stylesheet and the self-hosted fonts; no page keeps its own copy of the tokens;
+- one solid cyan action per page; everything else is a quiet outline or a text link;
+- lengths and breakpoints are in rem, so the browser's text size setting reflows the page. Check each change at 1440, 768, 375 and 320 px, and at 188 px (a 375 px phone with text at 200%): no sideways scroll;
+- nothing sits on top of the film;
+- keyboard order follows what is on screen: opening the phone menu moves to its first link.
+
+## 22. Acceptance principle
 
 If a beautiful animation introduces audio glitches, remove it.
 

@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { font } from '@/theme/fonts';
@@ -12,7 +11,7 @@ interface Props {
   accessibilityHint?: string;
 }
 
-/** Filled, high-contrast primary action with a comfortably large hit area. */
+/** Flat, high-contrast primary action with a comfortably large hit area. */
 export function PrimaryButton({
   label,
   onPress,
@@ -38,10 +37,8 @@ export function PrimaryButton({
         disabled
           ? { backgroundColor: 'rgba(255,255,255,0.06)' }
           : tone === 'accent'
-            ? {
-                boxShadow:
-                  '0 0 0 1px rgba(25,214,242,0.4), 0 8px 28px rgba(25,214,242,0.33), inset 0 1px 0 rgba(255,255,255,0.4)',
-              }
+            ? // Flat cyan: glow is kept for live things (the call orb, a ringing Answer).
+              { backgroundColor: pressed ? palette.accentDim : palette.accent }
             : {
                 backgroundColor: palette.surface,
                 borderWidth: 1,
@@ -50,9 +47,6 @@ export function PrimaryButton({
         { transform: [{ scale: pressed && !disabled ? 0.97 : 1 }] },
       ]}
     >
-      {tone === 'accent' && !disabled && (
-        <LinearGradient colors={[palette.accent, palette.accentDim]} style={styles.gradient} />
-      )}
       <Text style={[styles.label, { color }]}>{label}</Text>
     </Pressable>
   );
@@ -66,6 +60,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  gradient: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, borderRadius: 28 },
   label: { fontFamily: font.bodyEmphasis, fontSize: 16 },
 });

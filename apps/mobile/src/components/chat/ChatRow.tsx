@@ -95,7 +95,7 @@ const styles = StyleSheet.create({
   main: { flex: 1, gap: 4 },
   first: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { flex: 1, fontFamily: font.interMedium, fontSize: 16 },
-  time: { fontFamily: font.mono, fontSize: 11 },
+  time: { fontFamily: font.body, fontSize: 12 },
   second: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   preview: { flex: 1, fontFamily: font.body, fontSize: 14 },
   badge: {

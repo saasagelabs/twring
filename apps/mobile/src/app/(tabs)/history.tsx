@@ -118,7 +118,8 @@ export default function HistoryScreen() {
   const summary = historySummary(history.data ?? []);
   return (
     <Screen
-      title="Call history"
+      wordmark
+      title="Recents"
       refreshing={history.refreshing}
       onRefresh={() => history.reload({ refresh: true })}
     >

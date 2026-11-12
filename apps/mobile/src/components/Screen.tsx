@@ -62,7 +62,7 @@ export function Screen({
                 <IconButton icon="back" accessibilityLabel="Back" onPress={onBack} />
               ) : null)}
           </View>
-          <View style={styles.headerCenter}>{wordmark && <TwringWordmark size={20} glow />}</View>
+          <View style={styles.headerCenter}>{wordmark && <TwringWordmark size={20} />}</View>
           <View style={styles.headerSlot}>{headerRight}</View>
         </View>
       ) : null}
@@ -83,7 +83,7 @@ export function Screen({
           {title !== undefined && (
             <Text
               accessibilityRole="header"
-              style={[type.display, styles.title, { color: palette.textPrimary }]}
+              style={[type.screenTitle, { color: palette.textPrimary }]}
             >
               {title}
             </Text>
@@ -106,10 +106,10 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 12,
   },
-  headerSlot: { width: 36, alignItems: 'center' },
+  // Grows for wider controls (the connect steps' progress); empty slots keep the title centred.
+  headerSlot: { minWidth: 36, alignItems: 'center' },
   headerCenter: { flex: 1, alignItems: 'center' },
   content: { paddingHorizontal: 22, paddingVertical: 16, gap: 18 },
-  title: { fontSize: 30, letterSpacing: -0.8 },
   footer: {
     paddingHorizontal: 22,
     paddingBottom: 24,

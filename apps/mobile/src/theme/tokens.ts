@@ -6,6 +6,8 @@ export const radius = { xs: 10, sm: 12, md: 14, lg: 18, xl: 22, xxl: 28, pill: 9
 
 export const type = {
   display: { fontFamily: font.display, fontSize: 34, letterSpacing: -1.2 },
+  /** The title at the top of a screen: every tab and page uses this one size. */
+  screenTitle: { fontFamily: font.display, fontSize: 30, letterSpacing: -0.8 },
   title: { fontFamily: font.title, fontSize: 24, letterSpacing: -0.6 },
   headline: { fontFamily: font.headline, fontSize: 19, letterSpacing: -0.3 },
   body: { fontFamily: font.body, fontSize: 15, lineHeight: 22 },
@@ -34,9 +36,9 @@ export interface Palette {
   accentBright: string;
   /** Dimmer cyan for subdued accents. */
   accentDim: string;
-  /** Low-emphasis supporting text. */
+  /** Low-emphasis supporting text. The quietest color that text people must read may use (6:1 on black). */
   textTertiary: string;
-  /** Faint text for the quietest labels. */
+  /** Disabled controls and decoration only (2.3:1 on black): never for text people must read. */
   textMuted: string;
   onAccent: string;
   success: string;
@@ -60,7 +62,7 @@ const dark: Palette = {
   sheet: '#0A0C10',
   textPrimary: '#FFFFFF',
   textSecondary: 'rgba(255,255,255,0.62)',
-  textTertiary: 'rgba(255,255,255,0.42)',
+  textTertiary: 'rgba(255,255,255,0.54)',
   textMuted: 'rgba(255,255,255,0.28)',
   border: 'rgba(255,255,255,0.08)',
   borderStrong: 'rgba(255,255,255,0.14)',

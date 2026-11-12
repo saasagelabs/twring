@@ -77,11 +77,11 @@ export function callRefusal(
 export function protocolLabel(protocol: AgentProtocol): string {
   switch (protocol) {
     case 'cord-native':
-      return 'Twring Native';
+      return 'Made for Twring';
     case 'cord-rest':
-      return 'API endpoint';
+      return 'Web service';
     case 'openai-chat':
-      return 'Any OpenAI-compatible agent';
+      return 'OpenAI-style agent server';
     case 'cord-connector':
       return 'On my computer';
     case 'mcp-app':
@@ -101,13 +101,13 @@ export function checkLabel(check: ConnectionCheck): string {
   const passed = check.status === 'passed';
   switch (check.name) {
     case 'endpoint':
-      return passed ? 'Endpoint reached' : "Endpoint couldn't be reached";
+      return passed ? 'Address reached' : "Address couldn't be reached";
     case 'authentication':
-      return passed ? 'Authentication accepted' : 'Authentication rejected';
+      return passed ? 'Key accepted' : 'Key not accepted';
     case 'response':
       return passed ? 'Agent responded' : "Agent didn't respond";
     case 'streaming':
-      return passed ? 'Streaming works' : "Streaming didn't work";
+      return passed ? 'Reply streams' : "Reply didn't stream";
   }
 }
 
@@ -122,13 +122,13 @@ export function testResultCopy(result: ConnectionTestSummary): string {
   const failed = orderedChecks(result.checks).find((c) => c.status === 'failed');
   switch (failed?.name) {
     case 'endpoint':
-      return "Twring couldn't reach the endpoint. Check the address and that your agent is running, then try again.";
+      return "Twring couldn't reach that address. Check the address and that your agent is running, then try again.";
     case 'authentication':
-      return 'Twring reached the endpoint, but authentication was rejected. Check the API key and try again.';
+      return "Twring reached your agent, but it didn't accept the key. Check the key and try again.";
     case 'response':
       return "Twring connected, but the agent didn't answer the test message. Check that your agent is running, then try again.";
     case 'streaming':
-      return "The agent answered, but its reply didn't stream. Check that the endpoint streams replies, then try again.";
+      return "The agent answered, but its reply didn't stream. Check that your agent streams its replies, then try again.";
     case undefined:
       // Twring's own safe message (the contract never carries agent or secret text).
       return result.message.trim() !== ''
