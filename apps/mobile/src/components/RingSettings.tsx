@@ -11,6 +11,7 @@ import { TextButton } from '@/components/TextButton';
 import { Toggle } from '@/components/Toggle';
 import { ringPlatform, type RingPermissions } from '@/platform/ring';
 import type { RingSettings as Settings } from '@/ring/protocol';
+import { allowNotifications } from '@/ring/service';
 import {
   deviceTimeZone,
   formFromSettings,
@@ -180,7 +181,7 @@ export function RingSettings({
           value="Turn them on, or agents' calls cannot ring."
           accessibilityHint="Asks for permission or opens system settings"
           onPress={() => {
-            void ringPlatform.requestNotifications().then((granted) => {
+            void allowNotifications().then((granted) => {
               if (!granted) ringPlatform.openNotificationSettings();
             });
           }}

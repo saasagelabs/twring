@@ -17,6 +17,11 @@ export interface PushRegistrationDeps {
   platform?: RegisterDeviceRequest['platform'];
   /** iOS: the alert token, sent along with the ring token when there is one. */
   getAlertToken?(): Promise<string | null>;
+  /**
+   * Notifications are allowed, so a ring can be shown. Until they are, no token is sent (Play Data
+   * safety: the push token is optional). Defaults to always: iOS rings through CallKit without them.
+   */
+  notificationsAllowed?(): boolean;
   /** Clock for the re-registration throttle. Defaults to Date.now. */
   now?: () => number;
   /** How often the same token is sent again. Defaults to PUSH_REFRESH_MS. */
@@ -52,6 +57,8 @@ export class PushRegistration {
   private registeredAt = 0;
   private queue: Promise<void> = Promise.resolve();
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /** This run already removed the token from the server because notifications are off. */
+  private withdrawn = false;
 
   private readonly now: () => number;
   private readonly refreshMs: number;
@@ -77,6 +84,11 @@ export class PushRegistration {
           // current token still moves it to this account; a deleted token expires at FCM.
         }
       }
+      if (!this.allowed()) {
+        await this.withdraw();
+        return;
+      }
+      this.withdrawn = false;
       const token = await this.deps.getToken();
       if (token !== null && token !== '') await this.registerToken(token);
     });
@@ -136,7 +148,26 @@ export class PushRegistration {
     return this.registeredToken;
   }
 
+  private allowed(): boolean {
+    return this.deps.notificationsAllowed?.() ?? true;
+  }
+
+  /**
+   * Notifications are off: take this phone off the server, once per app run (an earlier app
+   * version, or the person before switching them off, may have registered it). A failure is
+   * tried again on the next app start or return.
+   */
+  private async withdraw(): Promise<void> {
+    if (this.withdrawn) return;
+    this.cancelRetry();
+    this.registeredToken = undefined;
+    this.registeredAlert = undefined;
+    await this.deps.unregister(await this.deps.deviceId());
+    this.withdrawn = true;
+  }
+
   private async registerToken(token: string, attempt = 0): Promise<void> {
+    if (!this.allowed()) return;
     const alert = (await this.deps.getAlertToken?.().catch(() => null)) ?? undefined;
     const unchanged = token === this.registeredToken && alert === this.registeredAlert;
     if (unchanged && this.now() - this.registeredAt < this.refreshMs) return;

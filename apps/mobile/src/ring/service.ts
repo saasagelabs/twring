@@ -87,6 +87,10 @@ export const ringRegistration = createRingRegistration({
     },
     appVariant: appVariant(),
     platform: Platform.OS === 'ios' ? 'ios' : 'android',
+    // Android sends the token only with notifications on (no ring could show without them). iOS
+    // rings through CallKit, which needs no notification permission.
+    notificationsAllowed: () =>
+      Platform.OS !== 'android' || ringPlatform.permissions().notifications,
     ...(ringPlatform.getAlertToken !== undefined && {
       getAlertToken: () => ringPlatform.getAlertToken?.() ?? Promise.resolve(null),
     }),
@@ -293,9 +297,16 @@ async function askForNotificationsOnce(): Promise<void> {
       'so you hear it, even with the phone locked.',
     [
       { text: 'Not now', style: 'cancel' },
-      { text: 'Allow', onPress: () => void ringPlatform.requestNotifications() },
+      { text: 'Allow', onPress: () => void allowNotifications() },
     ],
   );
+}
+
+/** Asks for notifications; once allowed, this phone is registered so agents can ring it. */
+export async function allowNotifications(): Promise<boolean> {
+  const granted = await ringPlatform.requestNotifications();
+  if (granted) registerSignedIn();
+  return granted;
 }
 
 /** Registers for the signed-in account of the active server (hosted, or a self-hosted person). */

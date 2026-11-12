@@ -221,16 +221,25 @@ describe('selfhostRegistrationDeps', () => {
     for (const [, init] of net.fetch.mock.calls) expect(init?.redirect).toBe('error');
   });
 
-  it('unregister deletes the handle on the server, best effort', async () => {
+  it('unregister deletes the handle on the server, and reports a failure so it is retried', async () => {
     const net = network({
-      [`DELETE ${SERVER}/v1/me/paired-devices/current/relay`]: [() => empty(503)],
+      [`DELETE ${SERVER}/v1/me/paired-devices/current/relay`]: [
+        () => empty(503),
+        () => empty(404),
+        () => empty(204),
+      ],
     });
     const reg = selfhostRegistrationDeps(profile, deps(net));
+    // A server that cannot remove it now: the caller keeps it pending (sign-out) or tries again
+    // on the next return (notifications switched off).
+    await expect(reg.unregister('dev_1')).rejects.toThrow('503');
+    // Already gone counts as removed.
+    await expect(reg.unregister('dev_1')).resolves.toBeUndefined();
     await expect(reg.unregister('dev_1')).resolves.toBeUndefined();
     const offline = selfhostRegistrationDeps(profile, deps(net, { token: () => undefined }));
     await offline.unregister('dev_1');
-    expect(net.calls).toHaveLength(1);
-    expect(net.calls[0]?.method).toBe('DELETE');
+    expect(net.calls).toHaveLength(3);
+    expect(net.calls.every((call) => call.method === 'DELETE')).toBe(true);
   });
 });
 

@@ -318,6 +318,48 @@ describe('push registration', () => {
     expect(deps.register).toHaveBeenCalledTimes(3);
   });
 
+  // Play Data safety: the push token is optional, so it is sent only once the person allows
+  // notifications (Android). A phone with notifications off could not show a ring anyway.
+  it('sends no token while notifications are off, and registers once they are allowed', async () => {
+    const { deps } = setup();
+    let allowed = false;
+    const registration = new PushRegistration({ ...deps, notificationsAllowed: () => allowed });
+    await registration.signedIn('user-1');
+    await registration.tokenRefreshed('tok_2');
+    expect(deps.register).not.toHaveBeenCalled();
+    // A token an earlier app version registered is withdrawn, once per app run.
+    expect(deps.unregister).toHaveBeenCalledTimes(1);
+    expect(deps.unregister).toHaveBeenCalledWith('dev_1');
+    await registration.signedIn('user-1');
+    expect(deps.unregister).toHaveBeenCalledTimes(1);
+    allowed = true;
+    await registration.signedIn('user-1');
+    expect(deps.register).toHaveBeenCalledWith(
+      'dev_1',
+      expect.objectContaining({ fcm_token: 'tok_1' }),
+    );
+  });
+
+  it('withdraws the token when notifications are switched off, and sends it again when back on', async () => {
+    const { deps } = setup();
+    let allowed = true;
+    const registration = new PushRegistration({ ...deps, notificationsAllowed: () => allowed });
+    await registration.signedIn('user-1');
+    expect(deps.register).toHaveBeenCalledTimes(1);
+    allowed = false;
+    deps.unregister.mockRejectedValueOnce(new Error('offline'));
+    await registration.signedIn('user-1');
+    expect(registration.registered).toBeUndefined();
+    // Offline: tried again on the next return.
+    await registration.signedIn('user-1');
+    expect(deps.unregister).toHaveBeenCalledTimes(2);
+    await registration.signedIn('user-1');
+    expect(deps.unregister).toHaveBeenCalledTimes(2);
+    allowed = true;
+    await registration.signedIn('user-1');
+    expect(deps.register).toHaveBeenCalledTimes(2);
+  });
+
   it('registers on sign-in, once per token', async () => {
     const { deps, registration } = setup();
     await registration.signedIn('user-1');

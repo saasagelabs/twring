@@ -42,7 +42,7 @@ const trimSlash = (url: string) => url.replace(/\/+$/, '');
 /**
  * Push registration with a paired self-hosted server: a one-time ticket from the server, the push
  * tokens to Twring's relay with that ticket (no device token, no Authorization), and the relay's
- * handle back to the server. Unregistering deletes the handle on the server, best effort.
+ * handle back to the server. Unregistering deletes the handle on the server.
  */
 export function selfhostRegistrationDeps(
   profile: SelfhostProfile,
@@ -139,10 +139,13 @@ export function selfhostRegistrationDeps(
       // No identity wait here: this runs while signing out, and an unchecked server gets nothing.
       const token = deps.token();
       if (token === undefined) return;
-      await send(`${profile.address}${PAIRED_DEVICE_RELAY_PATH}`, {
+      // A failure is reported, not swallowed: sign-out keeps the device pending and a phone whose
+      // notifications went off tries again on the next return. Already gone (404) is removed.
+      const res = await send(`${profile.address}${PAIRED_DEVICE_RELAY_PATH}`, {
         method: 'DELETE',
         headers: serverHeaders(token, false),
-      }).catch(() => undefined);
+      });
+      if (!res.ok && res.status !== 404) throw new Error(`unregister ${res.status}`);
     },
   };
 }
