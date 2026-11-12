@@ -1,5 +1,6 @@
 import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
 import { usePalette } from '@/theme/tokens';
 import { humanSize, type PreparedFile } from '@/threads/files';
@@ -25,7 +26,7 @@ export function AttachmentTray({
           ) : (
             <View style={styles.document}>
               <Text style={[styles.name, { color: palette.textPrimary }]} numberOfLines={1}>
-                ▤ {file.name}
+                {file.name}
               </Text>
               <Text style={[styles.size, { color: palette.textSecondary }]}>
                 {humanSize(file.sizeBytes)}
@@ -35,17 +36,22 @@ export function AttachmentTray({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Remove ${file.name}`}
-            hitSlop={8}
+            hitSlop={REMOVE_HIT_SLOP}
             onPress={() => onRemove(file.clientId)}
             style={[styles.remove, { backgroundColor: palette.surfaceRaised }]}
           >
-            <Text style={[styles.x, { color: palette.textPrimary }]}>×</Text>
+            <Icon name="x" size={14} color={palette.textPrimary} strokeWidth={2} />
           </Pressable>
         </View>
       ))}
     </ScrollView>
   );
 }
+
+/** The visible remove button is 24 px; the slop brings its hit target to 44 x 44. */
+const REMOVE_SIZE = 24;
+export const REMOVE_HIT_SLOP = (44 - REMOVE_SIZE) / 2;
+
 const styles = StyleSheet.create({
   tray: { gap: 12, paddingHorizontal: 16, paddingTop: 10 },
   item: {
@@ -56,7 +62,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 4,
-    paddingRight: 28,
+    paddingRight: 32,
   },
   image: { width: 64, height: 64, borderRadius: 8 },
   document: { maxWidth: 160, paddingHorizontal: 8 },
@@ -64,13 +70,12 @@ const styles = StyleSheet.create({
   size: { fontFamily: font.caption, fontSize: 11 },
   remove: {
     position: 'absolute',
-    right: -7,
-    top: -7,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: 4,
+    top: 4,
+    width: REMOVE_SIZE,
+    height: REMOVE_SIZE,
+    borderRadius: REMOVE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  x: { fontFamily: font.body, fontSize: 22 },
 });
