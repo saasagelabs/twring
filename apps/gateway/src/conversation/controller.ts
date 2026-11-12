@@ -80,6 +80,11 @@ const GENERIC_ACTIVITY = 'Working…';
  * past it, the most recent text is kept.
  */
 export const MAX_MERGED_TURN_CHARS = 2000;
+/**
+ * An answer the agent finished while the caller kept talking is spoken before the next answer, up
+ * to this long (about 40 s of speech); a longer one stays in the chat only.
+ */
+export const MAX_CARRIED_SPEECH_CHARS = 600;
 
 /** Bound on any user turn's text sent to an agent; past it, the most recent text is kept. */
 export const MAX_USER_TURN_CHARS = 8000;
@@ -357,6 +362,10 @@ interface Turn {
    * previous generation, already ended, is still playing out.
    */
   heldSpeech: string;
+  /** Everything this turn handed to speech (spoken or held), for an unheard answer to carry over. */
+  spoken: string;
+  /** The agent finished this turn's answer (not failed or timed out). */
+  answered: boolean;
   /** Held text crossed a tool/activity boundary: once released, its generation is ended at once. */
   heldBoundary: boolean;
   speechDone: boolean;
@@ -964,6 +973,17 @@ export class ConversationController {
       mergedTurns = superseded.mergedTurns + turns;
       this.log('turn_merged', { merged_turns: mergedTurns, text_chars: userText.length });
     }
+    // "Keep talking" after the agent already answered: the answer it finished while the caller went
+    // on was never heard. It plays first, then the answer to the rest (owner decision 2026-11-12);
+    // the agent is not asked again, so nothing it did is repeated.
+    const carried =
+      superseded !== undefined && superseded.answered && !superseded.heard && !superseded.muted
+        ? superseded.spoken.trim()
+        : undefined;
+    const carry =
+      carried !== undefined && carried !== '' && carried.length <= MAX_CARRIED_SPEECH_CHARS
+        ? carried
+        : undefined;
     if (userText.length > MAX_USER_TURN_CHARS) {
       const originalChars = userText.length;
       userText = keepRecent(userText, MAX_USER_TURN_CHARS);
@@ -982,6 +1002,8 @@ export class ConversationController {
       speaking: false,
       muted: false,
       heldSpeech: '',
+      spoken: '',
+      answered: false,
       heldBoundary: false,
       speechDone: false,
       agentDone: false,
@@ -1002,13 +1024,22 @@ export class ConversationController {
       genericProgressSaid: false,
       // One acknowledgement per request: a follow-up to a turn that was acknowledged and not yet
       // answered (merged or not) gets none.
-      acked: superseded !== undefined && !superseded.heard && superseded.acked,
+      acked:
+        (superseded !== undefined && !superseded.heard && superseded.acked) || carry !== undefined,
       totalBudgetRemaining: this.timeouts.totalMs,
       totalBudgetStartedAt: this.options.scheduler.now(),
     };
     this.turn = turn;
     this.updateFloor();
     this.startPresence(turn, source);
+    if (carry !== undefined && superseded !== undefined) {
+      this.log('unheard_answer_carried', {
+        from_turn_id: superseded.id,
+        turn_id: turn.id,
+        text_chars: carry.length,
+      });
+      this.speak(turn, `${carry} `);
+    }
     if (openingLine !== undefined) {
       const line = openingLine.trim();
       if (line !== '') {
@@ -1455,6 +1486,7 @@ export class ConversationController {
    */
   private speak(turn: Turn, text: string): void {
     if (turn.muted) return;
+    turn.spoken += text;
     if (turn.generationEnded || (this.callerHasFloor && turn.generationId === undefined)) {
       turn.heldSpeech += text;
       return;
@@ -1549,6 +1581,7 @@ export class ConversationController {
     if (turn.agentDone) return;
     if (turn.approval !== undefined) this.resolveApproval(turn.approval.id, 'deny', 'call_end');
     turn.agentDone = true;
+    turn.answered = outcome === 'completed';
     turn.activity = undefined;
     if (outcome === 'completed') this.counts.completed += 1;
     else this.counts.failed += 1;

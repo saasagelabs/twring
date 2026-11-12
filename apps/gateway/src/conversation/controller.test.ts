@@ -1205,6 +1205,70 @@ describe('ConversationController held speech edge cases (verifier)', () => {
     expect(scheduler.pending).toBe(0);
   });
 
+  /** The agent is working on turn_1 and the caller is talking again. */
+  async function caller() {
+    const ctx = setup();
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    return { ...ctx, agent: ctx.adapter.channels[0]! };
+  }
+
+  // Keep talking (2026-11-12, owner's Hermes calls): the agent answered the first half of a request
+  // while the caller paused, the caller went on, and that answer was dropped unheard. It now plays
+  // first, then the answer to the rest; nothing is sent to the agent twice.
+  it('an answer the agent finished while the caller kept talking plays before the next answer', async () => {
+    const { speech, conversation, agent, adapter, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    expect(speech.calls).toEqual([]);
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    expect(speech.calls).toEqual(['begin gen_1', 'append gen_1 It is sunny. ']);
+    expect(
+      logger.events.find((e) => e.fields.event === 'unheard_answer_carried')?.fields,
+    ).toMatchObject({ from_turn_id: 'turn_1', turn_id: 'turn_2', text_chars: 12 });
+    expect(logger.names()).not.toContain('turn_merged');
+    expect(adapter.channels[1]?.turn.text).toBe('and tomorrow?');
+    const next = adapter.channels[1]!;
+    next.text('Rain tomorrow.');
+    next.done();
+    await flushMicrotasks();
+    expect(speech.calls.slice(2)).toEqual([
+      'append gen_1 Rain ',
+      'append gen_1 tomorrow.',
+      'end gen_1',
+    ]);
+  });
+
+  it('a carried answer is not carried again once it has been heard', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    conversation.userSpeechStarted();
+    conversation.userPartial('wait'); // a barge-in on the carried answer
+    conversation.userTurn('never mind');
+    await flushMicrotasks();
+    expect(logger.names().filter((n) => n === 'unheard_answer_carried')).toHaveLength(1);
+    expect(speech.calls.filter((c) => c.includes('sunny'))).toHaveLength(1);
+  });
+
+  it('a long unheard answer stays in the chat and is not read out', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text(`${'word '.repeat(200)}end.`);
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    expect(speech.calls).toEqual([]);
+    expect(logger.names()).not.toContain('unheard_answer_carried');
+  });
+
   it("a superseded turn's held text never leaks into the next turn's speech", async () => {
     const { speech, conversation, adapter } = await held();
     conversation.userTurn('never mind that one');
