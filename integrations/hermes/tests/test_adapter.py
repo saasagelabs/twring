@@ -542,13 +542,142 @@ async def test_a_turn_waiting_for_its_late_answer_keeps_telling_twring_hermes_is
     assert len([m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t31"]) == count
 
 
-async def test_hermes_typing_tells_twring_it_is_working(linked):
-    """The typing heartbeat keeps a long turn alive on Twring (it ends a quiet turn after 30 s)."""
+async def test_hermes_typing_tells_twring_it_is_working_once_a_turn_runs_long(linked, monkeypatch):
+    """The typing heartbeat keeps a long turn alive on Twring (it ends a quiet turn after 30 s), but
+    not in the turn's first ACTIVITY_EVERY_S: an early activity would stop Twring from merging a
+    turn the owner only paused in with its second half."""
     adapter, fake, events = linked
+    monkeypatch.setattr(twring, "ACTIVITY_EVERY_S", 0.3)
     event = await turn(fake, events, "Run the backups", turn_id="t32")
     await adapter.on_processing_start(event)
+
+    def beats():
+        return [m for m in fake.agent_frames() if m["type"] == "activity" and m["turn_id"] == "t32"]
+
+    await adapter.send_typing("owner")
+    await asyncio.sleep(0.1)
+    await adapter.send_typing("owner")
+    await asyncio.sleep(0.05)
+    assert beats() == []
+    await asyncio.sleep(0.2)
     await adapter.send_typing("owner")
     await fake.wait_for(lambda m: m["type"] == "activity" and m["turn_id"] == "t32")
+    await adapter.send_typing("owner")
+    await asyncio.sleep(0.05)
+    assert len(beats()) == 1
+    await asyncio.sleep(0.3)
+    await adapter.send_typing("owner")
+    await asyncio.sleep(0.05)
+    assert len(beats()) == 2
+
+
+class FakeContext:
+    def __init__(self, hooks=True, fail=False):
+        self.hooks: dict = {}
+        self._fail = fail
+        if hooks:
+            self.register_hook = self._register_hook
+
+    def _register_hook(self, name, callback, **kwargs):
+        if self._fail:
+            raise RuntimeError("no hooks here")
+        self.hooks[name] = callback
+
+    def register_platform(self, **kwargs):
+        pass
+
+    def register_cli_command(self, **kwargs):
+        pass
+
+
+@pytest.fixture
+def hooks(monkeypatch):
+    """Registers the plugin as Hermes does; the hooks are then called as Hermes's worker thread would."""
+    monkeypatch.setattr(twring, "_TOOL_HOOKS", False)
+    ctx = FakeContext()
+    twring.register(ctx)
+    return ctx.hooks
+
+
+async def call_hook(hooks, name, **kwargs):
+    """Calls a hook from another thread, as Hermes does, and checks it returns None."""
+    result = await asyncio.to_thread(hooks[name], **kwargs)
+    assert result is None
+    await asyncio.sleep(0.05)
+
+
+async def test_hermes_tools_reach_twring_as_tool_events_of_the_running_turn(linked, hooks):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Check the disk", turn_id="t40")
+    await adapter.on_processing_start(event)
+    await call_hook(hooks, "pre_tool_call", tool_name="terminal", args={"command": "df"}, tool_call_id="call_1", task_id="x")
+    await call_hook(hooks, "post_tool_call", tool_name="terminal", args={}, result="ok", tool_call_id="call_1", status="ok")
+    await call_hook(hooks, "post_tool_call", tool_name="terminal", args={}, result="ok", tool_call_id="call_1", status="ok")
+    await fake.wait_for(lambda m: m["type"] == "tool.end")
+    frames = [m for m in fake.agent_frames() if m.get("turn_id") == "t40" and m["type"].startswith("tool.")]
+    assert [m["type"] for m in frames] == ["tool.start", "tool.end"]
+    assert frames[0]["tool_call_id"] == "call_1" and frames[0]["tool_name"] == "terminal"
+    assert frames[0]["display_label"]
+    assert frames[1] == {**frames[1], "tool_call_id": "call_1", "status": "success"}
+
+
+@pytest.mark.parametrize(("hermes", "twring_status"), [("error", "error"), ("blocked", "error"), ("cancelled", "cancelled")])
+async def test_a_failed_or_blocked_tool_ends_as_an_error(linked, hooks, hermes, twring_status):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Delete it", turn_id="t41")
+    await adapter.on_processing_start(event)
+    long_name = "n" * 300
+    await call_hook(hooks, "pre_tool_call", tool_name=long_name, args={}, tool_call_id="")
+    await call_hook(hooks, "post_tool_call", tool_name=long_name, args={}, result="", tool_call_id="", status=hermes)
+    await fake.wait_for(lambda m: m["type"] == "tool.end")
+    start = next(m for m in fake.agent_frames() if m["type"] == "tool.start")
+    end = next(m for m in fake.agent_frames() if m["type"] == "tool.end")
+    assert len(start["tool_name"]) == 128
+    assert 1 <= len(start["tool_call_id"]) <= 128 and end["tool_call_id"] == start["tool_call_id"]
+    assert end["status"] == twring_status
+
+
+async def test_a_tool_with_no_twring_turn_running_is_not_reported(linked, hooks):
+    adapter, fake, events = linked
+    await call_hook(hooks, "pre_tool_call", tool_name="terminal", args={}, tool_call_id="call_2")
+    await call_hook(hooks, "post_tool_call", tool_name="terminal", args={}, result="", tool_call_id="call_2", status="ok")
+    event = await turn(fake, events, "Hello", turn_id="t42")  # waiting, not started by Hermes
+    await call_hook(hooks, "pre_tool_call", tool_name="terminal", args={}, tool_call_id="call_3")
+    await adapter.on_processing_start(event)
+    await call_hook(hooks, "post_tool_call", tool_name="terminal", args={}, result="", tool_call_id="call_3", status="ok")
+    assert not any(m["type"].startswith("tool.") for m in fake.agent_frames())
+
+
+async def test_tool_hooks_return_none_and_never_raise_when_the_adapter_is_closed_or_gone(hooks):
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    class Gone:
+        _loop = loop
+
+    gone = Gone()
+    twring._ADAPTERS.add(gone)
+    try:
+        assert hooks["pre_tool_call"](tool_name="terminal", tool_call_id="c") is None
+        assert hooks["post_tool_call"](tool_name="terminal", tool_call_id="c", status="ok") is None
+        assert hooks["pre_tool_call"]() is None
+    finally:
+        twring._ADAPTERS.discard(gone)
+    del gone
+    assert hooks["post_tool_call"](tool_name=None, tool_call_id=7, status=object()) is None
+
+
+async def test_session_ready_declares_tools_when_hermes_tool_hooks_are_registered(hooks, linked):
+    _, fake, _ = linked
+    ready = next(m for m in fake.agent_frames() if m["type"] == "session.ready")
+    assert ready["capabilities"]["tools"] is True
+
+
+@pytest.mark.parametrize("ctx", [FakeContext(hooks=False), FakeContext(fail=True)])
+def test_without_tool_hooks_twring_is_not_told_hermes_reports_tools(monkeypatch, ctx):
+    monkeypatch.setattr(twring, "_TOOL_HOOKS", True)
+    twring.register(ctx)
+    assert twring._TOOL_HOOKS is False
 
 
 async def test_a_message_folded_into_a_failed_run_is_closed_as_failed(linked):

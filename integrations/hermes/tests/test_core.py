@@ -16,6 +16,8 @@ from twring_core import (
     connector_hello,
     parse_frame,
     session_ready,
+    tool_name,
+    tool_status,
 )
 
 
@@ -41,6 +43,26 @@ def test_session_ready_declares_streaming_activity_cancel_and_approvals():
         "tools": False,
         "approvals": True,
     }
+
+
+def test_session_ready_declares_tools_only_when_asked():
+    assert session_ready(tools=True)["capabilities"]["tools"] is True
+    assert session_ready()["capabilities"]["tools"] is False
+
+
+@pytest.mark.parametrize(
+    ("hermes", "twring"),
+    [("ok", "success"), (None, "success"), ("error", "error"), ("blocked", "error"),
+     ("cancelled", "cancelled"), ("interrupted", "cancelled"), ("something new", "error")],
+)
+def test_hermes_tool_statuses_map_to_twring_tool_end_statuses(hermes, twring):
+    assert tool_status(hermes) == twring
+
+
+def test_tool_names_fit_twring_limit():
+    assert tool_name("x" * 300) == "x" * 128
+    assert tool_name("terminal") == "terminal"
+    assert tool_name(None) == "tool"
 
 
 def test_channel_message_wraps_one_agent_frame():
