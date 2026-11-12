@@ -114,7 +114,7 @@ Under Play's definitions, data sent to a service provider that processes it for 
 | Personal info → Name | Yes | No | Account management | No | Profile name from sign-in |
 | Personal info → User IDs | Yes | No | App functionality, account management | No | Sign-in account id and Twring user id |
 | Personal info → Other info | Yes | No | App functionality | Yes | User-entered agent name and address, linked computer name |
-| Device or other IDs | Yes | No | App functionality | Yes (only if the user lets agents ring the phone) | Push token per phone, so an agent can ring it |
+| Device or other IDs | Yes | No | App functionality | No (registered when the user signs in) | Push token per phone, so an agent can ring it; sent at sign-in even if notifications are off |
 | Messages → Other in-app messages | Yes (stored, encrypted at rest) | No | App functionality | Yes (chats are optional) | Chats with the user's agents and connected AI apps; deletable (Clear chat, Delete agent, Delete my data) |
 | App activity → Other user-generated content | Yes (in transit) | No | App functionality | Required for calls | Text of what the user says, sent to their own agent; not stored by Twring |
 | App activity → App interactions | Yes | No | App functionality, analytics (usage counts) | No | Call summaries (last 200 calls), ring history |
