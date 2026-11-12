@@ -45,9 +45,13 @@ Auth
     └── Settings
 ```
 
+A screen's title is the name on the tab or row that opened it. (Audit 2026-11-12: the Recents tab opened a screen titled Call history; the screen is now titled Recents.)
+
 ## 4. First-run onboarding
 
 Keep to three concise screens maximum before setup.
+
+Show progress once. (Audit 2026-11-12: each page carried a STEP 1 OF 3 label above the headline and the progress bars above the button; the label is gone.)
 
 ### Screen 1
 
@@ -384,7 +388,13 @@ They must not interfere with STT/audio session routing.
 - virtualized history;
 - stable animations tied to semantic state.
 
-## 25. Product voice
+## 25. Website
+
+The home page hero is four things: the headline, one paragraph, one action (Get an invite) with a quiet second link, and the film. What happens after the action (install steps) lives in the FAQ and on the invite page, with one line under the buttons to say an email follows. (Audit 2026-11-12: the hero also carried a three-row install list.)
+
+Pages reached from inside another product's flow (`/connector/`, `/oauth/consent/`) look like the rest of the site. The consent page has a logo-only header: nothing invites leaving in the middle of signing in.
+
+## 26. Product voice
 
 Twring itself speaks very little. The connected agent is the conversational personality.
 
