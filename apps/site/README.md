@@ -12,7 +12,7 @@ Static pages, no build step.
 | Sign-in consent for AI apps | `oauth/consent/index.html` |
 | Connector registry proof | `.well-known/mcp-registry-auth` |
 
-Home, invite, support and terms share `assets/site.css` and the self-hosted fonts in `assets/fonts/` (the app's own Manrope, Inter and JetBrains Mono), so these four pages load nothing from other domains (the AI-app connect and consent pages still use Google Fonts). Bump the `?v=` on the stylesheet link when it changes. The home page film is `media/twring-in-30-seconds.mp4` (the 30 s intro, cut before its old end card) with its poster `media/twring-in-30-seconds.jpg`, which is also the link preview image.
+Every page shares `assets/site.css` and the self-hosted fonts in `assets/fonts/` (the app's own Manrope, Inter and JetBrains Mono), so pages load no styles or fonts from other domains. The consent page allows only its own stylesheet and fonts in its content security policy, so it carries no inline styles; it still loads the sign-in library from its pinned address. Bump the `?v=` on the stylesheet link when it changes. The home page film is `media/twring-in-30-seconds.mp4` (the 30 s intro, cut before its old end card) with its poster `media/twring-in-30-seconds.jpg`, which is also the link preview image.
 
 The privacy page is not here: the gateway serves it, generated from [`docs/PRIVACY.md`](../../docs/PRIVACY.md) by `pnpm --filter @twring/gateway gen:privacy`.
 
