@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { callCardLine } from '../../threads/presentation';
 
 type CallOrRing = Extract<ThreadMessage, { kind: 'call' | 'ring' }>;
@@ -71,18 +71,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
   },
-  line: { flexShrink: 1, fontFamily: font.interMedium, fontSize: 13 },
-  time: { fontFamily: font.mono, fontSize: 11 },
+  line: { flexShrink: 1, fontFamily: font.interMedium, fontSize: type.caption.fontSize },
+  time: { fontFamily: font.mono, fontSize: type.microLabel.fontSize },
   callBack: {
     minHeight: 48,
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 24,
+    borderRadius: radius.pill,
     paddingHorizontal: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  callBackText: { fontFamily: font.interMedium, fontSize: 13 },
+  callBackText: { fontFamily: font.interMedium, fontSize: type.caption.fontSize },
 });

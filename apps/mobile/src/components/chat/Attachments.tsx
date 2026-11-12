@@ -7,7 +7,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import type { TwringApi } from '@/api/client';
 import { twringApi } from '@/api';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { humanSize, typeLabel, type PreparedFile } from '@/threads/files';
 import { ImageViewer } from './ImageViewer';
 
@@ -205,16 +205,21 @@ const styles = StyleSheet.create({
   wrap: { marginBottom: 8 },
   grid: { gap: 6 },
   twoColumns: { flexDirection: 'row', flexWrap: 'wrap', maxWidth: 222 },
-  tile: { borderRadius: 10, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  tile: {
+    borderRadius: radius.xs,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   spinner: { position: 'absolute', right: 6, bottom: 6 },
-  error: { fontFamily: font.body, fontSize: 12 },
+  error: { fontFamily: font.body, fontSize: type.caption.fontSize },
   chip: {
     minHeight: 52,
     minWidth: 160,
-    borderRadius: 10,
+    borderRadius: radius.xs,
     paddingHorizontal: 10,
     justifyContent: 'center',
   },
-  document: { fontFamily: font.bodyEmphasis, fontSize: 13 },
-  size: { fontFamily: font.caption, fontSize: 11 },
+  document: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
+  size: { fontFamily: font.caption, fontSize: type.microLabel.fontSize },
 });

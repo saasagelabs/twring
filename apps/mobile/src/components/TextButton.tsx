@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
-import { space, usePalette } from '@/theme/tokens';
+import { space, usePalette, type } from '@/theme/tokens';
 import { font } from '@/theme/fonts';
 
 interface Props {
@@ -38,5 +38,5 @@ export function TextButton({
 
 const styles = StyleSheet.create({
   button: { minHeight: 48, minWidth: 48, justifyContent: 'center', paddingHorizontal: space.sm },
-  label: { fontFamily: font.interMedium, fontSize: 14 },
+  label: { fontFamily: font.interMedium, fontSize: type.body.fontSize },
 });

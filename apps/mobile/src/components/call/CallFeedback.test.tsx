@@ -40,6 +40,8 @@ vi.mock('@/api/errors', () => ({
 }));
 vi.mock('@/servers/active', () => ({ useActiveServer: () => harness.active }));
 vi.mock('@/theme/tokens', () => ({
+  radius: new Proxy({}, { get: () => 0 }),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
   usePalette: () => ({
     accent: 'cyan',
     textPrimary: 'white',
@@ -48,7 +50,6 @@ vi.mock('@/theme/tokens', () => ({
     surfaceRaised: 'gray',
   }),
   space: { xs: 4, sm: 8, md: 12 },
-  type: { headline: {}, body: {}, bodyEmphasis: {} },
 }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/Field', () => ({ Field: 'Field' }));

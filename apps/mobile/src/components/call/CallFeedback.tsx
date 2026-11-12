@@ -10,7 +10,7 @@ import { Field } from '@/components/Field';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextButton } from '@/components/TextButton';
 import { useActiveServer } from '@/servers/active';
-import { space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette, radius } from '@/theme/tokens';
 
 const issues = [
   { label: 'Cut me off', value: 'cut_off' },
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.md,
     justifyContent: 'center',
     borderWidth: 1,
-    borderRadius: 24,
+    borderRadius: radius.pill,
   },
   actions: { gap: space.xs },
 });

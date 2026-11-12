@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 
 import { Icon } from './Icon';
 
@@ -30,7 +30,7 @@ export function CallPill({
           styles.pill,
           {
             borderColor: disabled ? palette.border : palette.borderAccent,
-            backgroundColor: disabled ? 'transparent' : 'rgba(25,214,242,0.06)',
+            backgroundColor: disabled ? 'transparent' : palette.accentTint,
             boxShadow: disabled ? undefined : '0 0 12px #19D6F222',
           },
         ]}
@@ -53,5 +53,5 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  label: { fontFamily: font.interMedium, fontSize: 13 },
+  label: { fontFamily: font.interMedium, fontSize: type.caption.fontSize },
 });

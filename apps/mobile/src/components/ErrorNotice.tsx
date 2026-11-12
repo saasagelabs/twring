@@ -35,6 +35,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#FF4D5E55',
   },
-  message: { fontFamily: font.body, fontSize: 14 },
+  message: { fontFamily: font.body, fontSize: type.body.fontSize },
   actions: { flexDirection: 'row' },
 });

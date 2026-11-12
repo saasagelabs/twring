@@ -19,7 +19,7 @@ import { StatusPill } from '@/components/StatusPill';
 import { Toggle } from '@/components/Toggle';
 import { Waveform } from '@/components/Waveform';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 
 const levels = [0.18, 0.6, 1] as const;
 const tones = ['you', 'agent', 'warning', 'neutral'] as const;
@@ -186,8 +186,17 @@ export default function ComponentsGallery() {
 }
 
 const styles = StyleSheet.create({
-  heading: { fontFamily: font.headline, fontSize: 19, color: '#FFFFFF', marginTop: 12 },
-  caption: { fontFamily: font.caption, fontSize: 12, color: 'rgba(255,255,255,0.62)' },
+  heading: {
+    fontFamily: font.headline,
+    fontSize: type.headline.fontSize,
+    color: '#FFFFFF',
+    marginTop: 12,
+  },
+  caption: {
+    fontFamily: font.caption,
+    fontSize: type.caption.fontSize,
+    color: 'rgba(255,255,255,0.62)',
+  },
   iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   iconCell: { width: 70, minHeight: 58, alignItems: 'center', justifyContent: 'center', gap: 5 },
   row: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 16 },

@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { font } from '@/theme/fonts';
+import { type } from '@/theme/tokens';
 
 export function ImageViewer({
   file,
@@ -121,7 +122,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   button: { minWidth: 48, minHeight: 48, justifyContent: 'center', alignItems: 'center' },
-  buttonText: { color: '#fff', fontFamily: font.bodyEmphasis, fontSize: 16 },
+  buttonText: { color: '#fff', fontFamily: font.bodyEmphasis, fontSize: type.body.fontSize },
   photo: { width: '100%', height: '75%' },
-  note: { color: '#fff', fontFamily: font.body, fontSize: 14, textAlign: 'center' },
+  note: { color: '#fff', fontFamily: font.body, fontSize: type.body.fontSize, textAlign: 'center' },
 });

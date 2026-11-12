@@ -95,6 +95,6 @@ export default function PrivacyScreen() {
 
 const styles = StyleSheet.create({
   section: { gap: space.md, paddingVertical: space.lg },
-  heading: { fontFamily: font.title, fontSize: 22, letterSpacing: -0.4 },
-  body: { fontFamily: font.body, fontSize: 15, lineHeight: 24 },
+  heading: { fontFamily: font.title, fontSize: type.title.fontSize, letterSpacing: -0.4 },
+  body: { fontFamily: font.body, fontSize: type.body.fontSize, lineHeight: 24 },
 });

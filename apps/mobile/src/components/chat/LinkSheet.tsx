@@ -4,7 +4,7 @@ import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Sheet } from '@/components/Sheet';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 import { Linking } from 'react-native';
 export function LinkSheet({ url, onClose }: { url?: string; onClose: () => void }) {
   const palette = usePalette();
@@ -13,7 +13,11 @@ export function LinkSheet({ url, onClose }: { url?: string; onClose: () => void 
       <View style={{ gap: 12 }}>
         <Text
           selectable
-          style={{ color: palette.textPrimary, fontFamily: font.mono, fontSize: 12 }}
+          style={{
+            color: palette.textPrimary,
+            fontFamily: font.mono,
+            fontSize: type.caption.fontSize,
+          }}
         >
           {url}
         </Text>

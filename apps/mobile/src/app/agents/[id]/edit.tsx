@@ -15,7 +15,7 @@ import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { goBack, Screen } from '@/components/Screen';
 import { useResource } from '@/hooks/useResource';
-import { space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette, radius } from '@/theme/tokens';
 
 type PhotoChange = { kind: 'upload'; uri: string } | { kind: 'remove' } | undefined;
 
@@ -173,5 +173,5 @@ export default function EditAgentScreen() {
 const styles = StyleSheet.create({
   content: { gap: space.lg },
   photo: { alignItems: 'center', gap: space.sm },
-  preview: { width: 112, height: 112, borderRadius: 56 },
+  preview: { width: 112, height: 112, borderRadius: radius.pill },
 });

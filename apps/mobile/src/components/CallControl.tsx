@@ -2,7 +2,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Icon, type IconName } from './Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 
 export function CallControl({
   icon,
@@ -34,10 +34,10 @@ export function CallControl({
               variant === 'danger'
                 ? palette.danger
                 : variant === 'active'
-                  ? '#FFFFFF'
+                  ? palette.textPrimary
                   : palette.surface,
             borderWidth: variant === 'default' ? 1 : 0,
-            borderColor: 'rgba(255,255,255,0.10)',
+            borderColor: palette.border,
             boxShadow: variant === 'danger' ? '0 0 18px #FF4D5E55' : undefined,
           },
         ]}
@@ -50,7 +50,7 @@ export function CallControl({
             variant === 'active'
               ? '#000000'
               : variant === 'danger'
-                ? '#FFFFFF'
+                ? palette.textPrimary
                 : 'rgba(255,255,255,0.8)'
           }
         />
@@ -63,8 +63,8 @@ export function CallControl({
               variant === 'danger'
                 ? palette.danger
                 : variant === 'active'
-                  ? '#FFFFFF'
-                  : 'rgba(255,255,255,0.55)',
+                  ? palette.textPrimary
+                  : palette.textTertiary,
           },
         ]}
       >
@@ -79,9 +79,9 @@ const styles = StyleSheet.create({
   circle: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  label: { fontFamily: font.interMedium, fontSize: 11, letterSpacing: 0.2 },
+  label: { fontFamily: font.interMedium, fontSize: type.microLabel.fontSize, letterSpacing: 0.2 },
 });

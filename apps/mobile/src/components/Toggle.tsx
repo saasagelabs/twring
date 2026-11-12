@@ -7,7 +7,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius } from '@/theme/tokens';
 
 interface Props {
   value: boolean;
@@ -50,13 +50,13 @@ export function Toggle({ value, onValueChange, disabled, accessibilityLabel }: P
 }
 
 const styles = StyleSheet.create({
-  track: { width: 44, height: 26, borderRadius: 13, justifyContent: 'center' },
+  track: { width: 44, height: 26, borderRadius: radius.pill, justifyContent: 'center' },
   knob: {
     position: 'absolute',
     top: 3,
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: radius.pill,
     backgroundColor: '#FFFFFF',
   },
 });

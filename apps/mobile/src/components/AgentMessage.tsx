@@ -19,7 +19,7 @@ import { Screen } from '@/components/Screen';
 import { Skeleton } from '@/components/Skeleton';
 import { TextButton } from '@/components/TextButton';
 import { activeServerUrl, downloadsServerUrl } from '@/servers/active';
-import { space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette, radius } from '@/theme/tokens';
 import { font } from '@/theme/fonts';
 
 type Phase =
@@ -243,12 +243,12 @@ const styles = StyleSheet.create({
   waiting: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   message: {
     borderWidth: StyleSheet.hairlineWidth,
-    borderRadius: 14,
+    borderRadius: radius.md,
     padding: 14,
     fontFamily: font.monoRegular,
-    fontSize: 12.5,
+    fontSize: type.caption.fontSize,
     lineHeight: 20,
   },
-  heading: { fontFamily: font.display, fontSize: 30, letterSpacing: -0.8 },
-  support: { fontFamily: font.body, fontSize: 15, lineHeight: 22.5 },
+  heading: { fontFamily: font.display, fontSize: type.screenTitle.fontSize, letterSpacing: -0.8 },
+  support: { fontFamily: font.body, fontSize: type.body.fontSize, lineHeight: 22.5 },
 });

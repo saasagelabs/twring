@@ -1,7 +1,8 @@
 import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { humanSize, type PreparedFile } from '@/threads/files';
 
 export function AttachmentTray({
@@ -25,7 +26,7 @@ export function AttachmentTray({
           ) : (
             <View style={styles.document}>
               <Text style={[styles.name, { color: palette.textPrimary }]} numberOfLines={1}>
-                ▤ {file.name}
+                {file.name}
               </Text>
               <Text style={[styles.size, { color: palette.textSecondary }]}>
                 {humanSize(file.sizeBytes)}
@@ -35,42 +36,58 @@ export function AttachmentTray({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Remove ${file.name}`}
-            hitSlop={8}
             onPress={() => onRemove(file.clientId)}
-            style={[styles.remove, { backgroundColor: palette.surfaceRaised }]}
+            style={styles.remove}
           >
-            <Text style={[styles.x, { color: palette.textPrimary }]}>×</Text>
+            <View style={[styles.removeDot, { backgroundColor: palette.surfaceRaised }]}>
+              <Icon name="x" size={14} color={palette.textPrimary} strokeWidth={2} />
+            </View>
           </Pressable>
         </View>
       ))}
     </ScrollView>
   );
 }
+
+/**
+ * The visible remove button is 24 px, 4 px in from the tile's corner. The pressable around it is
+ * the full 44 x 44 target and stays inside the 72 px tile: Android drops touches outside a
+ * parent, so hitSlop past the tile's edge would not count.
+ */
+const REMOVE_SIZE = 24;
+const REMOVE_TARGET = 44;
+
 const styles = StyleSheet.create({
   tray: { gap: 12, paddingHorizontal: 16, paddingTop: 10 },
   item: {
     height: 72,
     minWidth: 72,
-    borderRadius: 12,
+    borderRadius: radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 4,
-    paddingRight: 28,
+    paddingRight: 32,
   },
-  image: { width: 64, height: 64, borderRadius: 8 },
+  image: { width: 64, height: 64, borderRadius: radius.xs },
   document: { maxWidth: 160, paddingHorizontal: 8 },
-  name: { fontFamily: font.bodyEmphasis, fontSize: 13 },
-  size: { fontFamily: font.caption, fontSize: 11 },
+  name: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
+  size: { fontFamily: font.caption, fontSize: type.microLabel.fontSize },
   remove: {
     position: 'absolute',
-    right: -7,
-    top: -7,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: 0,
+    top: 0,
+    width: REMOVE_TARGET,
+    height: REMOVE_TARGET,
+    padding: 4,
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+  },
+  removeDot: {
+    width: REMOVE_SIZE,
+    height: REMOVE_SIZE,
+    borderRadius: REMOVE_SIZE / 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  x: { fontFamily: font.body, fontSize: 22 },
 });

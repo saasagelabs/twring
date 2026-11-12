@@ -13,7 +13,7 @@ import { Screen } from '@/components/Screen';
 import { Sheet } from '@/components/Sheet';
 import { useNow } from '@/hooks/useNow';
 import { useResource } from '@/hooks/useResource';
-import { space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette, radius } from '@/theme/tokens';
 
 export default function ConnectedAppsScreen() {
   const palette = usePalette();
@@ -78,7 +78,7 @@ export default function ConnectedAppsScreen() {
           style={{
             borderColor: palette.border,
             borderWidth: 1,
-            borderRadius: 12,
+            borderRadius: radius.sm,
             marginBottom: space.sm,
           }}
         >

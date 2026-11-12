@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('expo-audio', () => ({ createAudioPlayer: vi.fn(), setAudioModeAsync: vi.fn() }));
 vi.mock('react-native', () => ({ StyleSheet: { create: (value: unknown) => value } }));
-vi.mock('@/theme/tokens', () => ({ usePalette: vi.fn() }));
+vi.mock('@/theme/tokens', () => ({
+  usePalette: vi.fn(),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
+}));
 vi.mock('@/theme/fonts', () => ({ font: { caption: 'caption' } }));
 vi.mock('@/components/Icon', () => ({ Icon: vi.fn() }));
 vi.mock('@/api', () => ({ twringApi: vi.fn() }));

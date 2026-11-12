@@ -39,7 +39,7 @@ function PreviewButton({ voiceId, label }: { voiceId: string; label: string }) {
           styles.previewButton,
           {
             borderColor: status === 'playing' ? palette.borderAccent : palette.border,
-            backgroundColor: status === 'playing' ? 'rgba(25,214,242,0.12)' : palette.surface,
+            backgroundColor: status === 'playing' ? palette.accentTintStrong : palette.surface,
             opacity: pressed ? 0.7 : 1,
           },
         ]}
@@ -161,8 +161,7 @@ export default function VoiceScreen() {
                 style={[
                   styles.row,
                   {
-                    backgroundColor:
-                      selected === voice.id ? 'rgba(25,214,242,0.07)' : palette.surface,
+                    backgroundColor: selected === voice.id ? palette.accentTint : palette.surface,
                     borderColor: selected === voice.id ? palette.borderAccent : palette.border,
                   },
                 ]}

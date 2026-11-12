@@ -9,7 +9,7 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius } from '@/theme/tokens';
 
 export function Skeleton({ height, width }: { height: number; width?: number }) {
   const palette = usePalette();
@@ -38,5 +38,5 @@ export function Skeleton({ height, width }: { height: number; width?: number }) 
 }
 
 const styles = StyleSheet.create({
-  block: { alignSelf: 'stretch', borderWidth: StyleSheet.hairlineWidth, borderRadius: 14 },
+  block: { alignSelf: 'stretch', borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md },
 });

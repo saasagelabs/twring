@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { approvalCountdown } from '../../threads/presentation';
 
 type Approval = Extract<ThreadMessage, { kind: 'approval' }>;
@@ -118,25 +118,30 @@ const styles = StyleSheet.create({
   card: {
     alignSelf: 'stretch',
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: radius.lg,
     padding: 18,
     gap: 12,
     marginVertical: 6,
   },
   heading: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   dot: { width: 7, height: 7, borderRadius: 4 },
-  micro: { fontFamily: font.microLabel, fontSize: 11, letterSpacing: 1.4 },
-  title: { fontFamily: font.headline, fontSize: 19 },
-  description: { fontFamily: font.body, fontSize: 15, lineHeight: 22 },
+  micro: { fontFamily: font.microLabel, fontSize: type.microLabel.fontSize, letterSpacing: 1.4 },
+  title: { fontFamily: font.headline, fontSize: type.headline.fontSize },
+  description: { fontFamily: font.body, fontSize: type.body.fontSize, lineHeight: 22 },
   actions: { flexDirection: 'row', gap: 12 },
   button: {
     flex: 1,
     minHeight: 48,
-    borderRadius: 24,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonText: { fontFamily: font.interMedium, fontSize: 15 },
-  countdown: { fontFamily: font.mono, fontSize: 12, textAlign: 'center' },
-  notice: { alignSelf: 'center', fontFamily: font.mono, fontSize: 12, marginVertical: 8 },
+  buttonText: { fontFamily: font.interMedium, fontSize: type.body.fontSize },
+  countdown: { fontFamily: font.mono, fontSize: type.caption.fontSize, textAlign: 'center' },
+  notice: {
+    alignSelf: 'center',
+    fontFamily: font.mono,
+    fontSize: type.caption.fontSize,
+    marginVertical: 8,
+  },
 });

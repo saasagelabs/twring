@@ -117,7 +117,7 @@ export function Avatar({
         ) : (
           <Text
             allowFontScaling={false}
-            style={{ fontFamily: font.title, color: '#FFFFFF', fontSize: size * 0.42 }}
+            style={{ fontFamily: font.title, color: palette.textPrimary, fontSize: size * 0.42 }}
           >
             {avatarInitial(name)}
           </Text>

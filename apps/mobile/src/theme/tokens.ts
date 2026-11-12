@@ -36,6 +36,12 @@ export interface Palette {
   accentBright: string;
   /** Dimmer cyan for subdued accents. */
   accentDim: string;
+  /** Faint cyan fill behind selected or accented rows and chips. */
+  accentTint: string;
+  /** Stronger cyan fill for active controls and the caller's own bubble. */
+  accentTintStrong: string;
+  /** Inactive dots, handles and tracks: decoration only, never text. */
+  inactive: string;
   /** Low-emphasis supporting text. The quietest color that text people must read may use (6:1 on black). */
   textTertiary: string;
   /** Disabled controls and decoration only (2.3:1 on black): never for text people must read. */
@@ -70,6 +76,9 @@ const dark: Palette = {
   accent: '#19D6F2',
   accentBright: '#5FF2FF',
   accentDim: '#0A8AAA',
+  accentTint: 'rgba(25,214,242,0.07)',
+  accentTintStrong: 'rgba(25,214,242,0.12)',
+  inactive: 'rgba(255,255,255,0.2)',
   onAccent: '#001620',
   success: '#19D6F2',
   warning: '#FFB547',

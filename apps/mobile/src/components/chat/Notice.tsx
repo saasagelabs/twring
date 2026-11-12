@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { TextButton } from '@/components/TextButton';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 export function Notice({
   text,
   action,
@@ -20,5 +20,5 @@ export function Notice({
 }
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', paddingHorizontal: 24 },
-  text: { textAlign: 'center', fontSize: 12, lineHeight: 18 },
+  text: { textAlign: 'center', fontSize: type.caption.fontSize, lineHeight: 18 },
 });

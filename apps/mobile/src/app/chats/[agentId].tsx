@@ -35,7 +35,7 @@ import { useNow } from '@/hooks/useNow';
 import { ringPlatform } from '@/platform/ring';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { font } from '@/theme/fonts';
-import { type, usePalette } from '@/theme/tokens';
+import { type, usePalette, radius } from '@/theme/tokens';
 import { useChat } from '@/threads/chats';
 import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
@@ -226,7 +226,7 @@ export default function ChatScreen() {
                 style={{
                   color: item.state === 'failed' ? palette.danger : palette.textTertiary,
                   fontFamily: font.mono,
-                  fontSize: 11,
+                  fontSize: type.microLabel.fontSize,
                 }}
               >
                 {item.state === 'failed' && item.error
@@ -477,14 +477,20 @@ const styles = StyleSheet.create({
   },
   identity: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 },
   titleBlock: { flex: 1 },
-  name: { fontFamily: font.title, fontSize: 18 },
-  subtitle: { fontFamily: font.caption, fontSize: 12 },
-  call: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  name: { fontFamily: font.title, fontSize: type.headline.fontSize },
+  subtitle: { fontFamily: font.caption, fontSize: type.caption.fontSize },
+  call: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   list: { paddingHorizontal: 18, paddingVertical: 12 },
   status: { alignSelf: 'flex-end', flexDirection: 'row', alignItems: 'center', gap: 4 },
-  statusText: { alignSelf: 'flex-end', fontFamily: font.mono, fontSize: 11 },
+  statusText: { alignSelf: 'flex-end', fontFamily: font.mono, fontSize: type.microLabel.fontSize },
   retry: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 8 },
-  retryLabel: { fontFamily: font.bodyEmphasis, fontSize: 13 },
+  retryLabel: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
   empty: {
     flex: 1,
     alignItems: 'center',

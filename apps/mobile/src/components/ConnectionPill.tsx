@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 
 import { StatusDot } from './StatusDot';
 
@@ -89,6 +89,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(10,12,16,0.6)',
   },
-  label: { fontFamily: font.interMedium, fontSize: 12, letterSpacing: 0.2 },
+  label: { fontFamily: font.interMedium, fontSize: type.caption.fontSize, letterSpacing: 0.2 },
   spinner: { width: 10, height: 10, borderRadius: 5, borderWidth: 1.5 },
 });

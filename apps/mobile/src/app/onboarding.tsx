@@ -46,7 +46,7 @@ export default function OnboardingScreen() {
                   styles.bar,
                   {
                     width: index === page ? 28 : 8,
-                    backgroundColor: index === page ? palette.accent : 'rgba(255,255,255,0.2)',
+                    backgroundColor: index === page ? palette.accent : palette.inactive,
                   },
                 ]}
               />
@@ -100,7 +100,7 @@ export default function OnboardingScreen() {
           <View
             style={[
               styles.points,
-              { borderColor: palette.border, backgroundColor: 'rgba(255,255,255,0.03)' },
+              { borderColor: palette.border, backgroundColor: palette.surface },
             ]}
           >
             {HOW_IT_WORKS.map((line, index) => (

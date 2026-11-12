@@ -27,6 +27,8 @@ vi.mock('@/theme/fonts', () => ({
   },
 }));
 vi.mock('@/theme/tokens', () => ({
+  radius: new Proxy({}, { get: () => 0 }),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
   usePalette: () => ({
     accent: '#0ff',
     surface: '#111',

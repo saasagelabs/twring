@@ -150,6 +150,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(25,214,242,0.06)',
     paddingLeft: 14,
   },
-  term: { fontFamily: font.interMedium, fontSize: 14, paddingVertical: 8 },
+  term: { fontFamily: font.interMedium, fontSize: type.body.fontSize, paddingVertical: 8 },
   remove: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
 });
