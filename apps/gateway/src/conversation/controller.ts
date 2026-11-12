@@ -368,6 +368,13 @@ interface Turn {
   answered: boolean;
   /** An earlier unheard answer this turn speaks first; it travels on until it is heard. */
   carried: string;
+  /**
+   * The generation playing is the previous turn's answer, still finishing while this turn's agent
+   * works (a queued turn sent early): this turn's own speech waits behind it.
+   */
+  inherited: boolean;
+  /** Queued words sent while the previous answer still played (owner decision 2026-11-12). */
+  sentEarly: boolean;
   /** Held text crossed a tool/activity boundary: once released, its generation is ended at once. */
   heldBoundary: boolean;
   speechDone: boolean;
@@ -783,6 +790,17 @@ export class ConversationController {
    * spoke still waits (ADR-026): a stop request drops it, anything else lets it go now.
    */
   private afterFloorControl(text: string): void {
+    const current = this.turn;
+    // "Stop" over the previous answer also stops the queued words already sent with it, working or
+    // already answered but not yet heard: before the early send it would have dropped them unsent.
+    if (
+      current?.sentEarly === true &&
+      !current.heard &&
+      isStopRequest(text, this.options.agentName)
+    ) {
+      this.stopRequested();
+      return;
+    }
     if (this.queued === undefined || this.turn !== undefined) return;
     if (isStopRequest(text, this.options.agentName)) this.dropQueued('stop_request');
     else this.sendQueued();
@@ -909,18 +927,23 @@ export class ConversationController {
    */
   private sendQueued(): void {
     const queued = this.queued;
-    if (queued === undefined || this.closed || this.turn !== undefined) return;
+    const current = this.turn;
+    if (queued === undefined || this.closed) return;
+    // Owner decision 2026-11-12: once the agent is done, the queue goes while its answer plays.
+    if (current !== undefined && !this.canSendEarly(current)) return;
     if (this.userSpeaking) {
       this.log('queued_turn_waiting', { queued_turns: queued.turns });
       return;
     }
     this.queued = undefined;
+    if (current?.hangupRequested === true) queued.hangupSkipped = true;
     this.log('queued_turn_sent', {
       queued_turns: queued.turns,
       text_chars: queued.text.length,
+      ...(current !== undefined && { early: true }),
       ...(queued.hangupSkipped === true && { hangup_skipped: true }),
     });
-    this.sendTurn(queued.text, queued.startedAt, queued.turns, 'queued');
+    this.sendTurn(queued.text, queued.startedAt, queued.turns, 'queued', undefined, current);
   }
 
   /** The owner spoke while the agent works with tools: their words wait for the next turn. */
@@ -957,8 +980,9 @@ export class ConversationController {
     turns: number,
     source: TurnSource,
     openingLine?: string,
+    inherit?: Turn,
   ): void {
-    const superseded = this.supersede();
+    const superseded = inherit !== undefined ? this.handOver(inherit) : this.supersede();
     // "Keep talking": the caller paused mid-request and went on before hearing any answer. The
     // agent never answered the earlier part, so it goes along with this one rather than being lost.
     let userText = text;
@@ -1009,6 +1033,8 @@ export class ConversationController {
       spoken: '',
       answered: false,
       carried: carry ?? '',
+      inherited: false,
+      sentEarly: inherit !== undefined,
       heldBoundary: false,
       speechDone: false,
       agentDone: false,
@@ -1034,6 +1060,13 @@ export class ConversationController {
       totalBudgetRemaining: this.timeouts.totalMs,
       totalBudgetStartedAt: this.options.scheduler.now(),
     };
+    if (inherit?.generationId !== undefined) {
+      // The previous answer keeps playing; this turn's speech is held behind it (speak()).
+      turn.generationId = inherit.generationId;
+      turn.generationEnded = true;
+      turn.speaking = inherit.speaking;
+      turn.inherited = true;
+    }
     this.turn = turn;
     this.updateFloor();
     this.startPresence(turn, source);
@@ -1103,7 +1136,8 @@ export class ConversationController {
     switch (state) {
       case 'playing':
         turn.speaking = true;
-        turn.heard = true;
+        // The previous answer playing is not this turn's: it still counts as unheard.
+        if (!turn.inherited) turn.heard = true;
         this.updateFloor();
         return;
       case 'finished':
@@ -1120,14 +1154,18 @@ export class ConversationController {
         else this.releaseHeldSpeech(turn);
         this.updateFloor();
         return;
-      case 'failed':
+      case 'failed': {
         this.log('speech_failed', { turn_id: turn.id });
+        const inherited = turn.inherited;
         this.clearGeneration(turn);
         // With the agent still answering, nothing is audible now, and its later text (with anything
-        // held) starts a fresh generation once TTS is back.
+        // held) starts a fresh generation once TTS is back. Text held behind the previous turn's
+        // answer (inherited) never reached the failed generation: it is tried now, not after a tool.
         if (turn.agentDone) this.settleSpeech(turn);
+        else if (inherited) this.releaseHeldSpeech(turn);
         this.updateFloor();
         return;
+      }
     }
   }
 
@@ -1546,6 +1584,7 @@ export class ConversationController {
   }
 
   private clearGeneration(turn: Turn): void {
+    turn.inherited = false;
     turn.speaking = false;
     turn.generationId = undefined;
     turn.generationEnded = false;
@@ -1620,6 +1659,8 @@ export class ConversationController {
     if (this.cue?.turnId === turn.id && !turn.timers.has('cue')) this.cutCue('superseded');
     // Held speech still has to be released (or superseded) before the turn is over.
     this.settleSpeech(turn);
+    // Words the owner said meanwhile go now, while the answer plays (sendQueued).
+    if (this.turn === turn) this.sendQueued();
   }
 
   /**
@@ -1635,6 +1676,15 @@ export class ConversationController {
       ...(onsetAt !== undefined && { detect_ms: Math.round(startedAt - onsetAt) }),
       confirm_ms: Math.round(this.options.scheduler.now() - startedAt),
     });
+    if (turn.inherited) {
+      // The owner talked over the previous answer: only it stops. This turn's agent keeps working and
+      // its answer waits for the owner (held while they talk, dropped if they commit).
+      this.counts.bargeIns += 1;
+      this.generationEnded(turn.generationId, false);
+      this.clearGeneration(turn);
+      this.options.speech.cancel('barge_in');
+      return;
+    }
     turn.muted = true;
     this.counts.bargeIns += 1;
     this.generationEnded(turn.generationId, false);
@@ -1715,6 +1765,29 @@ export class ConversationController {
       this.log('agent_hangup');
       this.options.onAgentHangup?.();
     }, AGENT_HANGUP_LINGER_MS);
+  }
+
+  /**
+   * A queued turn goes out early: the agent of `turn` is done and only its answer is still playing.
+   * Nothing is cancelled; the next turn takes over the playing generation (sendTurn).
+   */
+  private handOver(turn: Turn): undefined {
+    this.turn = undefined;
+    this.clearTimers(turn);
+    if (this.cue?.turnId === turn.id) this.cutCue('superseded');
+    return undefined;
+  }
+
+  /** May the queue go to the agent now, while `turn`'s finished answer is still playing? */
+  private canSendEarly(turn: Turn): boolean {
+    return (
+      turn.agentDone &&
+      !turn.muted &&
+      turn.approval === undefined &&
+      turn.generationId !== undefined &&
+      turn.generationEnded &&
+      turn.heldSpeech.trim() === ''
+    );
   }
 
   /** A new committed turn replaces the one in progress: its speech stops, its agent run too. */

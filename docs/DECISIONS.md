@@ -603,6 +603,12 @@ policy-aware for working agents.
   its answer played out or cut). Several queued utterances merge into one, capped at
   `MAX_MERGED_TURN_CHARS` (most recent text kept). The current answer still plays normally. Logged
   as `turn_queued` and `queued_turn_sent`.
+  (Amended 2026-11-12, owner decision.) The queue now goes as soon as the agent is done, while its
+  answer still plays (`queued_turn_sent` with `early: true`); the next answer waits behind it, so
+  nothing overlaps. Words over that first answer cut only the first answer and then join the
+  queued request like any keep-talking follow-up; "stop" over it also stops the queued request. The
+  queue still waits while the agent has text held behind its answer, an approval is open, or the
+  owner is talking.
 - **Agent working, no tool started yet:** unchanged. The turn is superseded and its unheard text
   merged ("keep talking"), since nothing has been acted on.
 - **Stop request:** a short utterance (at most 4 words) made only of stop words
