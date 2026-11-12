@@ -791,11 +791,11 @@ export class ConversationController {
    */
   private afterFloorControl(text: string): void {
     const current = this.turn;
-    // "Stop" over the previous answer also stops the queued words already sent with it: before the
-    // early send it would have dropped them unsent.
+    // "Stop" over the previous answer also stops the queued words already sent with it, working or
+    // already answered but not yet heard: before the early send it would have dropped them unsent.
     if (
       current?.sentEarly === true &&
-      !current.agentDone &&
+      !current.heard &&
       isStopRequest(text, this.options.agentName)
     ) {
       this.stopRequested();

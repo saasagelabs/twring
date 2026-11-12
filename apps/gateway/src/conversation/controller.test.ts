@@ -3632,6 +3632,26 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     expect(adapter.channels[2]!.turn.text).toMatch(/and the tests also lint$/);
   });
 
+  it('"stop" over the first answer drops the early-sent answer even when its agent is already done', async () => {
+    const { adapter, conversation, first, logger, speech } = await working('and the tests');
+    first.text('Found twelve files in the folder that match.');
+    first.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    const second = adapter.channels[1]!;
+    second.text('All tests pass.');
+    second.done();
+    await flushMicrotasks();
+    conversation.userSpeechStarted();
+    conversation.userPartial('stop');
+    conversation.userTurn('Stop.');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'finished');
+    await flushMicrotasks();
+    expect(speech.calls.join('|')).not.toContain('All tests pass');
+    expect(logger.names()).toContain('agent_stop_requested');
+  });
+
   it('"stop" over the first answer after the early send stops the queued request', async () => {
     const { adapter, conversation, first, logger } = await working('and delete the old ones');
     first.text('Found twelve files in the folder that match.');
