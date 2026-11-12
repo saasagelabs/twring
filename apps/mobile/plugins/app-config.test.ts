@@ -55,6 +55,28 @@ describe('app config microphone', () => {
   );
 });
 
+describe('app config permissions Play would ask about', () => {
+  // Every sensitive permission is a Play Console question. Storage comes from the photo and
+  // file pickers (Android 12 and older, which use the system picker and need none), biometrics
+  // from secure storage's androidx dependency (Twring never asks for a fingerprint).
+  it.each(['development', 'staging', 'production'])(
+    '%s blocks storage, biometric and overlay permissions',
+    async (variant) => {
+      const blocked = (await configFor(variant)).android?.blockedPermissions ?? [];
+      expect(blocked).toEqual(
+        expect.arrayContaining([
+          'android.permission.SYSTEM_ALERT_WINDOW',
+          'android.permission.READ_EXTERNAL_STORAGE',
+          'android.permission.WRITE_EXTERNAL_STORAGE',
+          'android.permission.USE_BIOMETRIC',
+          'android.permission.USE_FINGERPRINT',
+        ]),
+      );
+      expect(blocked).not.toContain('android.permission.CAMERA');
+    },
+  );
+});
+
 describe('app config schemes', () => {
   it('production also opens twring:// links; development and staging keep one scheme', async () => {
     expect((await configFor('production')).scheme).toEqual(['cord', 'twring']);

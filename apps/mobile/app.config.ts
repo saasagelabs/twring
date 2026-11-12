@@ -170,10 +170,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       // Android back during a call must not silently destroy the session (MOBILE_PLATFORM_SPEC §10);
       // keep predictive back off until call screens handle it explicitly.
       predictiveBackGestureEnabled: false,
-      // The WebRTC plugin requests this for video calling; Twring is audio-only, and unused
-      // permissions would have to be declared in the Play data-safety form. The camera scans
-      // a computer's link code (ADR-025) and takes photos for chat.
-      blockedPermissions: ['android.permission.SYSTEM_ALERT_WINDOW'],
+      // Unused permissions would each be a Play Console question. SYSTEM_ALERT_WINDOW: the WebRTC
+      // plugin asks for it for video calling, and Twring is audio-only. Storage (Android 12 and
+      // older): the photo and file pickers declare it, but they use the system picker and need
+      // none. Biometrics: secure storage's androidx dependency declares them, and Twring never
+      // asks for a fingerprint. The camera stays: it scans a computer's link code (ADR-025) and
+      // takes photos for chat.
+      blockedPermissions: [
+        'android.permission.SYSTEM_ALERT_WINDOW',
+        'android.permission.READ_EXTERNAL_STORAGE',
+        'android.permission.WRITE_EXTERNAL_STORAGE',
+        'android.permission.USE_BIOMETRIC',
+        'android.permission.USE_FINGERPRINT',
+      ],
     },
     plugins: [
       'expo-router',
