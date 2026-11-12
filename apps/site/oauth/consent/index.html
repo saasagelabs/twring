@@ -156,7 +156,11 @@
         var name = (data.client && (data.client.name || data.client.client_name)) || 'This app';
         $('title').textContent = 'Connect ' + name + ' to Twring';
         lead.textContent = name + ' is asking to reach you through Twring. If you allow it, it can:';
-        $('scopes').textContent = data.scope ? 'Requested: ' + data.scope : '';
+        var plain = { openid: '', email: 'your email address', profile: 'your name and picture' };
+        var shares = (data.scope || '').split(/\s+/).filter(Boolean).map(function (sc) {
+          return Object.prototype.hasOwnProperty.call(plain, sc) ? plain[sc] : sc;
+        }).filter(Boolean);
+        $('scopes').textContent = shares.length ? 'Shares with the app: ' + shares.join(', ') : '';
         var email = session.user && session.user.email ? session.user.email : 'your account';
         $('who').textContent = 'Signed in as ' + email + '.';
         var swap = document.createElement('button');
