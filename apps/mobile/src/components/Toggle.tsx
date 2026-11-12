@@ -40,7 +40,6 @@ export function Toggle({ value, onValueChange, disabled, accessibilityLabel }: P
         styles.track,
         {
           backgroundColor: value ? palette.accent : 'rgba(255,255,255,0.15)',
-          boxShadow: value ? '0 0 10px rgba(25,214,242,0.6)' : undefined,
           opacity: disabled ? 0.5 : 1,
         },
       ]}

@@ -51,18 +51,19 @@ import { font } from '@/theme/fonts';
 const METHODS: { protocol: AgentProtocol; label: string; description: string }[] = [
   {
     protocol: 'cord-native',
-    label: 'Twring Native',
-    description: 'Best for voice. Your agent speaks the Twring connection over a live socket.',
+    label: 'Made for Twring',
+    description: 'Best for voice. Your agent talks to Twring directly.',
   },
   {
     protocol: 'cord-rest',
-    label: 'API endpoint',
-    description: 'Your agent answers web requests and streams its reply.',
+    label: 'Web service',
+    description: 'Your agent answers requests at its web address and streams its reply.',
   },
   {
     protocol: 'openai-chat',
-    label: 'Any OpenAI-compatible agent',
-    description: 'OpenClaw and other agent servers with a /v1/chat/completions endpoint',
+    label: 'OpenAI-style agent server',
+    description:
+      'OpenClaw and other agent servers that use the OpenAI chat format (/v1/chat/completions).',
   },
 ];
 
@@ -759,7 +760,7 @@ function Wizard({ initial }: { initial: WizardState }) {
             <Heading>Agent address</Heading>
             <Support>The web address your agent listens on.</Support>
             <Field
-              label="Endpoint"
+              label="Address"
               value={state.endpoint}
               placeholder={ENDPOINT_EXAMPLES[state.protocol]}
               hint={`For example: ${ENDPOINT_EXAMPLES[state.protocol]}`}
@@ -775,14 +776,14 @@ function Wizard({ initial }: { initial: WizardState }) {
       case 'credential':
         return (
           <>
-            <Heading>API key</Heading>
+            <Heading>Key</Heading>
             <Support>
               {state.hasSavedCredential
                 ? 'A key is saved. Leave this blank to keep it, or enter a new one to replace it.'
-                : "Leave blank if your agent doesn't need a key."}
+                : "Leave blank if your agent doesn't need one. Some agents call it an API key or token."}
             </Support>
             <Field
-              label="API key (optional)"
+              label="Key (optional)"
               value={state.credential}
               secureTextEntry
               autoCapitalize="none"
@@ -925,7 +926,6 @@ function Wizard({ initial }: { initial: WizardState }) {
                     ? {
                         width: 28,
                         backgroundColor: palette.accent,
-                        boxShadow: '0 0 9px rgba(25,214,242,0.65)',
                       }
                     : { width: 8, backgroundColor: 'rgba(255,255,255,0.2)' },
                 ]}

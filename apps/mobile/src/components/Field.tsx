@@ -62,7 +62,6 @@ export function Field({ label, hint, error, inputStyle, ...input }: Props) {
                 : focused
                   ? palette.borderAccent
                   : palette.border,
-            boxShadow: focused && error === undefined ? '0 0 14px rgba(25,214,242,0.2)' : undefined,
           },
           inputStyle,
         ]}

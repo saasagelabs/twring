@@ -26,6 +26,8 @@ Avoid:
 - excessive blur/glass that reduces readability;
 - a glow, a gradient fill and a hairline stacked on the same element. Pick one way to lift an element off black. (Audit 2026-11-12: `/connector/` and `/oauth/consent/` carried a glowing logo, haloed gradient buttons and glowing bullets while the home page beside them was flat; they now share the site's stylesheet.)
 
+Glow means "live". Buttons, switches, focused fields, progress bars and the header wordmark are flat; only things happening right now glow: the call orb, a speaking waveform, the online dot and status pill, and a ringing Answer button. (Owner decision 2026-11-12, audit P1: the app's primary button carried a gradient, a cyan halo and an inner highlight while the site's was flat.)
+
 The website and the app are one product. A screen in either should be recognisable as the other's: black stage, white type, cyan for the user and for the one action on the screen.
 
 ## 3. Tokens

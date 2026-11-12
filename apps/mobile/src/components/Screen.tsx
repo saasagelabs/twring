@@ -62,7 +62,7 @@ export function Screen({
                 <IconButton icon="back" accessibilityLabel="Back" onPress={onBack} />
               ) : null)}
           </View>
-          <View style={styles.headerCenter}>{wordmark && <TwringWordmark size={20} glow />}</View>
+          <View style={styles.headerCenter}>{wordmark && <TwringWordmark size={20} />}</View>
           <View style={styles.headerSlot}>{headerRight}</View>
         </View>
       ) : null}
