@@ -3314,11 +3314,9 @@ describe('ConversationController a working agent is not interrupted by more talk
     expect(speech.calls.filter((c) => c.startsWith('append gen_1')).join('')).toMatch(
       /build.*green/,
     );
-    expect(adapter.channels).toHaveLength(1);
-    conversation.speechState('gen_1', 'playing');
-    conversation.speechState('gen_1', 'finished');
-    await flushMicrotasks();
+    // The agent is done: the queue goes now, while the answer plays (owner decision 2026-11-12).
     expect(adapter.channels).toHaveLength(2);
+    expect(speech.calls).not.toContain('cancel superseded');
     expect(adapter.channels[1]!.turn.text).toBe('and the tests then tell me');
     expect(fields(logger, 'queued_turn_sent')).toEqual([
       expect.objectContaining({ queued_turns: 2 }),
@@ -3486,6 +3484,71 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     return { adapter, scheduler, hangups, conversation };
   }
 
+  // Owner decision 2026-11-12: words held while the agent worked go to the agent as soon as it is
+  // done, while its answer still plays; the next answer waits behind it, so nothing overlaps.
+  it('sends the queue as soon as the agent is done, while its answer plays; the next answer follows it', async () => {
+    const { adapter, conversation, first, speech, logger } = await working('and the tests');
+    first.push(toolEnd);
+    first.text('The build passed.');
+    first.done();
+    await flushMicrotasks();
+    expect(adapter.channels.map((c) => c.turn.text)).toEqual(['check the build', 'and the tests']);
+    expect(fields(logger, 'queued_turn_sent')).toEqual([
+      expect.objectContaining({ queued_turns: 1, early: true }),
+    ]);
+    conversation.speechState('gen_1', 'playing');
+    const second = adapter.channels[1]!;
+    second.text('All tests pass.');
+    second.done();
+    await flushMicrotasks();
+    expect(speech.calls.join('|')).not.toContain('All tests');
+    expect(speech.calls.at(-1)).toBe('end gen_1');
+    const before = speech.calls.length;
+    conversation.speechState('gen_1', 'finished');
+    expect(speech.calls.slice(before)).toEqual([
+      'begin gen_2',
+      'append gen_2 All tests pass.',
+      'end gen_2',
+    ]);
+    expect(speech.calls).not.toContain('cancel superseded');
+  });
+
+  it('a barge-in on the first answer after the early send cuts it, and the next answer waits for the owner', async () => {
+    const { adapter, conversation, first, speech } = await working('and the tests');
+    first.push(toolEnd);
+    first.text('The build passed and the report is ready to go out now.');
+    first.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    conversation.userSpeechStarted();
+    conversation.userPartial('hang on a second');
+    expect(speech.calls).toContain('cancel barge_in');
+    const second = adapter.channels[1]!;
+    expect(second.signal.aborted).toBe(false);
+    second.text('All tests pass.');
+    second.done();
+    await flushMicrotasks();
+    expect(speech.calls.join('|')).not.toContain('All tests pass');
+    conversation.userSpeechDiscarded(); // it was noise after all
+    expect(speech.calls.slice(-3)).toEqual([
+      'begin gen_2',
+      'append gen_2 All tests pass.',
+      'end gen_2',
+    ]);
+  });
+
+  it('text the first turn still holds keeps the queue waiting until it has played', async () => {
+    const { adapter, conversation, first } = await working('and the tests');
+    first.text('Checking now. ');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    first.push({ type: 'activity', label: 'Running' }); // closes gen_1; later text is held behind it
+    first.text('The build passed.');
+    first.done();
+    await flushMicrotasks();
+    expect(adapter.channels).toHaveLength(1);
+  });
+
   it('BUG: the queue is not sent while the owner is still talking; their commit takes it along', async () => {
     const { adapter, conversation, first, logger } = await working('and the tests');
     conversation.userSpeechStarted(); // the owner goes on talking
@@ -3507,24 +3570,22 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     expect(conversation.usage().turns).toBe(2);
   });
 
-  it('BUG: a barge-in on the working turn’s answer does not send the queue under the owner’s words', async () => {
+  it('after the early send, words over the first answer join the queued request (keep talking)', async () => {
     const { adapter, conversation, first, speech } = await working('also email Ram');
     first.push(toolEnd);
     first.text('The build is green and the report is ready to go out now.');
     first.done();
     await flushMicrotasks();
+    expect(adapter.channels.map((c) => c.turn.text)).toEqual(['check the build', 'also email Ram']);
     conversation.speechState('gen_1', 'playing');
     conversation.userSpeechStarted();
     conversation.userPartial('no use the staging one');
     expect(speech.calls).toContain('cancel barge_in');
-    expect(adapter.channels).toHaveLength(1);
     conversation.userTurn('no use the staging one');
     await flushMicrotasks();
-    expect(adapter.channels.map((c) => c.turn.text)).toEqual([
-      'check the build',
-      'also email Ram no use the staging one',
-    ]);
-    expect(adapter.cancelled).toEqual([]);
+    // The queued request had done nothing yet: it is merged with the correction, never lost.
+    expect(adapter.channels[2]!.turn.text).toMatch(/also email Ram no use the staging one$/);
+    expect(adapter.cancelled).toEqual(['turn_2']);
   });
 
   it('BUG: an activity in the queued turn before the owner commits no longer loses the queued words', async () => {
@@ -3553,39 +3614,37 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     expect(adapter.channels.map((c) => c.turn.text)).toEqual(['check the build', 'and the tests']);
   });
 
-  it('a deferred queue merges with a short held barge-in once its grace runs out', async () => {
+  it('a short barge-in over the first answer after the early send joins the queued request', async () => {
     const { adapter, conversation, first, scheduler } = await working('and the tests');
     first.text('All green so far and more to say about it.');
     first.done();
     await flushMicrotasks();
+    expect(adapter.channels).toHaveLength(2);
     conversation.speechState('gen_1', 'playing');
     conversation.userSpeechStarted();
     conversation.userPartial('also lint');
     conversation.userTurn('also lint');
     await flushMicrotasks();
-    expect(adapter.channels).toHaveLength(1); // held for its grace
+    expect(adapter.channels).toHaveLength(2); // held for its grace
     scheduler.advance(SHORT_BARGE_IN_GRACE_MS);
     await flushMicrotasks();
-    expect(adapter.channels.map((c) => c.turn.text)).toEqual([
-      'check the build',
-      'and the tests also lint',
-    ]);
+    expect(adapter.channels[2]!.turn.text).toMatch(/and the tests also lint$/);
   });
 
-  it('BUG: "stop" over the working turn’s answer drops the queue instead of sending it', async () => {
+  it('"stop" over the first answer after the early send stops the queued request', async () => {
     const { adapter, conversation, first, logger } = await working('and delete the old ones');
     first.text('Found twelve files in the folder that match.');
     first.done();
     await flushMicrotasks();
+    expect(adapter.channels).toHaveLength(2);
     conversation.speechState('gen_1', 'playing');
     conversation.userSpeechStarted();
     conversation.userPartial('stop');
     conversation.userTurn('Stop.');
     await flushMicrotasks();
-    expect(adapter.channels).toHaveLength(1);
-    expect(fields(logger, 'queued_turn_dropped')).toEqual([
-      expect.objectContaining({ reason: 'stop_request' }),
-    ]);
+    expect(adapter.channels).toHaveLength(2);
+    expect(adapter.channels[1]!.signal.aborted).toBe(true);
+    expect(logger.names()).toContain('agent_stop_requested');
   });
 
   it('other floor-control words over the answer send the queue once the owner yields', async () => {
