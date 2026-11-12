@@ -213,7 +213,7 @@ ${usageReset}`
     ) : undefined;
 
   return (
-    <Screen title="Settings">
+    <Screen wordmark title="Settings">
       {selfhosted && <YourServer profile={server} />}
 
       {signedIn && !selfhosted && (

@@ -100,7 +100,9 @@ export function rowTime(date: string, now: Date = new Date()): string {
   if (dateLabel(date, now) === 'YESTERDAY') return 'Yesterday';
   if (now.getTime() - day.getTime() < 7 * 86400000)
     return day.toLocaleDateString('en', { weekday: 'short' });
-  return `${String(day.getDate()).padStart(2, '0')}/${String(day.getMonth() + 1).padStart(2, '0')}`;
+  // Older dates read as they do in Recents and on agent pages: "Nov 4", "Oct 29, 2025".
+  const short = `${day.toLocaleDateString('en', { month: 'short' })} ${day.getDate()}`;
+  return day.getFullYear() === now.getFullYear() ? short : `${short}, ${day.getFullYear()}`;
 }
 
 export function approvalCountdown(expiresAt: string, now = Date.now()): string {
