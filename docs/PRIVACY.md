@@ -105,22 +105,26 @@ Everything else stays on the self-hosted server: accounts, people and their phon
 
 ## Google Play Data safety answers
 
-| Data type (Play category)                                                          | Collected                              | Shared                                                      | Purpose                                     | Optional                 | Notes                                               |
-| ---------------------------------------------------------------------------------- | -------------------------------------- | ----------------------------------------------------------- | ------------------------------------------- | ------------------------ | --------------------------------------------------- |
-| Audio → Voice or sound recordings                                                  | Yes (processed in transit, not stored) | Yes: Deepgram, LiveKit as service providers                 | App functionality                           | Required to make a call  | Ephemeral processing only                           |
-| Personal info → Email address                                                      | Yes                                    | Supabase as service provider (sign-in)                      | App functionality, account management       | No (sign-in is required) | From Google sign-in                                 |
-| Personal info → Name                                                               | Yes                                    | Supabase as service provider (sign-in)                      | Account management                          | No                       | Google profile name                                 |
-| Personal info → User IDs                                                           | Yes                                    | Supabase as service provider (sign-in)                      | App functionality, account management       | No                       | Google account id and Twring user id                |
-| Personal info → Other (agent name, endpoint address)                               | Yes                                    | No                                                          | App functionality                           | Yes                      | User-entered                                        |
-| App activity → Other user-generated content (text of speech, sent to user's agent) | Yes (in transit)                       | Sent to the user's own chosen agent at the user's direction | App functionality                           | Required for calls       | Call speech is not stored by Twring                 |
-| Messages → Other in-app messages (chats with the user's agent)                     | Yes (stored, encrypted at rest)        | Sent to the user's own chosen agent at the user's direction | App functionality                           | Yes (chats are optional) | Deletable: Clear chat, Delete agent, Delete my data |
-| App activity → App interactions (call summaries)                                   | Yes                                    | No                                                          | App functionality, analytics (usage counts) | No                       | Last 200 calls                                      |
-| App info and performance → Crash logs, Diagnostics                                 | Yes                                    | Sentry as service provider                                  | App functionality                           | No                       | Redacted                                            |
-| Other: credentials (agent API key)                                                 | Yes                                    | No                                                          | App functionality                           | Yes                      | Encrypted at rest                                   |
-| Photos and videos → Photos                                                         | Yes (only photos you choose to send)   | Sent to the user's own chosen agent at the user's direction | App functionality                           | Yes                      | Encrypted at rest; location data removed            |
-| Files and docs → Files and docs                                                    | Yes (only files you choose to send)    | Sent to the user's own chosen agent at the user's direction | App functionality                           | Yes                      | Encrypted at rest                                   |
-| App activity → Other actions (call ratings)                                        | Yes                                    | No                                                          | Analytics (improving call quality)          | Yes                      | Stars, picked issues, optional note                 |
-| Location, contacts, financial, health                                              | No                                     | No                                                          | Not applicable                              | Not applicable           | Not collected                                       |
+Under Play's definitions, data sent to a service provider that processes it for Twring (Supabase, LiveKit, Deepgram, Cartesia, Firebase Cloud Messaging, Sentry), or sent where the user directs (their own agent, or an AI app they connected), is not "shared". So every row is "Shared: No".
+
+| Data type (Play category) | Collected | Shared | Purpose | Optional | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Audio → Voice or sound recordings | Yes (processed in transit, not stored) | No | App functionality | Required to make a call; voice notes optional | Call audio and voice notes go to Deepgram (or xAI with the user's own key) for speech-to-text; never stored |
+| Personal info → Email address | Yes | No | App functionality, account management | No (sign-in is required) | From Google or Apple sign-in; also on notes sent from Settings |
+| Personal info → Name | Yes | No | Account management | No | Profile name from sign-in |
+| Personal info → User IDs | Yes | No | App functionality, account management | No | Sign-in account id and Twring user id |
+| Personal info → Other info | Yes | No | App functionality | Yes | User-entered agent name and address, linked computer name |
+| Device or other IDs | Yes | No | App functionality | No (registered when the user signs in) | Push token per phone, so an agent can ring it; sent at sign-in even if notifications are off |
+| Messages → Other in-app messages | Yes (stored, encrypted at rest) | No | App functionality | Yes (chats are optional) | Chats with the user's agents and connected AI apps; deletable (Clear chat, Delete agent, Delete my data) |
+| App activity → Other user-generated content | Yes (in transit) | No | App functionality | Required for calls | Text of what the user says, sent to their own agent; not stored by Twring |
+| App activity → App interactions | Yes | No | App functionality, analytics (usage counts) | No | Call summaries (last 200 calls), ring history |
+| App activity → Other actions | Yes | No | Analytics (improving call quality) | Yes | Call ratings and notes sent from Settings |
+| Photos and videos → Photos | Yes (only photos the user sends) | No | App functionality | Yes | Encrypted at rest; location data removed |
+| Files and docs → Files and docs | Yes (only files the user sends) | No | App functionality | Yes | Encrypted at rest |
+| App info and performance → Crash logs, Diagnostics | Yes | No | App functionality | No | Redacted (no transcripts, tokens or email addresses) |
+| Location, contacts, financial, health, calendar, web browsing | No | No | Not applicable | Not applicable | Not collected |
+
+Agent API keys and the user's own speech account keys are stored encrypted, but Play has no category for credentials the user enters for their own services; they are covered by "Personal info → Other info" if the form asks.
 
 - Data encrypted in transit: **Yes**.
 - Users can request that data be deleted: **Yes** (in app: Settings → Delete my data or Delete account; on the web: `/account-deletion`; or {{CONTACT_EMAIL}}).
