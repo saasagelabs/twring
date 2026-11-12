@@ -222,8 +222,8 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); }
 .pair .btn { flex: 1 1 8rem; }
 .btn-apple { background: #fff; color: #000; }
 .btn-apple:hover { background: #e8eaee; }
-.who { margin-top: 1.1rem; font-size: 0.875rem; color: var(--text-ter); }
-.who button { min-height: 2.75rem; margin-left: 0.4rem; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-decoration: underline; text-decoration-color: var(--cyan-line); text-underline-offset: 0.2em; cursor: pointer; }
+.signed-in { margin-top: 1.1rem; font-size: 0.875rem; color: var(--text-ter); }
+.signed-in button { min-height: 2.75rem; margin-left: 0.4rem; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-decoration: underline; text-decoration-color: var(--cyan-line); text-underline-offset: 0.2em; cursor: pointer; }
 .scopes { margin-top: 1rem; font: 0.75rem/1.6 var(--mono); color: var(--text-ter); overflow-wrap: anywhere; }
 .prose-tight { margin-top: 1.5rem; }
 .faq-tight { margin-top: 1.25rem; border-top: 0; }
