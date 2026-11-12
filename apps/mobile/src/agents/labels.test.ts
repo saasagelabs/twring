@@ -52,7 +52,7 @@ describe('connection test copy', () => {
       { name: 'endpoint', status: 'passed' },
     ]);
     expect(checks.map((c) => c.name)).toEqual(['endpoint', 'streaming']);
-    expect(checks.map(checkLabel)).toEqual(['Endpoint reached', 'Streaming works']);
+    expect(checks.map(checkLabel)).toEqual(['Address reached', 'Reply streams']);
   });
 
   it('says ready on success', () => {
@@ -69,10 +69,10 @@ describe('connection test copy', () => {
       ]),
     );
     expect(copy).toBe(
-      'Twring reached the endpoint, but authentication was rejected. Check the API key and try again.',
+      "Twring reached your agent, but it didn't accept the key. Check the key and try again.",
     );
     expect(testResultCopy(summary(false, [{ name: 'endpoint', status: 'failed' }]))).toContain(
-      "couldn't reach the endpoint",
+      "couldn't reach that address",
     );
     expect(testResultCopy(summary(false, [{ name: 'streaming', status: 'failed' }]))).toContain(
       "didn't stream",
