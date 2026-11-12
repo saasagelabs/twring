@@ -1154,14 +1154,18 @@ export class ConversationController {
         else this.releaseHeldSpeech(turn);
         this.updateFloor();
         return;
-      case 'failed':
+      case 'failed': {
         this.log('speech_failed', { turn_id: turn.id });
+        const inherited = turn.inherited;
         this.clearGeneration(turn);
         // With the agent still answering, nothing is audible now, and its later text (with anything
-        // held) starts a fresh generation once TTS is back.
+        // held) starts a fresh generation once TTS is back. Text held behind the previous turn's
+        // answer (inherited) never reached the failed generation: it is tried now, not after a tool.
         if (turn.agentDone) this.settleSpeech(turn);
+        else if (inherited) this.releaseHeldSpeech(turn);
         this.updateFloor();
         return;
+      }
     }
   }
 

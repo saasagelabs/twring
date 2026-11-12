@@ -3472,16 +3472,17 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     const adapter = new ScriptedAdapter();
     const scheduler = new ManualScheduler();
     const hangups = { count: 0 };
+    const logger = recordingLogger();
     const conversation = new ConversationController({
       callId: CALL_ID,
       adapter,
       speech: new RecordingSpeech(),
       scheduler,
-      logger: recordingLogger(),
+      logger,
       send: () => undefined,
       onAgentHangup: () => (hangups.count += 1),
     });
-    return { adapter, scheduler, hangups, conversation };
+    return { adapter, scheduler, hangups, conversation, logger };
   }
 
   // Owner decision 2026-11-12: words held while the agent worked go to the agent as soon as it is
@@ -3866,6 +3867,159 @@ describe('ConversationController ADR-026 queue, verifier pass', () => {
     expect(fields(logger, 'queued_turn_dropped')).toEqual([
       expect.objectContaining({ reason: 'call_ended' }),
     ]);
+  });
+
+  /** The queue went out early: the first answer is playing as gen_1, the queued turn is working. */
+  async function early(extra?: Parameters<typeof setup>[3]) {
+    const s = setup(undefined, undefined, undefined, extra);
+    s.conversation.userTurn('check the build');
+    await flushMicrotasks();
+    const first = s.adapter.channels[0]!;
+    first.push(toolStart);
+    await flushMicrotasks();
+    s.conversation.userSpeechStarted();
+    s.conversation.userTurn('and the tests');
+    await flushMicrotasks();
+    first.push(toolEnd);
+    first.text('The build passed.');
+    first.done();
+    await flushMicrotasks();
+    expect(s.adapter.channels).toHaveLength(2);
+    s.conversation.speechState('gen_1', 'playing');
+    return { ...s, first, second: s.adapter.channels[1]! };
+  }
+
+  it('early send after a hang-up marker: no hang-up, hangup_skipped logged', async () => {
+    const { adapter, scheduler, hangups, conversation, logger } = hangupSetup();
+    conversation.userTurn('book it');
+    await flushMicrotasks();
+    adapter.channels[0]!.push(toolStart);
+    await flushMicrotasks();
+    conversation.userTurn('and a cab');
+    adapter.channels[0]!.text('Booked. Bye ⟪hangup⟫');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    expect(adapter.channels).toHaveLength(2);
+    expect(fields(logger, 'queued_turn_sent')).toEqual([
+      expect.objectContaining({ early: true, hangup_skipped: true }),
+    ]);
+    conversation.speechState('gen_1', 'playing');
+    conversation.speechState('gen_1', 'finished');
+    scheduler.advance(AGENT_HANGUP_LINGER_MS * 3);
+    expect(hangups.count).toBe(0);
+  });
+
+  it('the inherited answer failing (TTS) with the new agent done: its answer plays once, floor ends listening', async () => {
+    const { conversation, second, speech, floors } = await early();
+    second.text('All tests pass.');
+    second.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'failed');
+    expect(speech.calls.filter((c) => c === 'append gen_2 All tests pass.')).toHaveLength(1);
+    conversation.speechState('gen_2', 'playing');
+    conversation.speechState('gen_2', 'finished');
+    expect(floors().at(-1)).toBe('listening');
+    expect(conversation.usage().completed).toBe(2);
+  });
+
+  it('the inherited answer failing while the new agent still works: its held text plays', async () => {
+    const { conversation, second, speech } = await early();
+    second.text('Running the tests now.');
+    second.push({ ...toolStart, tool_call_id: 't2' });
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'failed');
+    expect(speech.calls).toContain('append gen_2 Running the tests now.');
+  });
+
+  it('the new agent finishing before the inherited answer ends: its answer plays exactly once after it', async () => {
+    const { conversation, second, speech, floors } = await early();
+    second.text('All tests pass.');
+    second.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'finished');
+    conversation.speechState('gen_1', 'finished'); // duplicate report
+    expect(speech.calls.filter((c) => c.startsWith('append gen_2'))).toEqual([
+      'append gen_2 All tests pass.',
+    ]);
+    expect(speech.calls.filter((c) => c === 'begin gen_2')).toHaveLength(1);
+    conversation.speechState('gen_2', 'playing');
+    conversation.speechState('gen_2', 'finished');
+    expect(floors().at(-1)).toBe('listening');
+  });
+
+  it('a tool and an activity in the new turn while the inherited answer plays neither end nor cut it', async () => {
+    const { conversation, second, speech } = await early();
+    const before = speech.calls.length;
+    second.text('Let me run them.');
+    second.push({ ...toolStart, tool_call_id: 't2' });
+    second.push({ type: 'activity', label: 'Running tests' });
+    await flushMicrotasks();
+    expect(speech.calls.slice(before)).toEqual([]);
+    conversation.speechState('gen_1', 'finished');
+    expect(speech.calls.slice(before)).toEqual([
+      'begin gen_2',
+      'append gen_2 Let me run them.',
+      'end gen_2',
+    ]);
+  });
+
+  it('no progress line or tone from the new turn while the inherited answer plays', async () => {
+    const { scheduler, logger, second, speech } = await early({ presenceCues: true });
+    second.push({ ...toolStart, tool_call_id: 't2' });
+    await flushMicrotasks();
+    const before = speech.calls.length;
+    scheduler.advance(60_000);
+    expect(logger.names()).not.toContain('progress_line');
+    expect(logger.names()).not.toContain('presence_tone');
+    expect(speech.calls.slice(before).filter((c) => c.startsWith('begin'))).toEqual([]);
+  });
+
+  it('the call closing while inherited aborts the new turn and speaks nothing more', async () => {
+    const { conversation, second, speech } = await early();
+    conversation.close();
+    await flushMicrotasks();
+    expect(second.signal.aborted).toBe(true);
+    const before = speech.calls.length;
+    conversation.speechState('gen_1', 'finished');
+    second.text('late');
+    second.done();
+    await flushMicrotasks();
+    expect(speech.calls.slice(before).filter((c) => c.startsWith('begin'))).toEqual([]);
+  });
+
+  it('a long commit over the inherited answer after the new turn started a tool is queued again, nothing lost', async () => {
+    const { adapter, conversation, second } = await early();
+    second.push({ ...toolStart, tool_call_id: 't2' });
+    await flushMicrotasks();
+    conversation.userSpeechStarted();
+    conversation.userPartial('and also the lint please');
+    conversation.userTurn('and also the lint please');
+    await flushMicrotasks();
+    expect(second.signal.aborted).toBe(false);
+    expect(adapter.channels).toHaveLength(2);
+    second.push({ ...toolEnd, tool_call_id: 't2' });
+    second.text('Tests pass.');
+    second.done();
+    await flushMicrotasks();
+    expect(adapter.channels.map((c) => c.turn.text)).toEqual([
+      'check the build',
+      'and the tests',
+      'and also the lint please',
+    ]);
+  });
+
+  it('floors through the hand-over never stick on agent_speaking', async () => {
+    const { conversation, second, floors } = await early();
+    expect(floors().at(-1)).toBe('agent_speaking');
+    conversation.speechState('gen_1', 'finished');
+    expect(floors().at(-1)).toBe('agent_working');
+    second.text('Tests pass.');
+    second.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_2', 'playing');
+    expect(floors().at(-1)).toBe('agent_speaking');
+    conversation.speechState('gen_2', 'finished');
+    expect(floors().at(-1)).toBe('listening');
   });
 });
 
