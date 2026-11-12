@@ -13,6 +13,11 @@ license: Apache-2.0
 homepage: https://twring.com
 requires_hermes: '>=0.23.1'
 tags: [voice, phone, calls, approvals, platform]
+# Tells Twring when Hermes starts and ends a tool (name and success only), so a sentence the owner
+# paused in can be joined safely. The hooks never block or change a tool.
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
 requires_env:
   - name: TWRING_TOKEN
     description: "This computer's Twring link token. Run `hermes twring link` to get it from the Twring app; it is saved for you."
