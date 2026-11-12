@@ -366,6 +366,8 @@ interface Turn {
   spoken: string;
   /** The agent finished this turn's answer (not failed or timed out). */
   answered: boolean;
+  /** An earlier unheard answer this turn speaks first; it travels on until it is heard. */
+  carried: string;
   /** Held text crossed a tool/activity boundary: once released, its generation is ended at once. */
   heldBoundary: boolean;
   speechDone: boolean;
@@ -976,9 +978,11 @@ export class ConversationController {
     // "Keep talking" after the agent already answered: the answer it finished while the caller went
     // on was never heard. It plays first, then the answer to the rest (owner decision 2026-11-12);
     // the agent is not asked again, so nothing it did is repeated.
+    // A turn still waiting for its own answer passes on only what it carried: its partial answer is
+    // not one the agent finished.
     const carried =
-      superseded !== undefined && superseded.answered && !superseded.heard && !superseded.muted
-        ? superseded.spoken.trim()
+      superseded !== undefined && !superseded.heard && !superseded.muted
+        ? (superseded.answered ? superseded.spoken : superseded.carried).trim()
         : undefined;
     const carry =
       carried !== undefined && carried !== '' && carried.length <= MAX_CARRIED_SPEECH_CHARS
@@ -1004,6 +1008,7 @@ export class ConversationController {
       heldSpeech: '',
       spoken: '',
       answered: false,
+      carried: carry ?? '',
       heldBoundary: false,
       speechDone: false,
       agentDone: false,

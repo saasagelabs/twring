@@ -1242,6 +1242,24 @@ describe('ConversationController held speech edge cases (verifier)', () => {
     ]);
   });
 
+  it('a carried answer still unheard is carried again when the caller goes on before the next answer', async () => {
+    const { speech, conversation, agent, logger } = await caller();
+    agent.text('It is sunny.');
+    agent.done();
+    await flushMicrotasks();
+    conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    // Neither played nor answered yet: the caller adds more.
+    conversation.userTurn('and on Friday?');
+    await flushMicrotasks();
+    const carried = logger.events.filter((e) => e.fields.event === 'unheard_answer_carried');
+    expect(carried.map((e) => e.fields)).toMatchObject([
+      { from_turn_id: 'turn_1', turn_id: 'turn_2', text_chars: 12 },
+      { from_turn_id: 'turn_2', turn_id: 'turn_3', text_chars: 12 },
+    ]);
+    expect(speech.calls.at(-1)).toMatch(/^append gen_\d+ It is sunny\. $/);
+  });
+
   it('a carried answer is not carried again once it has been heard', async () => {
     const { speech, conversation, agent, logger } = await caller();
     agent.text('It is sunny.');
