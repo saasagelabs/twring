@@ -60,7 +60,7 @@ Self-host Twring? Link to it with `hermes twring link --server https://your-twri
 ## What this plugin does on your computer (disclosure)
 
 - **Network:** one outbound WebSocket to your Twring server (`wss://api.twring.com/v1/connectors/socket` by default) while `hermes gateway` runs, plus HTTPS calls to the same server to link, to post scheduled-job results to your chat and to ring your phone. Nothing else is contacted. Redirects are refused, and the token only travels in an `Authorization` header to the server you linked.
-- **What goes to Twring:** the text of your turns comes from Twring, and Hermes's replies, approval questions (the command, cut to fit the card, and Hermes's reason) and scheduled-job results go to Twring, which shows them in your app and speaks them on calls. Tool output is not sent.
+- **What goes to Twring:** the text of your turns comes from Twring, and Hermes's replies, approval questions (the command, cut to fit the card, and Hermes's reason) and scheduled-job results go to Twring, which shows them in your app and speaks them on calls. While a turn runs, the name of each tool Hermes starts and whether it succeeded go to Twring (never its arguments or output), so Twring knows Hermes acted on that turn.
 - **Stored credential:** one long-lived link token (`TWRING_TOKEN`), saved through Hermes's own `.env` route by `hermes twring link`. The plugin writes no files of its own. Revoke it by deleting Hermes in the Twring app.
 - **Approvals:** answered only by you, through Hermes's approval system. A command too long to show on the phone gets Hermes's Deny-only card: it can be declined from the phone and approved only at the computer.
 - **No shell commands, no background processes** besides the gateway's own connection, **no telemetry**, **no self-update** (updates come only through the Hermes catalog).
@@ -74,6 +74,7 @@ Twring links agents on your own machine through one outbound WebSocket (`cord-re
 | `user.turn` (spoken or typed) | `MessageEvent` in one direct chat with the owner |
 | `text.delta` (spoken as it arrives) | streaming drafts (`send_draft`) and the final `send` |
 | `activity` (the phone shows "working") | the typing heartbeat |
+| `tool.start` / `tool.end` | Hermes's `pre_tool_call` / `post_tool_call` hooks |
 | `approval.required` / `approval.decision` | native approval card / `resolve_gateway_approval_card` |
 | a ring and a chat message | cron delivery to `twring` |
 | `turn.cancel` (your next turn replaced this one) | `/stop` for the run; a hang-up does not stop it |

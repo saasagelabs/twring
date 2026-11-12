@@ -49,8 +49,9 @@ def connector_hello(version: str) -> dict[str, Any]:
     }
 
 
-def session_ready() -> dict[str, Any]:
-    """The answer to a channel's `session.hello`. Tools stay private to Hermes."""
+def session_ready(tools: bool = False) -> dict[str, Any]:
+    """The answer to a channel's `session.hello`. Hermes runs its own tools; `tools` says only
+    whether the plugin reports when one starts and ends (Hermes's tool hooks are registered)."""
     return {
         "type": "session.ready",
         "protocol": AGENT_PROTOCOL,
@@ -58,10 +59,30 @@ def session_ready() -> dict[str, Any]:
             "streaming_text": True,
             "cancel": True,
             "activity": True,
-            "tools": False,
+            "tools": tools,
             "approvals": True,
         },
     }
+
+
+#: Twring's limits for tool events (tool.start / tool.end).
+MAX_TOOL_ID_CHARS = 128
+MAX_TOOL_NAME_CHARS = 128
+
+
+def tool_status(status: Any) -> str:
+    """A Hermes post_tool_call status as Twring's tool.end status. Blocked counts as an error."""
+    if status in ("ok", "success", None, ""):
+        return "success"
+    if status in ("cancelled", "canceled", "interrupted"):
+        return "cancelled"
+    return "error"
+
+
+def tool_name(name: Any) -> str:
+    """A tool name Twring accepts (diagnostics only, never shown on the call)."""
+    text = str(name or "") or "tool"
+    return text[:MAX_TOOL_NAME_CHARS]
 
 
 def channel_message(channel: str, message: dict[str, Any]) -> dict[str, Any]:

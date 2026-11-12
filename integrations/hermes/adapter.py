@@ -21,6 +21,8 @@ import datetime
 import hashlib
 import json
 import logging
+import uuid
+import weakref
 from typing import Any, Optional
 
 from gateway.config import Platform
@@ -35,6 +37,7 @@ try:  # loaded by Hermes as a package
         CHAT_ID,
         DEFAULT_SERVER,
         MAX_FRAME_BYTES,
+        MAX_TOOL_ID_CHARS,
         OWNER_ID,
         TurnState,
         approval_choice,
@@ -44,6 +47,8 @@ try:  # loaded by Hermes as a package
         connector_hello,
         parse_frame,
         session_ready,
+        tool_name,
+        tool_status,
     )
     from .twring_link import LinkError, check_server, post_message, post_ring
 except ImportError:  # loaded directly (tests)
@@ -52,6 +57,7 @@ except ImportError:  # loaded directly (tests)
         CHAT_ID,
         DEFAULT_SERVER,
         MAX_FRAME_BYTES,
+        MAX_TOOL_ID_CHARS,
         OWNER_ID,
         TurnState,
         approval_choice,
@@ -61,12 +67,14 @@ except ImportError:  # loaded directly (tests)
         connector_hello,
         parse_frame,
         session_ready,
+        tool_name,
+        tool_status,
     )
     from twring_link import LinkError, check_server, post_message, post_ring  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_VERSION = "0.1.1"
+PLUGIN_VERSION = "0.1.2"
 TEXT_TURN_TAG = "[Twring message]"
 #: Twring ends a quiet turn after 30 s; a working Hermes says so at least this often.
 ACTIVITY_EVERY_S = 10.0
@@ -81,6 +89,13 @@ CLOSE_REVOKED = 4403
 CLOSE_REPLACED = 4409
 
 _TRUTHY = {"1", "true", "yes", "on"}
+
+#: Whether Hermes's pre_tool_call and post_tool_call hooks are registered, so Twring is told when a
+#: tool runs (session.ready then declares `tools`). Without them Twring is never told, and must
+#: never assume a turn did nothing.
+_TOOL_HOOKS = False
+#: Live adapters, for the tool hooks (they run on Hermes's agent worker thread, not the loop).
+_ADAPTERS: "weakref.WeakSet[TwringAdapter]" = weakref.WeakSet()
 
 CALL_HINT = (
     "You are connected to your owner through Twring, by live phone calls and by typed messages, "
@@ -169,6 +184,8 @@ class TwringAdapter(BasePlatformAdapter):
         self._tasks: set[asyncio.Task] = set()  # background tasks, kept so they are not collected
         self._dedup = MessageDeduplicator(ttl_seconds=600)
         self._http: Any = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None  # for Hermes's tool hooks
+        self._tool_calls: dict[str, tuple[TurnState, str]] = {}  # Hermes tool key -> (turn, Twring id)
 
     @property
     def name(self) -> str:
@@ -191,6 +208,8 @@ class TwringAdapter(BasePlatformAdapter):
         self._stopping = False
         self._fatal = None
         self._ready.clear()
+        self._loop = asyncio.get_running_loop()
+        _ADAPTERS.add(self)
         self._http = platform_http_client(headers={"User-Agent": f"twring-hermes/{PLUGIN_VERSION}"}, follow_redirects=False)
         self._task = asyncio.create_task(self._run())
         try:
@@ -210,6 +229,8 @@ class TwringAdapter(BasePlatformAdapter):
 
     async def disconnect(self) -> None:
         self._stopping = True
+        _ADAPTERS.discard(self)
+        self._loop = None
         with contextlib.suppress(Exception):
             self._release_platform_lock()
         self._mark_disconnected()
@@ -352,7 +373,7 @@ class TwringAdapter(BasePlatformAdapter):
         kind = message.get("type")
         if kind == "session.hello":
             self._channels[channel] = str(message.get("session_id") or "")
-            await self._send(channel_message(channel, session_ready()))
+            await self._send(channel_message(channel, session_ready(tools=_TOOL_HOOKS)))
         elif kind == "ping":
             await self._send(channel_message(channel, {"type": "pong", "id": message.get("id")}))
         elif kind == "user.turn":
@@ -522,6 +543,9 @@ class TwringAdapter(BasePlatformAdapter):
             return
         self._started.add(key)
         self._current = turn
+        # The first "Working" activity waits until the turn has run ACTIVITY_EVERY_S: an early one
+        # tells Twring that Hermes acted on a turn the owner may only have paused in.
+        self._last_activity.setdefault(key, asyncio.get_running_loop().time())
         if turn.finished and key not in self._orphan_text:
             # Twring cancelled this turn before Hermes reached it: run nothing for it.
             self._stopped.add(key)
@@ -668,10 +692,47 @@ class TwringAdapter(BasePlatformAdapter):
         if turn is None or turn.finished or key in self._orphan_text:
             return
         now = asyncio.get_running_loop().time()
-        if now - self._last_activity.get(key, 0.0) < ACTIVITY_EVERY_S:
+        if key not in self._last_activity:  # Hermes's start was not seen: the clock starts now
+            self._last_activity[key] = now
+            return
+        if now - self._last_activity[key] < ACTIVITY_EVERY_S:
             return
         self._last_activity[key] = now
         await self._emit(turn, [turn.event("activity", label="Working…", kind="working")])
+
+    # ── Hermes tool hooks (run on this loop, queued by _on_pre_tool_call / _on_post_tool_call) ──
+
+    def _running_turn(self) -> Optional[TurnState]:
+        """The Twring turn Hermes is working on now, or None."""
+        turn = self._current
+        if turn is None or turn.finished:
+            return None
+        key = _turn_key(turn.channel, turn.turn_id)
+        if key not in self._started or key in self._orphan_text or key in self._stopped:
+            return None
+        return turn
+
+    def _tool_started(self, call_id: str, name: str) -> None:
+        # Hooks are global across Hermes's platforms, so a tool run for another chat may be reported
+        # on this call. That is the safe direction: Twring then never merges this turn with the next.
+        turn = self._running_turn()
+        if turn is None:
+            return
+        tool_key = call_id or f"name:{name}"
+        twring_id = call_id if call_id and len(call_id) <= MAX_TOOL_ID_CHARS else f"tool-{uuid.uuid4().hex}"
+        self._tool_calls[tool_key] = (turn, twring_id)
+        event = turn.event("tool.start", tool_call_id=twring_id, tool_name=tool_name(name), display_label="Working…")
+        self._spawn(self._emit(turn, [event]))
+
+    def _tool_ended(self, call_id: str, name: str, status: Any) -> None:
+        entry = self._tool_calls.pop(call_id or f"name:{name}", None)
+        if entry is None:
+            return
+        turn, twring_id = entry
+        if turn.finished:
+            return
+        event = turn.event("tool.end", tool_call_id=twring_id, status=tool_status(status))
+        self._spawn(self._emit(turn, [event]))
 
     def format_tool_event(self, event: Any, *, mode: str = "all", preview_max_len: int = 40) -> Optional[str]:
         """Tool progress is not spoken on a call; the typing heartbeat shows Hermes is working."""
@@ -768,6 +829,63 @@ async def _standalone_send(pconfig, chat_id: str, message: str, *, thread_id: Op
         return await deliver(http, server, token, message, ring=ring)
 
 
+def _hand_to_adapters(method: str, *args: Any) -> None:
+    """From Hermes's worker thread: queue `method(*args)` on each live adapter's loop. Never raises."""
+    try:
+        adapters = list(_ADAPTERS)
+    except Exception:
+        return
+    for adapter in adapters:
+        try:
+            loop = adapter._loop
+            if loop is not None and not loop.is_closed():
+                loop.call_soon_threadsafe(getattr(adapter, method), *args)
+        except Exception:
+            pass
+
+
+def _hook_id(value: Any) -> str:
+    return value if isinstance(value, str) else ""
+
+
+def _on_pre_tool_call(**kwargs: Any) -> None:
+    """Hermes's pre_tool_call hook. It is fail-closed (an error or a slow return blocks the tool)
+    and a returned dict could block or change the tool, so this only hands off and returns None."""
+    try:
+        _hand_to_adapters("_tool_started", _hook_id(kwargs.get("tool_call_id")), str(kwargs.get("tool_name") or ""))
+    except Exception:
+        pass
+    return None
+
+
+def _on_post_tool_call(**kwargs: Any) -> None:
+    """Hermes's post_tool_call hook: hands the tool's end to the adapters and returns None."""
+    try:
+        _hand_to_adapters(
+            "_tool_ended",
+            _hook_id(kwargs.get("tool_call_id")),
+            str(kwargs.get("tool_name") or ""),
+            kwargs.get("status"),
+        )
+    except Exception:
+        pass
+    return None
+
+
+def _register_tool_hooks(ctx) -> bool:
+    """Registers the tool hooks; False (Twring is not told about tools) if this Hermes cannot."""
+    register_hook = getattr(ctx, "register_hook", None)
+    if not callable(register_hook):
+        return False
+    try:
+        register_hook("pre_tool_call", _on_pre_tool_call)
+        register_hook("post_tool_call", _on_post_tool_call)
+    except Exception:
+        logger.debug("Twring: tool hooks not registered", exc_info=True)
+        return False
+    return True
+
+
 def register(ctx) -> None:
     """Plugin entry point: Twring as a messaging platform, plus `hermes twring` for linking."""
     try:
@@ -801,4 +919,6 @@ def register(ctx) -> None:
         pii_safe=True,
         platform_hint=CALL_HINT,
     )
+    global _TOOL_HOOKS
+    _TOOL_HOOKS = _register_tool_hooks(ctx)
     register_cli(ctx)
