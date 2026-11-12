@@ -97,7 +97,7 @@ export default function AgentsScreen() {
         ) : undefined
       }
     >
-      <Text accessibilityRole="header" style={[type.display, { color: palette.textPrimary }]}>
+      <Text accessibilityRole="header" style={[type.screenTitle, { color: palette.textPrimary }]}>
         Agents
       </Text>
       {agents.loading && (

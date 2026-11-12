@@ -82,7 +82,6 @@ export default function OnboardingScreen() {
         />
       </View>
       <View style={styles.copy}>
-        <Text style={[type.microLabel, { color: palette.accent }]}>{`STEP ${page + 1} OF 3`}</Text>
         <Text
           accessibilityRole="header"
           style={[type.display, styles.title, { color: palette.textPrimary }]}

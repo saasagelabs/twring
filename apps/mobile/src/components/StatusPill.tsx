@@ -73,7 +73,7 @@ export function StatusPill({ label, tone, active, detail, reserveDetail }: Props
         : tone === 'warning'
           ? palette.warning
           : tone === 'muted'
-            ? palette.textMuted
+            ? palette.textTertiary
             : palette.textSecondary;
   const glow =
     tone === 'you'

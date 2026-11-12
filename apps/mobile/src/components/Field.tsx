@@ -47,7 +47,7 @@ export function Field({ label, hint, error, inputStyle, ...input }: Props) {
       <TextInput
         accessibilityLabel={label}
         accessibilityHint={error ?? hint}
-        placeholderTextColor={palette.textMuted}
+        placeholderTextColor={palette.textTertiary}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         style={[

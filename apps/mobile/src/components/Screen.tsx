@@ -83,7 +83,7 @@ export function Screen({
           {title !== undefined && (
             <Text
               accessibilityRole="header"
-              style={[type.display, styles.title, { color: palette.textPrimary }]}
+              style={[type.screenTitle, { color: palette.textPrimary }]}
             >
               {title}
             </Text>
@@ -109,7 +109,6 @@ const styles = StyleSheet.create({
   headerSlot: { width: 36, alignItems: 'center' },
   headerCenter: { flex: 1, alignItems: 'center' },
   content: { paddingHorizontal: 22, paddingVertical: 16, gap: 18 },
-  title: { fontSize: 30, letterSpacing: -0.8 },
   footer: {
     paddingHorizontal: 22,
     paddingBottom: 24,

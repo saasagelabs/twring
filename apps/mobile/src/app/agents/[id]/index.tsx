@@ -137,7 +137,7 @@ export default function AgentDetailScreen() {
         )}
         <Text
           accessibilityRole="header"
-          style={[type.display, styles.name, { color: palette.textPrimary }]}
+          style={[type.screenTitle, styles.name, { color: palette.textPrimary }]}
         >
           {agent.name}
         </Text>
@@ -386,7 +386,7 @@ export default function AgentDetailScreen() {
 
 const styles = StyleSheet.create({
   hero: { alignItems: 'center', gap: space.sm, paddingVertical: space.lg },
-  name: { textAlign: 'center', fontSize: 30 },
+  name: { textAlign: 'center' },
   call: { alignSelf: 'stretch', paddingVertical: space.md },
   group: { borderRadius: radius.md, borderWidth: StyleSheet.hairlineWidth, overflow: 'hidden' },
   note: { paddingHorizontal: 14, paddingVertical: space.sm },
@@ -403,6 +403,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     justifyContent: 'center',
   },
-  clear: { paddingVertical: 12 },
+  clear: { paddingVertical: space.md, gap: space.sm },
   clearSheet: { gap: 14 },
 });

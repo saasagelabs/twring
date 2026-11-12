@@ -148,7 +148,7 @@ export default function ChatsScreen() {
         ) : undefined
       }
     >
-      <Text accessibilityRole="header" style={[type.display, { color: palette.textPrimary }]}>
+      <Text accessibilityRole="header" style={[type.screenTitle, { color: palette.textPrimary }]}>
         {chats.off ? 'Agents' : 'Chats'}
       </Text>
       <MissedCalls items={missed} agents={agents.data ?? []} onSeen={markSeen} />
