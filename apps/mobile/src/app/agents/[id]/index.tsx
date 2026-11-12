@@ -53,6 +53,7 @@ export default function AgentDetailScreen() {
   const [newVisible, setNewVisible] = useState(false);
   const [startingNew, setStartingNew] = useState(false);
   const [newError, setNewError] = useState<ErrorCopy | undefined>();
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const load = useCallback(
     async (signal: AbortSignal): Promise<Detail> => {
@@ -119,7 +120,20 @@ export default function AgentDetailScreen() {
   const editable = canEditAgent(agent);
 
   return (
-    <Screen back refreshing={detail.refreshing} onRefresh={() => detail.reload({ refresh: true })}>
+    <Screen
+      back
+      headerRight={
+        editable ? (
+          <IconButton
+            icon="pencil"
+            accessibilityLabel="Edit agent"
+            onPress={() => router.push({ pathname: '/agents/[id]/edit', params: { id: agent.id } })}
+          />
+        ) : undefined
+      }
+      refreshing={detail.refreshing}
+      onRefresh={() => detail.reload({ refresh: true })}
+    >
       <View style={styles.hero}>
         <Avatar
           id={agent.id}
@@ -128,13 +142,6 @@ export default function AgentDetailScreen() {
           size={72}
           online={agent.connector_online}
         />
-        {editable && (
-          <IconButton
-            icon="pencil"
-            accessibilityLabel="Edit agent"
-            onPress={() => router.push({ pathname: '/agents/[id]/edit', params: { id: agent.id } })}
-          />
-        )}
         <Text
           accessibilityRole="header"
           style={[type.screenTitle, styles.name, { color: palette.textPrimary }]}
@@ -176,7 +183,7 @@ export default function AgentDetailScreen() {
         </Text>
       )}
 
-      {!aiApp && (
+      {!aiApp && editable && (
         <View
           style={[
             styles.group,
@@ -206,9 +213,25 @@ export default function AgentDetailScreen() {
           {editable && agent.protocol !== 'mcp-app' && (
             <Row
               label="Connection"
-              value={`${status.label}${agent.last_tested_at !== undefined ? ` · tested ${formatWhen(agent.last_tested_at, now)}` : ''}\nAPI key: ${agent.has_credential ? 'Saved (hidden)' : 'None'}`}
+              value={`${status.label}${agent.last_tested_at !== undefined ? ` · tested ${formatWhen(agent.last_tested_at, now)}` : ''}\nKey: ${agent.has_credential ? 'Saved (hidden)' : 'None'}`}
+              divider={false}
             />
           )}
+        </View>
+      )}
+
+      {!aiApp && (
+        <Text style={[type.microLabel, styles.section, { color: palette.textTertiary }]}>
+          CALLS
+        </Text>
+      )}
+      {!aiApp && (
+        <View
+          style={[
+            styles.group,
+            { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: palette.border },
+          ]}
+        >
           <Row
             label="Call history"
             value={
@@ -243,9 +266,6 @@ export default function AgentDetailScreen() {
         </View>
       )}
 
-      <Text style={[type.microLabel, styles.advanced, { color: palette.textTertiary }]}>
-        ADVANCED
-      </Text>
       {deleteError !== undefined && <ErrorNotice error={deleteError} />}
       {clearError !== undefined && <ErrorNotice error={clearError} />}
       {!aiApp &&
@@ -267,14 +287,26 @@ export default function AgentDetailScreen() {
           { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: palette.border },
         ]}
       >
-        {!aiApp && <Row label="Connection method" value={protocolLabel(agent.protocol)} />}
-        {editable && agent.protocol !== 'mcp-app' && (
-          <Row label="Endpoint" value={agent.endpoint_url} />
+        {!aiApp && (
+          <Row
+            label="Advanced"
+            value={showAdvanced ? 'Hide connection details' : 'Connection details'}
+            accessibilityHint={
+              showAdvanced ? 'Hides the connection details' : 'Shows how Twring reaches this agent'
+            }
+            onPress={() => setShowAdvanced(!showAdvanced)}
+          />
         )}
-        {agent.protocol === 'openai-chat' && agent.model && (
+        {!aiApp && showAdvanced && (
+          <Row label="Connection method" value={protocolLabel(agent.protocol)} />
+        )}
+        {showAdvanced && editable && agent.protocol !== 'mcp-app' && (
+          <Row label="Address" value={agent.endpoint_url} />
+        )}
+        {showAdvanced && agent.protocol === 'openai-chat' && agent.model && (
           <Row label="Model" value={agent.model} />
         )}
-        {editable && agent.protocol !== 'mcp-app' && (
+        {showAdvanced && editable && agent.protocol !== 'mcp-app' && (
           <Row
             label="Edit connection"
             accessibilityHint="Change the address or key, then test again"
@@ -396,7 +428,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: space.sm,
   },
-  advanced: { marginTop: space.md, marginLeft: space.xs },
+  section: { marginTop: space.sm, marginLeft: space.xs },
   dangerRow: {
     minHeight: 52,
     paddingHorizontal: 14,
