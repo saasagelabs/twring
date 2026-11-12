@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#000000">
 <meta name="robots" content="noindex">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='28' fill='%2305070A'/%3E%3Cpath d='M50 50 L66 34 L82 50 L66 66 Z M50 50 L34 34 L18 50 L34 66 Z' fill='none' stroke='%2319D6F2' stroke-width='6' stroke-linecap='square'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/assets/site.css?v=2">
+<link rel="stylesheet" href="/assets/site.css?v=4">
 </head>
 <body>
 
@@ -38,7 +38,7 @@
 
     <form class="get" id="getForm" novalidate>
       <label for="email" class="sr">Your email</label>
-      <input id="email" type="email" placeholder="you@gmail.com" autocomplete="email" inputmode="email" required>
+      <input id="email" type="email" placeholder="you@gmail.com" autocomplete="email" inputmode="email" aria-describedby="formNote" required>
       <button class="btn btn-primary" type="submit">Get an invite</button>
     </form>
     <p class="form-note" id="formNote" role="status"></p>
@@ -71,14 +71,14 @@
   </div>
 </footer>
 
-<script src="/assets/site.js?v=1"></script>
+<script src="/assets/site.js?v=2"></script>
 <script>
 (function () {
   // Invite only: the email joins the request list (source "beta", kept for old links), and invites go out
   // by email. Nothing is downloaded from this page.
   var form = document.getElementById('getForm'), note = document.getElementById('formNote');
   var input = document.getElementById('email'), submit = form.querySelector('button');
-  function fail(text) { note.textContent = text; note.classList.add('err'); }
+  function fail(text) { note.textContent = text; note.classList.add('err'); input.setAttribute('aria-invalid', 'true'); }
   function done(email) {
     note.textContent = '';
     form.hidden = true;
@@ -89,7 +89,7 @@
     e.preventDefault();
     var v = input.value.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { fail('Enter a valid email address, like you@gmail.com.'); input.focus(); return; }
-    submit.disabled = true; note.classList.remove('err'); note.textContent = 'One moment…';
+    submit.disabled = true; note.classList.remove('err'); input.removeAttribute('aria-invalid'); note.textContent = 'One moment…';
     fetch('https://api.twring.com/v1/waitlist', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: v, source: 'beta' }) })
       .then(function (r) {
         if (r.status === 202) return done(v.toLowerCase());
