@@ -223,8 +223,7 @@ describe('markdown links (device test 2026-10-13)', () => {
 
 describe('rowTime', () => {
   const now = new Date(2026, 10, 12, 15, 0);
-  const at = (days: number, hour = 9) =>
-    new Date(2026, 10, 12 - days, hour, 5).toISOString();
+  const at = (days: number, hour = 9) => new Date(2026, 10, 12 - days, hour, 5).toISOString();
 
   it('shows the time today, then Yesterday, then the weekday within a week', () => {
     expect(rowTime(at(0), now)).toBe('09:05');
