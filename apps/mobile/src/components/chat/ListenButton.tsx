@@ -8,7 +8,7 @@ import { apiErrorCopy } from '../../api/errors';
 import { probeSpeechKeyError } from '../../api/speech-key-probe';
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 
 export type ListenState = 'idle' | 'loading' | 'playing' | 'error';
 export type ListenAction = 'load' | 'play' | 'stop' | 'fail';
@@ -162,6 +162,6 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 8,
   },
-  label: { fontFamily: font.caption, fontSize: 12 },
-  error: { fontFamily: font.caption, fontSize: 12, paddingBottom: 8 },
+  label: { fontFamily: font.caption, fontSize: type.caption.fontSize },
+  error: { fontFamily: font.caption, fontSize: type.caption.fontSize, paddingBottom: 8 },
 });

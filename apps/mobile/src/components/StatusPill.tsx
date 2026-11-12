@@ -12,7 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 
 type Tone = 'you' | 'agent' | 'warning' | 'neutral' | 'muted';
 
@@ -69,7 +69,7 @@ export function StatusPill({ label, tone, active, detail, reserveDetail }: Props
     tone === 'you'
       ? palette.accent
       : tone === 'agent'
-        ? '#FFFFFF'
+        ? palette.textPrimary
         : tone === 'warning'
           ? palette.warning
           : tone === 'muted'
@@ -80,7 +80,7 @@ export function StatusPill({ label, tone, active, detail, reserveDetail }: Props
       ? 'rgba(25,214,242,0.2)'
       : tone === 'warning'
         ? 'rgba(255,181,71,0.2)'
-        : 'rgba(255,255,255,0.2)';
+        : palette.inactive;
   return (
     <View
       accessible
@@ -104,7 +104,7 @@ export function StatusPill({ label, tone, active, detail, reserveDetail }: Props
         <Text
           style={[
             styles.label,
-            { color: tone === 'muted' ? color : active ? color : 'rgba(255,255,255,0.5)' },
+            { color: tone === 'muted' ? color : active ? color : palette.textTertiary },
           ]}
         >
           {label}
@@ -146,12 +146,12 @@ const styles = StyleSheet.create({
     gap: 12,
     paddingVertical: 14,
     paddingHorizontal: 22,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(10,12,16,0.6)',
   },
-  label: { fontFamily: font.headline, fontSize: 15, fontStyle: 'italic' },
-  detail: { fontFamily: font.caption, fontSize: 12, marginTop: 4 },
+  label: { fontFamily: font.headline, fontSize: type.body.fontSize, fontStyle: 'italic' },
+  detail: { fontFamily: font.caption, fontSize: type.caption.fontSize, marginTop: 4 },
   dots: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   dot: { width: 5, height: 5, borderRadius: 2.5 },
 });

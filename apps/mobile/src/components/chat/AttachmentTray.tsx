@@ -2,7 +2,7 @@ import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { humanSize, type PreparedFile } from '@/threads/files';
 
 export function AttachmentTray({
@@ -57,17 +57,17 @@ const styles = StyleSheet.create({
   item: {
     height: 72,
     minWidth: 72,
-    borderRadius: 12,
+    borderRadius: radius.sm,
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     padding: 4,
     paddingRight: 32,
   },
-  image: { width: 64, height: 64, borderRadius: 8 },
+  image: { width: 64, height: 64, borderRadius: radius.xs },
   document: { maxWidth: 160, paddingHorizontal: 8 },
-  name: { fontFamily: font.bodyEmphasis, fontSize: 13 },
-  size: { fontFamily: font.caption, fontSize: 11 },
+  name: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
+  size: { fontFamily: font.caption, fontSize: type.microLabel.fontSize },
   remove: {
     position: 'absolute',
     right: 4,

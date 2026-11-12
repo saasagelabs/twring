@@ -230,8 +230,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   main: { flex: 1, gap: 3 },
-  name: { fontFamily: font.interMedium, fontSize: 15 },
-  meta: { fontFamily: font.caption, fontSize: 12, lineHeight: 17 },
+  name: { fontFamily: font.interMedium, fontSize: type.body.fontSize },
+  meta: { fontFamily: font.caption, fontSize: type.caption.fontSize, lineHeight: 17 },
   callHit: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   callPill: {
     flexDirection: 'row',
@@ -243,5 +243,5 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     backgroundColor: 'rgba(25,214,242,0.06)',
   },
-  callText: { fontFamily: font.interMedium, fontSize: 13 },
+  callText: { fontFamily: font.interMedium, fontSize: type.caption.fontSize },
 });

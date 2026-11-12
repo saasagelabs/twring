@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Avatar } from '@/components/Avatar';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { agentRowLine, rowLine, rowTime } from '@/threads/presentation';
 
 export function ChatRow({
@@ -94,17 +94,17 @@ const styles = StyleSheet.create({
   },
   main: { flex: 1, gap: 4 },
   first: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  name: { flex: 1, fontFamily: font.interMedium, fontSize: 16 },
-  time: { fontFamily: font.body, fontSize: 12 },
+  name: { flex: 1, fontFamily: font.interMedium, fontSize: type.body.fontSize },
+  time: { fontFamily: font.body, fontSize: type.caption.fontSize },
   second: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  preview: { flex: 1, fontFamily: font.body, fontSize: 14 },
+  preview: { flex: 1, fontFamily: font.body, fontSize: type.body.fontSize },
   badge: {
     minWidth: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 4,
   },
-  badgeText: { fontFamily: font.mono, fontSize: 11 },
+  badgeText: { fontFamily: font.mono, fontSize: type.microLabel.fontSize },
 });

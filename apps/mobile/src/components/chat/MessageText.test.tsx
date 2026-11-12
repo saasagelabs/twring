@@ -11,6 +11,8 @@ vi.mock('@/theme/fonts', () => ({
   font: { body: 'body', bodyEmphasis: 'bodyEmphasis', mono: 'mono' },
 }));
 vi.mock('@/theme/tokens', () => ({
+  radius: new Proxy({}, { get: () => 0 }),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
   usePalette: () => ({ accent: '#0ff', textPrimary: '#fff' }),
 }));
 vi.mock('@/threads/presentation', () => import('../../threads/presentation'));

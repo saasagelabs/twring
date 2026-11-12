@@ -19,7 +19,7 @@ import { missedCallRow } from '@/ring/history';
 import { unseenMissed } from '@/ring/missed';
 import { markMissedSeen, missedLastSeen } from '@/ring/missed-seen';
 import type { MissedInviteHistoryItem } from '@/ring/protocol';
-import { type, usePalette } from '@/theme/tokens';
+import { type, usePalette, radius } from '@/theme/tokens';
 import { useChatList } from '@/threads/chats';
 import { sortChatAgents } from '@/threads/presentation';
 
@@ -201,7 +201,7 @@ const styles = StyleSheet.create({
   missedCard: {
     backgroundColor: 'rgba(255,255,255,0.025)',
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: radius.md,
     padding: 12,
     flexDirection: 'row',
     flexWrap: 'wrap',

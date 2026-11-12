@@ -13,7 +13,7 @@ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { TextButton } from '@/components/TextButton';
 import { font } from '@/theme/fonts';
-import { radius, space, usePalette } from '@/theme/tokens';
+import { radius, space, usePalette, type } from '@/theme/tokens';
 
 export interface ScannerCopy {
   needCamera: string;
@@ -131,7 +131,7 @@ export function QrScanner({
 const styles = StyleSheet.create({
   block: { gap: space.lg },
   inline: { flexDirection: 'row' },
-  support: { fontFamily: font.body, fontSize: 15, lineHeight: 22.5 },
+  support: { fontFamily: font.body, fontSize: type.body.fontSize, lineHeight: 22.5 },
   camera: {
     width: 260,
     height: 260,

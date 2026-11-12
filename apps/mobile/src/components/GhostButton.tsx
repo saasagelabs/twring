@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 
 interface Props {
   label: string;
@@ -35,7 +35,7 @@ export function GhostButton({
               ? '#FF4D5E88'
               : tone === 'accent'
                 ? palette.borderAccent
-                : 'rgba(255,255,255,0.12)',
+                : palette.borderStrong,
           opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
         },
       ]}
@@ -45,7 +45,11 @@ export function GhostButton({
           styles.label,
           {
             color:
-              tone === 'danger' ? palette.danger : tone === 'accent' ? palette.accent : '#FFFFFF',
+              tone === 'danger'
+                ? palette.danger
+                : tone === 'accent'
+                  ? palette.accent
+                  : palette.textPrimary,
           },
         ]}
       >
@@ -58,11 +62,11 @@ export function GhostButton({
 const styles = StyleSheet.create({
   button: {
     height: 50,
-    borderRadius: 25,
+    borderRadius: radius.pill,
     borderWidth: 1,
     paddingHorizontal: 22,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  label: { fontFamily: font.interMedium, fontSize: 15 },
+  label: { fontFamily: font.interMedium, fontSize: type.body.fontSize },
 });

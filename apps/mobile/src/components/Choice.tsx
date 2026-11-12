@@ -26,7 +26,7 @@ export function Choice({ label, description, example, selected, onPress }: Props
       style={({ pressed }) => [
         styles.choice,
         {
-          backgroundColor: selected ? 'rgba(25,214,242,0.06)' : 'rgba(255,255,255,0.025)',
+          backgroundColor: selected ? palette.accentTint : palette.surface,
           borderColor: selected ? palette.borderAccent : palette.border,
           opacity: pressed ? 0.8 : 1,
         },
@@ -67,11 +67,11 @@ const styles = StyleSheet.create({
     padding: space.lg,
   },
   text: { flex: 1, gap: space.xs },
-  title: { fontFamily: font.interMedium, fontSize: 15 },
+  title: { fontFamily: font.interMedium, fontSize: type.body.fontSize },
   mark: {
     width: 20,
     height: 20,
-    borderRadius: 10,
+    borderRadius: radius.pill,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import type { OrbLook } from '@/call/wave';
-import { callPalette as palette } from '@/theme/tokens';
+import { callPalette as palette, radius } from '@/theme/tokens';
 
 import { MiniWave } from './MiniWave';
 
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   orb: {
     width: 56,
     height: 56,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -97,7 +97,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 56,
     height: 56,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     borderWidth: 2,
     borderColor: palette.accent,
   },
@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
     boxShadow: '0 0 22px rgba(232,234,238,0.33)',
   },
   working: {
-    backgroundColor: 'rgba(255,255,255,0.03)',
+    backgroundColor: palette.surface,
     borderWidth: 1.5,
     borderColor: palette.speaking,
   },

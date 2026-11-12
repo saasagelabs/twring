@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet } from 'react-native';
 
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius } from '@/theme/tokens';
 
 import { Icon, type IconName } from './Icon';
 
@@ -33,7 +33,7 @@ export function IconButton({
         {
           width: size,
           height: size,
-          backgroundColor: active ? 'rgba(25,214,242,0.12)' : palette.surface,
+          backgroundColor: active ? palette.accentTintStrong : palette.surface,
           borderColor: active ? palette.borderAccent : palette.border,
           opacity: pressed ? 0.75 : 1,
         },
@@ -50,5 +50,10 @@ export function IconButton({
 }
 
 const styles = StyleSheet.create({
-  button: { borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  button: {
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

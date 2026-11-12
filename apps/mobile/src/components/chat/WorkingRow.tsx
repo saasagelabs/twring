@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GhostButton } from '@/components/GhostButton';
 import { workingLabel } from '@/threads/presentation';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 import { Bubble } from './Bubble';
 function Dot({ delay, color }: { delay: number; color: string }) {
   const opacity = useSharedValue(0.3);
@@ -62,7 +62,7 @@ export function WorkingRow({
 const styles = StyleSheet.create({
   wrap: { gap: 5 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  label: { flex: 1, fontSize: 14, fontStyle: 'italic' },
+  label: { flex: 1, fontSize: type.body.fontSize, fontStyle: 'italic' },
   dots: { flexDirection: 'row', gap: 3 },
   dot: { width: 5, height: 5, borderRadius: 3 },
 });

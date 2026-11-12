@@ -45,7 +45,7 @@ import { Icon } from '@/components/Icon';
 import { Waveform } from '@/components/Waveform';
 import { goBack, Screen } from '@/components/Screen';
 import { TextButton } from '@/components/TextButton';
-import { space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette, radius } from '@/theme/tokens';
 import { font } from '@/theme/fonts';
 
 const METHODS: { protocol: AgentProtocol; label: string; description: string }[] = [
@@ -288,7 +288,7 @@ function HeroChoice({
         styles.hero,
         {
           borderColor: selected ? palette.borderAccent : palette.border,
-          backgroundColor: selected ? 'transparent' : 'rgba(255,255,255,0.025)',
+          backgroundColor: selected ? 'transparent' : palette.surface,
           opacity: pressed ? 0.8 : 1,
         },
       ]}
@@ -927,7 +927,7 @@ function Wizard({ initial }: { initial: WizardState }) {
                         width: 28,
                         backgroundColor: palette.accent,
                       }
-                    : { width: 8, backgroundColor: 'rgba(255,255,255,0.2)' },
+                    : { width: 8, backgroundColor: palette.inactive },
                 ]}
               />
             ))}
@@ -958,16 +958,16 @@ const styles = StyleSheet.create({
   inline: { flexDirection: 'row' },
   ready: { gap: space.lg, paddingTop: space.xxxl },
   position: { paddingHorizontal: space.sm, alignItems: 'flex-end', gap: 6 },
-  command: { borderWidth: 1, borderRadius: 8, padding: space.md },
-  heading: { fontFamily: font.display, fontSize: 30, letterSpacing: -0.8 },
-  support: { fontFamily: font.body, fontSize: 15, lineHeight: 22.5 },
+  command: { borderWidth: 1, borderRadius: radius.xs, padding: space.md },
+  heading: { fontFamily: font.display, fontSize: type.screenTitle.fontSize, letterSpacing: -0.8 },
+  support: { fontFamily: font.body, fontSize: type.body.fontSize, lineHeight: 22.5 },
   stepDots: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   stepDot: { height: 3, borderRadius: 2 },
   hero: {
     minHeight: 104,
     flexDirection: 'row',
     gap: 14,
-    borderRadius: 22,
+    borderRadius: radius.xl,
     borderWidth: 1,
     padding: 18,
     overflow: 'hidden',
@@ -975,14 +975,14 @@ const styles = StyleSheet.create({
   heroIcon: {
     width: 40,
     height: 40,
-    borderRadius: 12,
+    borderRadius: radius.sm,
     borderWidth: 1,
     backgroundColor: 'rgba(25,214,242,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroText: { flex: 1, gap: 6 },
-  heroTitle: { fontFamily: font.title, fontSize: 20, letterSpacing: -0.3 },
+  heroTitle: { fontFamily: font.title, fontSize: type.headline.fontSize, letterSpacing: -0.3 },
   badge: {
     alignSelf: 'flex-start',
     borderWidth: 1,
@@ -990,14 +990,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     fontFamily: font.microLabel,
-    fontSize: 10,
+    fontSize: type.microLabel.fontSize,
     letterSpacing: 1.2,
   },
   heroDescription: { lineHeight: 19.5 },
   successMark: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -146,10 +146,10 @@ const styles = StyleSheet.create({
   },
   eyebrow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   eyebrowText: { color: palette.accent, letterSpacing: 1.6 },
-  title: { color: palette.textPrimary, fontSize: 22 },
+  title: { color: palette.textPrimary, fontSize: type.title.fontSize },
   buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: space.md },
   button: { flexGrow: 1, minWidth: 120 },
-  footer: { color: palette.textTertiary, fontSize: 12, textAlign: 'center' },
+  footer: { color: palette.textTertiary, fontSize: type.caption.fontSize, textAlign: 'center' },
   details: { gap: space.md, paddingBottom: space.lg },
   detailText: { color: palette.textSecondary, flexShrink: 1, flexWrap: 'wrap' },
 });

@@ -11,6 +11,8 @@ vi.mock('react-native', () => ({
 vi.mock('@/components/Icon', () => ({ Icon: () => null }));
 vi.mock('@/theme/fonts', () => ({ font: { interMedium: 'medium', mono: 'mono' } }));
 vi.mock('@/theme/tokens', () => ({
+  radius: new Proxy({}, { get: () => 0 }),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
   usePalette: () => ({
     surface: '#111',
     border: '#222',

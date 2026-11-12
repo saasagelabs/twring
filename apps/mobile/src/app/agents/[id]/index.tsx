@@ -185,10 +185,7 @@ export default function AgentDetailScreen() {
 
       {!aiApp && editable && (
         <View
-          style={[
-            styles.group,
-            { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: palette.border },
-          ]}
+          style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}
         >
           {editable && (
             <>
@@ -227,10 +224,7 @@ export default function AgentDetailScreen() {
       )}
       {!aiApp && (
         <View
-          style={[
-            styles.group,
-            { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: palette.border },
-          ]}
+          style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}
         >
           <Row
             label="Call history"
@@ -282,10 +276,7 @@ export default function AgentDetailScreen() {
           </View>
         )}
       <View
-        style={[
-          styles.group,
-          { backgroundColor: 'rgba(255,255,255,0.03)', borderColor: palette.border },
-        ]}
+        style={[styles.group, { backgroundColor: palette.surface, borderColor: palette.border }]}
       >
         {!aiApp && (
           <Row

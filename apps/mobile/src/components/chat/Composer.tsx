@@ -6,7 +6,7 @@ import { File } from 'expo-file-system';
 import { useReducedMotion } from 'react-native-reanimated';
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { callDuration } from '@/threads/presentation';
 import { canSend, composerAction, COMPOSER_LIMIT } from './composer-state';
 import { AttachSheet } from './AttachSheet';
@@ -296,7 +296,7 @@ const styles = StyleSheet.create({
   attach: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
   field: {
     flex: 1,
-    borderRadius: 24,
+    borderRadius: radius.xl,
     borderWidth: 1,
     minHeight: 48,
     paddingHorizontal: 16,
@@ -304,12 +304,18 @@ const styles = StyleSheet.create({
   },
   input: {
     fontFamily: font.body,
-    fontSize: 15,
+    fontSize: type.body.fontSize,
     lineHeight: 22,
     padding: 0,
     textAlignVertical: 'top',
   },
-  send: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  send: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   recordRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -318,15 +324,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#EF4444' },
-  timer: { flex: 1, fontFamily: font.mono, fontSize: 16 },
+  timer: { flex: 1, fontFamily: font.mono, fontSize: type.body.fontSize },
   action: {
     minHeight: 48,
     minWidth: 64,
-    borderRadius: 24,
+    borderRadius: radius.pill,
     paddingHorizontal: 14,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  actionLabel: { fontFamily: font.bodyEmphasis, fontSize: 15 },
-  note: { paddingHorizontal: 18, paddingBottom: 8, fontFamily: font.body, fontSize: 12 },
+  actionLabel: { fontFamily: font.bodyEmphasis, fontSize: type.body.fontSize },
+  note: {
+    paddingHorizontal: 18,
+    paddingBottom: 8,
+    fontFamily: font.body,
+    fontSize: type.caption.fontSize,
+  },
 });

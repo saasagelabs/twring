@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { font } from '@/theme/fonts';
-import { space, usePalette } from '@/theme/tokens';
+import { space, usePalette, radius, type } from '@/theme/tokens';
 
 interface Props {
   label: string;
@@ -35,7 +35,7 @@ export function PrimaryButton({
       style={({ pressed }) => [
         styles.button,
         disabled
-          ? { backgroundColor: 'rgba(255,255,255,0.06)' }
+          ? { backgroundColor: palette.surfaceRaised }
           : tone === 'accent'
             ? // Flat cyan: glow is kept for live things (the call orb, a ringing Answer).
               { backgroundColor: pressed ? palette.accentDim : palette.accent }
@@ -55,10 +55,10 @@ export function PrimaryButton({
 const styles = StyleSheet.create({
   button: {
     minHeight: 56,
-    borderRadius: 28,
+    borderRadius: radius.pill,
     paddingHorizontal: space.xl,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  label: { fontFamily: font.bodyEmphasis, fontSize: 16 },
+  label: { fontFamily: font.bodyEmphasis, fontSize: type.body.fontSize },
 });

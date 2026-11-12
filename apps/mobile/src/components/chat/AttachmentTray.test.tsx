@@ -11,7 +11,11 @@ vi.mock('react-native', () => ({
 vi.mock('expo-image', () => ({ Image: 'Image' }));
 vi.mock('@/components/Icon', () => ({ Icon: 'Icon' }));
 vi.mock('@/theme/fonts', () => ({ font: {} }));
-vi.mock('@/theme/tokens', () => ({ usePalette: () => ({}) }));
+vi.mock('@/theme/tokens', () => ({
+  usePalette: () => ({}),
+  radius: {},
+  type: { caption: {}, microLabel: {} },
+}));
 vi.mock('@/threads/files', () => ({ humanSize: (n: number) => `${n} B` }));
 
 const { AttachmentTray, REMOVE_HIT_SLOP } = await import('./AttachmentTray');

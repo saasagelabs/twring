@@ -283,5 +283,5 @@ export default function PairScreen() {
 const styles = StyleSheet.create({
   step: { gap: space.lg },
   inline: { flexDirection: 'row' },
-  heading: { fontFamily: font.display, fontSize: 30, letterSpacing: -0.8 },
+  heading: { fontFamily: font.display, fontSize: type.screenTitle.fontSize, letterSpacing: -0.8 },
 });

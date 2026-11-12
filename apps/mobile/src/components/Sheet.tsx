@@ -9,7 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 
 export function Sheet({
   visible,
@@ -89,6 +89,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     marginBottom: 16,
   },
-  title: { fontFamily: font.title, fontSize: 20, letterSpacing: -0.4, paddingHorizontal: 24 },
+  title: {
+    fontFamily: font.title,
+    fontSize: type.headline.fontSize,
+    letterSpacing: -0.4,
+    paddingHorizontal: 24,
+  },
   content: { paddingTop: 18, paddingHorizontal: 22 },
 });

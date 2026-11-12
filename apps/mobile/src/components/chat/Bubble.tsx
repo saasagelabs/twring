@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { FOLD_HEIGHT, shouldFold } from '@/threads/presentation';
 import { MessageText } from './MessageText';
 import { Icon } from '@/components/Icon';
@@ -53,8 +53,8 @@ export function Bubble({
         style={[
           styles.bubble,
           {
-            backgroundColor: own ? 'rgba(25,214,242,0.14)' : palette.surface,
-            borderColor: own ? 'rgba(25,214,242,0.4)' : palette.border,
+            backgroundColor: own ? palette.accentTintStrong : palette.surface,
+            borderColor: own ? palette.borderAccent : palette.border,
             borderBottomRightRadius: own ? 6 : 18,
             borderBottomLeftRadius: own ? 18 : 6,
           },
@@ -85,7 +85,7 @@ export function Bubble({
             {folded && (
               <LinearGradient
                 pointerEvents="none"
-                colors={['transparent', own ? '#07303A' : '#0A0C10']}
+                colors={['transparent', own ? '#07303A' : palette.sheet]}
                 style={styles.fade}
               />
             )}
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
   bubble: {
     maxWidth: '82%',
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: radius.lg,
     paddingHorizontal: 14,
     paddingTop: 10,
     paddingBottom: 8,
@@ -123,8 +123,13 @@ const styles = StyleSheet.create({
   fold: { maxHeight: FOLD_HEIGHT, overflow: 'hidden' },
   fade: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 56 },
   showAll: { minHeight: 48, justifyContent: 'center' },
-  time: { fontFamily: font.mono, fontSize: 11, alignSelf: 'flex-end', marginTop: 5 },
-  caption: { fontFamily: font.mono, fontSize: 11, marginTop: 3 },
+  time: {
+    fontFamily: font.mono,
+    fontSize: type.microLabel.fontSize,
+    alignSelf: 'flex-end',
+    marginTop: 5,
+  },
+  caption: { fontFamily: font.mono, fontSize: type.microLabel.fontSize, marginTop: 3 },
   voice: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 },
-  voiceTime: { fontFamily: font.mono, fontSize: 12 },
+  voiceTime: { fontFamily: font.mono, fontSize: type.caption.fontSize },
 });

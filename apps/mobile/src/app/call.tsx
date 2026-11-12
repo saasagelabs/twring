@@ -56,7 +56,7 @@ import { Waveform } from '@/components/Waveform';
 import { showAudioRoutePicker } from '@/platform/audio-route';
 import { ringPlatform } from '@/platform/ring';
 import { connectionPill } from '@/theme/call-visuals';
-import { callPalette as palette, space, type } from '@/theme/tokens';
+import { callPalette as palette, space, type, radius } from '@/theme/tokens';
 
 function useNow(enabled: boolean, ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -186,7 +186,7 @@ function RouteSheet({ visible, onClose }: { visible: boolean; onClose: () => voi
             style={({ pressed }) => [
               styles.routeRow,
               {
-                backgroundColor: output === current ? 'rgba(25,214,242,0.07)' : 'transparent',
+                backgroundColor: output === current ? palette.accentTint : 'transparent',
                 opacity: pressed ? 0.7 : 1,
               },
             ]}
@@ -354,8 +354,7 @@ function ActiveCall({
                 style={[
                   styles.speakerDot,
                   {
-                    backgroundColor:
-                      look.who === 'agent' ? palette.speaking : 'rgba(255,255,255,0.55)',
+                    backgroundColor: look.who === 'agent' ? palette.speaking : palette.textTertiary,
                   },
                 ]}
               />
@@ -364,7 +363,7 @@ function ActiveCall({
                 style={[
                   type.microLabel,
                   styles.agentName,
-                  { color: look.who === 'agent' ? '#FFFFFF' : palette.textTertiary },
+                  { color: look.who === 'agent' ? palette.textPrimary : palette.textTertiary },
                 ]}
               >
                 {title.toUpperCase()}
@@ -770,7 +769,7 @@ const styles = StyleSheet.create({
   serverLabel: { color: palette.textTertiary },
   waveFrame: { width: '100%', height: 78, justifyContent: 'center', marginVertical: 6 },
   clockRow: { minHeight: 18, alignItems: 'flex-end' },
-  clock: { color: '#FFFFFF', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  clock: { color: palette.textPrimary, textAlign: 'right', fontVariant: ['tabular-nums'] },
   replyFrame: {
     paddingHorizontal: 4,
     overflow: 'hidden',
@@ -779,8 +778,8 @@ const styles = StyleSheet.create({
   },
   reply: {
     ...type.body,
-    color: '#FFFFFF',
-    fontSize: 15,
+    color: palette.textPrimary,
+    fontSize: type.body.fontSize,
     lineHeight: REPLY_LINE_HEIGHT,
     textAlign: 'center',
   },
@@ -796,18 +795,18 @@ const styles = StyleSheet.create({
   miniCircle: {
     width: 32,
     height: 32,
-    borderRadius: 16,
+    borderRadius: radius.pill,
     backgroundColor: palette.surface,
     borderWidth: 1,
     borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  miniActive: { backgroundColor: '#FFFFFF', borderWidth: 0 },
+  miniActive: { backgroundColor: palette.textPrimary, borderWidth: 0 },
   captionFrame: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   caption: {
     color: palette.textTertiary,
-    fontSize: 13,
+    fontSize: type.caption.fontSize,
     lineHeight: CAPTION_LINE_HEIGHT,
     fontStyle: 'italic',
     textAlign: 'center',
@@ -852,7 +851,7 @@ const styles = StyleSheet.create({
   outcomeContent: { width: '100%', alignItems: 'center' },
   outcomeAgent: { color: palette.textTertiary, letterSpacing: 1.6 },
   outcomeWave: { width: '100%', height: 40, marginTop: 26, marginBottom: 22 },
-  outcomeTitle: { color: '#FFFFFF', textAlign: 'center' },
+  outcomeTitle: { color: palette.textPrimary, textAlign: 'center' },
   outcomeDetail: { color: palette.textSecondary, textAlign: 'center', marginTop: 10 },
   outcomeCode: { color: palette.textTertiary, textAlign: 'center', marginTop: 10 },
   actions: { gap: 10, paddingBottom: space.xl },

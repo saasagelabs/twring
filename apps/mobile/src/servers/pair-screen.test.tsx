@@ -72,9 +72,10 @@ vi.mock('@/servers/switching', () => ({ switchToHosted: authMocks.switchToHosted
 vi.mock('@/servers/pairing', () => ({ pairWithServer: mocks.pairWithServer }));
 vi.mock('@/theme/fonts', () => ({ font: { display: 'd', body: 'b' } }));
 vi.mock('@/theme/tokens', () => ({
+  radius: new Proxy({}, { get: () => 0 }),
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
   usePalette: () => ({ textPrimary: '#fff', textSecondary: '#aaa' }),
   space: { lg: 16 },
-  type: { display: {}, body: {}, title: {} },
 }));
 
 import PairScreen from '../app/pair';

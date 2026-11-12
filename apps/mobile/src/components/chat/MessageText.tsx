@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, radius, type } from '@/theme/tokens';
 import { segmentText, type TextSegment } from '@/threads/presentation';
 
 export function MessageText({ text, onLink }: { text: string; onLink: (url: string) => void }) {
@@ -19,14 +19,18 @@ export function MessageText({ text, onLink }: { text: string; onLink: (url: stri
           // Android's max texture size, which draws nothing (blank bubble, 2026-11-11).
           <View
             key={index}
-            style={{ backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 8, marginVertical: 4 }}
+            style={{
+              backgroundColor: 'rgba(0,0,0,0.4)',
+              borderRadius: radius.xs,
+              marginVertical: 4,
+            }}
           >
             <Text
               selectable
               style={{
                 color: palette.textPrimary,
                 fontFamily: font.mono,
-                fontSize: 12,
+                fontSize: type.caption.fontSize,
                 lineHeight: 17,
                 padding: 10,
               }}
@@ -40,7 +44,7 @@ export function MessageText({ text, onLink }: { text: string; onLink: (url: stri
             style={{
               color: palette.textPrimary,
               fontFamily: font.body,
-              fontSize: 15,
+              fontSize: type.body.fontSize,
               lineHeight: 23,
             }}
           >

@@ -8,7 +8,7 @@ import { ApiError } from '@/api/client';
 import { apiErrorCopy } from '@/api/errors';
 import { Sheet } from '@/components/Sheet';
 import { font } from '@/theme/fonts';
-import { usePalette } from '@/theme/tokens';
+import { usePalette, type } from '@/theme/tokens';
 import { DOCUMENT_TYPES, fileCheck, type PreparedFile } from '@/threads/files';
 import { newClientId } from '@/threads/outbox';
 import { reportClientError } from '@/observability/sentry';
@@ -169,6 +169,6 @@ export function AttachSheet({
 }
 const styles = StyleSheet.create({
   choice: { minHeight: 56, justifyContent: 'center', paddingHorizontal: 8 },
-  label: { fontFamily: font.body, fontSize: 16 },
-  note: { fontFamily: font.body, fontSize: 14, paddingVertical: 12 },
+  label: { fontFamily: font.body, fontSize: type.body.fontSize },
+  note: { fontFamily: font.body, fontSize: type.body.fontSize, paddingVertical: 12 },
 });

@@ -111,13 +111,13 @@ const styles = StyleSheet.create({
   iconBox: {
     width: 28,
     height: 28,
-    borderRadius: 8,
+    borderRadius: radius.xs,
     backgroundColor: 'rgba(255,255,255,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   text: { flex: 1, gap: 2 },
-  label: { fontFamily: font.body, fontSize: 14 },
-  value: { fontFamily: font.caption, fontSize: 12, lineHeight: 17 },
+  label: { fontFamily: font.body, fontSize: type.body.fontSize },
+  value: { fontFamily: font.caption, fontSize: type.caption.fontSize, lineHeight: 17 },
   mono: { fontFamily: font.mono },
 });
