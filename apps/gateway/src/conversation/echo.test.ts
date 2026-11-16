@@ -298,3 +298,27 @@ describe('echoWords with combining marks', () => {
     expect(echoWords('Sí, claro.')).toEqual(['sí', 'claro']);
   });
 });
+
+describe('echo matching for Japanese (no spaces between words)', () => {
+  it('splits Japanese into characters and keeps Latin words whole', () => {
+    expect(echoWords('昨夜のバックアップ、OK')).toEqual([
+      '昨',
+      '夜',
+      'の',
+      'バ',
+      'ッ',
+      'ク',
+      'ア',
+      'ッ',
+      'プ',
+      'okay',
+    ]);
+  });
+
+  it("a partial of Twring's own Japanese line is echo; other speech is not", () => {
+    const window = echoWindow(['確認しますね。']);
+    expect(isEcho('確認し', window)).toBe(true);
+    expect(isEcho('確認しますね', window)).toBe(true);
+    expect(isEcho('明日の予定は', window)).toBe(false);
+  });
+});

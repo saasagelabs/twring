@@ -92,9 +92,29 @@ export function echoWords(text: string): string[] {
     .replace(/%/g, ' percent ');
   const words: string[] = [];
   for (const match of s.matchAll(/[\p{L}\p{M}\p{N}]+(?:['-][\p{L}\p{M}\p{N}]+)*/gu)) {
-    words.push(...normalizeToken(match[0]));
+    for (const part of splitUnspaced(match[0])) words.push(...normalizeToken(part));
   }
   return words;
+}
+
+/** Japanese and Chinese characters (with any marks on them), written without spaces. */
+const UNSPACED_CHAR = /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}ー]\p{M}*/gu;
+
+/**
+ * Japanese has no spaces between words, so each of its characters is compared on its own (ADR-036):
+ * a partial of Twring's own line then matches the line it echoes. Other text stays whole.
+ */
+function splitUnspaced(token: string): string[] {
+  if (!/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}]/u.test(token)) return [token];
+  const parts: string[] = [];
+  let last = 0;
+  for (const char of token.matchAll(UNSPACED_CHAR)) {
+    if (char.index > last) parts.push(token.slice(last, char.index));
+    parts.push(char[0]);
+    last = char.index + char[0].length;
+  }
+  if (last < token.length) parts.push(token.slice(last));
+  return parts;
 }
 
 /** Character offsets [start, end) of a generation's text. */
