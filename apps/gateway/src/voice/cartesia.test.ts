@@ -651,7 +651,11 @@ describe('Cartesia Sonic TTS under the voice pipeline', () => {
     for (let i = 0; i < 2; i += 1) {
       const id = pipeline.beginSpeech(scheduler.now());
       pipeline.appendSpeech(id, 'Answer.');
-      ttsFactory.sockets[0]!.receive({ type: 'error', status_code: 404, context_id: contextOf(0, i) });
+      ttsFactory.sockets[0]!.receive({
+        type: 'error',
+        status_code: 404,
+        context_id: contextOf(0, i),
+      });
       expect(speech.at(-1)).toBe(`${id} failed`);
     }
     expect(fatal).toEqual(['provider_error']);

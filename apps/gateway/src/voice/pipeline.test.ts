@@ -957,8 +957,7 @@ describe('VoicePipeline answers that never make a sound', () => {
     const tts = new FakeTtsProvider();
     const scheduler = new ManualScheduler();
     const fatal: string[] = [];
-    const queued: Array<{ callbacks: { onFirstPublished?: () => void; onDone?: () => void } }> =
-      [];
+    const queued: Array<{ callbacks: { onFirstPublished?: () => void; onDone?: () => void } }> = [];
     const pipeline = new VoicePipeline({
       callId: 'call_aaaaaaaaaaaaaaaaaaaa',
       stt: new FakeSttProvider(),
