@@ -128,6 +128,30 @@ it('accepts feedback for a finished call the registry no longer holds, from call
   }
 });
 
+it('limits feedback before looking up call history, so probing unknown calls stays cheap', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'cord-feedback-'));
+  try {
+    const list = vi.fn(() => Promise.resolve([] as CallHistoryItem[]));
+    const { app } = setup({ CORD_DATA_DIR: dir }, () => undefined, { history: { list } });
+    const post = (n: number) =>
+      app.inject({
+        method: 'POST',
+        url: `/v1/calls/call_${String(n).padStart(20, 'x')}/feedback`,
+        payload: { rating: 4 },
+        headers: { 'x-test-user': 'owner' },
+      });
+    for (let n = 0; n < 30; n += 1) expect((await post(n)).statusCode).toBe(404);
+    expect(list).toHaveBeenCalledTimes(30);
+    const limited = await post(30);
+    expect(limited.statusCode).toBe(429);
+    expect(errorResponseSchema.parse(limited.json()).error.code).toBe('rate_limited');
+    expect(list).toHaveBeenCalledTimes(30);
+  } finally {
+    await Promise.all(apps.splice(0).map((app) => app.close()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 it('tracks a live call to a specific saved agent', async () => {
   const { registry } = setup();
   const saved: SavedAgentCall = {

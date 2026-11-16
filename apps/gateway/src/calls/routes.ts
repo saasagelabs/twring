@@ -404,12 +404,7 @@ export function registerCallRoutes(app: FastifyInstance, options: CallRoutesOpti
   app.post<{ Params: { callId: string } }>('/v1/calls/:callId/feedback', async (request, reply) => {
     const userId = userFor(request);
     const callId = request.params.callId;
-    let target = parseCallId(callId) ? registry?.feedbackTargetFor(userId, callId) : undefined;
-    if (target === undefined && parseCallId(callId)) {
-      const item = (await options.history?.list(userId, 50))?.find((c) => c.call_id === callId);
-      if (item !== undefined) target = { agentId: item.agent_id };
-    }
-    if (!target) return sendError(reply, 404, 'not_found', 'No such call.');
+    // Before any lookup: probing unknown call ids counts against the limit too.
     if (!feedbackLimiter.tryAcquire(userId))
       return sendError(
         reply,
@@ -417,6 +412,12 @@ export function registerCallRoutes(app: FastifyInstance, options: CallRoutesOpti
         'rate_limited',
         'Too many requests. Wait a minute and try again.',
       );
+    let target = parseCallId(callId) ? registry?.feedbackTargetFor(userId, callId) : undefined;
+    if (target === undefined && parseCallId(callId)) {
+      const item = (await options.history?.list(userId, 50))?.find((c) => c.call_id === callId);
+      if (item !== undefined) target = { agentId: item.agent_id };
+    }
+    if (!target) return sendError(reply, 404, 'not_found', 'No such call.');
     const parsed = callFeedbackRequestSchema.safeParse(request.body);
     if (!parsed.success) return sendError(reply, 400, 'bad_request', 'The request was not valid.');
     if (options.feedback === undefined)
