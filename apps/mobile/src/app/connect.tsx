@@ -162,9 +162,11 @@ function VoiceStep({
 }) {
   const palette = usePalette();
   const language = useSpeakerLanguage();
-  // The voice the step opened with stays listed even when it cannot speak the language.
+  // The voice the step opened with stays listed even when it cannot speak the language. When it
+  // opened before a default was picked, the current choice stays listed instead, so a late
+  // English-only default is shown with its note rather than hidden.
   const [initialVoice] = useState(voiceId);
-  const listed = voices && voicesForLanguage(voices, language, initialVoice);
+  const listed = voices && voicesForLanguage(voices, language, initialVoice ?? voiceId);
   return (
     <>
       <Heading>Choose a voice</Heading>

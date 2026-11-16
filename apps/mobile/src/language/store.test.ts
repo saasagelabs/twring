@@ -57,4 +57,14 @@ describe('language store across a server change', () => {
     await expect(saving).resolves.toBe('de');
     expect(languageStore.get()).toEqual({ status: 'loaded', language: 'de' });
   });
+
+  it('keeps a saved language when an older read finishes after the save', async () => {
+    const reading = languageStore.load(true);
+    const saving = languageStore.save('de');
+    puts[0].resolve('de');
+    await saving;
+    gets[0].resolve('hi');
+    await reading;
+    expect(languageStore.get()).toEqual({ status: 'loaded', language: 'de' });
+  });
 });

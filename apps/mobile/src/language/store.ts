@@ -12,7 +12,7 @@ export type LanguageState =
 
 let state: LanguageState = { status: 'unknown' };
 let loading: Promise<void> | undefined;
-/** Bumped when the active server changes: answers asked before it are the old server's. */
+/** Bumped on a server change or a save: answers to reads asked before it are stale. */
 let generation = 0;
 const listeners = new Set<() => void>();
 
@@ -32,6 +32,9 @@ export const languageStore = {
   async save(language: SpeakerLanguage): Promise<SpeakerLanguage> {
     const api = twringApi();
     if (api?.setLanguage === undefined) throw new Error('language setting unavailable');
+    // Reads asked before this save are older than it: they must not overwrite it.
+    generation += 1;
+    loading = undefined;
     const asked = generation;
     const saved = await api.setLanguage(language);
     if (asked === generation) set({ status: 'loaded', language: saved });
