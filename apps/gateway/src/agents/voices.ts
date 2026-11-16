@@ -50,19 +50,15 @@ const CARTESIA_VERIFIED_VOICES: readonly CartesiaVoiceEntry[] = [
 /**
  * Native Indian English voices (accent `en-IN/indian-english`), checked against the live
  * `GET /voices` library on 2026-09-29. Cartesia's "Priya" is left out: Deepgram already has a
- * "Priya · Indian".
+ * "Priya · Indian". "Devansh" (1259b7e3-...) was removed on 2026-11-16: Cartesia deleted the
+ * voice (GET /voices/{id} answers 404), so its sample and calls went silent. An agent still set to
+ * it falls back to the default voice like any unknown id.
  */
 const CARTESIA_INDIAN_VOICES: readonly CartesiaVoiceEntry[] = [
   {
     id: 'cartesia-janvi-en',
     label: 'Janvi · Indian',
     voiceUuid: '7ea5e9c2-b719-4dc3-b870-5ba5f14d31d8',
-    locale: 'en-IN',
-  },
-  {
-    id: 'cartesia-devansh-en',
-    label: 'Devansh · Indian',
-    voiceUuid: '1259b7e3-cb8a-43df-9446-30971a46b8b0',
     locale: 'en-IN',
   },
 ];

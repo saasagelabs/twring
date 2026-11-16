@@ -303,7 +303,7 @@ Decided 2026-10-07: `com.twring.app` (owner).
   3. Cartesia voices have Twring ids `cartesia-<name>-en`, mapped to Cartesia voice UUIDs server-side in `agents/voices.ts`; `isAllowedVoice` remains the only gate. Labels carry no provider name.
   4. `agents/tts-router.ts` picks the provider by voice id for calls and voice samples. The pipeline and call controller are unchanged. Deepgram Flux STT is unchanged.
   5. **Deepgram stays the default voice** until `scripts/tts-latency-probe.ts` shows Cartesia's time to first audio and interrupt behaviour are at least as good on the staging network; any default change is a new decision.
-- **Voices:** the Indian English voices (Janvi and Devansh, accent `en-IN/indian-english`) and the American/British voices (Skylar, Daniel, Archie) were checked against the live `GET /voices` library on 2026-09-29.
+- **Voices:** the Indian English voices (Janvi and Devansh, accent `en-IN/indian-english`) and the American/British voices (Skylar, Daniel, Archie) were checked against the live `GET /voices` library on 2026-09-29. Devansh was removed on 2026-11-16 after Cartesia deleted it (404); Janvi is the one Indian English Cartesia voice.
 - **Ruled out:** a speech-to-speech model (CLAUDE.md rule: cascaded only); switching STT (no reason to); a per-call provider switch in the pipeline (routing by voice id is enough).
 - **Rollback:** unset `CARTESIA_API_KEY`. Cartesia voices disappear from the picker and saved agents fall back to the default Deepgram voice; no data migration.
 - **Revisit when:** the probe numbers are in, or the credits end.
