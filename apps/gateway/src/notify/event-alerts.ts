@@ -51,7 +51,10 @@ export const WAVE_ONE_RULES: readonly AlertRule[] = [
   },
   {
     subject: 'Twring: computers dropping',
-    threshold: 3,
+    // 2026-11-17: ordinary churn (laptops sleeping, restarts) peaked at 3 different computers in a
+    // 5-minute window over a week with ~35 active, and fired this twice. 6 is double that; a real
+    // outage drops most connected computers at once.
+    threshold: 6,
     count: (_level, f) => (isEvent(f, 'connector_disconnected') ? 1 : 0),
     key: (f) => (typeof f.connector_id === 'string' ? f.connector_id : undefined),
     text: (n) =>

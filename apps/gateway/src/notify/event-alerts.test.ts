@@ -55,10 +55,17 @@ describe('EventAlerts', () => {
     expect(t.sent.map((s) => s.subject)).toEqual(['Twring: server errors']);
   });
 
-  it('3 computers dropping at once alert', () => {
+  it('6 computers dropping at once alert', () => {
     const t = setup();
-    for (let n = 0; n < 3; n += 1) t.alerts.record(INFO, { event: 'connector_disconnected' });
+    for (let n = 0; n < 6; n += 1) t.alerts.record(INFO, { event: 'connector_disconnected' });
     expect(t.sent.map((s) => s.subject)).toEqual(['Twring: computers dropping']);
+  });
+
+  it('ordinary churn (up to 5 different computers in 5 minutes) stays quiet', () => {
+    const t = setup();
+    for (const id of ['con_a', 'con_b', 'con_c', 'con_d', 'con_e'])
+      t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: id });
+    expect(t.sent).toEqual([]);
   });
 
   it('after stop (the server is shutting down) nothing counts', () => {
@@ -85,9 +92,9 @@ describe('review fixes', () => {
       t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: 'con_a' });
     }
     expect(t.sent).toEqual([]);
-    t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: 'con_b' });
-    t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: 'con_c' });
+    for (const id of ['con_b', 'con_c', 'con_d', 'con_e', 'con_f'])
+      t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: id });
     expect(t.sent.map((s) => s.subject)).toEqual(['Twring: computers dropping']);
-    expect(t.sent[0]!.text).toContain('3 computers');
+    expect(t.sent[0]!.text).toContain('6 computers');
   });
 });
