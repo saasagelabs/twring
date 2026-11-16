@@ -538,6 +538,7 @@ export class CallRegistry {
       ...(agent?.openingTurn !== undefined && { openingTurn: agent.openingTurn }),
       ...(agent?.openingLine !== undefined && { openingLine: agent.openingLine }),
       ...(agent !== undefined && { agentName: agent.agentName }),
+      ...(speech?.language !== undefined && { language: speech.language }),
       presenceCues: env.PRESENCE_CUES !== 'off',
       acknowledge: env.PRESENCE_ACK !== 'off',
       ...(env.SHORT_TURN_HOLD_MS !== undefined && { shortTurnHoldMs: env.SHORT_TURN_HOLD_MS }),
