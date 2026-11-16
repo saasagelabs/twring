@@ -289,7 +289,11 @@ describe('Cartesia Sonic TTS', () => {
     auth.session.speak('g1', 'Hi.');
     auth.socket.receive({ type: 'error', status_code: status, context_id: auth.contextOf(0) });
     expect(auth.events).toEqual([
-      { type: 'error', generationId: 'g1', error: { code: 'auth_failed', recoverable: false } },
+      {
+        type: 'error',
+        generationId: 'g1',
+        error: { code: 'auth_failed', recoverable: false, providerStatus: status },
+      },
     ]);
   });
 
@@ -298,7 +302,11 @@ describe('Cartesia Sonic TTS', () => {
     auth.session.speak('g1', 'Hi.');
     auth.socket.receive({ type: 'error', status_code: 401, context_id: auth.contextOf(0) });
     expect(auth.events).toEqual([
-      { type: 'error', generationId: 'g1', error: { code: 'auth_failed', recoverable: false } },
+      {
+        type: 'error',
+        generationId: 'g1',
+        error: { code: 'auth_failed', recoverable: false, providerStatus: 401 },
+      },
     ]);
     const general = await openTts();
     general.socket.receive({ type: 'error', status_code: 500 });
