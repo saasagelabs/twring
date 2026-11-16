@@ -12,7 +12,13 @@ vi.mock('@/api', () => ({ twringApi: vi.fn() }));
 
 import { ApiError } from '../../api/client';
 
-import { listenFailureMessage, listenReducer } from './ListenButton';
+import {
+  forgetListenRefusal,
+  listenFailureMessage,
+  listenPreflight,
+  listenReducer,
+  noteListenFailure,
+} from './ListenButton';
 
 describe('listen state', () => {
   it('moves through loading, playing, stop and retry after failure', () => {
@@ -40,5 +46,40 @@ describe('listenFailureMessage', () => {
     );
     expect(listenFailureMessage(new ApiError('network'))).toBe("Couldn't play this. Try again.");
     expect(listenFailureMessage(undefined)).toBe("Couldn't play this. Try again.");
+  });
+});
+
+const refusedKey = (): ApiError =>
+  new ApiError('http', 'speech_key_refused', undefined, undefined, 409, undefined, 'Refused.');
+
+describe('listenPreflight', () => {
+  it('hands Listen straight to the player while no own key was refused', async () => {
+    forgetListenRefusal();
+    const probe = vi.fn(() => Promise.resolve(undefined));
+    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    noteListenFailure(new ApiError('network'));
+    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    expect(probe).not.toHaveBeenCalled();
+  });
+
+  it('after a refused own key, asks the server once and shows the refusal without the player', async () => {
+    forgetListenRefusal();
+    noteListenFailure(refusedKey());
+    const probe = vi.fn(() => Promise.resolve(refusedKey()));
+    const found = await listenPreflight(probe);
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(found?.code).toBe('speech_key_refused');
+    // Still refused: the next Listen checks first again.
+    await listenPreflight(probe);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('once the key works again, goes back to playing straight away', async () => {
+    forgetListenRefusal();
+    noteListenFailure(refusedKey());
+    const probe = vi.fn(() => Promise.resolve(undefined));
+    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    expect(probe).toHaveBeenCalledTimes(1);
   });
 });
