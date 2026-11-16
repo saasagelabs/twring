@@ -40,22 +40,23 @@ function isSpeechKeyError(error: unknown): error is ApiError {
 }
 
 /**
- * Set once a Listen came back as a refused own voice key. The native player retries a refused
- * answer several times before it reports a failure (about 5 requests in 4 s), so while this is set
- * the next Listen asks once as plain HTTP first and shows the refusal straight away.
+ * Agents whose Listen came back as a refused own voice key (each agent has its own voice, so its
+ * own provider). The native player retries a refused answer several times before it reports a
+ * failure (about 5 requests in 4 s), so for these agents the next Listen asks once as plain HTTP
+ * first and shows the refusal straight away.
  */
-let keyRefused = false;
+const keyRefused = new Set<string>();
 /** The check before the player is on the tap's path: past this it counts as inconclusive. */
 export const LISTEN_PREFLIGHT_TIMEOUT_MS = 4_000;
 
-/** Remembers a refused own key so the next Listen checks first. */
-export function noteListenFailure(error: unknown): void {
-  if (isSpeechKeyError(error)) keyRefused = true;
+/** Remembers a refused own key for this agent so its next Listen checks first. */
+export function noteListenFailure(agentId: string, error: unknown): void {
+  if (isSpeechKeyError(error)) keyRefused.add(agentId);
 }
 
 /** Test helper: back to handing Listen straight to the player. */
 export function forgetListenRefusal(): void {
-  keyRefused = false;
+  keyRefused.clear();
 }
 
 /**
@@ -64,11 +65,12 @@ export function forgetListenRefusal(): void {
  * (network failure, another error) plays as usual but keeps checking first next time.
  */
 export async function listenPreflight(
+  agentId: string,
   probe: () => Promise<'ok' | ApiError | undefined>,
 ): Promise<ApiError | undefined> {
-  if (!keyRefused) return undefined;
+  if (!keyRefused.has(agentId)) return undefined;
   const found = await probe();
-  if (found === 'ok') keyRefused = false;
+  if (found === 'ok') keyRefused.delete(agentId);
   else if (isSpeechKeyError(found)) return found;
   return undefined;
 }
@@ -139,7 +141,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       const deadline = setTimeout(() => check.abort(), LISTEN_PREFLIGHT_TIMEOUT_MS);
       let refused: ApiError | undefined;
       try {
-        refused = await listenPreflight(() =>
+        refused = await listenPreflight(agentId, () =>
           probeSpeech(fetch, source.uri, source.headers, check.signal),
         );
       } finally {
@@ -161,7 +163,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
           dispatch('fail');
           // The player cannot say why; ask the same URL as plain HTTP for a refused own key.
           void probeSpeechKeyError(fetch, source.uri, source.headers).then((probed) => {
-            noteListenFailure(probed);
+            noteListenFailure(agentId, probed);
             if (probed !== undefined) setFailure(listenFailureMessage(probed));
           });
         } else if (status.didJustFinish) stop();
@@ -171,7 +173,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
     } catch (error) {
       if (request === generation.current) {
         stop();
-        noteListenFailure(error);
+        noteListenFailure(agentId, error);
         setFailure(listenFailureMessage(error));
         dispatch('fail');
       }

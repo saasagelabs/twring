@@ -56,39 +56,50 @@ describe('listenPreflight', () => {
   it('hands Listen straight to the player while no own key was refused', async () => {
     forgetListenRefusal();
     const probe = vi.fn(() => Promise.resolve('ok' as const));
-    await expect(listenPreflight(probe)).resolves.toBeUndefined();
-    noteListenFailure(new ApiError('network'));
-    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    await expect(listenPreflight('agt_a', probe)).resolves.toBeUndefined();
+    noteListenFailure('agt_a', new ApiError('network'));
+    await expect(listenPreflight('agt_a', probe)).resolves.toBeUndefined();
     expect(probe).not.toHaveBeenCalled();
   });
 
   it('after a refused own key, asks the server once and shows the refusal without the player', async () => {
     forgetListenRefusal();
-    noteListenFailure(refusedKey());
+    noteListenFailure('agt_a', refusedKey());
     const probe = vi.fn(() => Promise.resolve(refusedKey()));
-    const found = await listenPreflight(probe);
+    const found = await listenPreflight('agt_a', probe);
     expect(probe).toHaveBeenCalledTimes(1);
     expect(found?.code).toBe('speech_key_refused');
     // Still refused: the next Listen checks first again.
-    await listenPreflight(probe);
+    await listenPreflight('agt_a', probe);
     expect(probe).toHaveBeenCalledTimes(2);
   });
 
   it('once the key works again, goes back to playing straight away', async () => {
     forgetListenRefusal();
-    noteListenFailure(refusedKey());
+    noteListenFailure('agt_a', refusedKey());
     const probe = vi.fn(() => Promise.resolve('ok' as const));
-    await expect(listenPreflight(probe)).resolves.toBeUndefined();
-    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    await expect(listenPreflight('agt_a', probe)).resolves.toBeUndefined();
+    await expect(listenPreflight('agt_a', probe)).resolves.toBeUndefined();
     expect(probe).toHaveBeenCalledTimes(1);
   });
 
   it('keeps checking first when a check is inconclusive (network failure, other error)', async () => {
     forgetListenRefusal();
-    noteListenFailure(refusedKey());
+    noteListenFailure('agt_a', refusedKey());
     const probe = vi.fn(() => Promise.resolve(undefined));
-    await expect(listenPreflight(probe)).resolves.toBeUndefined();
-    await listenPreflight(probe);
+    await expect(listenPreflight('agt_a', probe)).resolves.toBeUndefined();
+    await listenPreflight('agt_a', probe);
     expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it('remembers a refusal per agent: another agent playing fine does not clear it', async () => {
+    forgetListenRefusal();
+    noteListenFailure('agt_a', refusedKey());
+    const other = vi.fn(() => Promise.resolve('ok' as const));
+    await expect(listenPreflight('agt_b', other)).resolves.toBeUndefined();
+    expect(other).not.toHaveBeenCalled();
+    const refused = vi.fn(() => Promise.resolve(refusedKey()));
+    expect((await listenPreflight('agt_a', refused))?.code).toBe('speech_key_refused');
+    expect(refused).toHaveBeenCalledTimes(1);
   });
 });
