@@ -55,7 +55,7 @@ const refusedKey = (): ApiError =>
 describe('listenPreflight', () => {
   it('hands Listen straight to the player while no own key was refused', async () => {
     forgetListenRefusal();
-    const probe = vi.fn(() => Promise.resolve(undefined));
+    const probe = vi.fn(() => Promise.resolve('ok' as const));
     await expect(listenPreflight(probe)).resolves.toBeUndefined();
     noteListenFailure(new ApiError('network'));
     await expect(listenPreflight(probe)).resolves.toBeUndefined();
@@ -77,9 +77,18 @@ describe('listenPreflight', () => {
   it('once the key works again, goes back to playing straight away', async () => {
     forgetListenRefusal();
     noteListenFailure(refusedKey());
-    const probe = vi.fn(() => Promise.resolve(undefined));
+    const probe = vi.fn(() => Promise.resolve('ok' as const));
     await expect(listenPreflight(probe)).resolves.toBeUndefined();
     await expect(listenPreflight(probe)).resolves.toBeUndefined();
     expect(probe).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps checking first when a check is inconclusive (network failure, other error)', async () => {
+    forgetListenRefusal();
+    noteListenFailure(refusedKey());
+    const probe = vi.fn(() => Promise.resolve(undefined));
+    await expect(listenPreflight(probe)).resolves.toBeUndefined();
+    await listenPreflight(probe);
+    expect(probe).toHaveBeenCalledTimes(2);
   });
 });

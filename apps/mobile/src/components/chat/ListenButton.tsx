@@ -5,7 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { twringApi } from '@/api';
 import { ApiError } from '../../api/client';
 import { apiErrorCopy } from '../../api/errors';
-import { probeSpeechKeyError } from '../../api/speech-key-probe';
+import { probeSpeech, probeSpeechKeyError } from '../../api/speech-key-probe';
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
 import { usePalette, type } from '@/theme/tokens';
@@ -57,16 +57,17 @@ export function forgetListenRefusal(): void {
 }
 
 /**
- * Before the player: undefined means play. After a refused own key, the probe runs once; a refusal
- * comes back to show, anything else clears the memory and plays as usual.
+ * Before the player: undefined means play. After a refused own key, the probe runs once: a refusal
+ * comes back to show; only a confirmed healthy answer clears the memory. An inconclusive check
+ * (network failure, another error) plays as usual but keeps checking first next time.
  */
 export async function listenPreflight(
-  probe: () => Promise<ApiError | undefined>,
+  probe: () => Promise<'ok' | ApiError | undefined>,
 ): Promise<ApiError | undefined> {
   if (!keyRefused) return undefined;
   const found = await probe();
-  if (isSpeechKeyError(found)) return found;
-  keyRefused = false;
+  if (found === 'ok') keyRefused = false;
+  else if (isSpeechKeyError(found)) return found;
   return undefined;
 }
 
@@ -127,9 +128,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       const api = twringApi();
       if (!api) throw new Error('API unavailable');
       const source = await api.messageSpeechUrl(agentId, messageId);
-      const refused = await listenPreflight(() =>
-        probeSpeechKeyError(fetch, source.uri, source.headers),
-      );
+      const refused = await listenPreflight(() => probeSpeech(fetch, source.uri, source.headers));
       if (request !== generation.current) return;
       if (refused !== undefined) throw refused;
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });

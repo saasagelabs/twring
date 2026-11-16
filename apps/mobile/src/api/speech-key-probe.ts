@@ -16,12 +16,25 @@ export async function probeSpeechKeyError(
   uri: string,
   headers: Record<string, string>,
 ): Promise<ApiError | undefined> {
+  const result = await probeSpeech(doFetch, uri, headers);
+  return result === 'ok' ? undefined : result;
+}
+
+/**
+ * Like `probeSpeechKeyError`, but tells a confirmed healthy answer ('ok') apart from an
+ * inconclusive one (undefined: a network failure, or an error body that is not readable).
+ */
+export async function probeSpeech(
+  doFetch: ProbeFetch,
+  uri: string,
+  headers: Record<string, string>,
+): Promise<'ok' | ApiError | undefined> {
   try {
     const response = await doFetch(uri, { method: 'GET', headers });
     if (response.ok) {
       // Healthy: stop reading so the server does not finish a second synthesis for nothing.
       void response.body?.cancel().catch(() => undefined);
-      return undefined;
+      return 'ok';
     }
     const parsed = errorResponseSchema.safeParse(await response.json());
     if (!parsed.success) return undefined;
