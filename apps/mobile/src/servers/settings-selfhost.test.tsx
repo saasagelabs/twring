@@ -52,6 +52,11 @@ vi.mock('@/auth', () => ({
 vi.mock('@/auth/apple-sign-in', () => ({ appleAuthorizationCode: vi.fn() }));
 vi.mock('@/call/start', () => ({ startCall: vi.fn() }));
 vi.mock('@/config/env', () => ({ mobileEnv: { ok: false } }));
+vi.mock('@/language/language', () => import('../language/language'));
+vi.mock('@/language/store', () => ({
+  languageStore: { load: () => Promise.resolve() },
+  useLanguageState: () => ({ status: 'unavailable' }),
+}));
 vi.mock('@/privacy/account-deletion', () => ({
   ACCOUNT_NOT_DELETED: '',
   accountToDeleteLabel: () => '',

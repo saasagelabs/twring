@@ -46,6 +46,8 @@ import {
   type ConnectionTestResponse,
   type Connector,
   type PairingResponse,
+  languageSettingsSchema,
+  type SpeakerLanguage,
   type PairingStatusResponse,
   type LinkApproveResponse,
   type LinkRequestDetails,
@@ -202,6 +204,9 @@ export interface TwringApi {
   /** 400 if that provider has no saved key. */
   setListeningProvider(provider: ListeningProvider, signal?: AbortSignal): Promise<void>;
   ringSettings(signal?: AbortSignal): Promise<RingSettings>;
+  /** The language the person speaks; undefined when the server does not have the setting (404). */
+  getLanguage?(signal?: AbortSignal): Promise<SpeakerLanguage | undefined>;
+  setLanguage?(language: SpeakerLanguage, signal?: AbortSignal): Promise<SpeakerLanguage>;
   updateRingSettings(settings: RingSettings, signal?: AbortSignal): Promise<RingSettings>;
   getInvite(inviteId: string, signal?: AbortSignal): Promise<Invite>;
   pendingInvites(signal?: AbortSignal): Promise<Invite[]>;
@@ -821,6 +826,22 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
     },
     async ringSettings(signal) {
       return parse(ringSettingsSchema, await request('GET', '/v1/me/ring-settings', { signal }));
+    },
+    async getLanguage(signal) {
+      try {
+        return parse(languageSettingsSchema, await request('GET', '/v1/me/language', { signal }))
+          .language;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+      }
+    },
+    async setLanguage(language, signal) {
+      const body = languageSettingsSchema.parse({ language });
+      return parse(
+        languageSettingsSchema,
+        await request('PUT', '/v1/me/language', { body, signal }),
+      ).language;
     },
     async updateRingSettings(body, signal) {
       return parse(

@@ -14,6 +14,8 @@ import { Screen } from '@/components/Screen';
 import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { TextButton } from '@/components/TextButton';
 import { mobileEnv } from '@/config/env';
+import { languageName } from '@/language/language';
+import { languageStore, useLanguageState } from '@/language/store';
 import { activeServerUrl, useActiveServer } from '@/servers/active';
 import { leaveServer } from '@/servers/switching';
 import { YourServer } from '@/servers/your-server';
@@ -59,6 +61,8 @@ export default function SettingsScreen() {
   const [usage, setUsage] = useState<Usage>({ state: 'loading' });
   // Shown only when the server has the feature on (a 404 or any failure hides the row).
   const [voiceAccounts, setVoiceAccounts] = useState(false);
+  // Hidden the same way: an older or your own server without the setting answers 404.
+  const language = useLanguageState();
 
   useEffect(() => {
     const api = twringApi();
@@ -71,6 +75,7 @@ export default function SettingsScreen() {
         if (!controller.signal.aborted) setUsage({ state: 'unavailable' });
       },
     );
+    void languageStore.load(true);
     api.listSpeechKeys(controller.signal).then(
       () => setVoiceAccounts(true),
       () => setVoiceAccounts(false),
@@ -246,6 +251,18 @@ ${usageReset}`
       ) : usageContent !== undefined ? (
         <SettingsGroup title="Calls">{usageContent}</SettingsGroup>
       ) : null}
+
+      {signedIn && language.status === 'loaded' && (
+        <SettingsGroup title="Language">
+          <SettingsRow
+            label="Language you speak"
+            value={languageName(language.language)}
+            accessibilityHint="Opens the list of languages"
+            onPress={() => router.push('/language')}
+            divider={false}
+          />
+        </SettingsGroup>
+      )}
 
       {signedIn && !selfhosted && (
         <SettingsGroup title="AI apps">

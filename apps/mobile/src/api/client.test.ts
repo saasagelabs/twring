@@ -245,6 +245,25 @@ describe('cord api client', () => {
     expect(await missing.api.getAccess!()).toEqual({ member: true });
   });
 
+  it('reads and saves the language, and treats a 404 as no setting', async () => {
+    const { api, calls } = client(() => Promise.resolve(json(200, { language: 'hi' })));
+    expect(await api.getLanguage!()).toBe('hi');
+    expect(calls[0]?.url).toBe('https://api.cord.invalid/v1/me/language');
+    expect(await api.setLanguage!('hi')).toBe('hi');
+    expect(calls[1]?.init.method).toBe('PUT');
+    expect(calls[1]?.init.body).toBe(JSON.stringify({ language: 'hi' }));
+    const missing = client(() =>
+      Promise.resolve(json(404, { error: { code: 'not_found', message: 'missing' } })),
+    );
+    expect(await missing.api.getLanguage!()).toBeUndefined();
+    const bad = client(() => Promise.resolve(json(200, { language: 'xx' })));
+    await expect(bad.api.getLanguage!()).rejects.toMatchObject({ kind: 'invalid_response' });
+    const failing = client(() =>
+      Promise.resolve(json(500, { error: { code: 'internal', message: 'x' } })),
+    );
+    await expect(failing.api.getLanguage!()).rejects.toBeInstanceOf(ApiError);
+  });
+
   it('redeems an invite and exposes an invalid code as ApiError', async () => {
     const { api, calls } = client(() =>
       Promise.resolve(json(200, { member: true, email: 'a@b.test' })),

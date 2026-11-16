@@ -102,6 +102,7 @@ function RootLayout() {
               <Stack.Screen name="settings/connected-apps" />
               <Stack.Screen name="settings/feedback" />
               <Stack.Screen name="settings/voice-accounts" />
+              <Stack.Screen name="language" />
               <Stack.Screen name="agents/[id]/voice" />
               <Stack.Screen name="agents/[id]/words" />
               {/*
