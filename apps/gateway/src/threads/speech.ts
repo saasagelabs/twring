@@ -61,6 +61,15 @@ function spokenText(text: string): string {
 }
 
 /** The provider answered with an error status. */
+/** A voice id a provider on the list knows; anything else is a retired id. */
+function isListedVoice(voiceId: string): boolean {
+  return (
+    xaiVoice(voiceId) !== undefined ||
+    cartesiaVoice(voiceId) !== undefined ||
+    DEEPGRAM_VOICES.some((voice) => voice.id === voiceId)
+  );
+}
+
 class SpeechProviderError extends Error {
   constructor(readonly status: number) {
     super('speech provider failed');
@@ -93,16 +102,19 @@ export class MessageSpeech {
     if (pending) return pending;
     const work = this.keysFor(userId)
       .then((keys) => {
+        // A saved voice no longer on the list (Cartesia deleted Devansh, 2026-11-16) speaks
+        // Twring's default voice, as calls already do.
+        const saved = isListedVoice(voiceId) ? voiceId : this.defaultVoice(keys);
         // A Grok voice without an xAI key speaks Twring's default voice instead. A server on its
         // own xAI key (no Deepgram key) speaks any voice it cannot make in its Grok voice.
         const voice =
           keys.deepgram === undefined &&
           keys.xai?.source === 'twring' &&
-          !this.speakable(voiceId, keys)
+          !this.speakable(saved, keys)
             ? XAI_DEFAULT_VOICE_ID
-            : xaiVoice(voiceId) !== undefined && keys.xai === undefined
+            : xaiVoice(saved) !== undefined && keys.xai === undefined
               ? this.defaultVoice(keys)
-              : voiceId;
+              : saved;
         return this.synthesize(voice, text, keys).catch((error: unknown) => {
           // A refused own key stops here: no other voice, and never Twring's key.
           if (error instanceof SpeechKeyRefusedError) throw error;

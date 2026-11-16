@@ -19,12 +19,14 @@ function setup({
   kind = 'agent_text',
   owner = 'alice',
   fetcher = vi.fn(() => Promise.resolve(new Response(new Uint8Array([1, 2, 3]), { status: 200 }))),
+  withCartesia = true,
 }: {
   voice?: string;
   text?: string;
   kind?: string;
   owner?: string;
   fetcher?: typeof fetch;
+  withCartesia?: boolean;
 } = {}) {
   const app = Fastify();
   const options: MessageSpeechOptions = {
@@ -36,7 +38,7 @@ function setup({
         Promise.resolve(user === owner ? ({ kind, text } as ThreadMessage) : undefined),
     },
     deepgram: { apiKey: 'deepgram-key' },
-    cartesia: { apiKey: 'cartesia-key', ttsModel: 'sonic-3' },
+    ...(withCartesia && { cartesia: { apiKey: 'cartesia-key', ttsModel: 'sonic-3' } }),
     userFor: (request) => String(request.headers['x-user'] ?? 'alice'),
     fetch: fetcher,
   };
@@ -96,6 +98,28 @@ describe('message speech route', () => {
     expect(res.statusCode).toBe(200);
     expect(fetcher.mock.calls.map(([target]) => target)).toEqual([
       'https://api.cartesia.ai/tts/bytes',
+      'https://api.deepgram.com/v2/speak?model=flux-haley-en&encoding=mp3',
+    ]);
+    await app.close();
+  });
+
+  it('a saved voice no longer on the list speaks the default voice', async () => {
+    // Cartesia deleted Devansh (2026-11-16): an agent may still have its id saved.
+    const { app, fetcher } = setup({ voice: 'cartesia-devansh-en' });
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [target, init] = vi.mocked(fetcher).mock.calls[0]!;
+    expect(target).toBe('https://api.cartesia.ai/tts/bytes');
+    expect(JSON.parse(init?.body as string)).toMatchObject({
+      voice: { mode: 'id', id: '7ea5e9c2-b719-4dc3-b870-5ba5f14d31d8' },
+    });
+    await app.close();
+  });
+
+  it('without Cartesia, a saved voice no longer on the list speaks the Deepgram default', async () => {
+    const { app, fetcher } = setup({ voice: 'cartesia-devansh-en', withCartesia: false });
+    expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200);
+    expect(vi.mocked(fetcher).mock.calls.map(([target]) => target)).toEqual([
       'https://api.deepgram.com/v2/speak?model=flux-haley-en&encoding=mp3',
     ]);
     await app.close();
