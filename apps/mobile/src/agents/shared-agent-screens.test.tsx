@@ -81,6 +81,8 @@ vi.mock('@/agents/labels', () => ({
 }));
 vi.mock('@/agents/shared', () => import('./shared'));
 vi.mock('@/api', () => ({ apiErrorCopy: () => ({}), twringApi: () => undefined }));
+vi.mock('@/language/language', () => import('../language/language'));
+vi.mock('@/language/store', () => ({ useSpeakerLanguage: () => 'en' }));
 vi.mock('@/call/call-agent', () => ({ callAgent: vi.fn() }));
 vi.mock('@/hooks/useNow', () => ({ useNow: () => 0 }));
 vi.mock('@/hooks/useResource', () => ({

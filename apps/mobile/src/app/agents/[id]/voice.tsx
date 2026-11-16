@@ -14,6 +14,8 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { goBack, Screen } from '@/components/Screen';
 import { Skeleton } from '@/components/Skeleton';
 import { useResource } from '@/hooks/useResource';
+import { voiceLanguageNote, voicesForLanguage } from '@/language/language';
+import { useSpeakerLanguage } from '@/language/store';
 import { useVoicePreview, voicePreview } from '@/platform/voice-preview';
 import { radius, space, type, usePalette } from '@/theme/tokens';
 
@@ -87,6 +89,7 @@ export default function VoiceScreen() {
   );
   const data = useResource(load);
   const preview = useVoicePreview();
+  const language = useSpeakerLanguage();
   // Leaving the screen (or starting a call from elsewhere) stops any sample.
   useFocusEffect(useCallback(() => () => voicePreview.stop(), []));
   // A saved voice the server no longer offers (a Grok voice without the xAI key) shows unchosen.
@@ -147,7 +150,9 @@ export default function VoiceScreen() {
           </Text>
         )}
       <View accessibilityRole="radiogroup" accessibilityLabel="Voices" style={styles.choices}>
-        {voiceGroups(data.data?.voices.voices ?? []).map((group) => (
+        {voiceGroups(
+          voicesForLanguage(data.data?.voices.voices ?? [], language, data.data?.agent.voice_id),
+        ).map((group) => (
           <View key={group.label ?? 'usual'} style={styles.choices}>
             {group.label !== undefined && (
               <Text style={[type.caption, { color: palette.textSecondary }]}>{group.label}</Text>
@@ -169,11 +174,20 @@ export default function VoiceScreen() {
                 <Pressable
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected === voice.id }}
-                  accessibilityLabel={voice.label}
+                  accessibilityLabel={[voice.label, voiceLanguageNote(voice, language)]
+                    .filter((part) => part !== undefined)
+                    .join(', ')}
                   onPress={() => setChoice(voice.id)}
                   style={styles.choice}
                 >
-                  <Text style={[type.body, { color: palette.textPrimary }]}>{voice.label}</Text>
+                  <View style={styles.name}>
+                    <Text style={[type.body, { color: palette.textPrimary }]}>{voice.label}</Text>
+                    {voiceLanguageNote(voice, language) !== undefined && (
+                      <Text style={[type.caption, { color: palette.textSecondary }]}>
+                        {voiceLanguageNote(voice, language)}
+                      </Text>
+                    )}
+                  </View>
                   {preview.status === 'playing' && preview.voiceId === voice.id && (
                     <MiniWave size={22} color={palette.accent} active />
                   )}
@@ -207,6 +221,7 @@ const styles = StyleSheet.create({
     gap: space.sm,
     paddingHorizontal: space.sm,
   },
+  name: { flex: 1 },
   preview: { alignItems: 'center', gap: space.xs },
   previewButton: {
     height: 36,
