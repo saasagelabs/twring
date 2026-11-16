@@ -4,6 +4,8 @@
  * figures or promises ("almost done").
  */
 
+import { LINES, type LineLanguage } from './lines';
+
 /** A committed turn with no agent text this long gets the soft "heard you" tone. */
 export const PRESENCE_TONE_AFTER_MS = 700;
 /** A working turn with no agent text (or progress line) this long gets a spoken progress line. */
@@ -29,17 +31,18 @@ export const ACK_LINE_AFTER_MS = 1_500;
 /** Twring's acknowledgements, in the agent's voice: they say "heard you", never anything about the work. */
 // None of them is a stop-talking phrase (FLOOR_CONTROL_WORDS): an echo of one must never read as
 // the owner asking to wait.
-export const ACK_LINES = ['Okay, one moment.', 'Sure, let me see.', 'Right, let me think.'];
+export const ACK_LINES: readonly string[] = LINES.en.ack;
 
 /** The call's `n`th acknowledgement: they take turns, so two in a row never match. */
-export function ackLine(n: number): string {
-  return ACK_LINES[n % ACK_LINES.length] ?? ACK_LINES[0]!;
+export function ackLine(n: number, language: LineLanguage = 'en'): string {
+  const lines = LINES[language].ack;
+  return lines[n % lines.length] ?? lines[0];
 }
 
 /** Spoken when the agent's events name nothing safe to say. */
-export const GENERIC_PROGRESS_LINE = 'Still working on it.';
+export const GENERIC_PROGRESS_LINE = LINES.en.progress;
 /** Spoken by Twring (not the agent) once a stop request cancelled a working turn. */
-export const STOPPED_LINE = 'Okay, stopped.';
+export const STOPPED_LINE = LINES.en.stopped;
 
 /** Longest activity label spoken; a longer one falls back to the generic line rather than be cut. */
 export const MAX_SPOKEN_LABEL_CHARS = 40;
@@ -81,8 +84,12 @@ export function spokenActivityLabel(label: string | undefined): string | undefin
     : text.charAt(0).toLowerCase() + text.slice(1);
 }
 
-/** The progress line for what the agent is doing now. */
-export function progressLine(label: string | undefined): string {
+/**
+ * The progress line for what the agent is doing now. Outside English it is always the generic
+ * line: agent activity labels are English.
+ */
+export function progressLine(label: string | undefined, language: LineLanguage = 'en'): string {
+  if (language !== 'en') return LINES[language].progress;
   const spoken = spokenActivityLabel(label);
   return spoken === undefined ? GENERIC_PROGRESS_LINE : `Still working: ${spoken}.`;
 }

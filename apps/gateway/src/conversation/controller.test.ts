@@ -26,6 +26,7 @@ import {
   type SpeechOutput,
 } from './controller';
 import { ECHO_FINISHED_TAIL_MS, ECHO_TAIL_MS, echoWords } from './echo';
+import { LINES } from './lines';
 import {
   APPROVAL_DENIED_LINE,
   APPROVAL_REASK,
@@ -5036,5 +5037,42 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
     expect(p.lines()).toEqual(['append gen_1 Okay, one moment.']);
     p.scheduler.advance(1);
     expect(p.lines().at(-1)).toBe('append gen_2 Still working: running a command.');
+  });
+});
+
+describe('ConversationController in the owner’s language', () => {
+  it('speaks the Hindi acknowledgement and approval prompt, and takes a Hindi yes', async () => {
+    const adapter = new ScriptedAdapter();
+    const speech = new RecordingSpeech();
+    const scheduler = new ManualScheduler();
+    const conversation = new ConversationController({
+      callId: CALL_ID,
+      adapter,
+      speech,
+      scheduler,
+      logger: recordingLogger(),
+      send: () => undefined,
+      wallClock: () => Date.UTC(2026, 8, 26, 12, 0, 0),
+      presenceCues: true,
+      acknowledge: true,
+      agentName: 'Hermes',
+      language: 'hi',
+    });
+    conversation.userSpeechStarted();
+    conversation.userTurn('बिल्ड देखो');
+    await flushMicrotasks();
+    scheduler.advance(ACK_LINE_AFTER_MS);
+    expect(speech.calls).toContain(`append gen_1 ${LINES.hi.ack[0]}`);
+    adapter.channels[0]!.push({
+      type: 'approval.required',
+      approval_id: 'apr_hi',
+      action: 'delete_files',
+      title: 'Delete files',
+    });
+    await flushMicrotasks();
+    expect(speech.calls.join(' ')).toContain(LINES.hi.approvalPrompt('Hermes', 'delete_files'));
+    conversation.userTurn('हाँ जी');
+    expect(adapter.approvalDecisions).toEqual([{ id: 'apr_hi', decision: 'approve' }]);
+    conversation.close();
   });
 });

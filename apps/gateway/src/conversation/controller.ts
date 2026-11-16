@@ -34,16 +34,13 @@ import {
   PROGRESS_LINE_AFTER_MS,
   PROGRESS_LINE_RECHECK_MS,
   PROGRESS_LINE_REPEAT_MS,
-  STOPPED_LINE,
   ackLine,
   progressLine,
   spokenActivityLabel,
 } from './presence';
+import { LINES, STOP_WORDS, type LineLanguage } from './lines';
 import { SpeechTextFilter } from './speech-text';
 import {
-  APPROVAL_DENIED_LINE,
-  APPROVAL_REASK,
-  APPROVAL_TIMEOUT_LINE,
   APPROVAL_TIMEOUT_MS,
   MAX_APPROVAL_WORDS,
   UNKNOWN_AGENT_NAME,
@@ -109,7 +106,8 @@ function keepRecent(text: string, max: number): string {
 
 /**
  * Words that only ask the agent to stop talking (ADR-017). A barge-in made of nothing else is not
- * sent to the agent: the cut already did what the caller asked. English only.
+ * sent to the agent: the cut already did what the caller asked. English; a call's language adds
+ * its STOP_WORDS (isFloorControl).
  */
 export const FLOOR_CONTROL_WORDS: readonly string[] = [
   'wait',
@@ -180,8 +178,19 @@ export function isStopRequest(text: string, agentName?: string): boolean {
 }
 
 /** `words` is one or more floor-control phrases and nothing else ("stop stop", "hold on wait"). */
-export function isFloorControl(words: readonly string[]): boolean {
-  return consistsOf(words, FLOOR_CONTROL_PHRASES, true);
+export function isFloorControl(words: readonly string[], language: LineLanguage = 'en'): boolean {
+  return consistsOf(words, floorControlPhrases(language), true);
+}
+
+const FLOOR_CONTROL_BY_LANGUAGE = new Map<LineLanguage, readonly (readonly string[])[]>();
+/** English floor-control phrases plus the call language's stop words. */
+function floorControlPhrases(language: LineLanguage): readonly (readonly string[])[] {
+  let phrases = FLOOR_CONTROL_BY_LANGUAGE.get(language);
+  if (phrases === undefined) {
+    phrases = [...FLOOR_CONTROL_PHRASES, ...(STOP_WORDS[language] ?? []).map((w) => echoWords(w))];
+    FLOOR_CONTROL_BY_LANGUAGE.set(language, phrases);
+  }
+  return phrases;
 }
 
 /** `words` is one or more of `phrases` and nothing else (and "shh", when `shush`). */
@@ -303,6 +312,8 @@ export interface ConversationOptions {
   onAgentHangup?: () => void;
   /** The agent's display name: "Hermes, stop" is still only a stop request (ADR-028). */
   agentName?: string;
+  /** The language the owner speaks: Twring's own lines and spoken answers use it. Default 'en'. */
+  language?: LineLanguage;
   /** The "heard you" tone and spoken progress lines while the agent works (ADR-028). Off unless set. */
   presenceCues?: boolean;
   /** A short spoken "one moment" while the agent is still silent (ADR-032). Needs `presenceCues`. */
@@ -484,6 +495,7 @@ export class ConversationController {
   private cue: Cue | undefined;
   /** Acknowledgements spoken this call, to take turns between the lines (ADR-032). */
   private acks = 0;
+  private readonly language: LineLanguage;
   /**
    * What the owner said while the agent was working with tools (ADR-026): sent as the next turn
    * once the current one finishes, instead of cancelling its work.
@@ -499,6 +511,7 @@ export class ConversationController {
     | undefined;
 
   constructor(private readonly options: ConversationOptions) {
+    this.language = options.language ?? 'en';
     this.timeouts = { ...AGENT_TIMEOUTS, ...options.timeouts };
     this.wallClock = options.wallClock ?? Date.now;
   }
@@ -702,7 +715,7 @@ export class ConversationController {
         const approval = this.turn?.approval;
         if (
           approval !== undefined &&
-          approvalVoiceDecision(text, this.options.agentName) !== undefined &&
+          approvalVoiceDecision(text, this.options.agentName, this.language) !== undefined &&
           this.reaskApproval(approval)
         ) {
           this.log('approval_reask_after_echo', { turn_id: this.turn?.id });
@@ -729,7 +742,7 @@ export class ConversationController {
     if (held === undefined && cut) {
       // ADR-017: a barge-in is often only "stop", or a clipped first word; the cut is done already.
       const words = echoWords(text);
-      if (isFloorControl(words)) {
+      if (isFloorControl(words, this.language)) {
         this.log('floor_control', { words: words.length });
         this.yieldTurn();
         this.afterFloorControl(text);
@@ -747,13 +760,13 @@ export class ConversationController {
         words.length >= 1 &&
         words.length <= 2 &&
         !isStopRequest(text, this.options.agentName) &&
-        !isFloorControl(words)
+        !isFloorControl(words, this.language)
       ) {
         this.holdShortTurn(text, words.length, startedAt, shortTurnHoldMs, 'turn');
         return;
       }
     }
-    if (held !== undefined && isFloorControl(echoWords(text))) {
+    if (held !== undefined && isFloorControl(echoWords(text), this.language)) {
       // ADR-017: a held clipped word followed only by floor-control words ("Rate," then "Wait.")
       // was a request for the floor, not a request for the agent: both are dropped.
       this.clearHeldShort();
@@ -917,7 +930,7 @@ export class ConversationController {
     });
     this.supersede();
     this.updateFloor();
-    if (working) this.speakCue(STOPPED_LINE, 'stopped');
+    if (working) this.speakCue(LINES[this.language].stopped, 'stopped');
   }
 
   /**
@@ -1367,7 +1380,7 @@ export class ConversationController {
     this.cutCue('superseded');
     const cancelTimeout = this.options.scheduler.setTimeout(() => {
       if (this.resolveApproval(event.approval_id, 'deny', 'timeout'))
-        this.speakCue(APPROVAL_TIMEOUT_LINE, 'approval');
+        this.speakCue(LINES[this.language].approvalTimeout, 'approval');
     }, APPROVAL_TIMEOUT_MS);
     const agentName = this.options.agentName || UNKNOWN_AGENT_NAME;
     const askedAt = this.wallClock();
@@ -1387,7 +1400,7 @@ export class ConversationController {
     this.log('approval_required', { turn_id: turn.id, action: event.action });
     this.options.send(message);
     this.updateFloor();
-    this.speakCue(approvalPrompt(agentName, event.action), 'approval', turn);
+    this.speakCue(approvalPrompt(agentName, event.action, this.language), 'approval', turn);
   }
 
   /** Returns false for unknown or already decided approvals. */
@@ -1423,7 +1436,7 @@ export class ConversationController {
     turn.lastTextAt = this.options.scheduler.now();
     this.scheduleProgress(turn);
     if (decision === 'deny' && (by === 'voice' || by === 'tap'))
-      this.speakCue(APPROVAL_DENIED_LINE, 'approval');
+      this.speakCue(LINES[this.language].approvalDenied, 'approval');
     return true;
   }
 
@@ -1449,7 +1462,7 @@ export class ConversationController {
       this.stopRequested();
       return;
     }
-    let decision = approvalVoiceDecision(text, this.options.agentName);
+    let decision = approvalVoiceDecision(text, this.options.agentName, this.language);
     // A yes the owner began before this question existed answered something else (the agent's own
     // "shall I go on?"): it must not approve what was asked meanwhile. A no is still a no.
     if (decision === 'approve' && spokenFrom !== undefined && spokenFrom < approval.askedAt) {
@@ -1466,8 +1479,11 @@ export class ConversationController {
       .slice(0, MAX_APPROVAL_WORDS)
       .some(
         (_, end) =>
-          approvalVoiceDecision(words.slice(0, end + 1).join(' '), this.options.agentName) !==
-          undefined,
+          approvalVoiceDecision(
+            words.slice(0, end + 1).join(' '),
+            this.options.agentName,
+            this.language,
+          ) !== undefined,
       );
     if (words.length > MAX_APPROVAL_WORDS && !opensWithAnswer) {
       this.queueTurn(turn, text, spokenFrom ?? this.wallClock());
@@ -1480,7 +1496,7 @@ export class ConversationController {
     if (!approval.reasked) {
       approval.reasked = true;
       this.cutCue('superseded');
-      this.speakCue(APPROVAL_REASK, 'approval');
+      this.speakCue(LINES[this.language].approvalReask, 'approval');
       return true;
     }
     return false;
@@ -1848,7 +1864,7 @@ export class ConversationController {
     )
       return;
     turn.acked = true;
-    const line = ackLine(this.acks);
+    const line = ackLine(this.acks, this.language);
     this.acks += 1;
     const generationId = this.speakCue(line, 'ack', turn);
     this.log('ack_line', { turn_id: turn.id, generation_id: generationId });
@@ -1931,7 +1947,7 @@ export class ConversationController {
       label_kind: labelKind,
       line: turn.progressLines,
     });
-    this.speakCue(progressLine(turn.activity), 'progress', turn);
+    this.speakCue(progressLine(turn.activity, this.language), 'progress', turn);
     this.scheduleProgress(turn);
   }
 
