@@ -191,7 +191,8 @@ export function apiErrorCopy(
       });
     case 'account_limit_reached':
       return withDetail({
-        message: 'This account has as many agents or computers as it can hold. Remove one to add another.',
+        message:
+          'This account has as many agents or computers as it can hold. Remove one to add another.',
         retryable: false,
       });
     case 'files_daily_limit':
