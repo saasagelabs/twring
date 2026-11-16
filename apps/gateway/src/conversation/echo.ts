@@ -119,7 +119,7 @@ export function audibleSpan(text: string, playedMs: number, totalAudioMs?: numbe
   const slack = finished ? 0 : Math.min(position * ECHO_RATE_SLACK, ECHO_MAX_SLACK_MS * perMs);
   let start = Math.max(0, Math.floor(position - ECHO_LOOKBACK_MS * perMs - slack));
   let end = Math.min(text.length, Math.ceil(position + ECHO_LOOKAHEAD_MS * perMs + slack));
-  const inWord = (c: string | undefined) => c !== undefined && /[\p{L}\p{N}'’-]/u.test(c);
+  const inWord = (c: string | undefined) => c !== undefined && /[\p{L}\p{M}\p{N}'’-]/u.test(c);
   while (start > 0 && inWord(text[start - 1])) start -= 1;
   while (end < text.length && inWord(text[end])) end += 1;
   return { start, end };
