@@ -19,6 +19,7 @@ import {
 } from '../audio/pcm';
 import { SttAudioCapture } from '../audio/capture';
 import { ConversationController } from '../conversation/controller';
+import type { LineLanguage } from '../conversation/lines';
 import { toSafeError } from '../redact';
 import { VoicePipeline } from '../voice/pipeline';
 import { VoiceProviderError, type SttProvider, type TtsProvider } from '../voice/types';
@@ -156,6 +157,8 @@ export interface CallRuntimeOptions {
   openingLine?: string;
   /** The agent's display name ("Hermes, stop" is a stop request, ADR-028). */
   agentName?: string;
+  /** The language the owner speaks (Twring's own lines in calls). Default 'en'. */
+  language?: LineLanguage;
   /** The "heard you" tone and spoken progress lines while the agent works (ADR-028). */
   presenceCues?: boolean;
   /** The short spoken acknowledgement while the agent is still silent (ADR-032). */
@@ -608,6 +611,7 @@ export class CallRuntime {
       },
       onAgentHangup: () => void this.end('agent_hangup'),
       ...(this.options.agentName !== undefined && { agentName: this.options.agentName }),
+      ...(this.options.language !== undefined && { language: this.options.language }),
       presenceCues: this.options.presenceCues === true,
       acknowledge: this.options.acknowledge === true,
       shortTurnHoldMs: this.options.shortTurnHoldMs,

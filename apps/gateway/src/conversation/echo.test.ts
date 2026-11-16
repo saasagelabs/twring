@@ -290,3 +290,11 @@ describe('echo normalisation and window width, final pass (verifier)', () => {
     expect(echoPrefixLength(echoWords('one'), echoWindow())).toBe(0);
   });
 });
+
+describe('echoWords with combining marks', () => {
+  it('keeps Devanagari vowel signs and nasal marks inside a word', () => {
+    expect(echoWords('हाँ जी')).toEqual(['हाँ', 'जी']);
+    expect(echoWords('नहीं')).toEqual(['नहीं']);
+    expect(echoWords('Sí, claro.')).toEqual(['sí', 'claro']);
+  });
+});

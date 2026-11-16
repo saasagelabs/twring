@@ -73,7 +73,7 @@ function normalizeToken(token: string): string[] {
   const word = token.replace(/'/g, '');
   if (word === 'ok') return ['okay'];
   const out: string[] = [];
-  for (const run of word.matchAll(/\p{N}+|\p{L}+/gu)) {
+  for (const run of word.matchAll(/\p{N}+|[\p{L}\p{M}]+/gu)) {
     out.push(...(/^[0-9]+$/.test(run[0]) ? numberWords(run[0]) : [run[0]]));
   }
   return out;
@@ -91,7 +91,7 @@ export function echoWords(text: string): string[] {
     .replace(/\b([ap])\.\s?m\b\.?/g, '$1m')
     .replace(/%/g, ' percent ');
   const words: string[] = [];
-  for (const match of s.matchAll(/[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*/gu)) {
+  for (const match of s.matchAll(/[\p{L}\p{M}\p{N}]+(?:['-][\p{L}\p{M}\p{N}]+)*/gu)) {
     words.push(...normalizeToken(match[0]));
   }
   return words;
