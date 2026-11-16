@@ -186,6 +186,25 @@ describe('TTS routing by voice id', () => {
     expect(made).toEqual(['dg own-dg flux-kit-en']);
   });
 
+  it("a Hindi speaker on Twring's Cartesia key fails over to the Deepgram default", async () => {
+    const { r, made } = failingRouter(CARTESIA);
+    await expect(open(r.forCall('flux-kit-en', { language: 'hi' }))).rejects.toThrow();
+    expect(made).toEqual(['ct ct-key sonic-3.6', `dg dg-key ${DEEPGRAM.ttsModel}`]);
+  });
+
+  it('a Hindi speaker on an own Cartesia key never fails over', async () => {
+    const { r, made } = failingRouter(CARTESIA);
+    await expect(
+      open(
+        r.forCall('flux-kit-en', {
+          language: 'hi',
+          cartesia: { apiKey: 'own-ct', source: 'own' },
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(made).toEqual(['ct own-ct sonic-3.6']);
+  });
+
   it("still fails over on Twring's keys", async () => {
     const { r, made } = failingRouter(CARTESIA);
     await expect(

@@ -187,7 +187,10 @@ const FLOOR_CONTROL_BY_LANGUAGE = new Map<LineLanguage, readonly (readonly strin
 function floorControlPhrases(language: LineLanguage): readonly (readonly string[])[] {
   let phrases = FLOOR_CONTROL_BY_LANGUAGE.get(language);
   if (phrases === undefined) {
-    phrases = [...FLOOR_CONTROL_PHRASES, ...(STOP_WORDS[language] ?? []).map((w) => echoWords(w))];
+    phrases = [
+      ...FLOOR_CONTROL_PHRASES,
+      ...(STOP_WORDS[language] ?? []).map((w) => echoWords(w)),
+    ].sort((a, b) => b.length - a.length);
     FLOOR_CONTROL_BY_LANGUAGE.set(language, phrases);
   }
   return phrases;
