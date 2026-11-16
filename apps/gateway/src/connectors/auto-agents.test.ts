@@ -6,6 +6,9 @@ import {
 } from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { newAgentId } from '../calls/ids';
+import { MAX_AGENTS_PER_USER } from '../store/record-limits';
+
 import { startConnectorGateway, type ConnectorGateway } from './harness';
 import { FAKE_AGENTS, startFakeConnector } from './testing';
 
@@ -150,5 +153,34 @@ describe('agents for a code the server minted', () => {
     const g = await gateway(false);
     await g.pair('alice');
     expect(await agentsOf(g, 'alice')).toEqual([]);
+  });
+});
+
+describe('agents for a code the server minted, at the agent limit', () => {
+  it('links the computer and adds no agents past the limit', async () => {
+    const g = await gateway(true);
+    const { person } = await g.selfhost!.pair('admin', 'Ada');
+    const stamp = new Date().toISOString();
+    for (let i = 0; i < MAX_AGENTS_PER_USER; i += 1) {
+      await g.stores.agents.create({
+        id: newAgentId(),
+        user_id: person.id,
+        name: `Agent ${i}`,
+        protocol: 'cord-rest',
+        endpoint_url: 'https://agent.example.com/turns',
+        voice_id: 'flux-haley-en',
+        keyterms: [],
+        status: 'untested',
+        created_at: stamp,
+        updated_at: stamp,
+        revision: 0,
+      });
+    }
+    const code = await adminCode(g, person.id);
+    const claim = await g.send('POST', '/v1/connectors/claim', {
+      body: { code, name: 'Home server', agents: FAKE_AGENTS },
+    });
+    expect(claim.statusCode).toBe(201);
+    expect(await agentsOf(g, person.id)).toHaveLength(MAX_AGENTS_PER_USER);
   });
 });

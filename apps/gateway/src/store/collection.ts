@@ -112,14 +112,13 @@ export class JsonFileCollection<T> implements Collection<T> {
       // One bad row must not lock every user out (review finding 3): keep it aside, load the rest.
       await appendFile(
         `${this.file}.rejected`,
-        bad
-          .map(
-            (row) => `${JSON.stringify(row)}
-`,
-          )
-          .join(''),
+        bad.map((row) => `${JSON.stringify(row)}\n`).join(''),
         { mode: 0o600 },
       );
+      // Moved, not copied: saving the good rows now means the next start does not set the same
+      // rows aside again. Best effort: if it fails, the rows stay and the next start sets them
+      // aside once more, which is only a duplicate in the side file.
+      await this.save(good).catch(() => undefined);
       (this.options.onRowsSkipped ?? JsonFileCollection.onRowsSkipped)?.(this.file, bad.length);
     }
     return (this.cache = good);
@@ -131,7 +130,8 @@ export class JsonFileCollection<T> implements Collection<T> {
     try {
       const handle = await open(temp, 'w', 0o600);
       try {
-        await handle.writeFile(`${JSON.stringify(items, null, 2)}\n`, 'utf8');
+        // Compact: the whole file is rewritten on every change.
+        await handle.writeFile(`${JSON.stringify(items)}\n`, 'utf8');
         // Flush to disk before the rename, so a power loss cannot leave a renamed empty file.
         await handle.sync();
       } finally {

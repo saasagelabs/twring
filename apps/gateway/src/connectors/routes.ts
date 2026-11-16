@@ -36,6 +36,7 @@ import { defaultVoiceId } from '../agents/voices';
 import { FixedWindowLimiter, rateKey } from '../rate-limit';
 import { newAgentId } from '../calls/ids';
 import type { ConnectorCallStatus } from '../calls/routes';
+import { RecordLimitError } from '../store/record-limits';
 import type { AgentRecord, Stores } from '../store/repositories';
 
 import type { ConnectorHub } from './hub';
@@ -170,7 +171,7 @@ async function keepComputerName(
  * Adds each advertised agent to the person's list exactly as the phone's create would
  * (`cord-connector`, the agent's label, the default voice): an existing contact for it is kept,
  * and one whose computer is gone (same name, removed or offline) moves over. Returns how many new
- * contacts it made.
+ * contacts it made, stopping quietly at the account's agent limit.
  */
 async function addAdvertisedAgents(
   deps: RelinkDeps & { stores: Stores },
@@ -197,7 +198,13 @@ async function addAdvertisedAgents(
       updated_at: stamp,
       revision: 0,
     };
-    await deps.stores.agents.create(record);
+    try {
+      await deps.stores.agents.create(record);
+    } catch (error) {
+      // At the account's agent limit the computer stays linked; its agents can be added later.
+      if (error instanceof RecordLimitError) break;
+      throw error;
+    }
     added += 1;
   }
   return added;

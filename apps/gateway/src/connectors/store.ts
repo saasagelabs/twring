@@ -7,6 +7,7 @@ import {
 import { z } from 'zod';
 
 import type { Collection } from '../store/collection';
+import { assertBelowLimit, MAX_CONNECTORS_PER_USER } from '../store/record-limits';
 
 const MAX_SCOPED_REFS = 500;
 
@@ -78,7 +79,10 @@ export class CollectionConnectorRepository implements ConnectorRepository {
   }
 
   create(record: ConnectorRecord): Promise<ConnectorRecord> {
-    return this.rows.update((items) => ({ items: [...items, record], result: record }));
+    return this.rows.update((items) => {
+      assertBelowLimit(items, record.user_id, MAX_CONNECTORS_PER_USER, 'computers');
+      return { items: [...items, record], result: record };
+    });
   }
 
   touch(

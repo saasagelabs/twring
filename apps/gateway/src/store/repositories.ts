@@ -25,6 +25,7 @@ import {
 
 import { CredentialCipher, credentialAad, sealedSecretSchema } from './cipher';
 import { JsonFileCollection, MemoryCollection, type Collection } from './collection';
+import { assertBelowLimit, MAX_AGENTS_PER_USER } from './record-limits';
 import {
   EncryptedSpeechKeyVault,
   speechKeyRecordSchema,
@@ -261,7 +262,10 @@ export class CollectionAgentRepository implements AgentRepository {
   }
 
   create(record: AgentRecord): Promise<AgentRecord> {
-    return this.rows.update((items) => ({ items: [...items, record], result: record }));
+    return this.rows.update((items) => {
+      assertBelowLimit(items, record.user_id, MAX_AGENTS_PER_USER, 'agents');
+      return { items: [...items, record], result: record };
+    });
   }
 
   update(

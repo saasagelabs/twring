@@ -9,6 +9,8 @@ import { buildApp } from '../app';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AuthError } from '../auth';
 import { MemoryCollection } from '../store/collection';
+import { MAX_AGENTS_PER_USER } from '../store/record-limits';
+import { newAgentId } from '../calls/ids';
 import { CollectionAgentRepository, type AgentRepository } from '../store/repositories';
 import type { RingService } from '../ring/service';
 import type { ThreadService } from '../threads/service';
@@ -488,5 +490,31 @@ describe('MCP add_words', () => {
       const res = await t.post('tools/call', { name: 'add_words', arguments: args });
       expect(res.json().error?.code, JSON.stringify(args)).toBe(-32602);
     }
+  });
+});
+
+describe('MCP at the account agent limit', () => {
+  it('refuses a new app with a plain reason and no sign-in challenge', async () => {
+    const { post, agents } = setup();
+    const stamp = '2026-10-20T00:00:00.000Z';
+    for (let i = 0; i < MAX_AGENTS_PER_USER; i += 1) {
+      await agents.create({
+        id: newAgentId(),
+        user_id: USER,
+        name: `Agent ${i}`,
+        protocol: 'cord-rest',
+        endpoint_url: 'https://agent.example.com/turns',
+        voice_id: 'flux-haley-en',
+        keyterms: [],
+        status: 'untested',
+        created_at: stamp,
+        updated_at: stamp,
+        revision: 0,
+      });
+    }
+    const refused = await post('ping');
+    expect(refused.statusCode).toBe(409);
+    expect(refused.headers['www-authenticate']).toBeUndefined();
+    expect(refused.body).toContain(String(MAX_AGENTS_PER_USER));
   });
 });

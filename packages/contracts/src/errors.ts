@@ -55,6 +55,8 @@ export const errorCodeSchema = z.enum([
   'storage_full',
   /** The person's 100 new files for this UTC day are used up (429). */
   'files_daily_limit',
+  /** The account has the most agents or linked computers one account may have (409). */
+  'account_limit_reached',
   /** A `cord-connector` agent's computer is not connected right now; nothing was counted (409). */
   'agent_offline',
   /** The user's computer no longer offers this agent (its latest hello left it out) (409). */

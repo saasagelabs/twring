@@ -16,6 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../app';
 import { StoreCorruptError } from '../store/collection';
+import { MAX_AGENTS_PER_USER } from '../store/record-limits';
 import { createMemoryStores, type Stores } from '../store/repositories';
 
 import { DEV_USER_ID } from './routes';
@@ -725,5 +726,27 @@ describe('GET /v1/voices with an unreadable key store', () => {
     expect(logged).toBeDefined();
     expect(logged).not.toContain('speech-keys.json');
     expect(onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('agents per account', () => {
+  it('refuses a new agent past the limit with a plain reason and keeps the others', async () => {
+    const { stores, send } = setup();
+    for (let i = 0; i < MAX_AGENTS_PER_USER - 1; i += 1) await createAgent(send);
+    const last = await createAgent(send);
+
+    const res = await send('POST', '/v1/agents', {
+      name: 'One too many',
+      protocol: 'cord-rest',
+      endpoint_url: PUBLIC_URL,
+      credential: SECRET,
+    });
+
+    expect(res.statusCode).toBe(409);
+    const body = errorResponseSchema.parse(res.json());
+    expect(body.error.code).toBe('account_limit_reached');
+    expect(body.error.message).toContain(String(MAX_AGENTS_PER_USER));
+    expect(await stores.agents.list(DEV_USER_ID)).toHaveLength(MAX_AGENTS_PER_USER);
+    expect(await stores.credentials.has(DEV_USER_ID, last.id)).toBe(true);
   });
 });

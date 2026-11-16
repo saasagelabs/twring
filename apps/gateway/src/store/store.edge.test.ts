@@ -153,6 +153,19 @@ describe('JsonFileCollection: one bad row (review finding 3)', () => {
     expect(saved.map((row) => row.id)).toEqual(good.map((row) => row.id));
   });
 
+  it('sets a bad row aside once, not again on every restart', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'agents.json');
+    await writeFile(file, JSON.stringify([agent(), { id: 'nope', odd: true }]));
+    for (let start = 0; start < 3; start += 1) {
+      await new JsonFileCollection(file, agentRecordSchema, { onRowsSkipped: () => {} }).read();
+    }
+    const rejected = (await readFile(`${file}.rejected`, 'utf8')).trim().split('\n');
+    expect(rejected).toHaveLength(1);
+    const saved = JSON.parse(await readFile(file, 'utf8')) as AgentRecord[];
+    expect(saved.map((row) => row.id)).toEqual([AGENT]);
+  });
+
   it('still fails closed when no row at all is readable (a schema mismatch, not one bad row)', async () => {
     const dir = await tempDir();
     const file = join(dir, 'agents.json');
@@ -249,5 +262,17 @@ describe('JsonFileCollection edge cases', () => {
     await stores.credentials.put('../../etc', AGENT, SECRET);
     expect((await readdir(dir)).sort()).toEqual(['credentials.json']);
     expect(await stores.credentials.get('dev-user', AGENT)).toBeUndefined();
+  });
+});
+
+describe('JsonFileCollection: file size', () => {
+  it('writes compact JSON, one line per file', async () => {
+    const dir = await tempDir();
+    const file = join(dir, 'agents.json');
+    const collection = new JsonFileCollection(file, agentRecordSchema);
+    await collection.update(() => ({ items: [agent(), agent({ id: OTHER_AGENT })], result: 0 }));
+    const text = await readFile(file, 'utf8');
+    expect(text.trimEnd().split('\n')).toHaveLength(1);
+    expect((JSON.parse(text) as AgentRecord[]).map((row) => row.id)).toEqual([AGENT, OTHER_AGENT]);
   });
 });

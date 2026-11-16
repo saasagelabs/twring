@@ -189,6 +189,11 @@ export function apiErrorCopy(
         message: `Your ${FILE_QUOTA_BYTES / 1024 ** 2} MB of files is full. Clear a chat to free space.`,
         retryable: false,
       });
+    case 'account_limit_reached':
+      return withDetail({
+        message: 'This account has as many agents or computers as it can hold. Remove one to add another.',
+        retryable: false,
+      });
     case 'files_daily_limit':
       return withDetail({
         message: "You've sent 100 files today. You can send more tomorrow.",

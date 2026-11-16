@@ -65,6 +65,7 @@ import type { AgentRecord, Stores } from './store/repositories';
 import { captureError } from './sentry';
 import { registerWaitlistRoutes, type WaitlistRoutesOptions } from './waitlist/routes';
 import { JsonFileCollection, type Collection } from './store/collection';
+import { RecordLimitError } from './store/record-limits';
 import { connectedAppBlockSchema, McpContacts } from './mcp/contacts';
 import { registerConnectedAppRoutes, registerMcpMetadata, registerMcpRoutes } from './mcp/routes';
 import type { McpIdentity } from './auth';
@@ -671,6 +672,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       typeof error === 'object' && error !== null && 'statusCode' in error
         ? Number(error.statusCode)
         : 500;
+    if (error instanceof RecordLimitError)
+      return reply.code(409).send(errorBody(error.code, error.message, request.id));
     if (statusCode >= 400 && statusCode < 500) {
       if (statusCode === 413 && request.routeOptions.url === '/v1/agents/:agentId/files')
         return reply

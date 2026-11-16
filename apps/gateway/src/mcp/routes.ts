@@ -17,6 +17,7 @@ import type { SqliteThreadStore } from '../threads/store';
 import type { FileService } from '../files/service';
 import { fetchAgentFile } from '../files/fetch-agent-file';
 import { sniffFile } from '../files/sniff';
+import { RecordLimitError } from '../store/record-limits';
 import type { AgentRepository } from '../store/repositories';
 import { addAgentWords } from '../agents/words';
 import { ConnectedAppBlocked, type McpContacts } from './contacts';
@@ -182,6 +183,11 @@ export function registerMcpRoutes(app: FastifyInstance, options: McpRoutesOption
       // Removed by the owner: signing in again can't fix that, so no token challenge (403, not 401).
       if (error instanceof ConnectedAppBlocked) {
         reply.code(403).send({ error: error.message });
+        return undefined;
+      }
+      // A new app on an account at its agent limit: signing in again can't fix that either.
+      if (error instanceof RecordLimitError) {
+        reply.code(409).send({ error: error.message });
         return undefined;
       }
       const missing = request.headers.authorization === undefined;
