@@ -948,3 +948,75 @@ describe('VoicePipeline turn timing (how long the owner spoke, how long Twring w
     expect(committed()[0]).not.toHaveProperty('quiet_ms');
   });
 });
+
+// Production 2026-11-16: a voice the provider had deleted failed every answer as a generation
+// error, and three calls went on in silence (101 generation errors, no audio, no notice).
+describe('VoicePipeline answers that never make a sound', () => {
+  const providerError = { code: 'provider_error', recoverable: true } as const;
+  async function setup() {
+    const tts = new FakeTtsProvider();
+    const scheduler = new ManualScheduler();
+    const fatal: string[] = [];
+    const queued: Array<{ callbacks: { onFirstPublished?: () => void; onDone?: () => void } }> =
+      [];
+    const pipeline = new VoicePipeline({
+      callId: 'call_aaaaaaaaaaaaaaaaaaaa',
+      stt: new FakeSttProvider(),
+      tts,
+      scheduler,
+      logger: recordingLogger(),
+      onUserSpeechStarted: () => undefined,
+      onUserSpeechDiscarded: () => undefined,
+      onUserTurn: () => undefined,
+      onCaption: () => undefined,
+      onSpeech: () => undefined,
+      playFrames: (_frames, callbacks) => queued.push({ callbacks }),
+      stopPlayback: () => 0,
+      onFatal: (error, which) => fatal.push(`${which} ${error.code}`),
+    });
+    await pipeline.start();
+    const answerFails = () => {
+      const id = pipeline.beginSpeech(0);
+      pipeline.appendSpeech(id, 'Hello.');
+      tts.send({ type: 'generation_error', generationId: id, error: providerError });
+    };
+    const answerPlays = () => {
+      const id = pipeline.beginSpeech(0);
+      pipeline.appendSpeech(id, 'Hello.');
+      pipeline.endSpeech(id);
+      tts.send({ type: 'audio', generationId: id, bytes: frameBytes() });
+      tts.send({ type: 'done', generationId: id });
+      for (const q of queued.splice(0)) {
+        q.callbacks.onFirstPublished?.();
+        q.callbacks.onDone?.();
+      }
+    };
+    return { pipeline, fatal, answerFails, answerPlays };
+  }
+
+  it('one failed answer is not fatal: the next one may still play', async () => {
+    const { pipeline, fatal, answerFails } = await setup();
+    answerFails();
+    expect(fatal).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('ends the call when two answers in a row fail without a sound', async () => {
+    const { pipeline, fatal, answerFails } = await setup();
+    answerFails();
+    answerFails();
+    expect(fatal).toEqual(['tts provider_error']);
+    await pipeline.close();
+  });
+
+  it('an answer that plays in between starts the count again', async () => {
+    const { pipeline, fatal, answerFails, answerPlays } = await setup();
+    answerFails();
+    answerPlays();
+    answerFails();
+    expect(fatal).toEqual([]);
+    answerFails();
+    expect(fatal).toEqual(['tts provider_error']);
+    await pipeline.close();
+  });
+});

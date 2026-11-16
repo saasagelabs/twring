@@ -610,10 +610,10 @@ describe('Cartesia Sonic TTS under the voice pipeline', () => {
 
   it('a context error fails only that answer: no reconnect, and the next answer plays (ADR-022)', async () => {
     // Cartesia keeps the socket usable after a per-context error, so the pipeline fails just that
-    // answer. Repeated context errors never spend the reconnect budget or end the call.
+    // answer and spends no reconnect. (Two silent answers in a row end the call: next test.)
     const { pipeline, scheduler, ttsFactory, speech, fatal, queued, contextOf } =
       await pipelineWithCartesia();
-    for (let i = 0; i < 4; i += 1) {
+    for (let i = 0; i < 1; i += 1) {
       const id = pipeline.beginSpeech(scheduler.now());
       pipeline.appendSpeech(id, 'Answer.');
       ttsFactory.sockets[0]!.receive({
@@ -631,7 +631,7 @@ describe('Cartesia Sonic TTS under the voice pipeline', () => {
     const id = pipeline.beginSpeech(scheduler.now());
     pipeline.appendSpeech(id, 'Works now.');
     pipeline.endSpeech(id);
-    const context = contextOf(0, 4);
+    const context = contextOf(0, 1);
     const bytes = Buffer.from(new Int16Array(SAMPLES_PER_FRAME).fill(1000).buffer);
     ttsFactory.sockets[0]!.receive({
       type: 'chunk',
@@ -641,6 +641,21 @@ describe('Cartesia Sonic TTS under the voice pipeline', () => {
     ttsFactory.sockets[0]!.receive({ type: 'done', context_id: context });
     for (const q of queued.splice(0)) q.onDone?.();
     expect(speech.at(-1)).toBe(`${id} finished`);
+    expect(pipeline.usage().ttsReconnects).toBe(0);
+  });
+
+  it('two answers in a row failing without a sound end the call, still with no reconnect (ADR-022 4)', async () => {
+    // Production 2026-11-16: a deleted voice failed every answer and calls went on in silence.
+    const { pipeline, scheduler, ttsFactory, speech, fatal, contextOf } =
+      await pipelineWithCartesia();
+    for (let i = 0; i < 2; i += 1) {
+      const id = pipeline.beginSpeech(scheduler.now());
+      pipeline.appendSpeech(id, 'Answer.');
+      ttsFactory.sockets[0]!.receive({ type: 'error', status_code: 404, context_id: contextOf(0, i) });
+      expect(speech.at(-1)).toBe(`${id} failed`);
+    }
+    expect(fatal).toEqual(['provider_error']);
+    expect(ttsFactory.sockets).toHaveLength(1);
     expect(pipeline.usage().ttsReconnects).toBe(0);
   });
 

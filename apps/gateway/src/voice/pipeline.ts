@@ -20,6 +20,12 @@ export const MAX_CAPTION_CHARS = 1500;
 /** Reconnect delays after a recoverable provider drop; then the call is reported as failed. */
 const RECONNECT_DELAYS_MS = [250, 1000, 3000] as const;
 /**
+ * Answers in a row that may fail with a generation error before any audio plays, before the call
+ * ends as voice_failed. One failure can be a passing provider hiccup; two in a row with nothing
+ * heard means the caller is talking to silence (production 2026-11-16).
+ */
+const SILENT_ANSWERS_FATAL = 2;
+/**
  * A reconnected session counts as healthy (its retry budget is restored) only after staying up
  * this long, so a provider that accepts and then drops at once cannot reconnect-storm forever.
  */
@@ -114,6 +120,8 @@ export class VoicePipeline {
   private tts: TtsSession | undefined;
   private reconnecting = { stt: false, tts: false };
   private attempts = { stt: 0, tts: 0 };
+  /** Answers in a row that failed before any of their audio arrived (see SILENT_ANSWERS_FATAL). */
+  private silentFailures = 0;
   private generation = 0;
   /** Scheduler time the caller's voice first rose over the active speech (barge-in latency origin). */
   private onsetAt: number | undefined;
@@ -530,6 +538,7 @@ export class VoicePipeline {
         if (active === undefined || event.generationId !== active.id || active.providerDone) return;
         if (!active.firstAudioLogged) {
           active.firstAudioLogged = true;
+          this.silentFailures = 0;
           this.log('tts_first_audio', {
             generation_id: active.id,
             duration_ms: this.elapsed(active.committedAt),
@@ -573,8 +582,16 @@ export class VoicePipeline {
           'voice provider generation error',
         );
         const active = this.active;
-        if (active !== undefined && event.generationId === active.id && !active.providerDone)
+        if (active !== undefined && event.generationId === active.id && !active.providerDone) {
           this.failSpeech(active);
+          if (!active.firstAudioLogged) this.silentFailures += 1;
+        }
+        // Answer after answer failing without a sound (a voice the provider deleted, an account
+        // out of credit) would leave the caller in silence: end the call so the phone says why.
+        if (this.silentFailures >= SILENT_ANSWERS_FATAL) {
+          this.silentFailures = 0;
+          this.options.onFatal({ code: event.error.code, recoverable: false }, 'tts');
+        }
         return;
       }
     }
