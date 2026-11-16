@@ -34,17 +34,15 @@ async function setup(ownerCodes: InviteCodeRecord[] = [], member = false) {
   directories.push(dir);
   const codesFile = join(dir, 'invite-codes.json');
   await writeFile(codesFile, JSON.stringify({ codes: ownerCodes }));
-  const autoCodes = new MemoryCollection<InviteCodeRecord>();
   const redemptions = new MemoryCollection<RedemptionRecord>();
   const onUnavailable = vi.fn();
   const service = createInviteService({
     members: { has: () => Promise.resolve(member) },
     codesFile,
-    autoCodes,
     redemptions,
     onUnavailable,
   });
-  return { codesFile, autoCodes, redemptions, service, onUnavailable };
+  return { codesFile, redemptions, service, onUnavailable };
 }
 
 describe('letting people in without a code', () => {
@@ -57,7 +55,6 @@ describe('letting people in without a code', () => {
     const service = createInviteService({
       members: { has: () => Promise.resolve(false) },
       codesFile,
-      autoCodes: new MemoryCollection<InviteCodeRecord>(),
       redemptions,
       autoAdmitPerDay: perDay,
       now: () => clock.now,
@@ -189,11 +186,10 @@ describe('invite codes', () => {
     expect(results.sort()).toEqual(['invalid', 'redeemed']);
   });
 
-  it('redeems an auto code and recognizes membership from a redemption', async () => {
-    const { service } = await setup();
-    const code = await service.createAutoCode('request a@example.com');
+  it('redeems an owner code and recognizes membership from a redemption', async () => {
+    const { service } = await setup([record('123456')]);
     expect(await service.isMember('a@example.com')).toBe(false);
-    expect(await service.redeem('a@example.com', code)).toBe('redeemed');
+    expect(await service.redeem('a@example.com', '123456')).toBe('redeemed');
     expect(await service.isMember(' A@EXAMPLE.COM ')).toBe(true);
   });
 
@@ -205,7 +201,6 @@ describe('invite codes', () => {
     const missing = createInviteService({
       members: { has: () => Promise.resolve(false) },
       codesFile: join(tmpdir(), 'missing-cord-invite-codes.json'),
-      autoCodes: new MemoryCollection<InviteCodeRecord>(),
       redemptions: new MemoryCollection<RedemptionRecord>(),
     });
     expect(await missing.redeem('a@example.com', '123456')).toBe('invalid');

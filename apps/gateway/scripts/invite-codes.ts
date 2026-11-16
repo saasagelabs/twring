@@ -48,7 +48,6 @@ async function main(): Promise<void> {
     return value;
   };
   const result = applyCodesOp(field('codes'), op, {
-    autoCodes: field('autoCodes'),
     redemptions: field('redemptions'),
   });
   if (op.kind === 'new') {

@@ -4,7 +4,6 @@ import { z } from 'zod';
 
 import {
   hashCode,
-  inviteCodeRecordSchema,
   inviteCodesFileSchema,
   redemptionRecordSchema,
   type InviteCodeRecord,
@@ -27,10 +26,9 @@ export interface CodeRow {
 export function applyCodesOp(
   currentText: string | undefined,
   op: CodesOp,
-  extra: { autoCodes?: string; redemptions?: string } = {},
+  extra: { redemptions?: string } = {},
 ): { next?: string; newCodes: string[]; rows: CodeRow[] } {
   let owner: InviteCodeRecord[];
-  let auto: InviteCodeRecord[];
   let redemptions: z.infer<typeof redemptionRecordSchema>[];
   try {
     owner =
@@ -39,10 +37,6 @@ export function applyCodesOp(
     throw new Error('invite-codes.json is invalid; fix it on the server before changing it');
   }
   try {
-    auto =
-      extra.autoCodes === undefined
-        ? []
-        : z.array(inviteCodeRecordSchema).parse(JSON.parse(extra.autoCodes));
     redemptions =
       extra.redemptions === undefined
         ? []
@@ -75,7 +69,7 @@ export function applyCodesOp(
       .string()
       .max(80)
       .parse(op.note ?? '');
-    const known = new Set([...owner, ...auto].map((item) => item.hash));
+    const known = new Set(owner.map((item) => item.hash));
     const at = new Date();
     for (let i = 0; i < count; i += 1) {
       let code: string | undefined;
@@ -109,8 +103,6 @@ export function applyCodesOp(
         return hashCode(code);
       }),
     );
-    if (auto.some((item) => hashes.has(item.hash)))
-      throw new Error('auto codes cannot be revoked by this tool');
     const kept = owner.filter((item) => !hashes.has(item.hash));
     if (kept.length !== owner.length) {
       owner = kept;
@@ -118,7 +110,7 @@ export function applyCodesOp(
     }
   }
   const now = Date.now();
-  const rows = [...owner, ...auto].map((item) => {
+  const rows = owner.map((item) => {
     const redeemed = redemptions.filter((row) => row.hash === item.hash).length;
     return {
       hashPrefix: item.hash.slice(0, 8),

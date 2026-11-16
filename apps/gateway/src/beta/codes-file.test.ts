@@ -4,7 +4,7 @@ import { applyCodesOp } from './codes-file';
 import { hashCode, inviteCodesFileSchema } from './invites';
 
 describe('applyCodesOp', () => {
-  it('creates unique codes and avoids owner and auto hashes', () => {
+  it('creates unique codes and avoids existing owner hashes', () => {
     const existing = {
       hash: hashCode('123456'),
       uses: 1,
@@ -12,27 +12,25 @@ describe('applyCodesOp', () => {
       note: '',
       created_at: '2026-01-01T00:00:00.000Z',
     };
-    const result = applyCodesOp(
-      JSON.stringify({ codes: [existing] }),
-      { kind: 'new', count: 20, note: 'X wave' },
-      { autoCodes: JSON.stringify([{ ...existing, hash: hashCode('654321') }]) },
-    );
+    const result = applyCodesOp(JSON.stringify({ codes: [existing] }), {
+      kind: 'new',
+      count: 20,
+      note: 'X wave',
+    });
     expect(new Set(result.newCodes).size).toBe(20);
     expect(result.newCodes).not.toContain('123456');
-    expect(result.newCodes).not.toContain('654321');
     expect(inviteCodesFileSchema.parse(JSON.parse(result.next!)).codes).toHaveLength(21);
   });
 
-  it('lists active, used and expired codes from both sources', () => {
+  it('lists active, used and expired codes', () => {
     const base = { uses: 1, note: '', created_at: '2026-01-01T00:00:00.000Z' };
     const active = { ...base, hash: hashCode('123456'), expires_at: '2099-01-01T00:00:00.000Z' };
     const expired = { ...base, hash: hashCode('234567'), expires_at: '2020-01-01T00:00:00.000Z' };
     const used = { ...base, hash: hashCode('345678'), expires_at: '2099-01-01T00:00:00.000Z' };
     const result = applyCodesOp(
-      JSON.stringify({ codes: [active, expired] }),
+      JSON.stringify({ codes: [active, expired, used] }),
       { kind: 'list' },
       {
-        autoCodes: JSON.stringify([used]),
         redemptions: JSON.stringify([
           { hash: used.hash, email: 'a@example.com', at: '2026-01-01T00:00:00.000Z' },
         ]),
@@ -43,7 +41,7 @@ describe('applyCodesOp', () => {
     expect(result.next).toBeUndefined();
   });
 
-  it('revokes owner codes, but refuses auto codes', () => {
+  it('revokes owner codes', () => {
     const row = {
       hash: hashCode('123456'),
       uses: 1,
@@ -59,13 +57,6 @@ describe('applyCodesOp', () => {
         ),
       ).codes,
     ).toEqual([]);
-    expect(() =>
-      applyCodesOp(
-        undefined,
-        { kind: 'revoke', codes: ['123456'] },
-        { autoCodes: JSON.stringify([row]) },
-      ),
-    ).toThrow('auto codes cannot be revoked');
   });
 
   it('enforces limits and rejects invalid files without echoing contents', () => {

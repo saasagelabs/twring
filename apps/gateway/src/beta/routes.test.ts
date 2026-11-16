@@ -10,7 +10,7 @@ import { buildApp } from '../app';
 import { createRequestAuth } from '../auth';
 import { MemoryCollection } from '../store/collection';
 import type { WaitlistRecord } from '../waitlist/routes';
-import { hashCode, type InviteCodeRecord, type RedemptionRecord } from './invites';
+import { hashCode, type RedemptionRecord } from './invites';
 
 async function fixture(extraEnv: Record<string, string> = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'cord-invite-routes-'));
@@ -49,7 +49,6 @@ async function fixture(extraEnv: Record<string, string> = {}) {
     onError: () => undefined,
     invites: {
       codesFile,
-      autoCodes: new MemoryCollection<InviteCodeRecord>(),
       redemptions,
     },
     waitlist: { records, allowedOrigins: [], onNewSignup },

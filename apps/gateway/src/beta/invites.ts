@@ -1,4 +1,4 @@
-import { createHash, randomInt } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 
 import { z } from 'zod';
@@ -49,13 +49,11 @@ export interface InviteService {
   admit(email: string, userId: string): Promise<'member' | 'admitted' | 'full' | 'closed'>;
   /** Lets someone in by email address before Twring emails their invite. */
   letIn(email: string): Promise<void>;
-  createAutoCode(note: string, now?: Date): Promise<string>;
 }
 
 export function createInviteService(options: {
   members: { has(email: string | undefined): Promise<boolean> };
   codesFile: string;
-  autoCodes: Collection<InviteCodeRecord>;
   redemptions: Collection<RedemptionRecord>;
   /** People let in without a code each UTC day; 0 (the default) turns it off. */
   autoAdmitPerDay?: number;
@@ -105,9 +103,7 @@ export function createInviteService(options: {
       const code = normalizeCode(input);
       if (!code) return 'invalid';
       const hash = hashCode(code);
-      const record = [...(await readOwnerCodes()), ...(await options.autoCodes.read())].find(
-        (candidate) => candidate.hash === hash,
-      );
+      const record = (await readOwnerCodes()).find((candidate) => candidate.hash === hash);
       if (!record || Date.parse(record.expires_at) <= now().getTime()) return 'invalid';
       return options.redemptions.update((items) => {
         if (items.some((item) => item.email === normalized)) {
@@ -174,27 +170,6 @@ export function createInviteService(options: {
               result: undefined,
             },
       );
-    },
-    async createAutoCode(note, at = now()) {
-      inviteCodeRecordSchema.shape.note.parse(note);
-      for (let attempt = 0; attempt < 1_000; attempt += 1) {
-        const code = randomInt(0, 1_000_000).toString().padStart(6, '0');
-        const hash = hashCode(code);
-        if ((await readOwnerCodes()).some((item) => item.hash === hash)) continue;
-        const expires = new Date(at.getTime() + 14 * 86_400_000).toISOString();
-        const added = await options.autoCodes.update((items) => {
-          if (items.some((item) => item.hash === hash)) return { items, result: false };
-          return {
-            items: [
-              ...items,
-              { hash, uses: 1, expires_at: expires, note, created_at: at.toISOString() },
-            ],
-            result: true,
-          };
-        });
-        if (added) return code;
-      }
-      throw new Error('could not create invite code');
     },
   };
 }

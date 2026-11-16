@@ -24,11 +24,7 @@ import { createRequestAuth, selectAuthenticator, mcpAuthenticator } from './auth
 import { startAdminListener } from './selfhost/admin';
 import { buildSelfhost, ringPushWiring } from './selfhost/wiring';
 import { createBetaMembers } from './beta/members';
-import {
-  createInviteService,
-  inviteCodeRecordSchema,
-  redemptionRecordSchema,
-} from './beta/invites';
+import { createInviteService, redemptionRecordSchema } from './beta/invites';
 import { ConnectorHub } from './connectors/hub';
 import { PairingBook } from './connectors/pairing';
 import { connectorCallStatus } from './connectors/routes';
@@ -567,10 +563,6 @@ const notifier =
 const inviteStores = env.BETA_MEMBERS_FILE
   ? {
       codesFile: join(env.CORD_DATA_DIR, 'invite-codes.json'),
-      autoCodes: new JsonFileCollection(
-        join(env.CORD_DATA_DIR, 'invite-auto-codes.json'),
-        inviteCodeRecordSchema,
-      ),
       redemptions: new JsonFileCollection(
         join(env.CORD_DATA_DIR, 'invite-redemptions.json'),
         redemptionRecordSchema,

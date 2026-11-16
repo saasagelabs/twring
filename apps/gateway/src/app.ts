@@ -21,12 +21,7 @@ import { registerVoiceSampleRoutes, type VoiceSampleRoutesOptions } from './agen
 import type { RequestAuth, UserResolver } from './auth';
 import { devUserResolver, PUBLIC_ROUTES } from './auth';
 import { createBetaMembers } from './beta/members';
-import {
-  createInviteService,
-  inviteCodeRecordSchema,
-  redemptionRecordSchema,
-  type InviteService,
-} from './beta/invites';
+import { createInviteService, redemptionRecordSchema, type InviteService } from './beta/invites';
 import { registerInviteRoutes } from './beta/routes';
 import { registerCallRoutes, type CallRoutesOptions, type CallStarter } from './calls/routes';
 import { FeedbackStore, feedbackRecordSchema } from './calls/feedback-store';
@@ -72,7 +67,7 @@ import { connectedAppBlockSchema, McpContacts } from './mcp/contacts';
 import { registerConnectedAppRoutes, registerMcpMetadata, registerMcpRoutes } from './mcp/routes';
 import type { McpIdentity } from './auth';
 import type { FastifyRequest } from 'fastify';
-import type { InviteCodeRecord, RedemptionRecord } from './beta/invites';
+import type { RedemptionRecord } from './beta/invites';
 
 /** A dependency probe for /health/ready. Must resolve or reject within `timeoutMs`. */
 export interface ReadinessCheck {
@@ -121,7 +116,6 @@ export interface BuildAppOptions {
   waitlist?: WaitlistRoutesOptions;
   invites?: {
     codesFile: string;
-    autoCodes: Collection<InviteCodeRecord>;
     redemptions: Collection<RedemptionRecord>;
   };
   /**
@@ -287,10 +281,6 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         });
   const inviteStores = invites ?? {
     codesFile: join(env.CORD_DATA_DIR, 'invite-codes.json'),
-    autoCodes: new JsonFileCollection(
-      join(env.CORD_DATA_DIR, 'invite-auto-codes.json'),
-      inviteCodeRecordSchema,
-    ),
     redemptions: new JsonFileCollection(
       join(env.CORD_DATA_DIR, 'invite-redemptions.json'),
       redemptionRecordSchema,
