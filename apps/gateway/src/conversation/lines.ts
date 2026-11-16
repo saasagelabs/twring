@@ -220,7 +220,15 @@ export const LINES: Record<LineLanguage, Lines> = {
 
 /** Spoken approval words beyond English, which every speaker may also use ("yes", "okay"). */
 export const SPOKEN_APPROVAL_WORDS: Partial<
-  Record<LineLanguage, { yes: readonly string[]; no: readonly string[] }>
+  Record<
+    LineLanguage,
+    {
+      yes: readonly string[];
+      no: readonly string[];
+      /** Polite words allowed around an answer ("sí, por favor"), as English "please" is. */
+      fillers: readonly string[];
+    }
+  >
 > = {
   hi: {
     yes: [
@@ -260,6 +268,7 @@ export const SPOKEN_APPROVAL_WORDS: Partial<
       'mat karo',
       'rehne do',
     ],
+    fillers: ['प्लीज़', 'प्लीज', 'धन्यवाद', 'शुक्रिया', 'please', 'shukriya', 'dhanyavaad'],
   },
   es: {
     yes: [
@@ -277,6 +286,7 @@ export const SPOKEN_APPROVAL_WORDS: Partial<
       'okey',
     ],
     no: ['no', 'nop', 'todavía no', 'ahora no', 'nunca', 'no lo hagas', 'mejor no'],
+    fillers: ['por favor', 'gracias', 'muchas gracias', 'oye'],
   },
 };
 

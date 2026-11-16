@@ -72,17 +72,22 @@ export function approvalTitle(title: string, action: ApprovalAction): string {
 }
 
 const byLength = (phrases: string[]) => phrases.map(echoWords).sort((a, b) => b.length - a.length);
-const FILLER_PATTERNS = byLength(FILLERS);
 
 /** Yes and no patterns for a language: English always counts ("okay" works in any call). */
-const DECISION_PATTERNS = new Map<LineLanguage, { yes: string[][]; no: string[][] }>();
-function decisionPatterns(language: LineLanguage): { yes: string[][]; no: string[][] } {
+interface DecisionPatterns {
+  yes: string[][];
+  no: string[][];
+  fillers: string[][];
+}
+const DECISION_PATTERNS = new Map<LineLanguage, DecisionPatterns>();
+function decisionPatterns(language: LineLanguage): DecisionPatterns {
   let patterns = DECISION_PATTERNS.get(language);
   if (patterns === undefined) {
     const extra = SPOKEN_APPROVAL_WORDS[language];
     patterns = {
       yes: byLength([...YES, ...(extra?.yes ?? [])]),
       no: byLength([...NO, ...(extra?.no ?? [])]),
+      fillers: byLength([...FILLERS, ...(extra?.fillers ?? [])]),
     };
     DECISION_PATTERNS.set(language, patterns);
   }
@@ -97,6 +102,7 @@ export function approvalVoiceDecision(
   if (words.length === 0 || words.length > MAX_APPROVAL_WORDS) return undefined;
   const names = new Set(echoWords(agentName ?? ''));
   const rest = words.filter((word) => !names.has(word));
+  const decision = decisionPatterns(language);
   /** `rest` is one or more of `patterns`, with fillers allowed around them. */
   const matches = (patterns: string[][]) => {
     const at = (pattern: string[], index: number) =>
@@ -106,13 +112,13 @@ export function approvalVoiceDecision(
     while (index < rest.length) {
       const pattern = patterns.find((part) => at(part, index));
       if (pattern !== undefined) found = true;
-      const step = pattern ?? FILLER_PATTERNS.find((part) => at(part, index));
+      const step = pattern ?? decision.fillers.find((part) => at(part, index));
       if (step === undefined) return false;
       index += step.length;
     }
     return found;
   };
-  const { yes, no } = decisionPatterns(language);
+  const { yes, no } = decision;
   if (matches(yes)) return 'approve';
   if (matches(no)) return 'deny';
   return undefined;

@@ -20,6 +20,16 @@ describe('approval words in the person language', () => {
       approvalVoiceDecision('no sé qué hacer con esto ahora', undefined, 'es'),
     ).toBeUndefined();
   });
+  it('polite words around a Spanish or Hindi answer still decide', () => {
+    expect(approvalVoiceDecision('Sí, por favor', 'Juno', 'es')).toBe('approve');
+    expect(approvalVoiceDecision('No, gracias', 'Juno', 'es')).toBe('deny');
+    expect(approvalVoiceDecision('हाँ, प्लीज़', 'Juno', 'hi')).toBe('approve');
+    expect(approvalVoiceDecision('नहीं, धन्यवाद', 'Juno', 'hi')).toBe('deny');
+    // A language's fillers alone never decide, and stay out of other calls.
+    expect(approvalVoiceDecision('por favor', 'Juno', 'es')).toBeUndefined();
+    expect(approvalVoiceDecision('yes gracias', 'Juno', 'en')).toBeUndefined();
+  });
+
   it('French oui is not decided', () => {
     expect(approvalVoiceDecision('oui', undefined, 'fr')).toBeUndefined();
   });
