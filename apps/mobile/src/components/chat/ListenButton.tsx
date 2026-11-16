@@ -45,6 +45,8 @@ function isSpeechKeyError(error: unknown): error is ApiError {
  * the next Listen asks once as plain HTTP first and shows the refusal straight away.
  */
 let keyRefused = false;
+/** The check before the player is on the tap's path: past this it counts as inconclusive. */
+export const LISTEN_PREFLIGHT_TIMEOUT_MS = 4_000;
 
 /** Remembers a refused own key so the next Listen checks first. */
 export function noteListenFailure(error: unknown): void {
@@ -90,10 +92,13 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
   const generation = useRef(0);
   const owner = useRef(Symbol('listen'));
   const playedAutomatically = useRef(false);
+  const preflight = useRef<AbortController | undefined>(undefined);
   const [failure, setFailure] = useState(LISTEN_FAILED);
 
   const stop = useCallback(() => {
     generation.current++;
+    preflight.current?.abort();
+    preflight.current = undefined;
     const player = owned.current;
     if (current?.owner === owner.current) current = undefined;
     if (player) {
@@ -106,6 +111,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
   useEffect(
     () => () => {
       generation.current++;
+      preflight.current?.abort();
       const player = owned.current;
       owned.current = undefined;
       if (current?.owner === owner.current) current = undefined;
@@ -128,7 +134,18 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       const api = twringApi();
       if (!api) throw new Error('API unavailable');
       const source = await api.messageSpeechUrl(agentId, messageId);
-      const refused = await listenPreflight(() => probeSpeech(fetch, source.uri, source.headers));
+      const check = new AbortController();
+      preflight.current = check;
+      const deadline = setTimeout(() => check.abort(), LISTEN_PREFLIGHT_TIMEOUT_MS);
+      let refused: ApiError | undefined;
+      try {
+        refused = await listenPreflight(() =>
+          probeSpeech(fetch, source.uri, source.headers, check.signal),
+        );
+      } finally {
+        clearTimeout(deadline);
+        if (preflight.current === check) preflight.current = undefined;
+      }
       if (request !== generation.current) return;
       if (refused !== undefined) throw refused;
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });

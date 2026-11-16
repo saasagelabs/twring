@@ -28,9 +28,10 @@ export async function probeSpeech(
   doFetch: ProbeFetch,
   uri: string,
   headers: Record<string, string>,
+  signal?: AbortSignal,
 ): Promise<'ok' | ApiError | undefined> {
   try {
-    const response = await doFetch(uri, { method: 'GET', headers });
+    const response = await doFetch(uri, { method: 'GET', headers, ...(signal && { signal }) });
     if (response.ok) {
       // Healthy: stop reading so the server does not finish a second synthesis for nothing.
       void response.body?.cancel().catch(() => undefined);

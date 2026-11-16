@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiError } from './client';
 import { apiErrorCopy } from './errors';
-import { probeSpeechKeyError } from './speech-key-probe';
+import { probeSpeech, probeSpeechKeyError } from './speech-key-probe';
 
 const body = (code: string, message: string) => ({
   error: { code, message, request_id: 'req-1' },
@@ -70,5 +70,24 @@ describe('probeSpeechKeyError', () => {
     const doFetch = () =>
       Promise.resolve({ ok: true, status: 200, body: null } as unknown as Response);
     expect(await probeSpeechKeyError(doFetch, 'u', {})).toBeUndefined();
+  });
+});
+
+describe('probeSpeech', () => {
+  it('says ok for a healthy answer', async () => {
+    await expect(probeSpeech(fetchOf(200, 'audio'), 'https://api.test/v1/x', {})).resolves.toBe(
+      'ok',
+    );
+  });
+
+  it('gives up as inconclusive when its signal is aborted, even if the request never answers', async () => {
+    const controller = new AbortController();
+    const hanging = (_url: string, init: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    const result = probeSpeech(hanging, 'https://api.test/v1/x', {}, controller.signal);
+    controller.abort();
+    await expect(result).resolves.toBeUndefined();
   });
 });
