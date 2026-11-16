@@ -29,11 +29,10 @@ export default function LanguageScreen() {
     if (api?.setLanguage === undefined || saving !== undefined || language === selected) return;
     setSaving(language);
     setError(undefined);
-    api
-      .setLanguage(language)
+    languageStore
+      .save(language)
       .then(
-        (saved) => {
-          languageStore.set(saved);
+        () => {
           playCallFeedback('connected');
         },
         (reason: unknown) => {

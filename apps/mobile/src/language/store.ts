@@ -12,6 +12,8 @@ export type LanguageState =
 
 let state: LanguageState = { status: 'unknown' };
 let loading: Promise<void> | undefined;
+/** Bumped when the active server changes: answers asked before it are the old server's. */
+let generation = 0;
 const listeners = new Set<() => void>();
 
 function set(next: LanguageState) {
@@ -26,7 +28,15 @@ export const languageStore = {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
-  set: (language: SpeakerLanguage) => set({ status: 'loaded', language }),
+  /** Saves on the server, then shows it everywhere, unless the server changed meanwhile. */
+  async save(language: SpeakerLanguage): Promise<SpeakerLanguage> {
+    const api = twringApi();
+    if (api?.setLanguage === undefined) throw new Error('language setting unavailable');
+    const asked = generation;
+    const saved = await api.setLanguage(language);
+    if (asked === generation) set({ status: 'loaded', language: saved });
+    return saved;
+  },
   /** Asks the server once; `force` asks again (Settings opening). */
   load(force = false): Promise<void> {
     if (loading !== undefined && !force) return loading;
@@ -36,20 +46,30 @@ export const languageStore = {
       set({ status: 'unavailable' });
       return Promise.resolve();
     }
-    loading = api.getLanguage().then(
-      (language) =>
-        set(language === undefined ? { status: 'unavailable' } : { status: 'loaded', language }),
+    const asked = generation;
+    const request = api.getLanguage().then(
+      (language) => {
+        if (asked !== generation) return;
+        set(language === undefined ? { status: 'unavailable' } : { status: 'loaded', language });
+      },
       () => {
         // A failure keeps a language already known; otherwise the row stays hidden.
-        if (state.status !== 'loaded') set({ status: 'unavailable' });
+        if (asked === generation && state.status !== 'loaded') set({ status: 'unavailable' });
       },
     );
-    void loading.finally(() => {
-      loading = undefined;
+    loading = request;
+    void request.finally(() => {
+      if (loading === request) loading = undefined;
     });
-    return loading;
+    return request;
   },
-  reset: () => set({ status: 'unknown' }),
+  /** Forgets the language and asks the (new) active server; older answers are dropped. */
+  reset() {
+    generation += 1;
+    loading = undefined;
+    set({ status: 'unknown' });
+    void languageStore.load();
+  },
 };
 
 export function useLanguageState(): LanguageState {
