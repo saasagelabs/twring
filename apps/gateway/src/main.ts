@@ -740,6 +740,7 @@ const app = buildApp({
         readRatePerMinute: env.THREAD_READ_RATE_PER_MINUTE,
         messagesPerDay: env.THREAD_MESSAGES_PER_DAY,
         ...(voiceNotes && { transcribeVoiceNote: voiceNotes }),
+        ...(!ownSpeech && { languageFor: (userId: string) => languages.get(userId) }),
         // A person's own keys (BYOK), including xAI listening on their own xAI key, and the
         // server's own xAI key on a self-hosted server without Deepgram.
         ...(ownSpeech && {

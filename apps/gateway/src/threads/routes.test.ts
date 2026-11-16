@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { TwringAgentAdapter } from '@twring/agent-adapter';
 import { loadGatewayEnv } from '@twring/config/gateway';
-import type { UserTurn } from '@twring/contracts';
+import type { SpeakerLanguage, UserTurn } from '@twring/contracts';
 import { gatewayEnvFixture } from '@twring/test-fixtures';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -461,6 +461,7 @@ describe('voice notes with a person’s own Deepgram key', () => {
     messagesPerDay?: number;
     /** A self-hosted server with no Deepgram key: Deepgram notes only on the person's own key. */
     noDeepgram?: boolean;
+    languageFor?: (userId: string) => Promise<SpeakerLanguage>;
   }) {
     const lines: string[] = [];
     const app = Fastify({
@@ -503,6 +504,7 @@ describe('voice notes with a person’s own Deepgram key', () => {
       transcribeWithXai: createXaiTranscriber(options.fetcher, 0),
       wordsFor: () => Promise.resolve(['Gowri']),
       ...(options.speech && { speech: options.speech }),
+      ...(options.languageFor && { languageFor: options.languageFor }),
       onError,
     });
     await app.ready();
@@ -521,6 +523,25 @@ describe('voice notes with a person’s own Deepgram key', () => {
   const twring: SpeechResolver = {
     resolve: () => Promise.resolve({ deepgram: { apiKey: 'server-dg-key', source: 'twring' } }),
   };
+
+  it('hears a note in the person’s language without saved keys (no resolver)', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(answer('नमस्ते'));
+    const { app, post } = await voiceApp({ fetcher, languageFor: () => Promise.resolve('hi') });
+    expect((await post()).statusCode).toBe(201);
+    expect(fetcher.mock.calls[0]![0] as string).toContain('language=hi');
+    await app.close();
+  });
+
+  it('hears a note in English when the language cannot be read (no resolver)', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(answer('hello'));
+    const { app, post } = await voiceApp({
+      fetcher,
+      languageFor: () => Promise.reject(new Error('disk')),
+    });
+    expect((await post()).statusCode).toBe(201);
+    expect(fetcher.mock.calls[0]![0] as string).toContain('language=en');
+    await app.close();
+  });
 
   it('transcribes with the person’s own key', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(answer('hello'));

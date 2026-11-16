@@ -104,6 +104,30 @@ describe('serverXaiCallVoice', () => {
   });
 });
 
+describe('serverXaiCallVoice in the person’s language', () => {
+  const hindi: ResolvedSpeech = {
+    xai: { apiKey: SERVER_KEY, source: 'twring' },
+    listening: 'xai',
+    language: 'hi',
+  };
+
+  it('listens and speaks on xAI in that language', () => {
+    const { voice, stt, tts } = recording();
+    voice.sttForKeyterms([], 'Juno', hindi);
+    voice.ttsForVoice('xai-eve-en', hindi);
+    expect(stt.at(-1)?.language).toBe('hi');
+    expect(tts.at(-1)?.language).toBe('hi');
+  });
+
+  it('sends no language for an English speaker, as before', () => {
+    const { voice, stt, tts } = recording();
+    voice.sttForKeyterms([], 'Juno', { xai: hindi.xai!, listening: 'xai' });
+    voice.ttsForVoice('xai-eve-en', { xai: hindi.xai! });
+    expect(stt.at(-1)).not.toHaveProperty('language');
+    expect(tts.at(-1)).not.toHaveProperty('language');
+  });
+});
+
 describe('serverXaiCallVoice with the person’s own keys', () => {
   function withOwnKeys() {
     const made: string[] = [];
@@ -124,11 +148,11 @@ describe('serverXaiCallVoice with the person’s own keys', () => {
           return { name: 'deepgram-stt' } as unknown as SttProvider;
         },
         tts: {
-          forSample: (voiceId, speech) => {
+          forCallVoice: (voiceId, speech) => {
             const key = voiceId.startsWith('cartesia')
               ? speech?.cartesia?.apiKey
               : speech?.deepgram?.apiKey;
-            made.push(`tts:${voiceId}:${key}`);
+            made.push(`tts:${voiceId}:${key}${speech?.language ? `:${speech.language}` : ''}`);
             return { name: voiceId } as unknown as TtsProvider;
           },
         },
@@ -164,6 +188,12 @@ describe('serverXaiCallVoice with the person’s own keys', () => {
     const { voice, made } = withOwnKeys();
     voice.ttsForVoice('cartesia-janvi-en', serverCartesia);
     expect(made).toContain('tts:cartesia-janvi-en:server-ct');
+  });
+
+  it('a server Cartesia voice speaks in the person’s language', () => {
+    const { voice, made } = withOwnKeys();
+    voice.ttsForVoice('cartesia-janvi-en', { ...serverCartesia, language: 'hi' });
+    expect(made).toContain('tts:cartesia-janvi-en:server-ct:hi');
   });
 
   it('a voice nobody can speak is Eve on the server key', () => {

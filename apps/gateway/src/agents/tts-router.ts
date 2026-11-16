@@ -35,6 +35,11 @@ export interface TtsRouter {
    * from `speech` when given (a person's own key for a voice the server cannot make).
    */
   forSample(voiceId: string, speech?: ResolvedSpeech): TtsProvider | undefined;
+  /**
+   * Exactly that voice for a call, in the person's language, or undefined when it cannot be
+   * spoken. For a caller that picks its own fallback (a server on its own xAI key).
+   */
+  forCallVoice(voiceId: string, speech?: ResolvedSpeech): TtsProvider | undefined;
 }
 
 /** Picks the provider by voice id (ADR-020). Provider choice stays here, out of the pipeline. */
@@ -127,6 +132,7 @@ export function createTtsRouter(options: TtsRouterOptions): TtsRouter {
     },
     // Samples stay in English: they show how a voice sounds.
     forSample: (voiceId, speech) => exact(voiceId, keysFor(speech)),
+    forCallVoice: (voiceId, speech) => exact(voiceId, keysFor(speech), speech?.language),
   };
 }
 

@@ -66,6 +66,11 @@ export interface ThreadRoutesOptions {
   ) => Promise<string>;
   /** Whose Deepgram key a voice note uses (BYOK); absent means Twring's, as before. */
   speech?: SpeechResolver;
+  /**
+   * The person's language when there is no resolver (saved keys off): voice notes are heard in
+   * it all the same (ADR-036). A failure reads as English.
+   */
+  languageFor?: (userId: string) => Promise<SpeakerLanguage>;
   /** Operator alert for a speech key store that cannot be read. */
   onError?: (error: Error, context: { requestId: string }) => void;
   /** The words a voice note to this agent should hear right, as its calls do. */
@@ -321,6 +326,11 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
             return sendFailure(reply, cause);
           }
           // The same note may have started while its keys were looked up: join it, never resend.
+          const started = sends.get(sendKey);
+          if (started) return joinPending(started);
+        } else if (options.languageFor !== undefined) {
+          const chosen = await options.languageFor(userId).catch(() => 'en' as const);
+          if (chosen !== 'en') language = chosen;
           const started = sends.get(sendKey);
           if (started) return joinPending(started);
         }
