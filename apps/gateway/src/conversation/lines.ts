@@ -1,4 +1,4 @@
-import type { ApprovalAction } from '@twring/contracts';
+import type { ApprovalAction, SpeakerLanguage } from '@twring/contracts';
 
 /**
  * Twring's own spoken lines in each language a person can speak (ADR-036). English is exactly
@@ -8,7 +8,7 @@ import type { ApprovalAction } from '@twring/contracts';
  * Spoken yes/no answers to approvals exist for `en`, `hi` and `es`; every other language asks
  * the person to answer on the phone, and a spoken answer is not taken as a decision.
  */
-export type LineLanguage = 'en' | 'es' | 'fr' | 'de' | 'hi' | 'ru' | 'pt' | 'ja' | 'it' | 'nl';
+export type LineLanguage = SpeakerLanguage;
 
 export interface Lines {
   /** Acknowledgements, taken in turn. None may be only stop words (an echo would read as "wait"). */
