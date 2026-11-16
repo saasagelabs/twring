@@ -21,6 +21,14 @@ export type DailyUsageRow = z.infer<typeof dailyUsageRowSchema>;
 export interface DailyAllowance {
   callSeconds: number;
   calls: number;
+  /** Calling seconds for named people instead of `callSeconds` (DAILY_CALL_SECONDS_OVERRIDES). */
+  callSecondsFor?: Readonly<Record<string, number>>;
+}
+
+/** The person's calling seconds a day: their own allowance when set, else everyone's. 0 = none. */
+export function callSecondsAllowed(allowance: DailyAllowance, userId: string): number {
+  const own = allowance.callSecondsFor;
+  return own !== undefined && Object.hasOwn(own, userId) ? own[userId]! : allowance.callSeconds;
 }
 
 export function utcDay(now: Date): string {
@@ -75,7 +83,7 @@ export class DailyLimits {
       day,
       resets_at: nextUtcMidnight(now).toISOString(),
       call_seconds_used: Math.floor(row?.call_seconds ?? 0),
-      call_seconds_allowed: this.allowance.callSeconds || null,
+      call_seconds_allowed: callSecondsAllowed(this.allowance, userId) || null,
       calls_used: row?.calls ?? 0,
       calls_allowed: this.allowance.calls || null,
     };
@@ -88,7 +96,8 @@ export class DailyLimits {
   admit(userId: string): Promise<Admission> {
     const now = this.now();
     const day = utcDay(now);
-    const { callSeconds, calls } = this.allowance;
+    const { calls } = this.allowance;
+    const callSeconds = callSecondsAllowed(this.allowance, userId);
     const serviceCap = this.service.callSeconds;
     return this.rows.update<Admission>((items) => {
       const kept = prune(items, day);

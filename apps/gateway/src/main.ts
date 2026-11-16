@@ -229,7 +229,11 @@ JsonFileCollection.onRowsSkipped = (file, count) => {
 // service-wide daily cap that guards cost (SERVICE_DAILY_CALL_SECONDS).
 const dailyLimits = new DailyLimits(
   new JsonFileCollection(join(env.CORD_DATA_DIR, 'daily-usage.json'), dailyUsageRowSchema),
-  { callSeconds: env.DAILY_CALL_SECONDS_PER_USER, calls: env.DAILY_CALLS_PER_USER },
+  {
+    callSeconds: env.DAILY_CALL_SECONDS_PER_USER,
+    calls: env.DAILY_CALLS_PER_USER,
+    ...(env.DAILY_CALL_SECONDS_OVERRIDES && { callSecondsFor: env.DAILY_CALL_SECONDS_OVERRIDES }),
+  },
   () => new Date(),
   {
     callSeconds: env.SERVICE_DAILY_CALL_SECONDS,

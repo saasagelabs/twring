@@ -26,6 +26,7 @@ import {
   dailyUsageRowSchema,
   nextUtcMidnight,
   utcDay,
+  type DailyAllowance,
   type DailyUsageRow,
   type ServiceCap,
 } from './daily-limits';
@@ -34,7 +35,7 @@ import { FakeTransport, ManualScheduler, flushMicrotasks, recordingLogger } from
 
 const NOON = Date.parse('2026-09-30T12:00:00Z');
 
-function limits(allowance = { callSeconds: 600, calls: 3 }, start = NOON) {
+function limits(allowance: DailyAllowance = { callSeconds: 600, calls: 3 }, start = NOON) {
   const clock = { now: start };
   const rows = new MemoryCollection<DailyUsageRow>();
   return { clock, rows, limits: new DailyLimits(rows, allowance, () => new Date(clock.now)) };
@@ -132,6 +133,35 @@ describe('DailyLimits', () => {
     const lateEvening = new Date('2026-12-31T23:59:59.999Z');
     expect(utcDay(lateEvening)).toBe('2026-12-31');
     expect(nextUtcMidnight(lateEvening).toISOString()).toBe('2027-01-01T00:00:00.000Z');
+  });
+});
+
+describe('DailyLimits: a per-person calling allowance', () => {
+  const allowance = { callSeconds: 600, calls: 3, callSecondsFor: { u_big: 1800 } };
+
+  it('gives that person their own seconds and leaves everyone else on the default', async () => {
+    const { limits: daily } = limits(allowance);
+    expect(await daily.admit('u_big')).toMatchObject({ admitted: true, remainingSeconds: 1800 });
+    expect(await daily.admit('u1')).toMatchObject({ admitted: true, remainingSeconds: 600 });
+    expect((await daily.usage('u_big')).call_seconds_allowed).toBe(1800);
+    expect((await daily.usage('u1')).call_seconds_allowed).toBe(600);
+  });
+
+  it('admits that person past the default and refuses them at their own limit', async () => {
+    const { limits: daily } = limits(allowance);
+    await daily.admit('u_big');
+    await daily.addCallSeconds('u_big', '2026-09-30', 900);
+    expect(await daily.admit('u_big')).toMatchObject({ admitted: true, remainingSeconds: 900 });
+    await daily.addCallSeconds('u_big', '2026-09-30', 900);
+    expect(await daily.admit('u_big')).toMatchObject({ admitted: false });
+  });
+
+  it('treats a 0 allowance for one person as unlimited seconds', async () => {
+    const { limits: daily } = limits({ callSeconds: 600, calls: 3, callSecondsFor: { u_free: 0 } });
+    await daily.addCallSeconds('u_free', '2026-09-30', 5000);
+    const admission = await daily.admit('u_free');
+    expect(admission).toEqual({ admitted: true, day: '2026-09-30' });
+    expect((await daily.usage('u_free')).call_seconds_allowed).toBeNull();
   });
 });
 

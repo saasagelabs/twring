@@ -322,6 +322,31 @@ export const gatewayEnvSchema = z
       .default(3600),
     DAILY_CALLS_PER_USER: z.coerce.number().int().min(0).max(100_000).default(50),
     /**
+     * Calling seconds a day for named people, replacing DAILY_CALL_SECONDS_PER_USER for them:
+     * `userId=seconds` pairs separated by commas (0 = unlimited). Owner-granted exceptions.
+     */
+    DAILY_CALL_SECONDS_OVERRIDES: z
+      .string()
+      .optional()
+      .transform((value, ctx) => {
+        const pairs = (value ?? '')
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean);
+        if (pairs.length === 0) return undefined;
+        const out: Record<string, number> = {};
+        for (const pair of pairs) {
+          const match = /^([A-Za-z0-9_-]{1,64})=(\d{1,5})$/.exec(pair);
+          const seconds = match ? Number(match[2]) : NaN;
+          if (!match || seconds > 24 * 3600 || Object.hasOwn(out, match[1]!)) {
+            ctx.addIssue({ code: 'custom', message: 'expected unique userId=seconds pairs' });
+            return z.NEVER;
+          }
+          out[match[1]!] = seconds;
+        }
+        return out;
+      }),
+    /**
      * Service-wide calling seconds each UTC day (0 = no cap; wave 1 cost guard). Past it new calls
      * are refused with `service_busy`; calls in progress finish. 80% sends the owner an alert.
      */

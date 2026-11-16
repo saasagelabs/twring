@@ -117,6 +117,24 @@ describe('loadGatewayEnv', () => {
     expect(() => loadGatewayEnv({ OWNER_ALERT_TO: 'not an email' })).toThrow(/OWNER_ALERT_TO/);
   });
 
+  it('takes per-person calling seconds as id=seconds pairs and refuses bad ones', () => {
+    const env = loadGatewayEnv({
+      DAILY_CALL_SECONDS_OVERRIDES: ' f72c8694-47fa-4aa4-b340-3a0eb3437171=10800, u_2=0 ',
+    });
+    expect(env.DAILY_CALL_SECONDS_OVERRIDES).toEqual({
+      'f72c8694-47fa-4aa4-b340-3a0eb3437171': 10800,
+      u_2: 0,
+    });
+    expect(loadGatewayEnv({ DAILY_CALL_SECONDS_OVERRIDES: '' }).DAILY_CALL_SECONDS_OVERRIDES).toBe(
+      undefined,
+    );
+    for (const bad of ['u1', 'u1=abc', 'u1=-5', 'u1=90000', 'bad id=60', 'u1=60,u1=120']) {
+      expect(() => loadGatewayEnv({ DAILY_CALL_SECONDS_OVERRIDES: bad })).toThrow(
+        /DAILY_CALL_SECONDS_OVERRIDES/,
+      );
+    }
+  });
+
   it('refuses an owner alert address that could never send (no Resend settings)', () => {
     expect(() => loadGatewayEnv({ OWNER_ALERT_TO: 'alerts@example.com' })).toThrow(
       /OWNER_ALERT_TO: needs RESEND_API_KEY and WAITLIST_NOTIFY_FROM/,
