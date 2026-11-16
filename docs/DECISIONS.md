@@ -1066,3 +1066,28 @@ The relay needs a second region, or self-hosters ask for HTTPS on a port other t
 
 - Contributions merged under DCO stay under their folder's license; a contributor agreement, if ever wanted, applies only to later contributions.
 - Public CI runs on free GitHub Actions minutes.
+
+## ADR-036: Per-person speaking language (2026-11-17)
+
+**Status:** Accepted (owner decision, 2026-11-17)
+
+### Decision
+
+- Each person picks the language they speak: one of `en es fr de hi ru pt ja it nl`, the languages
+  Deepgram `flux-general-multi` hears. It is stored per person (`languages.json`,
+  `GET/PUT /v1/me/language`) and carried on the resolved speech of every call and voice note.
+- Hearing is per person: English speakers stay on the configured English model and hints; only a
+  non-English speaker is heard by `flux-general-multi` with their language as the hint. Multi costs
+  $0.0078/min against $0.0065/min for English, so only the people who need it pay for it. Voice
+  notes use `nova-3` with the person's language; xAI gets the language instead of `en`.
+- Cartesia and Grok voices speak all ten languages. Deepgram voices speak English only, so a
+  non-English speaker whose agent uses a Deepgram voice is spoken by the default Cartesia voice when
+  Cartesia is available, else by the Deepgram voice as before. Voice samples stay in English.
+- The connected agent is unchanged: it gets the text the person said and answers however it likes
+  (voice is I/O, not intelligence).
+- A missing or unreadable language reads as English: language never fails a call.
+
+### Consequences
+
+- English speakers see no change: same models, hints, voices and provider requests.
+- Twring's own spoken lines and spoken approvals in other languages come in a later change.

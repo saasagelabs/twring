@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { callIdSchema } from './calls';
 import { parseConnectorEndpoint } from './connectors';
+import { speakerLanguageSchema } from './language';
 import { mcpClientKindSchema } from './mcp-client';
 import { gatewayEndReasonSchema } from './realtime';
 
@@ -262,6 +263,8 @@ export const voiceSchema = z.object({
   label: z.string(),
   /** Optional URL of a short audio sample. */
   sample: z.url().optional(),
+  /** Languages the voice speaks (ADR-036); absent means English only. */
+  languages: z.array(speakerLanguageSchema).optional(),
 });
 export type Voice = z.infer<typeof voiceSchema>;
 

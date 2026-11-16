@@ -1,3 +1,4 @@
+import type { SpeakerLanguage } from '@twring/contracts';
 import { z } from 'zod';
 
 import {
@@ -27,6 +28,8 @@ export interface XaiRestOptions {
   fetch?: typeof fetch;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** The language the person speaks (ADR-036); defaults to English. */
+  language?: SpeakerLanguage;
 }
 
 /** Why one-shot synthesis failed; `status` is xAI's HTTP status when it answered with one. */
@@ -84,7 +87,7 @@ export function transcribeWithXai(
     TRANSCRIBE_TIMEOUT_MS,
     async (signal) => {
       const form = new FormData();
-      form.append('language', 'en');
+      form.append('language', options.language ?? 'en');
       for (const term of cleanKeyterms(keyterms)) form.append('keyterm', term);
       // xAI reads fields in order and wants the file last.
       form.append(
@@ -139,9 +142,10 @@ export function createXaiTranscriber(
   onKeytermsRefused?: (status: number) => void,
 ) {
   const run = withTranscribeRetry(
-    (audio, contentType, signal, keyterms, key) =>
+    (audio, contentType, signal, keyterms, key, language) =>
       transcribeWithXai(key, audio, contentType, keyterms, {
         fetch: doFetch,
+        language,
         ...(signal && { signal }),
       }),
     '',
@@ -154,7 +158,8 @@ export function createXaiTranscriber(
     contentType: string,
     keyterms: readonly string[] = [],
     signal?: AbortSignal,
-  ): Promise<string> => run(audio, contentType, signal, keyterms, apiKey);
+    language: SpeakerLanguage = 'en',
+  ): Promise<string> => run(audio, contentType, signal, keyterms, apiKey, language);
 }
 
 /** Speaks `text` in one request and returns the MP3 bytes. */

@@ -1,3 +1,4 @@
+import type { SpeakerLanguage } from '@twring/contracts';
 import { z } from 'zod';
 
 import { SAMPLE_RATE } from '../audio/pcm';
@@ -31,6 +32,8 @@ export type XaiVoice = 'eve' | 'ara' | 'rex' | 'sal' | 'leo';
 export interface XaiTtsOptions {
   apiKey: string;
   voice: XaiVoice;
+  /** The language the person speaks (ADR-036); defaults to English. */
+  language?: SpeakerLanguage;
   socketFactory?: SocketFactory;
   /** Override for tests; production always uses xAI's endpoint. */
   baseUrl?: string;
@@ -71,7 +74,7 @@ export function createXaiTts(options: XaiTtsOptions): TtsProvider {
     name: 'xai-tts',
     async open(onEvent, signal) {
       const url = new URL(base);
-      url.searchParams.set('language', 'en');
+      url.searchParams.set('language', options.language ?? 'en');
       url.searchParams.set('voice', options.voice);
       url.searchParams.set('codec', 'pcm');
       url.searchParams.set('sample_rate', String(SAMPLE_RATE));

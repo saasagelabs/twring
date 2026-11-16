@@ -47,6 +47,8 @@ import { UserDeletions } from './me/user-deletions';
 import { registerUsageRoutes, type UsageRoutesOptions } from './me/usage-routes';
 import { registerPublicPages, type PublicPagesConfig } from './pages/public-pages';
 import { toSafeError } from './redact';
+import { registerLanguageRoutes } from './language/routes';
+import type { LanguageRepository } from './language/store';
 import { registerRingRoutes } from './ring/routes';
 import { connectorReplacedNotifier } from './selfhost/connector-replaced';
 import { registerSelfhostRoutes, type SelfhostRoutesOptions } from './selfhost/routes';
@@ -140,6 +142,8 @@ export interface BuildAppOptions {
     connectorRatePerMinute: number;
     writeRatePerMinute: number;
   };
+  /** Mounts `GET/PUT /v1/me/language`, the language each person speaks (ADR-036). */
+  language?: { store: LanguageRepository; writeRatePerMinute: number };
   /**
    * Authenticates every `/v1` route (ADR-021) and supplies the acting user. Main always passes one;
    * tests may leave it out and use `userFor` directly.
@@ -205,6 +209,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     auth,
     connectors,
     ring,
+    language,
     threads,
     messageSpeech,
     files,
@@ -468,6 +473,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
             }),
           },
         }),
+        ...(language !== undefined && { language: language.store }),
         ...(connectors !== undefined &&
           stores !== undefined && {
             connectors: {
@@ -573,6 +579,16 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       startCall,
       connectorRatePerMinute: ring.connectorRatePerMinute,
       writeRatePerMinute: ring.writeRatePerMinute,
+      ...(agents?.readRatePerMinute !== undefined && {
+        readRatePerMinute: agents.readRatePerMinute,
+      }),
+      ...(userFor !== undefined && { userFor }),
+    });
+  }
+  if (language !== undefined) {
+    registerLanguageRoutes(app, {
+      store: language.store,
+      writeRatePerMinute: language.writeRatePerMinute,
       ...(agents?.readRatePerMinute !== undefined && {
         readRatePerMinute: agents.readRatePerMinute,
       }),

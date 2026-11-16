@@ -1,4 +1,5 @@
 import { INTERRUPTION_KEYTERMS, type GatewayEnv } from '@twring/config/gateway';
+import type { SpeakerLanguage } from '@twring/contracts';
 
 import type { TtsRouter } from '../agents/tts-router';
 import { DEEPGRAM_VOICES, cartesiaVoice, xaiVoice } from '../agents/voices';
@@ -144,6 +145,7 @@ type DeepgramNoteTranscriber = (
   signal?: AbortSignal,
   keyterms?: readonly string[],
   apiKey?: string,
+  language?: SpeakerLanguage,
 ) => Promise<string>;
 
 /**
@@ -151,10 +153,10 @@ type DeepgramNoteTranscriber = (
  * Deepgram listening choice); without one the note fails as a server failure, never as theirs.
  */
 export function ownDeepgramKeyOnly(transcribe: DeepgramNoteTranscriber): DeepgramNoteTranscriber {
-  return (audio, contentType, signal, keyterms, apiKey) =>
+  return (audio, contentType, signal, keyterms, apiKey, language) =>
     apiKey === undefined
       ? Promise.reject(new PrerecordedTranscriptionError('provider_failure'))
-      : transcribe(audio, contentType, signal, keyterms, apiKey);
+      : transcribe(audio, contentType, signal, keyterms, apiKey, language);
 }
 
 /**

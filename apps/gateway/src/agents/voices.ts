@@ -1,4 +1,4 @@
-import type { Voice, VoiceListResponse } from '@twring/contracts';
+import { SPEAKER_LANGUAGES, type Voice, type VoiceListResponse } from '@twring/contracts';
 
 import type { CartesiaVoice } from '../voice/cartesia-tts';
 import type { XaiVoice } from '../voice/xai-tts';
@@ -134,14 +134,21 @@ export function defaultVoiceId(options: VoiceListOptions = { cartesia: false }):
   return options.cartesia ? CARTESIA_DEFAULT_VOICE_ID : DEEPGRAM_DEFAULT_VOICE_ID;
 }
 
+/** Deepgram voices speak English only; Cartesia and Grok voices speak every language (ADR-036). */
+const ENGLISH_ONLY: Voice['languages'] = ['en'];
+const ALL_LANGUAGES: Voice['languages'] = [...SPEAKER_LANGUAGES];
+
 export function voiceList(options: VoiceListOptions = { cartesia: false }): VoiceListResponse {
-  const deepgram = options.xaiServer && !options.deepgram ? [] : DEEPGRAM_VOICES;
+  const deepgram =
+    options.xaiServer && !options.deepgram
+      ? []
+      : DEEPGRAM_VOICES.map(({ id, label }): Voice => ({ id, label, languages: ENGLISH_ONLY }));
   const cartesia = options.cartesia
-    ? CARTESIA_VOICES.map(({ id, label }): Voice => ({ id, label }))
+    ? CARTESIA_VOICES.map(({ id, label }): Voice => ({ id, label, languages: ALL_LANGUAGES }))
     : [];
   const xai =
     options.xai || options.xaiServer
-      ? XAI_VOICES.map(({ id, label }): Voice => ({ id, label }))
+      ? XAI_VOICES.map(({ id, label }): Voice => ({ id, label, languages: ALL_LANGUAGES }))
       : [];
   return {
     voices: [...deepgram, ...cartesia, ...xai],

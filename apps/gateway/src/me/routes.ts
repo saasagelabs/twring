@@ -39,6 +39,8 @@ export interface MeRoutesOptions {
       userId: string,
     ): Promise<{ ringInvites: number; devices: number; settings: number }>;
   };
+  /** The language the person speaks (ADR-036). */
+  language?: { deleteAllForUser(userId: string): Promise<number> };
   /** Sign in with Apple revocation (S3); undefined when no key is configured: 503. */
   appleRevoker?: { revokeCode(code: string): Promise<AppleRevokeOutcome> };
   /** Marks Delete my data as running, so a slow save (a speech key) cannot re-add data. */
@@ -213,6 +215,7 @@ export function createUserDataDeleter(
     // A call that ended above records its history as it finishes; delete after that landed.
     const callHistory = await stores.history.deleteAllForUser(userId);
     const speechKeys = await stores.speechKeys.deleteAllForUser(userId);
+    await options.language?.deleteAllForUser(userId);
     await options.feedback?.deleteAllForUser(userId);
     await options.notes?.deleteAllForUser(userId);
     await options.selfhost?.deletePerson(userId);

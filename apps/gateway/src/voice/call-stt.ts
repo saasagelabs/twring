@@ -18,6 +18,9 @@ export interface CallSttOptions {
   createXai?: (options: XaiSttOptions) => SttProvider;
 }
 
+/** Deepgram Flux model that hears the non-English languages (ADR-036). */
+export const MULTILINGUAL_STT_MODEL = 'flux-general-multi';
+
 /** A call's STT: the resolved listening provider, xAI only on the person's own xAI key. */
 export function createCallStt(
   options: CallSttOptions,
@@ -33,6 +36,7 @@ export function createCallStt(
           apiKey: speech!.xai!.apiKey,
           keyterms,
           endpointingMs: options.xai.endpointingMs,
+          ...(speech?.language !== undefined && { language: speech.language }),
           ...(options.xai.smartTurn !== undefined && { smartTurn: options.xai.smartTurn }),
           ...(options.xai.smartTurnTimeoutMs !== undefined && {
             smartTurnTimeoutMs: options.xai.smartTurnTimeoutMs,
@@ -40,10 +44,13 @@ export function createCallStt(
         });
       case 'deepgram': {
         const config = options.deepgram;
+        // A non-English speaker is heard by the multilingual model with their language as the
+        // hint (ADR-036); English keeps the configured model and hints exactly.
+        const language = speech?.language;
         return deepgram({
           apiKey: speech?.deepgram?.apiKey ?? config.apiKey,
-          model: config.sttModel,
-          languageHints: config.sttLanguageHints,
+          model: language === undefined ? config.sttModel : MULTILINGUAL_STT_MODEL,
+          languageHints: language === undefined ? config.sttLanguageHints : [language],
           keyterms,
           ...(config.sttEotThreshold !== undefined && { eotThreshold: config.sttEotThreshold }),
           ...(config.sttEotTimeoutMs !== undefined && { eotTimeoutMs: config.sttEotTimeoutMs }),

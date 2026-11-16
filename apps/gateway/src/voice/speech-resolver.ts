@@ -1,4 +1,4 @@
-import type { ListeningProvider, SpeechProvider } from '@twring/contracts';
+import type { ListeningProvider, SpeakerLanguage, SpeechProvider } from '@twring/contracts';
 
 import { CredentialDecryptError } from '../store/cipher';
 import type { SpeechKeyVault } from '../store/speech-keys';
@@ -20,6 +20,8 @@ export interface ResolvedSpeech {
   xai?: ProviderSpeech;
   /** Which provider hears the call; absent means Deepgram. */
   listening?: ListeningProvider;
+  /** The language the person speaks (ADR-036); absent means English. */
+  language?: SpeakerLanguage;
 }
 
 /** The person's saved key exists but cannot be opened: the call must not start. */
@@ -82,10 +84,20 @@ export function createSpeechResolver(options: {
   cartesia?: { apiKey: string };
   /** The server's own xAI key: only a self-hosted server with no Deepgram key (`serverXaiKey`). */
   xai?: { apiKey: string };
+  /** The language the person speaks (ADR-036). A failure reads as English: never a failed call. */
+  languageFor?: (userId: string) => Promise<SpeakerLanguage>;
 }): SpeechResolver {
   const twring = (provider: SpeechProvider): ProviderSpeech | undefined => {
     const apiKey = options[provider]?.apiKey;
     return apiKey === undefined ? undefined : { apiKey, source: 'twring' };
+  };
+  const readLanguage = async (userId: string): Promise<SpeakerLanguage> => {
+    if (options.languageFor === undefined) return 'en';
+    try {
+      return await options.languageFor(userId);
+    } catch {
+      return 'en';
+    }
   };
   return {
     async resolve(userId) {
@@ -113,6 +125,8 @@ export function createSpeechResolver(options: {
       resolved.listening = choice === 'xai' && resolved.xai !== undefined ? 'xai' : 'deepgram';
       // A server on its own xAI key hears on xAI unless the person's own Deepgram key is here.
       if (options.xai !== undefined && resolved.deepgram === undefined) resolved.listening = 'xai';
+      const language = await readLanguage(userId);
+      if (language !== 'en') resolved.language = language;
       return resolved;
     },
   };

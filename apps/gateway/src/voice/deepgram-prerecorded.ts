@@ -1,3 +1,4 @@
+import type { SpeakerLanguage } from '@twring/contracts';
 import { z } from 'zod';
 
 const responseSchema = z.object({
@@ -37,6 +38,7 @@ export function createPrerecordedTranscriber(
     signal: AbortSignal | undefined,
     keyterms: readonly string[],
     key: string,
+    language: SpeakerLanguage,
   ): Promise<string> => {
     const controller = new AbortController();
     let timedOut = false;
@@ -47,7 +49,8 @@ export function createPrerecordedTranscriber(
       controller.abort();
     }, 30_000);
     try {
-      const query = new URLSearchParams({ model: 'nova-3', smart_format: 'true', language: 'en' });
+      // nova-3 hears every speaker language (ADR-036); English is sent exactly as before.
+      const query = new URLSearchParams({ model: 'nova-3', smart_format: 'true', language });
       for (const term of keyterms) query.append('keyterm', term);
       const response = await doFetch(`https://api.deepgram.com/v1/listen?${query.toString()}`, {
         method: 'POST',
@@ -80,6 +83,7 @@ export type TranscribeAttempt = (
   signal: AbortSignal | undefined,
   keyterms: readonly string[],
   key: string,
+  language: SpeakerLanguage,
 ) => Promise<string>;
 
 /**
@@ -100,9 +104,11 @@ export function withTranscribeRetry(
     keyterms: readonly string[] = [],
     /** This note's key (a person's own); the server key when absent. */
     key: string = apiKey,
+    /** The language the person speaks (ADR-036). */
+    language: SpeakerLanguage = 'en',
   ): Promise<string> {
     try {
-      return await attempt(audio, contentType, signal, keyterms, key);
+      return await attempt(audio, contentType, signal, keyterms, key, language);
     } catch (error) {
       // A refused key (401/403) is final: going again would only be refused again.
       if (error instanceof PrerecordedTranscriptionError && isKeyRefusal(error.status)) throw error;
@@ -116,7 +122,7 @@ export function withTranscribeRetry(
         !signal?.aborted
       ) {
         onKeytermsRefused?.(error.status);
-        return transcribeVoiceNote(audio, contentType, signal, [], key);
+        return transcribeVoiceNote(audio, contentType, signal, [], key, language);
       }
       // Only a provider failure is retried: an empty note stays empty, and a 30 s timeout has
       // already used the owner's patience.
@@ -125,7 +131,7 @@ export function withTranscribeRetry(
       if (!retryable || signal?.aborted) throw error;
       await new Promise((resolve) => setTimeout(resolve, retryMs));
       if (signal?.aborted) throw error;
-      return attempt(audio, contentType, signal, keyterms, key);
+      return attempt(audio, contentType, signal, keyterms, key, language);
     }
   };
 }

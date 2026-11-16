@@ -1,4 +1,5 @@
 import {
+  type SpeakerLanguage,
   approvalDecisionRequestSchema,
   agentIdSchema,
   MAX_USER_MESSAGE_CHARS,
@@ -51,6 +52,8 @@ export interface ThreadRoutesOptions {
     keyterms?: readonly string[],
     /** The person's own key for this note; the server key when absent. */
     apiKey?: string,
+    /** The language the person speaks (ADR-036); English when absent. */
+    language?: SpeakerLanguage,
   ) => Promise<string>;
   /** A voice note heard by xAI: the person's own key when they chose it, or the server's own. */
   transcribeWithXai?: (
@@ -59,6 +62,7 @@ export interface ThreadRoutesOptions {
     contentType: string,
     keyterms?: readonly string[],
     signal?: AbortSignal,
+    language?: SpeakerLanguage,
   ) => Promise<string>;
   /** Whose Deepgram key a voice note uses (BYOK); absent means Twring's, as before. */
   speech?: SpeechResolver;
@@ -289,10 +293,12 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         if (pending) return joinPending(pending);
         let deepgram: ProviderSpeech | undefined;
         let xai: ProviderSpeech | undefined;
+        let language: SpeakerLanguage | undefined;
         if (options.speech !== undefined) {
           try {
             const resolved = await options.speech.resolve(userId);
             deepgram = resolved.deepgram;
+            language = resolved.language;
             // xAI hears the note only when the person chose it and its key is here.
             if (resolved.listening === 'xai') xai = resolved.xai;
           } catch (cause) {
@@ -346,14 +352,18 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
           const audio = request.body as Buffer;
           const transcript = await (
             xai !== undefined
-              ? transcribeWithXai!(xai.apiKey, audio, contentType, words)
-              : transcribe!(
-                  audio,
-                  contentType,
-                  undefined,
-                  words,
-                  ...(deepgram ? [deepgram.apiKey] : []),
-                )
+              ? language === undefined
+                ? transcribeWithXai!(xai.apiKey, audio, contentType, words)
+                : transcribeWithXai!(xai.apiKey, audio, contentType, words, undefined, language)
+              : language === undefined
+                ? transcribe!(
+                    audio,
+                    contentType,
+                    undefined,
+                    words,
+                    ...(deepgram ? [deepgram.apiKey] : []),
+                  )
+                : transcribe!(audio, contentType, undefined, words, deepgram?.apiKey, language)
           ).catch((cause: unknown) => {
             const used = xai ?? deepgram;
             // The person's own key refused: stop here; it never moves to Twring's key.

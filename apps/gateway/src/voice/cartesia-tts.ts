@@ -1,3 +1,4 @@
+import type { SpeakerLanguage } from '@twring/contracts';
 import { z } from 'zod';
 
 import { SAMPLE_RATE } from '../audio/pcm';
@@ -61,6 +62,12 @@ export interface CartesiaTtsOptions {
   apiKey: string;
   model: string;
   voice: CartesiaVoice;
+  /**
+   * The language the person speaks (ADR-036); unset or `en` sends the voice's own `locale`.
+   * Another language is sent as `language` instead: per docs.cartesia.ai/api-reference/tts/websocket
+   * (API version 2026-08-14) `language` and `locale` take the same codes and only one may be sent.
+   */
+  language?: SpeakerLanguage;
   /** Speaking pace, 0.6–1.5 (`generation_config.speed`); 1 or unset sends nothing extra. */
   speed?: number;
   socketFactory?: SocketFactory;
@@ -210,7 +217,9 @@ class CartesiaTtsSession implements TtsSession {
       transcript,
       voice: { mode: 'id', id: this.options.voice.voiceUuid },
       output_format: { container: 'raw', encoding: 'pcm_s16le', sample_rate: SAMPLE_RATE },
-      locale: this.options.voice.locale,
+      ...(this.options.language === undefined || this.options.language === 'en'
+        ? { locale: this.options.voice.locale }
+        : { language: this.options.language }),
       ...(this.options.speed !== undefined &&
         this.options.speed !== 1 && { generation_config: { speed: this.options.speed } }),
       context_id: context.contextId,

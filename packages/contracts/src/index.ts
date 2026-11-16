@@ -7,6 +7,7 @@ export * from './connectors';
 export * from './errors';
 export * from './files';
 export * from './health';
+export * from './language';
 export * from './native-protocol';
 export * from './mcp';
 export * from './realtime';

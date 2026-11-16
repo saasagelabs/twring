@@ -1,3 +1,4 @@
+import type { SpeakerLanguage } from '@twring/contracts';
 import { z } from 'zod';
 
 import { waitForOpen, wsSocketFactory, type ProviderSocket, type SocketFactory } from './socket';
@@ -42,6 +43,8 @@ export interface XaiSttOptions {
   /** `smart_turn` threshold (0..1); unset leaves it off. */
   smartTurn?: number;
   smartTurnTimeoutMs?: number;
+  /** The language the person speaks (ADR-036); defaults to English. */
+  language?: SpeakerLanguage;
   socketFactory?: SocketFactory;
   /** Override for tests; production always uses xAI's endpoint. */
   baseUrl?: string;
@@ -81,7 +84,7 @@ export function createXaiStt(options: XaiSttOptions): SttProvider {
       url.searchParams.set('model', 'grok-voice-transcribe-2.0');
       url.searchParams.set('sample_rate', String(SAMPLE_RATE));
       url.searchParams.set('encoding', 'pcm');
-      url.searchParams.set('language', 'en');
+      url.searchParams.set('language', options.language ?? 'en');
       url.searchParams.set('interim_results', 'true');
       url.searchParams.set('endpointing', String(options.endpointingMs ?? DEFAULT_ENDPOINTING_MS));
       if (options.smartTurn !== undefined)
