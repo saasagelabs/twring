@@ -153,15 +153,20 @@ describe('voice notes: idempotency', () => {
 
   it('concurrent uploads with the same client_id transcribe once and store one message', async () => {
     let release!: (t: string) => void;
+    let started!: () => void;
+    const transcribing = new Promise<void>((r) => (started = r));
     const s = await setup({
       transcribe: () =>
         new Promise<string>((r) => {
           release = r;
+          started();
         }),
     });
     const id = randomUUID();
     const a = s.voice(id);
     const b = s.voice(id);
+    // Release only once the first upload is transcribing (a fixed sleep raced a loaded machine).
+    await transcribing;
     await new Promise((r) => setTimeout(r, 30));
     release('one transcript');
     const [ra, rb] = await Promise.all([a, b]);
