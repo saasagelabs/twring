@@ -19,6 +19,23 @@ vi.mock('@/servers/active', () => ({
   },
 }));
 
+type Auth = { status: 'signed_in'; userId: string } | { status: 'signed_out' };
+let auth: Auth = { status: 'signed_in', userId: 'user-a' };
+const authListeners = new Set<() => void>();
+function signIn(next: Auth) {
+  auth = next;
+  authListeners.forEach((listener) => listener());
+}
+vi.mock('@/auth', () => ({
+  authController: () => ({
+    getState: () => auth,
+    subscribe: (listener: () => void) => {
+      authListeners.add(listener);
+      return () => authListeners.delete(listener);
+    },
+  }),
+}));
+
 const { languageStore } = await import('./store');
 
 beforeEach(async () => {
@@ -66,5 +83,33 @@ describe('language store across a server change', () => {
     gets[0].resolve('hi');
     await reading;
     expect(languageStore.get()).toEqual({ status: 'loaded', language: 'de' });
+  });
+});
+
+describe('language store across an account change', () => {
+  it("forgets one account's language when another signs in on the same server", async () => {
+    const first = languageStore.load(true);
+    gets.at(-1)!.resolve('hi');
+    await first;
+    expect(languageStore.get()).toEqual({ status: 'loaded', language: 'hi' });
+
+    signIn({ status: 'signed_out' });
+    expect(languageStore.get()).toEqual({ status: 'unknown' });
+    signIn({ status: 'signed_in', userId: 'user-b' });
+    gets.at(-1)!.resolve('es');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(languageStore.get()).toEqual({ status: 'loaded', language: 'es' });
+  });
+
+  it('keeps the language when the same account refreshes its session', async () => {
+    signIn({ status: 'signed_in', userId: 'user-a' });
+    const first = languageStore.load(true);
+    gets.at(-1)!.resolve('de');
+    await first;
+    const asked = gets.length;
+    signIn({ status: 'signed_in', userId: 'user-a' });
+    expect(languageStore.get()).toEqual({ status: 'loaded', language: 'de' });
+    expect(gets).toHaveLength(asked);
   });
 });

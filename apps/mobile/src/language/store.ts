@@ -2,6 +2,7 @@ import type { SpeakerLanguage } from '@twring/contracts';
 import { useEffect, useSyncExternalStore } from 'react';
 
 import { twringApi } from '@/api';
+import { authController } from '@/auth';
 import { onActiveServerChanged } from '@/servers/active';
 
 /** `unavailable`: the server has no language setting (older or your own server), or it failed. */
@@ -42,6 +43,7 @@ export const languageStore = {
   },
   /** Asks the server once; `force` asks again (Settings opening). */
   load(force = false): Promise<void> {
+    watchAccount();
     if (loading !== undefined && !force) return loading;
     if (state.status !== 'unknown' && !force) return Promise.resolve();
     const api = twringApi();
@@ -92,6 +94,32 @@ export function useSpeakerLanguage(): SpeakerLanguage {
 /** The same outside React; English until known. */
 export function currentLanguage(): SpeakerLanguage {
   return state.status === 'loaded' ? state.language : 'en';
+}
+
+let watchingAccount = false;
+
+/**
+ * Another account keeps its own setting: on the same server, one person signing out and another
+ * signing in must not keep the first one's language. Started on the first read, when sign-in
+ * already exists; a session refresh for the same account changes nothing.
+ */
+function watchAccount(): void {
+  if (watchingAccount) return;
+  const auth = authController();
+  if (auth === undefined) return;
+  watchingAccount = true;
+  const accountOf = (previous: string | null | undefined) => {
+    const current = auth.getState();
+    if (current.status === 'signed_in') return current.userId;
+    return current.status === 'signed_out' ? null : previous;
+  };
+  let account = accountOf(undefined);
+  auth.subscribe(() => {
+    const next = accountOf(account);
+    if (next === account) return;
+    account = next;
+    languageStore.reset();
+  });
 }
 
 // Another server keeps its own setting.
