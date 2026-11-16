@@ -578,6 +578,9 @@ export class VoicePipeline {
             call_id: this.options.callId,
             generation_id: event.generationId,
             error_code: event.error.code,
+            ...(event.error.providerStatus !== undefined && {
+              provider_status: event.error.providerStatus,
+            }),
           },
           'voice provider generation error',
         );
@@ -639,7 +642,12 @@ export class VoicePipeline {
 
   private handleProviderError(which: 'stt' | 'tts', error: VoiceError): void {
     this.options.logger.warn(
-      { event: `${which}_error`, call_id: this.options.callId, error_code: error.code },
+      {
+        event: `${which}_error`,
+        call_id: this.options.callId,
+        error_code: error.code,
+        ...(error.providerStatus !== undefined && { provider_status: error.providerStatus }),
+      },
       'voice provider error',
     );
     if (which === 'stt' && this.callerSpeaking) {

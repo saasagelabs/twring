@@ -279,14 +279,16 @@ class CartesiaTtsSession implements TtsSession {
     if (isKeyRefusal(status)) {
       return this.fail({ code: 'auth_failed', recoverable: false });
     }
-    if (contextId === undefined) return this.fail({ code: 'provider_error', recoverable: true });
+    const withStatus = status === undefined ? {} : { providerStatus: status };
+    if (contextId === undefined)
+      return this.fail({ code: 'provider_error', recoverable: true, ...withStatus });
     const context = this.active;
     if (context === undefined || context.contextId !== contextId) return;
     this.active = undefined;
     this.onEvent({
       type: 'generation_error',
       generationId: context.generationId,
-      error: { code: 'provider_error', recoverable: true },
+      error: { code: 'provider_error', recoverable: true, ...withStatus },
     });
   }
 

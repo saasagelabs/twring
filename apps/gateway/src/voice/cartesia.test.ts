@@ -237,7 +237,7 @@ describe('Cartesia Sonic TTS', () => {
       {
         type: 'generation_error',
         generationId: 'g1',
-        error: { code: 'provider_error', recoverable: true },
+        error: { code: 'provider_error', recoverable: true, providerStatus: 400 },
       },
     ]);
     session.speak('g2', 'Again.');
@@ -306,7 +306,7 @@ describe('Cartesia Sonic TTS', () => {
       {
         type: 'error',
         generationId: undefined,
-        error: { code: 'provider_error', recoverable: true },
+        error: { code: 'provider_error', recoverable: true, providerStatus: 500 },
       },
     ]);
     expect(general.socket.closedWith).toBe(1011);

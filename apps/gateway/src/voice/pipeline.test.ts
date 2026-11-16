@@ -952,8 +952,9 @@ describe('VoicePipeline turn timing (how long the owner spoke, how long Twring w
 // Production 2026-11-16: a voice the provider had deleted failed every answer as a generation
 // error, and three calls went on in silence (101 generation errors, no audio, no notice).
 describe('VoicePipeline answers that never make a sound', () => {
-  const providerError = { code: 'provider_error', recoverable: true } as const;
+  const providerError = { code: 'provider_error', recoverable: true, providerStatus: 429 } as const;
   async function setup() {
+    const logger = recordingLogger();
     const tts = new FakeTtsProvider();
     const scheduler = new ManualScheduler();
     const fatal: string[] = [];
@@ -963,7 +964,7 @@ describe('VoicePipeline answers that never make a sound', () => {
       stt: new FakeSttProvider(),
       tts,
       scheduler,
-      logger: recordingLogger(),
+      logger,
       onUserSpeechStarted: () => undefined,
       onUserSpeechDiscarded: () => undefined,
       onUserTurn: () => undefined,
@@ -990,8 +991,16 @@ describe('VoicePipeline answers that never make a sound', () => {
         q.callbacks.onDone?.();
       }
     };
-    return { pipeline, fatal, answerFails, answerPlays };
+    return { pipeline, fatal, answerFails, answerPlays, logger };
   }
+
+  it("logs the provider's status code with a failed answer (never its message)", async () => {
+    const { pipeline, answerFails, logger } = await setup();
+    answerFails();
+    const logged = logger.events.find((e) => e.fields.event === 'tts_generation_error');
+    expect(logged?.fields).toMatchObject({ error_code: 'provider_error', provider_status: 429 });
+    await pipeline.close();
+  });
 
   it('one failed answer is not fatal: the next one may still play', async () => {
     const { pipeline, fatal, answerFails } = await setup();

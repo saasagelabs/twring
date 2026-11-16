@@ -64,12 +64,16 @@ export function isCompleteWav(file: Buffer): boolean {
 
 /** Why a sample could not be made; `code` is the provider's normalized code when it gave one. */
 export class SampleSynthesisError extends Error {
+  /** The provider's status code (logged as `statusCode`; the message text never is). */
+  readonly statusCode?: number;
   constructor(
     readonly code: VoiceErrorCode | 'timeout' | 'too_long' | 'no_audio',
     message: string,
+    statusCode?: number,
   ) {
     super(message);
     this.name = 'SampleSynthesisError';
+    if (statusCode !== undefined) this.statusCode = statusCode;
   }
 }
 
@@ -107,6 +111,7 @@ export async function synthesizeSample(
             new SampleSynthesisError(
               event.error.code,
               `sample synthesis failed: ${event.error.code}`,
+              event.error.providerStatus,
             ),
           );
           return;
@@ -117,6 +122,7 @@ export async function synthesizeSample(
         throw new SampleSynthesisError(
           error.error.code,
           `sample synthesis failed: ${error.error.code}`,
+          error.error.providerStatus,
         );
       throw error;
     });

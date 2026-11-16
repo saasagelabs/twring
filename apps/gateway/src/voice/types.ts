@@ -13,6 +13,11 @@ export type VoiceErrorCode =
 export interface VoiceError {
   code: VoiceErrorCode;
   recoverable: boolean;
+  /**
+   * The provider's own status code for the failure (e.g. 400, 429, 500), when it sent one. Safe to
+   * log: it says why (bad request, rate limit, outage) without the provider's message text.
+   */
+  providerStatus?: number;
 }
 
 export type SttEvent =
