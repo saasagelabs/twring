@@ -95,6 +95,7 @@ import {
   InviteFlow,
   readApprovalsFile,
 } from './waitlist/invite-flow';
+import { NoAgentReminder, noAgentReminderRecordSchema } from './waitlist/no-agent-reminder';
 import { createFileStores } from './store/repositories';
 import { EncryptedSpeechKeyVault } from './store/speech-keys';
 import { CredentialCipher, messageKeys } from './store/cipher';
@@ -638,6 +639,46 @@ if (inviteFlow !== undefined) {
 } else if (onNewSignup) {
   notifyLog.info({ event: 'waitlist_notify_enabled' }, 'waitlist notification enabled');
 }
+// One reminder to connect an agent, 24 h after a member first opens the app with none
+// (owner decision 2026-11-18). Hosted Twring only: it needs the invite emails and saved agents.
+const AGENT_REMINDER_EVERY_MS = 10 * 60_000;
+const agentReminder =
+  env.RESEND_API_KEY &&
+  env.WAITLIST_NOTIFY_TO &&
+  env.WAITLIST_NOTIFY_FROM &&
+  inviteService &&
+  stores
+    ? new NoAgentReminder({
+        records: new JsonFileCollection(
+          join(env.CORD_DATA_DIR, 'no-agent-reminders.json'),
+          noAgentReminderRecordSchema,
+        ),
+        hasAgent: async (userId) => (await stores.agents.list(userId)).length > 0,
+        hasCalled: async (userId) => (await stores.history.list(userId, 1)).length > 0,
+        send: createResendSender({
+          apiKey: env.RESEND_API_KEY,
+          from: env.INVITE_FROM ?? env.WAITLIST_NOTIFY_FROM,
+          log: notifyLog,
+        }),
+        replyTo: env.WAITLIST_NOTIFY_TO,
+      })
+    : undefined;
+if (agentReminder !== undefined) {
+  let busy = false;
+  setInterval(() => {
+    if (busy) return;
+    busy = true;
+    agentReminder
+      .run()
+      .catch((error: unknown) =>
+        notifyLog.warn(
+          { event: 'agent_reminder_failed', err: toSafeError(error) },
+          'agent_reminder_failed',
+        ),
+      )
+      .finally(() => (busy = false));
+  }, AGENT_REMINDER_EVERY_MS).unref();
+}
 // Post-call notes and ratings of 3 stars or fewer reach the owner every hour.
 if (env.RESEND_API_KEY && env.WAITLIST_NOTIFY_TO && env.WAITLIST_NOTIFY_FROM) {
   const markFile = join(env.CORD_DATA_DIR, 'feedback-digest.json');
@@ -692,6 +733,7 @@ const voiceNotes = deepgramNotes && (deepgram ? deepgramNotes : ownDeepgramKeyOn
 const app = buildApp({
   env,
   ...(inviteStores && { invites: inviteStores }),
+  ...(agentReminder && { agentReminder }),
   waitlist: {
     records: waitlistRecords,
     allowedOrigins: env.WAITLIST_ALLOWED_ORIGINS,

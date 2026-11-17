@@ -6,13 +6,16 @@ import { loadGatewayEnv } from '@twring/config/gateway';
 import { gatewayEnvFixture } from '@twring/test-fixtures';
 import { describe, expect, it, vi } from 'vitest';
 
-import { buildApp } from '../app';
+import { buildApp, type BuildAppOptions } from '../app';
 import { createRequestAuth } from '../auth';
 import { MemoryCollection } from '../store/collection';
 import type { WaitlistRecord } from '../waitlist/routes';
 import { hashCode, type RedemptionRecord } from './invites';
 
-async function fixture(extraEnv: Record<string, string> = {}) {
+async function fixture(
+  extraEnv: Record<string, string> = {},
+  agentReminder?: BuildAppOptions['agentReminder'],
+) {
   const dir = await mkdtemp(join(tmpdir(), 'cord-invite-routes-'));
   const membersFile = join(dir, 'beta-members.json');
   const codesFile = join(dir, 'invite-codes.json');
@@ -52,6 +55,7 @@ async function fixture(extraEnv: Record<string, string> = {}) {
       redemptions,
     },
     waitlist: { records, allowedOrigins: [], onNewSignup },
+    ...(agentReminder && { agentReminder }),
   });
   app.get('/v1/agents', () => ({ ok: true }));
   app.delete('/v1/me/data', () => ({ ok: true }));
@@ -70,6 +74,33 @@ async function fixture(extraEnv: Record<string, string> = {}) {
 }
 
 describe('invite routes and gate', () => {
+  it('notes each member who opens the app for the reminder to connect an agent, never an outsider', async () => {
+    const seen: string[] = [];
+    const { app, close } = await fixture(
+      {},
+      {
+        seen: (userId, email) => {
+          seen.push(`${userId} ${email}`);
+          return Promise.resolve();
+        },
+        deleteAllForUser: () => Promise.resolve(0),
+      },
+    );
+    try {
+      const access = (email: string) =>
+        app.inject({
+          method: 'GET',
+          url: '/v1/me/access',
+          headers: { 'x-user-id': 'u1', 'x-test-email': email },
+        });
+      expect((await access('member@example.com')).json()).toMatchObject({ member: true });
+      expect((await access('outsider@example.com')).json()).toMatchObject({ member: false });
+      expect(seen).toEqual(['u1 member@example.com']);
+    } finally {
+      await close();
+    }
+  });
+
   it('leaves access routes unmounted when the gate is off', async () => {
     const env = loadGatewayEnv(gatewayEnvFixture());
     const auth = createRequestAuth(() => Promise.resolve({ id: 'user', email: 'a@example.com' }));

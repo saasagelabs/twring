@@ -284,6 +284,21 @@ describe('DELETE /v1/me/data edges', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+  it('forgets the caller for the reminder to connect an agent', async () => {
+    const forgotten: string[] = [];
+    const { send } = setup({
+      agentReminder: {
+        seen: () => Promise.resolve(),
+        deleteAllForUser: (userId) => {
+          forgotten.push(userId);
+          return Promise.resolve(1);
+        },
+      },
+    });
+    expect((await send('DELETE', '/v1/me/data')).statusCode).toBe(200);
+    expect(forgotten).toEqual(['dev-user']);
+  });
+
   it('answers 503 when saved agents are not configured', async () => {
     const { send } = setup({}, false);
     const res = await send('DELETE', '/v1/me/data');

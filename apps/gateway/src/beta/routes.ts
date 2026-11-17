@@ -11,6 +11,8 @@ export interface InviteRoutesOptions {
   profileFor: ProfileResolver;
   userFor: UserResolver;
   waitlist?: Pick<WaitlistRoutesOptions, 'records' | 'now' | 'onNewSignup'>;
+  /** A member opened the app (the reminder to connect an agent). Never delays the answer. */
+  onMemberSeen?: (userId: string, email: string | undefined) => Promise<void>;
   userLimiter?: FixedWindowLimiter;
   ipLimiter?: FixedWindowLimiter;
 }
@@ -66,6 +68,14 @@ export function registerInviteRoutes(app: FastifyInstance, options: InviteRoutes
         checked.delete(email);
         request.log.warn({ event: 'access_waitlist_failed' }, 'could not add account to waitlist');
       }
+    }
+    if (member && options.onMemberSeen !== undefined) {
+      // Bookkeeping only: the access answer never waits for it or depends on it.
+      options
+        .onMemberSeen(options.userFor(request), email)
+        .catch(() =>
+          request.log.warn({ event: 'agent_reminder_seen_failed' }, 'could not note member'),
+        );
     }
     return reply.send(accessResponseSchema.parse({ member, ...(email && { email }) }));
   });

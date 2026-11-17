@@ -122,6 +122,14 @@ export interface BuildAppOptions {
     redemptions: Collection<RedemptionRecord>;
   };
   /**
+   * The one reminder to connect an agent (waitlist/no-agent-reminder.ts): told of each member
+   * who opens the app, and forgets a person on Delete my data.
+   */
+  agentReminder?: {
+    seen(userId: string, email: string | undefined): Promise<void>;
+    deleteAllForUser(userId: string): Promise<number>;
+  };
+  /**
    * Mounts /v1/connectors and the relay socket when provided (with `agents`, whose store keeps
    * the paired computers). ADR-023.
    */
@@ -211,6 +219,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     connectors,
     ring,
     language,
+    agentReminder,
     threads,
     messageSpeech,
     files,
@@ -475,6 +484,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           },
         }),
         ...(language !== undefined && { language: language.store }),
+        ...(agentReminder !== undefined && { agentReminder }),
         ...(connectors !== undefined &&
           stores !== undefined && {
             connectors: {
@@ -661,6 +671,10 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       profileFor: auth.profileFor,
       userFor: auth.userFor,
       ...(waitlist && { waitlist }),
+      ...(agentReminder !== undefined && {
+        onMemberSeen: (userId: string, email: string | undefined) =>
+          agentReminder.seen(userId, email),
+      }),
     });
 
   app.setNotFoundHandler((request, reply) =>

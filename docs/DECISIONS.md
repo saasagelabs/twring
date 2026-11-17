@@ -1119,3 +1119,28 @@ five calls in a row went silent while the phone said Twring's voice service was 
 
 - Some minutes of a person on their own keys may be spoken on Twring's account (only when they have
   no own key for the fallback provider). The failover is logged as `tts_failover` with `own_key`.
+
+## ADR-039: One email reminder to connect an agent (2026-11-18)
+
+### Context
+
+On 2026-11-17, 10 people had signed in more than a day earlier and never connected an agent, while
+37 of the 39 who connected one went on to call. The owner approved one gentle reminder.
+
+### Decision
+
+- The first time a signed-in member opens the app (`GET /v1/me/access`), the server notes their
+  account id, email address and the time, in `no-agent-reminders.json`.
+- Every 10 minutes, a person first seen 24 hours ago who still has no agent and has made no call
+  gets one email ("Connect your agent to Twring") from the invite sender, replies going to
+  support. At most 20 per run. Never a second one.
+- Once the reminder is settled (sent, not needed, refused by the address, or more than a week
+  late) the email address is removed from the row. Delete my data removes the row.
+- Everyone who had signed in before this shipped is recorded as settled, so it only reaches people
+  who sign in from now on.
+
+### Consequences
+
+- Twring keeps an email address for up to about a day and a half per new member, beyond the
+  invite records it already keeps.
+- Hosted Twring only: it needs the invite email settings and saved agents.
