@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { savedAgentResolver } from './agents/routes';
 import { VoiceSampleCache } from './agents/voice-samples';
 import { buildApp, type BuildAppOptions } from './app';
+import { createRequestAuth } from './auth';
 import { CallCreateError, CallRegistry } from './calls/registry';
 import { FakeTransport, ManualScheduler, flushMicrotasks, recordingLogger } from './calls/testing';
 import { mintCallerToken, mintGatewayToken } from './livekit/tokens';
@@ -297,6 +298,40 @@ describe('DELETE /v1/me/data edges', () => {
     });
     expect((await send('DELETE', '/v1/me/data')).statusCode).toBe(200);
     expect(forgotten).toEqual(['dev-user']);
+  });
+
+  it('an app opened on another phone while Delete my data runs does not bring the reminder back', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cord-reminder-delete-'));
+    cleanups.push(() => rm(dir, { recursive: true, force: true }));
+    const membersFile = join(dir, 'beta-members.json');
+    await writeFile(membersFile, JSON.stringify({ emails: ['member@example.com'] }));
+    await writeFile(join(dir, 'invite-codes.json'), JSON.stringify({ codes: [] }));
+    const seen: string[] = [];
+    let openDuringDeletion: (() => Promise<unknown>) | undefined;
+    const { send } = setup({
+      env: loadGatewayEnv(
+        gatewayEnvFixture({ BETA_MEMBERS_FILE: membersFile, CORD_DATA_DIR: dir }),
+      ),
+      auth: createRequestAuth(() => Promise.resolve({ id: 'u1', email: 'member@example.com' })),
+      invites: { codesFile: join(dir, 'invite-codes.json'), redemptions: new MemoryCollection() },
+      agentReminder: {
+        seen: (userId, _email, stillWanted) => {
+          if (stillWanted?.() !== false) seen.push(userId);
+          return Promise.resolve();
+        },
+        deleteAllForUser: async () => {
+          await openDuringDeletion?.();
+          return 1;
+        },
+      },
+    });
+    openDuringDeletion = () => send('GET', '/v1/me/access');
+    expect((await send('DELETE', '/v1/me/data')).statusCode).toBe(200);
+    expect(seen).toEqual([]);
+    // Opening the app after the deletion has finished starts afresh.
+    openDuringDeletion = undefined;
+    await send('GET', '/v1/me/access');
+    expect(seen).toEqual(['u1']);
   });
 
   it('answers 503 when saved agents are not configured', async () => {

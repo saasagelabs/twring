@@ -126,7 +126,7 @@ export interface BuildAppOptions {
    * who opens the app, and forgets a person on Delete my data.
    */
   agentReminder?: {
-    seen(userId: string, email: string | undefined): Promise<void>;
+    seen(userId: string, email: string | undefined, stillWanted?: () => boolean): Promise<void>;
     deleteAllForUser(userId: string): Promise<number>;
   };
   /**
@@ -230,6 +230,8 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
   // One book for the routes and for deleting a user's data.
   const links = connectors === undefined ? undefined : (connectors.links ?? new LinkBook());
 
+  // Delete my data runs, shared by the deleter and the routes that write a person's data.
+  const deletions = new UserDeletions();
   // Set while the agent routes are mounted; a self-hosted person removal reuses them.
   let agentStores: Stores | undefined;
   let purgePerson: UserDataDeleter | undefined;
@@ -436,7 +438,6 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     });
     const stores = agents.stores;
     agentStores = stores;
-    const deletions = new UserDeletions();
     if (speechKeys !== undefined && stores !== undefined) {
       registerSpeechKeyRoutes(app, {
         vault: stores.speechKeys,
@@ -672,8 +673,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       userFor: auth.userFor,
       ...(waitlist && { waitlist }),
       ...(agentReminder !== undefined && {
-        onMemberSeen: (userId: string, email: string | undefined) =>
-          agentReminder.seen(userId, email),
+        onMemberSeen: (userId: string, email: string | undefined) => {
+          // Opened while Delete my data runs: note nothing. One that starts later stops the write.
+          const since = deletions.epoch(userId);
+          if (deletions.interrupted(userId, since)) return Promise.resolve();
+          return agentReminder.seen(userId, email, () => !deletions.interrupted(userId, since));
+        },
       }),
     });
 

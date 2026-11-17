@@ -191,6 +191,15 @@ describe('the reminder to connect an agent', () => {
     expect(sent.map((e) => e.to)).toEqual(['other@example.com']);
   });
 
+  it('writes nothing when Delete my data started while the app was opening', async () => {
+    const { reminder, records } = setup();
+    await reminder.seen('u1', 'person@example.com', () => false);
+    expect(await records.read()).toEqual([]);
+    // Not remembered as on file either: the next open records them.
+    await reminder.seen('u1', 'person@example.com', () => true);
+    expect((await records.read()).map((r) => r.user_id)).toEqual(['u1']);
+  });
+
   it('a person whose sign-in carries no email address is not tracked', async () => {
     const { reminder, records, sent } = setup();
     await reminder.seen('u1', undefined);

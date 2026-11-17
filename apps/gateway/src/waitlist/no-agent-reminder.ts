@@ -66,8 +66,16 @@ export class NoAgentReminder {
     this.now = options.now ?? (() => new Date());
   }
 
-  /** A signed-in member opened the app: the first time starts their 24 hours. */
-  async seen(userId: string, email: string | undefined): Promise<void> {
+  /**
+   * A signed-in member opened the app: the first time starts their 24 hours. `stillWanted` is
+   * checked as the row is written: false once Delete my data has started, so a slow app open
+   * cannot bring back what the deletion removed.
+   */
+  async seen(
+    userId: string,
+    email: string | undefined,
+    stillWanted: () => boolean = () => true,
+  ): Promise<void> {
     const address = email?.trim().toLowerCase();
     if (this.known.has(userId) || address === undefined || address === '') return;
     if (!z.email().safeParse(address).success) return;
@@ -75,18 +83,18 @@ export class NoAgentReminder {
       this.known.add(userId);
       return;
     }
-    await this.options.records.update((items) =>
-      items.some((r) => r.user_id === userId)
-        ? { items, result: undefined }
-        : {
-            items: [
-              ...items,
-              { user_id: userId, email: address, first_seen_at: this.now().toISOString() },
-            ],
-            result: undefined,
-          },
-    );
-    this.known.add(userId);
+    const written = await this.options.records.update((items) => {
+      if (!stillWanted()) return { items, result: false };
+      if (items.some((r) => r.user_id === userId)) return { items, result: true };
+      return {
+        items: [
+          ...items,
+          { user_id: userId, email: address, first_seen_at: this.now().toISOString() },
+        ],
+        result: true,
+      };
+    });
+    if (written) this.known.add(userId);
   }
 
   /** Sends the reminders that are due; each person gets at most one. */
