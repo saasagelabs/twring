@@ -67,3 +67,8 @@ auditConfig:
     # forcing it would break link parsing in the app. Worst case is a slow parse of a crafted link
     # on the person's own phone. Remove once expo-router moves to a fixed query-string.
     - GHSA-qr28-fpjm-wq7f # decode-uri-component 0.2.2 (via expo-router > query-string)
+    # 2026-11-18. picomatch <=4.0.7 (slow match on a crafted extglob pattern): no fixed release
+    # exists yet (4.0.7 is the latest). It reaches Twring only through build tooling (Metro and the
+    # Expo CLI file watcher, eslint's glob); no server package depends on it and it is not bundled
+    # into the app. Patterns come from our own config, never from users. Remove once 4.0.8 ships.
+    - GHSA-fc5q-39xc-vjpf # picomatch 2.3.2 and 4.0.7 (via metro, @expo/cli, typescript-eslint)
