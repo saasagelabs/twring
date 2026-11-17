@@ -123,6 +123,47 @@ describe('VoicePipeline first connection', () => {
     await pipeline.close();
     expect(backup.closed).toBe(1);
   });
+
+  it('moves to the backup when the voice is not found, and the next answer plays there', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const tts = createFailoverTts(primary, backup, { onFailover: () => undefined });
+    const fatal: string[] = [];
+    const scheduler = new ManualScheduler();
+    const played: string[] = [];
+    const pipeline = new VoicePipeline({
+      callId: 'call_aaaaaaaaaaaaaaaaaaaa',
+      stt: new FakeSttProvider(),
+      tts,
+      scheduler,
+      logger: recordingLogger(),
+      onUserSpeechStarted: () => undefined,
+      onUserSpeechDiscarded: () => undefined,
+      onUserTurn: () => undefined,
+      onCaption: () => undefined,
+      onSpeech: () => undefined,
+      playFrames: () => played.push('frames'),
+      stopPlayback: () => 0,
+      onFatal: (error, which) => fatal.push(`${which} ${error.code}`),
+    });
+    await pipeline.start();
+    const notFound = { code: 'provider_error', recoverable: true, providerStatus: 404 } as const;
+    for (const provider of [primary, primary]) {
+      const id = pipeline.beginSpeech(0);
+      pipeline.appendSpeech(id, 'Hello.');
+      provider.send({ type: 'generation_error', generationId: id, error: notFound });
+      scheduler.advance(250);
+      await flushMicrotasks();
+    }
+    expect(backup.opens).toBe(1);
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello again.');
+    pipeline.endSpeech(id);
+    backup.send({ type: 'audio', generationId: id, bytes: frameBytes() });
+    expect(played).toEqual(['frames']);
+    expect(fatal).toEqual([]);
+    await pipeline.close();
+  });
 });
 
 async function started() {

@@ -1091,3 +1091,31 @@ The relay needs a second region, or self-hosters ask for HTTPS on a port other t
 
 - English speakers see no change: same models, hints, voices and provider requests.
 - Twring's own spoken lines and spoken approvals in other languages come in a later change.
+
+## ADR-037: A person's own voice key fails over except on a refusal (2026-11-17)
+
+**Status:** Accepted (owner decision, 2026-11-17)
+
+### Context
+
+A call whose voice ran on the person's own key never moved to another voice: any failure left the
+caller in silence until the call ended after two silent answers. On 2026-11-17 one person's own
+Cartesia account answered 404 for the default voice (the same voice works on Twring's account), and
+five calls in a row went silent while the phone said Twring's voice service was down.
+
+### Decision
+
+- A call voice on the person's own key fails over like one on Twring's key, with one exception: a
+  refused key (`auth_failed`: 401, 402, 403) still ends the call, so the phone says the key was
+  refused and the person can fix it.
+- The fallback is the default voice of the other provider, on the person's own key for it when they
+  saved one, else on Twring's.
+- An answer the provider rejects because it cannot find the voice (404) now moves the call to the
+  fallback too, on any key: every later answer would fail the same way. Other failed answers stay
+  as they were (that answer is lost; two silent answers in a row end the call).
+- Voice notes and Listen are unchanged: a refused own key there still stops without another voice.
+
+### Consequences
+
+- Some minutes of a person on their own keys may be spoken on Twring's account (only when they have
+  no own key for the fallback provider). The failover is logged as `tts_failover` with `own_key`.

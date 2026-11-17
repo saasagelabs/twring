@@ -4,7 +4,7 @@ import { createCartesiaTts, type CartesiaTtsOptions } from '../voice/cartesia-tt
 import { createDeepgramTts, type DeepgramTtsOptions } from '../voice/deepgram-tts';
 import { createFailoverTts } from '../voice/failover-tts';
 import { createXaiTts, type XaiTtsOptions } from '../voice/xai-tts';
-import type { TtsProvider } from '../voice/types';
+import type { TtsProvider, VoiceError } from '../voice/types';
 import type { CallLogger } from '../calls/runtime';
 import type { ResolvedSpeech } from '../voice/speech-resolver';
 
@@ -108,8 +108,10 @@ export function createTtsRouter(options: TtsRouterOptions): TtsRouter {
         // The person's own xAI key is the only xAI key: a Grok voice never fails over.
         if (xaiVoice(voiceId) !== undefined) return provider;
         const isCartesia = cartesiaVoice(voiceId) !== undefined;
-        // The person's own key: a refusal ends the call; it never moves to Twring's account.
-        if (speech?.[isCartesia ? 'cartesia' : 'deepgram']?.source === 'own') return provider;
+        // The person's own key (ADR-037): a refusal ends the call so the phone says the key was
+        // refused; any other failure (a voice their account cannot find, an outage) moves the
+        // call to the default voice, on their own key for it when they have one.
+        const ownKey = speech?.[isCartesia ? 'cartesia' : 'deepgram']?.source === 'own';
         const backup = isCartesia
           ? lazyBackup(defaultDeepgram)
           : canCartesia
@@ -117,9 +119,16 @@ export function createTtsRouter(options: TtsRouterOptions): TtsRouter {
             : undefined;
         if (backup === undefined) return provider;
         return createFailoverTts(provider, backup, {
+          ...(ownKey && { failsOver: (error: VoiceError) => error.code !== 'auth_failed' }),
           onFailover: (reason) =>
             options.logger?.warn(
-              { event: 'tts_failover', from: provider.name, to: backup.name, reason_code: reason },
+              {
+                event: 'tts_failover',
+                from: provider.name,
+                to: backup.name,
+                reason_code: reason,
+                own_key: ownKey,
+              },
               'voice provider failover',
             ),
         });

@@ -76,3 +76,77 @@ describe('per-call TTS failover', () => {
     expect(reasons).toEqual([]);
   });
 });
+
+describe("failover that keeps some failures (a person's own key)", () => {
+  const keepRefusals = (error: { code: string }) => error.code !== 'auth_failed';
+
+  it('keeps a refused key: no backup on open, and a session refusal passes unchanged', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    primary.failNextOpen = auth;
+    const reasons: string[] = [];
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: (reason) => reasons.push(reason),
+      failsOver: keepRefusals,
+    });
+    await expect(provider.open(() => undefined, new AbortController().signal)).rejects.toThrow();
+    expect(backup.opens).toBe(0);
+
+    const events: TtsEvent[] = [];
+    await provider.open((event) => events.push(event), new AbortController().signal);
+    primary.send({ type: 'error', error: auth });
+    expect(events).toEqual([{ type: 'error', error: auth }]);
+    expect(reasons).toEqual([]);
+  });
+
+  it('still fails over on a lost connection', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    primary.failNextOpen = lost;
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: () => undefined,
+      failsOver: keepRefusals,
+    });
+    await provider.open(() => undefined, new AbortController().signal);
+    expect(backup.opens).toBe(1);
+  });
+});
+
+describe('failover on a voice the provider cannot find', () => {
+  const notFound = { code: 'provider_error', recoverable: true, providerStatus: 404 } as const;
+
+  it('turns a 404 answer into a recoverable session error and uses the backup next', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const events: TtsEvent[] = [];
+    const reasons: string[] = [];
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: (reason) => reasons.push(reason),
+    });
+    await provider.open((event) => events.push(event), new AbortController().signal);
+    primary.send({ type: 'generation_error', generationId: 'g1', error: notFound });
+    expect(events).toEqual([{ type: 'error', generationId: 'g1', error: notFound }]);
+    expect(reasons).toEqual(['voice_not_found']);
+    expect(primary.closed).toBe(1);
+    await provider.open(() => undefined, new AbortController().signal);
+    expect(backup.opens).toBe(1);
+  });
+
+  it('passes other failed answers through, and a 404 from the backup too', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const events: TtsEvent[] = [];
+    const provider = createFailoverTts(primary, backup, { onFailover: () => undefined });
+    await provider.open((event) => events.push(event), new AbortController().signal);
+    const busy = { code: 'provider_error', recoverable: true, providerStatus: 500 } as const;
+    primary.send({ type: 'generation_error', generationId: 'g1', error: busy });
+    expect(events).toEqual([{ type: 'generation_error', generationId: 'g1', error: busy }]);
+    expect(primary.closed).toBe(0);
+
+    primary.send({ type: 'generation_error', generationId: 'g2', error: notFound });
+    events.length = 0;
+    await provider.open((event) => events.push(event), new AbortController().signal);
+    backup.send({ type: 'generation_error', generationId: 'g3', error: notFound });
+    expect(events).toEqual([{ type: 'generation_error', generationId: 'g3', error: notFound }]);
+  });
+});

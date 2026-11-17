@@ -11,6 +11,7 @@ import { buildApp } from '../app';
 import { createCartesiaTts, type CartesiaTtsOptions } from '../voice/cartesia-tts';
 import { FakeTtsProvider } from '../voice/testing';
 import { fakeSocketFactory, type FakeSocket } from '../voice/testing';
+import type { VoiceError } from '../voice/types';
 
 import { createTtsRouter } from './tts-router';
 import { VoiceSampleCache, synthesizeSample } from './voice-samples';
@@ -148,11 +149,14 @@ describe('TTS routing by voice id', () => {
     expect(fallbacks).toEqual([]);
   });
 
-  function failingRouter(cartesia?: typeof CARTESIA) {
+  function failingRouter(
+    cartesia?: typeof CARTESIA,
+    error: VoiceError = { code: 'auth_failed', recoverable: false },
+  ) {
     const made: string[] = [];
     const failing = () => {
       const provider = new FakeTtsProvider();
-      provider.failNextOpen = { code: 'auth_failed', recoverable: false };
+      provider.failNextOpen = error;
       return provider;
     };
     const r = createTtsRouter({
@@ -173,7 +177,7 @@ describe('TTS routing by voice id', () => {
   const open = (provider: { open: (e: () => void, s: AbortSignal) => Promise<unknown> }) =>
     provider.open(() => undefined, new AbortController().signal);
 
-  it("never fails over from a person's own key", async () => {
+  it('keeps a refused own key: no failover, so the phone says the key was refused', async () => {
     const { r, made } = failingRouter(CARTESIA);
     await expect(
       open(r.forCall(cartesiaId, { cartesia: { apiKey: 'own-ct', source: 'own' } })),
@@ -184,6 +188,25 @@ describe('TTS routing by voice id', () => {
       open(r.forCall('flux-kit-en', { deepgram: { apiKey: 'own-dg', source: 'own' } })),
     ).rejects.toThrow();
     expect(made).toEqual(['dg own-dg flux-kit-en']);
+  });
+
+  it("moves an own key that fails for another reason to the default voice, on the person's own Deepgram key when they have one", async () => {
+    const lost: VoiceError = { code: 'connection_lost', recoverable: true };
+    const { r, made } = failingRouter(CARTESIA, lost);
+    await expect(
+      open(
+        r.forCall(cartesiaId, {
+          cartesia: { apiKey: 'own-ct', source: 'own' },
+          deepgram: { apiKey: 'own-dg', source: 'own' },
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(made).toEqual(['ct own-ct sonic-3.6', `dg own-dg ${DEEPGRAM.ttsModel}`]);
+    made.length = 0;
+    await expect(
+      open(r.forCall(cartesiaId, { cartesia: { apiKey: 'own-ct', source: 'own' } })),
+    ).rejects.toThrow();
+    expect(made).toEqual(['ct own-ct sonic-3.6', `dg dg-key ${DEEPGRAM.ttsModel}`]);
   });
 
   it("a Hindi speaker on Twring's Cartesia key fails over to the Deepgram default", async () => {
