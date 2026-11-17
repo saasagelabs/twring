@@ -46,7 +46,13 @@ export interface NoAgentReminderOptions {
   hasAgent(userId: string): Promise<boolean>;
   /** Someone calling on an agent shared with them is using Twring already. */
   hasCalled(userId: string): Promise<boolean>;
-  send(email: { to: string; subject: string; text: string; replyTo?: string }): Promise<SendResult>;
+  send(email: {
+    to: string;
+    subject: string;
+    text: string;
+    replyTo?: string;
+    idempotencyKey?: string;
+  }): Promise<SendResult>;
   replyTo?: string;
   now?: () => Date;
 }
@@ -98,6 +104,8 @@ export class NoAgentReminder {
         const result = await this.options.send({
           to: row.email!,
           ...(this.options.replyTo !== undefined && { replyTo: this.options.replyTo }),
+          // A send whose answer was lost comes back as 'retry'; the same key stops a second copy.
+          idempotencyKey: `no-agent-reminder/${row.user_id}`,
           ...noAgentReminderEmail(),
         });
         if (result === 'retry') continue;

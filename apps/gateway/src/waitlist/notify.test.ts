@@ -147,6 +147,23 @@ describe('createResendSender', () => {
     });
   });
 
+  it('passes an idempotency key, so a retry after a lost answer cannot send twice', async () => {
+    const headers: Record<string, string>[] = [];
+    const send = createResendSender({
+      apiKey: 'key',
+      from: 'f',
+      fetch: (_url, init) => {
+        headers.push(init?.headers as Record<string, string>);
+        return Promise.resolve(new Response('{}', { status: 200 }));
+      },
+      log: { info: () => undefined, warn: () => undefined },
+    });
+    await send({ to: 'a@example.com', subject: 'S', text: 'T', idempotencyKey: 'reminder/u1' });
+    await send({ to: 'a@example.com', subject: 'S', text: 'T' });
+    expect(headers[0]?.['Idempotency-Key']).toBe('reminder/u1');
+    expect(headers[1]).not.toHaveProperty('Idempotency-Key');
+  });
+
   it('a refused or failed send reports false, never throws', async () => {
     const log = { info: vi.fn(), warn: vi.fn() };
     const refused = createResendSender({

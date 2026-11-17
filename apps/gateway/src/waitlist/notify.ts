@@ -88,6 +88,8 @@ export function createResendSender(options: {
   subject: string;
   text: string;
   replyTo?: string;
+  /** Same key on a retry: Resend drops a repeat it already delivered (keys last 24 hours). */
+  idempotencyKey?: string;
 }) => Promise<'sent' | 'retry' | 'rejected'> {
   const send = options.fetch ?? fetch;
   return async (email) => {
@@ -97,6 +99,7 @@ export function createResendSender(options: {
         headers: {
           Authorization: `Bearer ${options.apiKey}`,
           'Content-Type': 'application/json',
+          ...(email.idempotencyKey !== undefined && { 'Idempotency-Key': email.idempotencyKey }),
         },
         body: JSON.stringify({
           from: options.from,

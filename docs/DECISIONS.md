@@ -1141,6 +1141,10 @@ On 2026-11-17, 10 people had signed in more than a day earlier and never connect
 
 ### Consequences
 
-- Twring keeps an email address for up to about a day and a half per new member, beyond the
-  invite records it already keeps.
+- Twring keeps an email address for about a day per new member (a week at most, if sending keeps
+  failing), beyond the invite records it already keeps. The privacy notice says so.
+- Each send carries the idempotency key `no-agent-reminder/<user id>`, so a send whose answer was
+  lost and is retried 10 minutes later cannot deliver a second copy (Resend keeps keys 24 hours).
+- The Play Data safety form lists "developer communications" for the email address; mirror it in
+  the Play Console when the listing resumes.
 - Hosted Twring only: it needs the invite email settings and saved agents.

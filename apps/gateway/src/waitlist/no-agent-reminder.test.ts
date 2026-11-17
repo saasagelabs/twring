@@ -23,7 +23,13 @@ function setup(
   let now = START;
   const records = new MemoryCollection<NoAgentReminderRecord>();
   void records.update(() => ({ items: options.rows ?? [], result: undefined }));
-  const sent: { to: string; subject: string; text: string; replyTo?: string }[] = [];
+  const sent: {
+    to: string;
+    subject: string;
+    text: string;
+    replyTo?: string;
+    idempotencyKey?: string;
+  }[] = [];
   let writes = 0;
   const counted = {
     read: () => records.read(),
@@ -75,7 +81,12 @@ describe('the reminder to connect an agent', () => {
     advance(HOUR);
     await reminder.run();
     expect(sent).toEqual([
-      { to: 'person@example.com', replyTo: 'support@example.com', ...noAgentReminderEmail() },
+      {
+        to: 'person@example.com',
+        replyTo: 'support@example.com',
+        idempotencyKey: 'no-agent-reminder/u1',
+        ...noAgentReminderEmail(),
+      },
     ]);
     await reminder.run();
     expect(sent).toHaveLength(1);
@@ -123,6 +134,13 @@ describe('the reminder to connect an agent', () => {
     await busy.reminder.run();
     expect(busy.sent).toHaveLength(2);
     expect((await busy.records.read())[0]?.settled_at).toBeUndefined();
+
+    // The same key both times: if the first was delivered and only the answer was lost, the
+    // email service drops the second.
+    expect(busy.sent.map((e) => e.idempotencyKey)).toEqual([
+      'no-agent-reminder/u1',
+      'no-agent-reminder/u1',
+    ]);
 
     const refused = setup({ result: 'rejected' });
     await refused.reminder.seen('u1', 'person@example.com');

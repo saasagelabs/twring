@@ -31,6 +31,7 @@ Speech providers: **Deepgram** (speech-to-text and text-to-speech). Some deploym
 - **Ringing (when an agent rings you):** each phone's push token (from Firebase Cloud Messaging), platform, and app variant, so Twring can make it ring; your Do Not Disturb and quiet-hours settings; and each ring's reason, agent, time, and outcome (answered, declined with your short note, missed, or cancelled). A missed ring also appears in your call summaries. Lock screens show only that an agent is calling; the reason appears once the phone is unlocked or the call is answered.
 - **Linked computers (agents on your computer):** each linked computer's name (as it reports it, e.g. its hostname), the agents it found (such as Claude Code or Codex), whether it is online, and a hashed connection token. Remove a computer in the app to delete these.
 - **Daily usage counters:** how many calls you started and how many seconds you called today (UTC), to apply the daily calling allowance. Kept for two days at most.
+- **Reminder to connect an agent:** the first time you open the app, the time and your account's email address, so that if you have not connected an agent or made a call a day later, we can send you one email showing how (sent through our email provider, Resend). You get at most one. The email address is removed from this record once the reminder is sent or no longer needed, and after a week at the latest.
 - **Invite requests:** if you ask for an invite on twring.com or in the app, your email address and the time you asked, so we can invite you. It is not linked to an account.
 - **Operational logs:** request and call events with ids and error codes, with credentials, tokens, and URL query strings redacted. Crash reports (Sentry) carry the same redacted information: no transcripts, no tokens, no email addresses, and your user id only in hashed form.
 
@@ -65,6 +66,7 @@ To remove an app, go to Settings, Connected AI apps, Remove. This deletes its ch
 | Call summaries                   | Last 200 calls per user, or until you delete your data                                   |
 | Daily usage counters             | Two days                                                                                 |
 | Invite request email             | Until you are invited or ask us to remove it ({{CONTACT_EMAIL}})                         |
+| Reminder to connect an agent     | Email address: until the reminder is sent or not needed, a week at most; the record that it was handled, until you delete your data |
 | Push tokens, ring settings       | Until you remove the phone (sign out), switch its notifications off (Android), or delete your data |
 | Ring history                     | One day for the ring itself; a missed ring stays with your call summaries                |
 | Server logs and crash reports    | 30 days                                                                                  |
@@ -105,12 +107,12 @@ Everything else stays on the self-hosted server: accounts, people and their phon
 
 ## Google Play Data safety answers
 
-Under Play's definitions, data sent to a service provider that processes it for Twring (Supabase, LiveKit, Deepgram, Cartesia, Firebase Cloud Messaging, Sentry), or sent where the user directs (their own agent, or an AI app they connected), is not "shared". So every row is "Shared: No".
+Under Play's definitions, data sent to a service provider that processes it for Twring (Supabase, LiveKit, Deepgram, Cartesia, Firebase Cloud Messaging, Sentry, Resend), or sent where the user directs (their own agent, or an AI app they connected), is not "shared". So every row is "Shared: No".
 
 | Data type (Play category) | Collected | Shared | Purpose | Optional | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Audio → Voice or sound recordings | Yes (processed in transit, not stored) | No | App functionality | Required to make a call; voice notes optional | Call audio and voice notes go to Deepgram (or xAI with the user's own key) for speech-to-text; never stored |
-| Personal info → Email address | Yes | No | App functionality, account management | No (sign-in is required) | From Google or Apple sign-in; also on notes sent from Settings |
+| Personal info → Email address | Yes | No | App functionality, account management, developer communications | No (sign-in is required) | From Google or Apple sign-in; also on notes sent from Settings; one reminder email to connect an agent |
 | Personal info → Name | Yes | No | Account management | No | Profile name from sign-in |
 | Personal info → User IDs | Yes | No | App functionality, account management | No | Sign-in account id and Twring user id |
 | Personal info → Other info | Yes | No | App functionality | Yes | User-entered agent name and address, linked computer name |
