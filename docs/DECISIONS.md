@@ -1134,17 +1134,20 @@ On 2026-11-17, 10 people had signed in more than a day earlier and never connect
 - Every 10 minutes, a person first seen 24 hours ago who still has no agent and has made no call
   gets one email ("Connect your agent to Twring") from the invite sender, replies going to
   support. At most 20 per run. Never a second one.
-- Once the reminder is settled (sent, not needed, refused by the address, or more than a week
-  late) the email address is removed from the row. Delete my data removes the row.
-- Everyone who had signed in before this shipped is recorded as settled, so it only reaches people
-  who sign in from now on.
+- Once the reminder is settled (sent, not needed, refused by the address, or more than 23 hours
+  past due) the email address is removed from the row. Delete my data removes the row, so a
+  person who deletes their data and opens the app again starts afresh.
+- Everyone who had signed in before this shipped is recorded as settled (seeded into
+  `no-agent-reminders.json` with outcome `existing` at deploy, from the sign-in accounts), so it
+  only reaches people who sign in from now on.
 
 ### Consequences
 
-- Twring keeps an email address for about a day per new member (a week at most, if sending keeps
+- Twring keeps an email address for about a day per new member (under two days, if sending keeps
   failing), beyond the invite records it already keeps. The privacy notice says so.
 - Each send carries the idempotency key `no-agent-reminder/<user id>`, so a send whose answer was
-  lost and is retried 10 minutes later cannot deliver a second copy (Resend keeps keys 24 hours).
+  lost and is retried cannot deliver a second copy: Resend keeps keys 24 hours, and retries stop
+  23 hours after the reminder fell due.
 - The Play Data safety form lists "developer communications" for the email address; mirror it in
   the Play Console when the listing resumes.
 - Hosted Twring only: it needs the invite email settings and saved agents.

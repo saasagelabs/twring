@@ -117,10 +117,10 @@ describe('the reminder to connect an agent', () => {
     ]);
   });
 
-  it('lets a reminder go unsent once it is more than a week late (the server was off)', async () => {
+  it('lets a reminder go unsent once it is more than a day late (the server was off)', async () => {
     const { reminder, records, sent, advance } = setup();
     await reminder.seen('u1', 'person@example.com');
-    advance(8 * 24 * HOUR);
+    advance(2 * 24 * HOUR);
     await reminder.run();
     expect(sent).toEqual([]);
     expect((await records.read())[0]?.outcome).toBe('expired');
@@ -150,6 +150,21 @@ describe('the reminder to connect an agent', () => {
     expect(refused.sent).toHaveLength(1);
     expect((await refused.records.read())[0]).toMatchObject({ outcome: 'rejected' });
     expect((await refused.records.read())[0]?.email).toBeUndefined();
+  });
+
+  it('stops retrying within a day, while the email service still remembers the first try', async () => {
+    const { reminder, records, sent, advance } = setup({ result: 'retry' });
+    await reminder.seen('u1', 'person@example.com');
+    advance(24 * HOUR);
+    await reminder.run();
+    advance(22 * HOUR + 30 * 60_000);
+    await reminder.run();
+    expect(sent).toHaveLength(2);
+    advance(HOUR);
+    await reminder.run();
+    expect(sent).toHaveLength(2);
+    expect((await records.read())[0]).toMatchObject({ outcome: 'expired' });
+    expect((await records.read())[0]?.email).toBeUndefined();
   });
 
   it('never emails someone already settled (people from before the reminder existed)', async () => {

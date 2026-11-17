@@ -19,8 +19,12 @@ export type NoAgentReminderRecord = z.infer<typeof noAgentReminderRecordSchema>;
 
 /** How long after first being seen a person with no agent is reminded. */
 export const REMINDER_AFTER_MS = 24 * 60 * 60_000;
-/** A reminder this late (the server was off, the email service down for days) is not sent. */
-export const REMINDER_TOO_LATE_MS = 7 * 24 * 60 * 60_000;
+/**
+ * A reminder this late (the server was off, the email service down) is not sent. It also bounds
+ * retries to under a day, while Resend still remembers the first try's idempotency key (24 h), so
+ * a send whose answer was lost can never deliver a second copy.
+ */
+export const REMINDER_TOO_LATE_MS = REMINDER_AFTER_MS + 23 * 60 * 60_000;
 /** Emails per run, so a backlog goes out gently. */
 export const MAX_REMINDERS_PER_RUN = 20;
 
