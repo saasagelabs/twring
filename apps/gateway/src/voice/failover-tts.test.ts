@@ -173,6 +173,23 @@ describe('failover that reopens a dropped primary first (a non-English speaker)'
     expect(reasons).toEqual([]);
   });
 
+  it('a primary error reconnecting cannot cure still moves to the backup', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const events: TtsEvent[] = [];
+    const reasons: string[] = [];
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: (reason) => reasons.push(reason),
+      reopensPrimaryOnDrop: true,
+    });
+    await provider.open((event) => events.push(event), signal());
+    primary.send({ type: 'error', error: auth });
+    expect(events).toEqual([{ type: 'error', error: { ...auth, recoverable: true } }]);
+    expect(reasons).toEqual(['auth_failed']);
+    await provider.open(() => undefined, signal());
+    expect(backup.opens).toBe(1);
+  });
+
   it('a primary that cannot be reopened moves to the backup', async () => {
     const primary = new FakeTtsProvider();
     const backup = new FakeTtsProvider();

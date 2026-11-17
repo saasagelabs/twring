@@ -1139,8 +1139,9 @@ Spanish answers were read by an English voice for the rest of the call.
 - If the caller starts speaking in the silence while the answer waits, they have taken the floor:
   the answer is dropped, as before.
 - One answer is picked up at most twice; a third drop, or a refusal, fails it as before.
-- A non-English speaker's dropped Cartesia voice is reopened on Cartesia. It moves to the
-  English-only Deepgram backup only when Cartesia cannot be reached at all.
+- A non-English speaker's Cartesia voice that drops (a recoverable error) is reopened on
+  Cartesia. It moves to the English-only Deepgram backup only when Cartesia cannot be reached, or
+  on an error no reconnect can cure (a refused key).
 
 ### Consequences
 

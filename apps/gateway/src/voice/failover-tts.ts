@@ -14,8 +14,8 @@ export interface FailoverOptions {
    */
   failsOver?(error: VoiceError): boolean;
   /**
-   * A primary session that drops mid-call is reopened on the primary; only a primary that then
-   * cannot be opened moves to the backup. For a non-English speaker, whose backup voice speaks
+   * A primary session that drops mid-call (a recoverable error) is reopened on the primary; only a
+   * primary that then cannot be opened, or an error no reconnect can cure, moves to the backup. For a non-English speaker, whose backup voice speaks
    * English only (production 2026-11-17: a Spanish caller's answers moved to an English voice).
    */
   reopensPrimaryOnDrop?: boolean;
@@ -64,8 +64,8 @@ export function createFailoverTts(
           if (failed) return;
           const onPrimary = provider === primary;
           if (event.type === 'error') {
-            if (!onPrimary || !failsOver(event.error) || options.reopensPrimaryOnDrop)
-              return end(event);
+            const reopen = options.reopensPrimaryOnDrop === true && event.error.recoverable;
+            if (!onPrimary || !failsOver(event.error) || reopen) return end(event);
             switchToBackup(event.error.code);
             // Recoverable: the pipeline reconnects, and the reconnect opens the backup.
             return end({ ...event, error: { ...event.error, recoverable: true } });
