@@ -26,6 +26,35 @@ const RECONNECT_DELAYS_MS = [250, 1000, 3000] as const;
  */
 const SILENT_ANSWERS_FATAL = 2;
 /**
+ * Times one answer is picked up again after its voice connection dropped mid-answer; a further
+ * drop fails it as before. Each pickup also spends a reconnect, so this only bounds repetition.
+ */
+const MAX_SPEECH_RESUMES = 2;
+/**
+ * The slowest reading rate any voice speaks at, in ms per character. Heard text is estimated with
+ * it, so the estimate falls short of what was really heard: a pickup repeats a little rather than
+ * skip words the caller never heard.
+ */
+const SURELY_HEARD_MS_PER_CHAR = 100;
+/** Latin sentence ends need a space after them; CJK ones and the Hindi danda need none. */
+const SENTENCE_END = /(?:[.!?…]+["'”’)\]]*\s+|[。！？।॥]+["'”’)\]」]*\s*)/g;
+
+/**
+ * Where to pick an answer up after its voice dropped: the start of the sentence the caller was
+ * hearing, judged from how much audio played (`heardMs`). Nothing heard starts over.
+ */
+export function resumeOffset(text: string, heardMs: number): number {
+  const heardChars = Math.floor(heardMs / SURELY_HEARD_MS_PER_CHAR);
+  if (heardChars <= 0) return 0;
+  let start = 0;
+  for (const match of text.matchAll(SENTENCE_END)) {
+    const end = match.index + match[0].length;
+    if (end > heardChars) break;
+    start = end;
+  }
+  return start;
+}
+/**
  * A reconnected session counts as healthy (its retry budget is restored) only after staying up
  * this long, so a provider that accepts and then drops at once cannot reconnect-storm forever.
  */
@@ -146,6 +175,18 @@ export class VoicePipeline {
         firstAudioLogged: boolean;
         playingSent: boolean;
         firstPublishedLogged: boolean;
+        /** Every word of this answer so far, so it can be picked up again after a voice drop. */
+        text: string;
+        /**
+         * Waiting for the voice to reconnect: text is kept, not sent, and the answer goes on (from
+         * `resumeFrom`) once the voice is back.
+         */
+        suspended: boolean;
+        /** Where in `text` the voice last (re)started speaking. */
+        resumeFrom: number;
+        /** Audio this answer had played when the voice last (re)started, in ms. */
+        resumedAtMs: number;
+        resumes: number;
       }
     | undefined;
   /** Per generation: frames played out, and frames in total once TTS delivered them all. */
@@ -326,6 +367,11 @@ export class VoicePipeline {
       firstAudioLogged: false,
       playingSent: false,
       firstPublishedLogged: false,
+      text: '',
+      suspended: false,
+      resumeFrom: 0,
+      resumedAtMs: 0,
+      resumes: 0,
     };
     this.assembler.clear();
     this.playout.set(id, { playedFrames: 0 });
@@ -351,8 +397,13 @@ export class VoicePipeline {
   appendSpeech(id: string, text: string): void {
     const active = this.active;
     if (active?.id !== id || active.ended || text === '') return;
+    active.text += text;
     if (this.tts === undefined) {
-      // TTS is reconnecting: this generation cannot complete; the caller moves on without it.
+      // The voice is reconnecting: the words wait and are spoken once it is back.
+      if (this.reconnecting.tts) {
+        active.suspended = true;
+        return;
+      }
       this.failSpeech(active);
       return;
     }
@@ -373,7 +424,7 @@ export class VoicePipeline {
     const active = this.active;
     if (active?.id !== id || active.ended) return;
     active.ended = true;
-    if (!active.textSent) {
+    if (!active.textSent && !active.suspended) {
       this.active = undefined;
       this.options.onSpeech({ generationId: id, state: 'finished' });
       return;
@@ -458,13 +509,18 @@ export class VoicePipeline {
   private onStt(event: SttEvent): void {
     if (this.closed) return;
     switch (event.type) {
-      case 'speech_started':
+      case 'speech_started': {
         this.log('user_speech_started', { turn_index: event.turnIndex });
+        // The caller spoke into the silence of an answer waiting for its voice: they took the
+        // floor, so it is not picked up over them once the voice is back.
+        const paused = this.active;
+        if (paused?.suspended) this.failSpeech(paused);
         this.turnStartedAt = this.options.scheduler.now();
         this.wordsChangedAt = undefined;
         this.callerSpeaking = true;
         this.options.onUserSpeechStarted();
         return;
+      }
       case 'speech_discarded':
         if (this.repeatedEnd(event.turnIndex)) return;
         this.log('user_speech_discarded', { turn_index: event.turnIndex });
@@ -563,10 +619,15 @@ export class VoicePipeline {
       }
       case 'error': {
         const active = this.active;
-        // An error naming no generation (or another one) still means one TTS hasn't finished
-        // delivering cannot complete; fail it so the turn doesn't wait on audio that won't come.
-        if (active !== undefined && (event.generationId === active.id || !active.providerDone))
-          this.failSpeech(active);
+        // The answer still being delivered cannot finish on this session. After a drop it waits
+        // for the reconnect and goes on from the sentence the caller was hearing (production
+        // 2026-11-17: an answer cut 4 s in left the caller in silence). One already delivered in
+        // full plays out from the queue untouched.
+        if (active !== undefined && !active.providerDone) {
+          if (event.error.recoverable && active.resumes < MAX_SPEECH_RESUMES)
+            this.suspendSpeech(active);
+          else this.failSpeech(active);
+        }
         this.handleProviderError('tts', event.error);
         return;
       }
@@ -633,6 +694,54 @@ export class VoicePipeline {
         });
       },
     });
+  }
+
+  /** The voice dropped mid-answer: what was queued stops, and the rest waits for the reconnect. */
+  private suspendSpeech(active: NonNullable<VoicePipeline['active']>): void {
+    const heardMs = this.playedMs(active.id) - active.resumedAtMs;
+    this.options.stopPlayback();
+    this.assembler.clear();
+    this.resetOnset();
+    const playout = this.playout.get(active.id);
+    if (playout !== undefined) playout.queuedFrames = playout.playedFrames;
+    active.resumes += 1;
+    active.suspended = true;
+    active.resumeFrom += resumeOffset(active.text.slice(active.resumeFrom), heardMs);
+    this.log('speech_suspended', { generation_id: active.id, heard_ms: Math.round(heardMs) });
+  }
+
+  /** The voice is back: a suspended answer goes on from where it was picked up. */
+  private resumeSpeech(): void {
+    const active = this.active;
+    const tts = this.tts;
+    if (active === undefined || !active.suspended || tts === undefined) return;
+    active.suspended = false;
+    active.resumedAtMs = this.playedMs(active.id);
+    const rest = active.text.slice(active.resumeFrom);
+    if (rest !== '') {
+      tts.speak(active.id, rest);
+      this.ttsChars += rest.length;
+      if (!active.textSent) {
+        active.textSent = true;
+        active.firstTextAt = this.options.scheduler.now();
+        this.log('tts_first_text_enqueued', {
+          generation_id: active.id,
+          duration_ms: this.elapsed(active.committedAt),
+        });
+      }
+    }
+    this.log('speech_resumed', {
+      generation_id: active.id,
+      skipped_chars: active.resumeFrom,
+      text_chars: rest.length,
+    });
+    if (!active.ended) return;
+    if (!active.textSent) {
+      this.active = undefined;
+      this.options.onSpeech({ generationId: active.id, state: 'finished' });
+      return;
+    }
+    tts.flush(active.id);
   }
 
   private failSpeech(active: NonNullable<VoicePipeline['active']>): void {
@@ -708,6 +817,7 @@ export class VoicePipeline {
           return;
         }
         this.tts = session;
+        this.resumeSpeech();
       }
       this.reconnects[which] += 1;
       this.reconnectedAt[which] = this.options.scheduler.now();

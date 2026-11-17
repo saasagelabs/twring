@@ -209,10 +209,37 @@ describe('TTS routing by voice id', () => {
     expect(made).toEqual(['ct own-ct sonic-3.6', `dg dg-key ${DEEPGRAM.ttsModel}`]);
   });
 
-  it("a Hindi speaker on Twring's Cartesia key fails over to the Deepgram default", async () => {
+  it("a Hindi speaker on Twring's Cartesia key moves to the Deepgram default only when Cartesia cannot be reached", async () => {
     const { r, made } = failingRouter(CARTESIA);
     await expect(open(r.forCall('flux-kit-en', { language: 'hi' }))).rejects.toThrow();
     expect(made).toEqual(['ct ct-key sonic-3.6', `dg dg-key ${DEEPGRAM.ttsModel}`]);
+  });
+
+  it("a Hindi speaker's dropped Cartesia voice reconnects to Cartesia, not to an English-only voice", async () => {
+    const made: string[] = [];
+    const sessions: FakeTtsProvider[] = [];
+    const r = createTtsRouter({
+      deepgram: DEEPGRAM,
+      cartesia: CARTESIA,
+      createDeepgram: (o) => {
+        made.push(`dg ${o.model}`);
+        return new FakeTtsProvider();
+      },
+      createCartesia: (o) => {
+        made.push(`ct ${o.model}`);
+        const provider = new FakeTtsProvider();
+        sessions.push(provider);
+        return provider;
+      },
+    });
+    const provider = r.forCall('flux-kit-en', { language: 'hi' });
+    const events: string[] = [];
+    await provider.open((event) => events.push(event.type), new AbortController().signal);
+    sessions[0]!.send({ type: 'error', error: { code: 'connection_lost', recoverable: true } });
+    expect(events).toEqual(['error']);
+    await provider.open(() => undefined, new AbortController().signal);
+    expect(sessions[0]!.opens).toBe(2);
+    expect(made).toEqual(['ct sonic-3.6']);
   });
 
   it('a Hindi speaker on an own Cartesia key never fails over', async () => {

@@ -150,3 +150,42 @@ describe('failover on a voice the provider cannot find', () => {
     expect(events).toEqual([{ type: 'generation_error', generationId: 'g3', error: notFound }]);
   });
 });
+
+describe('failover that reopens a dropped primary first (a non-English speaker)', () => {
+  const signal = () => new AbortController().signal;
+
+  it('a dropped primary session is reopened on the primary, error passed unchanged', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const events: TtsEvent[] = [];
+    const reasons: string[] = [];
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: (reason) => reasons.push(reason),
+      reopensPrimaryOnDrop: true,
+    });
+    await provider.open((event) => events.push(event), signal());
+    primary.send({ type: 'error', error: lost });
+    expect(events).toEqual([{ type: 'error', error: lost }]);
+    expect(primary.closed).toBe(1);
+    await provider.open(() => undefined, signal());
+    expect(primary.opens).toBe(2);
+    expect(backup.opens).toBe(0);
+    expect(reasons).toEqual([]);
+  });
+
+  it('a primary that cannot be reopened moves to the backup', async () => {
+    const primary = new FakeTtsProvider();
+    const backup = new FakeTtsProvider();
+    const reasons: string[] = [];
+    const provider = createFailoverTts(primary, backup, {
+      onFailover: (reason) => reasons.push(reason),
+      reopensPrimaryOnDrop: true,
+    });
+    await provider.open(() => undefined, signal());
+    primary.send({ type: 'error', error: lost });
+    primary.failNextOpen = lost;
+    await provider.open(() => undefined, signal());
+    expect(backup.opens).toBe(1);
+    expect(reasons).toEqual(['connection_lost']);
+  });
+});

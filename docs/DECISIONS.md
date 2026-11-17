@@ -1119,3 +1119,30 @@ five calls in a row went silent while the phone said Twring's voice service was 
 
 - Some minutes of a person on their own keys may be spoken on Twring's account (only when they have
   no own key for the fallback provider). The failover is logged as `tts_failover` with `own_key`.
+
+## ADR-038: An answer cut off by a voice drop goes on after the reconnect (2026-11-17)
+
+### Context
+
+On 2026-11-17 a Spanish speaker's 40 s wait for their agent ended with 4 s of the answer: the
+voice connection dropped, the rest of the answer was thrown away, and they sat in silence for 84 s.
+The call then moved to the Deepgram backup voice, which speaks English only (ADR-036), so their
+Spanish answers were read by an English voice for the rest of the call.
+
+### Decision
+
+- When the voice connection drops while an answer is still arriving, the answer waits for the
+  reconnect instead of failing. Once the voice is back it goes on from the start of the sentence
+  the caller was hearing, judged conservatively from the audio already played (a short repeat is
+  better than skipped words). An answer already delivered in full plays out untouched.
+- Text that arrives during the reconnect, and an answer that starts during it, wait for it too.
+- If the caller starts speaking in the silence while the answer waits, they have taken the floor:
+  the answer is dropped, as before.
+- One answer is picked up at most twice; a third drop, or a refusal, fails it as before.
+- A non-English speaker's dropped Cartesia voice is reopened on Cartesia. It moves to the
+  English-only Deepgram backup only when Cartesia cannot be reached at all.
+
+### Consequences
+
+- The caller may hear the start of a sentence twice after a drop.
+- Logged as `speech_suspended` and `speech_resumed` (with `skipped_chars`).

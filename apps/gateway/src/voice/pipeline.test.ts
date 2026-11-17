@@ -6,7 +6,7 @@ import { ManualScheduler, flushMicrotasks, recordingLogger } from '../calls/test
 import { createDeepgramStt } from './deepgram-stt';
 import { createDeepgramTts } from './deepgram-tts';
 import { createFailoverTts } from './failover-tts';
-import { VoicePipeline } from './pipeline';
+import { VoicePipeline, resumeOffset } from './pipeline';
 import { FakeSttProvider, FakeTtsProvider, fakeSocketFactory } from './testing';
 import { VoiceProviderError, type SttProvider, type TtsProvider } from './types';
 
@@ -715,26 +715,29 @@ describe('VoicePipeline session sequencing with Deepgram sockets, third pass (ve
     transcript,
   });
 
-  it("after a TTS reconnect the new session's audio and done reach the next generation", async () => {
+  it("after a TTS reconnect the cut-off answer goes on there, and the new session's audio reaches it", async () => {
     const { pipeline, scheduler, ttsFactory, seen, queued, playOut } = await both();
     const first = pipeline.beginSpeech(0);
     pipeline.appendSpeech(first, 'Hello.');
     ttsFactory.sockets[0]!.drop(1006);
-    expect(seen).toEqual([`${first} failed`]);
+    expect(seen).toEqual([]);
     scheduler.advance(250);
     await flushMicrotasks();
     expect(ttsFactory.sockets).toHaveLength(2);
     const fresh = ttsFactory.sockets[1]!;
-    const second = pipeline.beginSpeech(0);
-    pipeline.appendSpeech(second, 'Again.');
-    pipeline.endSpeech(second);
-    expect(fresh.jsonSent()).toEqual([{ type: 'Speak', text: 'Again.' }, { type: 'Flush' }]);
+    pipeline.appendSpeech(first, ' Again.');
+    pipeline.endSpeech(first);
+    expect(fresh.jsonSent()).toEqual([
+      { type: 'Speak', text: 'Hello.' },
+      { type: 'Speak', text: ' Again.' },
+      { type: 'Flush' },
+    ]);
     fresh.receive({ type: 'SpeechStarted', speech_id: 's1' });
     fresh.receive(frameBytes());
     fresh.receive({ type: 'SpeechMetadata', speech_id: 's1' });
     expect(queued.reduce((n, q) => n + q.frames.length, 0)).toBe(1);
     playOut();
-    expect(seen).toEqual([`${first} failed`, `${second} playing`, `${second} finished`]);
+    expect(seen).toEqual([`${first} playing`, `${first} finished`]);
     scheduler.advance(10_000);
     await flushMicrotasks();
     expect(ttsFactory.sockets).toHaveLength(2);
@@ -799,7 +802,7 @@ describe('VoicePipeline session sequencing with Deepgram sockets, third pass (ve
     expect(ttsFactory.sockets).toHaveLength(2);
   });
 
-  it('the ack timeout drops the session, fails the waiting answer, and the next answer plays', async () => {
+  it('the ack timeout drops the session; the waiting answer plays on the new one', async () => {
     const { pipeline, scheduler, ttsFactory, seen, queued, liveAck } = await both();
     const first = pipeline.beginSpeech(0);
     pipeline.appendSpeech(first, 'Long answer.');
@@ -809,13 +812,14 @@ describe('VoicePipeline session sequencing with Deepgram sockets, third pass (ve
     pipeline.endSpeech(second);
     expect(liveAck()).toHaveLength(1);
     liveAck()[0]!.fire(); // Flux never answered the Interrupt
-    expect(seen).toEqual([`${second} failed`]);
+    expect(seen).toEqual([]);
     expect(ttsFactory.sockets[0]!.closedWith).toBe(1011);
     scheduler.advance(250);
     await flushMicrotasks();
-    const third = pipeline.beginSpeech(0);
-    pipeline.appendSpeech(third, 'Retry.');
-    pipeline.endSpeech(third);
+    expect(ttsFactory.sockets[1]!.jsonSent()).toEqual([
+      { type: 'Speak', text: 'Okay.' },
+      { type: 'Flush' },
+    ]);
     ttsFactory.sockets[1]!.receive({ type: 'SpeechStarted', speech_id: 's9' });
     ttsFactory.sockets[1]!.receive(frameBytes());
     ttsFactory.sockets[1]!.receive({ type: 'SpeechMetadata', speech_id: 's9' });
@@ -1067,5 +1071,211 @@ describe('VoicePipeline answers that never make a sound', () => {
     answerFails();
     expect(fatal).toEqual(['tts provider_error']);
     await pipeline.close();
+  });
+});
+
+describe('VoicePipeline answer cut off by a voice drop (production 2026-11-17)', () => {
+  const lost = { type: 'error', error: { code: 'connection_lost', recoverable: true } } as const;
+  async function setup() {
+    const tts = new FakeTtsProvider();
+    const stt = new FakeSttProvider();
+    const scheduler = new ManualScheduler();
+    const logger = recordingLogger();
+    const speech: string[] = [];
+    const fatal: string[] = [];
+    const queued: Array<{
+      frames: Int16Array[];
+      callbacks: {
+        onFirstPublished?: () => void;
+        onLastPublished?: () => void;
+        onDone?: () => void;
+      };
+    }> = [];
+    const pipeline = new VoicePipeline({
+      callId: 'call_aaaaaaaaaaaaaaaaaaaa',
+      stt,
+      tts,
+      scheduler,
+      logger,
+      onUserSpeechStarted: () => undefined,
+      onUserSpeechDiscarded: () => undefined,
+      onUserTurn: () => undefined,
+      onCaption: () => undefined,
+      onSpeech: ({ generationId, state }) => speech.push(`${generationId} ${state}`),
+      playFrames: (frames, callbacks) => queued.push({ frames, callbacks }),
+      stopPlayback: () => {
+        const dropped = queued.reduce((n, q) => n + q.frames.length, 0);
+        queued.length = 0;
+        return dropped;
+      },
+      onFatal: (error, which) => fatal.push(`${which} ${error.code}`),
+    });
+    await pipeline.start();
+    /** TTS delivers `ms` of audio for `id` and the phone plays all of it. */
+    const plays = (id: string, ms: number) => {
+      const frames = ms / 20;
+      tts.send({
+        type: 'audio',
+        generationId: id,
+        bytes: new Uint8Array(frames * SAMPLES_PER_FRAME * 2),
+      });
+      for (const q of queued.splice(0)) {
+        q.callbacks.onFirstPublished?.();
+        q.callbacks.onLastPublished?.();
+      }
+    };
+    const reconnect = async () => {
+      scheduler.advance(3000);
+      await flushMicrotasks();
+    };
+    const finish = (id: string) => {
+      tts.send({ type: 'audio', generationId: id, bytes: frameBytes() });
+      tts.send({ type: 'done', generationId: id });
+      for (const q of queued.splice(0)) {
+        q.callbacks.onFirstPublished?.();
+        q.callbacks.onDone?.();
+      }
+    };
+    return { pipeline, tts, stt, speech, fatal, plays, reconnect, finish, logger };
+  }
+
+  it('picks the answer up again on the reconnected voice, from the sentence it was in', async () => {
+    const { pipeline, tts, speech, fatal, plays, reconnect, finish, logger } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'First sentence here. Second sentence is longer and goes on. Third.');
+    pipeline.endSpeech(id);
+    plays(id, 2500);
+    tts.calls.length = 0;
+    tts.send(lost);
+    expect(speech).toEqual([`${id} playing`]);
+    await reconnect();
+    expect(tts.calls).toEqual([
+      `speak ${id} Second sentence is longer and goes on. Third.`,
+      `flush ${id}`,
+    ]);
+    expect(logger.events.find((e) => e.fields.event === 'speech_resumed')?.fields).toMatchObject({
+      generation_id: id,
+      skipped_chars: 21,
+    });
+    finish(id);
+    expect(speech).toEqual([`${id} playing`, `${id} finished`]);
+    expect(fatal).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('nothing heard yet: the whole answer, with text that came during the reconnect', async () => {
+    const { pipeline, tts, speech, reconnect, finish } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send(lost);
+    pipeline.appendSpeech(id, ' More words.');
+    pipeline.endSpeech(id);
+    tts.calls.length = 0;
+    await reconnect();
+    expect(tts.calls).toEqual([`speak ${id} Hello. More words.`, `flush ${id}`]);
+    finish(id);
+    expect(speech).toEqual([`${id} playing`, `${id} finished`]);
+    await pipeline.close();
+  });
+
+  it('an answer that starts while the voice reconnects waits for it instead of failing', async () => {
+    const { pipeline, tts, speech, reconnect, finish } = await setup();
+    tts.send(lost);
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Back again.');
+    pipeline.endSpeech(id);
+    expect(speech).toEqual([]);
+    tts.calls.length = 0;
+    await reconnect();
+    expect(tts.calls).toEqual([`speak ${id} Back again.`, `flush ${id}`]);
+    finish(id);
+    expect(speech).toEqual([`${id} playing`, `${id} finished`]);
+    await pipeline.close();
+  });
+
+  it('an answer cancelled during the reconnect is not spoken afterwards', async () => {
+    const { pipeline, tts, reconnect } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send(lost);
+    pipeline.cancelSpeech('barge_in');
+    tts.calls.length = 0;
+    await reconnect();
+    expect(tts.calls).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('the caller talking in the silence of a paused answer drops it: they took the floor', async () => {
+    const { pipeline, tts, speech, reconnect, stt } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send(lost);
+    stt.send({ type: 'speech_started', turnIndex: 0 });
+    expect(speech).toEqual([`${id} failed`]);
+    tts.calls.length = 0;
+    await reconnect();
+    expect(tts.calls).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('an answer whose audio had all arrived plays out untouched', async () => {
+    const { pipeline, tts, speech, plays, reconnect } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Short.');
+    pipeline.endSpeech(id);
+    plays(id, 200);
+    tts.send({ type: 'done', generationId: id });
+    tts.calls.length = 0;
+    tts.send({ ...lost, generationId: id });
+    await reconnect();
+    expect(tts.calls).toEqual([]);
+    expect(speech).toEqual([`${id} playing`]);
+    await pipeline.close();
+  });
+
+  it('a refused voice still fails the answer and ends the call', async () => {
+    const { pipeline, tts, speech, fatal } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'error', error: { code: 'auth_failed', recoverable: false } });
+    expect(speech).toEqual([`${id} failed`]);
+    expect(fatal).toEqual(['tts auth_failed']);
+    await pipeline.close();
+  });
+
+  it('gives up on one answer after it was cut off three times', async () => {
+    const { pipeline, tts, speech, reconnect } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    for (let drop = 0; drop < 2; drop += 1) {
+      tts.send(lost);
+      await reconnect();
+    }
+    expect(speech).toEqual([]);
+    tts.send(lost);
+    expect(speech).toEqual([`${id} failed`]);
+    await pipeline.close();
+  });
+});
+
+describe('resumeOffset', () => {
+  const text = 'First sentence here. Second sentence is longer and goes on. Third.';
+  it('starts over when nothing was heard', () => {
+    expect(resumeOffset(text, 0)).toBe(0);
+  });
+  it('goes back to the start of the sentence the caller was in', () => {
+    expect(resumeOffset(text, 2500)).toBe(21);
+  });
+  it('never skips past what was surely unheard (a slow reading rate)', () => {
+    expect(resumeOffset(text, 1900)).toBe(0);
+  });
+  it('finds Hindi and Japanese sentence ends (a danda, a full stop with no space after)', () => {
+    const hindi = 'नमस्ते आप कैसे हैं। मैं ठीक हूँ और आज मौसम अच्छा है।';
+    expect(resumeOffset(hindi, 3000)).toBe(hindi.indexOf('मैं'));
+    const japanese = '今日は良い天気です。明日は雨が降るでしょう。';
+    expect(resumeOffset(japanese, 1500)).toBe(10);
+  });
+  it('heard past the end: nothing is left to say again but the last sentence', () => {
+    expect(resumeOffset(text, 60_000)).toBe(text.indexOf('Third.'));
   });
 });

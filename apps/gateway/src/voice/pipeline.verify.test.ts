@@ -50,7 +50,7 @@ function failover() {
 }
 
 describe('voice failover: audio continuity (verifier)', () => {
-  it('plays the next reply through the backup and reports the broken generation failed once', async () => {
+  it('picks the cut-off reply up on the backup, and plays the next one there', async () => {
     const { primary, backup, tts, reasons } = failover();
     const { pipeline, scheduler, speech, played } = setup(new FakeSttProvider(), tts);
     await pipeline.start();
@@ -59,28 +59,31 @@ describe('voice failover: audio continuity (verifier)', () => {
     primary.send({ type: 'audio', generationId: gen1, bytes: new Uint8Array(FRAME_BYTES) });
     expect(played).toEqual([1]);
     primary.send({ type: 'error', error: { code: 'connection_lost', recoverable: false } });
-    expect(speech).toEqual([`${gen1}:failed`]);
+    expect(speech).toEqual([]);
     expect(reasons).toEqual(['connection_lost']);
     // Late events from the dead primary session reach nobody.
     primary.send({ type: 'audio', generationId: gen1, bytes: new Uint8Array(FRAME_BYTES) });
     primary.send({ type: 'done', generationId: gen1 });
     primary.send({ type: 'error', error: lost });
     expect(played).toEqual([1]);
-    expect(speech).toEqual([`${gen1}:failed`]);
+    expect(speech).toEqual([]);
     scheduler.advance(250);
     await flushMicrotasks();
     expect(backup.opens).toBe(1);
+    // Nothing was heard (20 ms): the cut-off reply starts over on the backup.
+    expect(backup.calls).toEqual([`speak ${gen1} hello`]);
+    backup.calls.length = 0;
     const gen2 = pipeline.beginSpeech(scheduler.now());
     pipeline.appendSpeech(gen2, 'again');
     pipeline.endSpeech(gen2);
-    expect(backup.calls).toEqual([`speak ${gen2} again`, `flush ${gen2}`]);
+    expect(backup.calls).toEqual([`cancel ${gen1}`, `speak ${gen2} again`, `flush ${gen2}`]);
     expect(primary.calls.filter((c) => c.includes(gen2))).toEqual([]);
     // Primary audio for the new generation is dropped; backup audio plays.
     primary.send({ type: 'audio', generationId: gen2, bytes: new Uint8Array(FRAME_BYTES) });
     expect(played).toEqual([1]);
     backup.send({ type: 'audio', generationId: gen2, bytes: new Uint8Array(FRAME_BYTES) });
     expect(played).toEqual([1, 1]);
-    expect(speech.filter((s) => s.startsWith(gen1))).toEqual([`${gen1}:failed`]);
+    expect(speech.filter((s) => s.startsWith(gen1))).toEqual([]);
     await pipeline.close();
   });
 });
