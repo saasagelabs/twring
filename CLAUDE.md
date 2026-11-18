@@ -137,6 +137,32 @@ Do not have both agents edit the same files simultaneously. Use branches/worktre
 
 When delegating/subagenting, keep the parent responsible for integration. Do not allow subagents to independently change architecture contracts unless that change is the explicit task.
 
+## Lessons from production (keep this list current)
+
+- **The connector is not on npm.** Every user-facing command downloads `twring-connect.mjs` from
+  Twring and runs it with Node: `curl -fsSL <server>/downloads/twring-connect.mjs -o
+  twring-connect.mjs && node twring-connect.mjs ...`. Never write `npx twring-connect` or
+  `npx cord-connect` in code, docs, hooks or the app: anyone could publish a package under that
+  name and it would run on users' machines.
+- **Hooks written into a user's Claude Code or Codex config** run the copied connector with an
+  absolute Node path, POSIX-quoted (Claude Code on Windows runs hooks in Git Bash). Reinstalling
+  replaces an old Twring hook; it never adds a second one.
+- **A change is not done until users can get it.** Gateway changes need a deploy; connector
+  changes need `pnpm --filter @twring/connector bundle`, the file published to `/downloads`, and
+  `scripts/deploy-site.sh` with `DEPLOY_SITE_CONNECTOR` so `apps/site/selfhost/versions.json`
+  records its digest (commit that file); app changes need new Android and iOS builds. If a release
+  step is left, say which one.
+- **Check where the user looks:** the live download, the installed build on a real device, the
+  rendered page or video as a viewer sees it. Passing tests are necessary, not sufficient.
+- **Plugins and integrations** (`integrations/hermes`) ship separately from the app: when a shared
+  behaviour changes, check them too and bump their version only if their own code changed.
+- **Windows checkouts:** some tools write CRLF line endings; run `pnpm format:check` before
+  committing. Keep worktrees on short paths (native Android builds fail on deep ones).
+- **iOS TestFlight builds:** GitHub's Apple-silicon macOS runners sometimes run out. A job "not
+  acquired by Runner" is cancelled after about 15 minutes; re-run it, and if that keeps
+  happening, run the job on `macos-15-intel`. Apple requires the iOS 27 SDK (Xcode 27) for
+  uploads from April 2027.
+
 ## Completion checklist
 
 Before saying a task is complete:
@@ -150,6 +176,7 @@ Before saying a task is complete:
 - iOS compatibility considered and smoke-tested when feasible;
 - no architectural invariant silently changed;
 - user-facing behavior remains simple.
+- the change is released where users get it, or the remaining release step is stated.
 - Commits carry a DCO sign-off (`git commit -s`).
 
 If a task reveals a genuinely new product decision, implement the safe/minimal behavior and surface the decision clearly rather than inventing a broad new product direction.
