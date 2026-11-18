@@ -21,8 +21,11 @@ concurrency:
 jobs:
   testflight:
     if: github.ref == 'refs/heads/main'
-    runs-on: macos-15
-    timeout-minutes: 90
+    # Intel, not the default Apple-silicon macos-15: on 2026-11-18 GitHub had no free arm64 Mac
+    # for this job twice in a row ("not acquired ... even after multiple attempts"). The app is
+    # still built for iPhones (arm64); only the build machine changes. Intel runners are slower.
+    runs-on: macos-15-intel
+    timeout-minutes: 120
     environment: testflight
     env:
       APP_VARIANT: production
