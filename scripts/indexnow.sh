@@ -28,9 +28,17 @@ live="$(curl -fsS "https://$HOST/$KEY_FILE")" || { echo "indexnow: https://$HOST
 
 list="$(printf '"%s",' "${URLS[@]}")"
 body="{\"host\":\"$HOST\",\"key\":\"$KEY\",\"keyLocation\":\"https://$HOST/$KEY_FILE\",\"urlList\":[${list%,}]}"
-code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST https://api.indexnow.org/indexnow \
-  -H 'Content-Type: application/json; charset=utf-8' --data "$body")"
-case "$code" in
-  200 | 202) echo "indexnow: sent ${#URLS[@]} page(s), answer $code." ;;
-  *) echo "indexnow: the IndexNow service answered $code." >&2; exit 1 ;;
-esac
+# Engines share what one of them receives. Bing's own address first: some networks reset
+# connections to the shared api.indexnow.org.
+for endpoint in https://www.bing.com/indexnow https://api.indexnow.org/indexnow; do
+  code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$endpoint" \
+    -H 'Content-Type: application/json; charset=utf-8' --data "$body" 2>/dev/null)" || code=000
+  case "$code" in
+    200 | 202)
+      echo "indexnow: sent ${#URLS[@]} page(s) to $endpoint, answer $code."
+      exit 0
+      ;;
+    *) echo "indexnow: $endpoint answered $code." >&2 ;;
+  esac
+done
+exit 1
