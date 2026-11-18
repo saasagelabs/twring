@@ -210,7 +210,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           cameraPermission: CAMERA_USAGE,
         },
       ],
-      // Scans the QR code `npx cord-connect` shows (ADR-025). No video recording, so no audio.
+      // Scans the QR code `node twring-connect.mjs` shows (ADR-025). No video recording, so no audio.
       [
         'expo-camera',
         {

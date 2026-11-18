@@ -36,7 +36,7 @@ import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
 import { startCall } from '@/call/start';
 import { AgentMessage } from '@/components/AgentMessage';
 import { Choice } from '@/components/Choice';
-import { activeServerUrl } from '@/servers/active';
+import { activeServerUrl, downloadsServerUrl } from '@/servers/active';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { LinkComputer } from '@/components/LinkComputer';
 import { Field } from '@/components/Field';
@@ -461,13 +461,15 @@ function ComputerWizard() {
       case 'pair': {
         const pairing = state.pairing;
         const command =
-          pairing.kind === 'waiting' ? connectCommand(pairing.pairing.code, server) : '';
+          pairing.kind === 'waiting'
+            ? connectCommand(pairing.pairing.code, server, downloadsServerUrl())
+            : undefined;
         return (
           <>
             <Heading>Connect your computer</Heading>
             <Support>
               On the computer where your agent runs, open a terminal in your project folder and run
-              this command. It needs Node.js.
+              this command.
             </Support>
             {pairing.kind === 'loading' && (
               <ActivityIndicator accessibilityLabel="Getting a code" />
@@ -481,7 +483,10 @@ function ComputerWizard() {
             {pairing.kind === 'expired' && (
               <Support>That code expired. Get a new one and run the new command.</Support>
             )}
-            {pairing.kind === 'waiting' && (
+            {pairing.kind === 'waiting' && command === undefined && (
+              <Support>This app can't make a command for its server. Check the app setup.</Support>
+            )}
+            {pairing.kind === 'waiting' && command !== undefined && (
               <>
                 <Text
                   selectable
@@ -493,6 +498,10 @@ function ComputerWizard() {
                 >
                   {command}
                 </Text>
+                <Support>
+                  Needs Node.js 20 or newer. On Windows PowerShell, use curl.exe and run the two
+                  parts one after the other.
+                </Support>
                 <View style={styles.inline}>
                   <TextButton
                     label="Copy or share the command"

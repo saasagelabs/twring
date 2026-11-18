@@ -17,7 +17,8 @@ describe('public connector name', () => {
       encoding: 'utf8',
     });
     expect(help.status, help.stderr).toBe(0);
-    expect(help.stdout).toContain('npx twring-connect');
+    expect(help.stdout).toContain('node twring-connect.mjs');
+    expect(help.stdout).not.toContain('npx');
 
     const preamble = callPreamble(
       ringCommand({
@@ -28,6 +29,7 @@ describe('public connector name', () => {
       }),
     );
     expect(preamble).toContain('through Twring,');
-    expect(preamble).toContain('npx twring-connect ring');
+    expect(preamble).toContain('twring-connect.mjs ring');
+    expect(preamble).not.toContain('npx');
   });
 });

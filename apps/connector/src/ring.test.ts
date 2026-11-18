@@ -750,23 +750,96 @@ describe('--from-hook parsing', () => {
   });
 });
 
+const TARGET = { node: '/usr/bin/node', script: '/home/me/.config/twring/cord-connect.mjs' };
+const CODEX_RING =
+  'notify = ["/usr/bin/node", "/home/me/.config/twring/cord-connect.mjs", "ring", "--from-hook", "codex"]';
+
 describe('hooks install/uninstall', () => {
+  it('never runs npx: the hook runs the connector copy on this computer', async () => {
+    expect(hookCommand('claude', 'ring', TARGET)).not.toContain('npx');
+    const home = await tempHome();
+    await installCodexNotify(home, true, 'ring', TARGET);
+    expect(await readFile(codexConfigPath(home), 'utf8')).not.toContain('npx');
+  });
+
+  it('quotes paths with spaces, and gives bash forward slashes on Windows', () => {
+    expect(
+      hookCommand('claude', 'ring', {
+        node: 'C:\\Program Files\\nodejs\\node.exe',
+        script: 'C:\\Users\\Me\\AppData\\Roaming\\twring\\cord-connect.mjs',
+      }),
+    ).toBe(
+      "'C:/Program Files/nodejs/node.exe' C:/Users/Me/AppData/Roaming/twring/cord-connect.mjs ring --from-hook claude",
+    );
+  });
+
+  it('claude: replaces an old npx hook with the one that runs the connector copy', async () => {
+    const home = await tempHome();
+    const path = claudeSettingsPath(home);
+    await mkdir(join(home, '.claude'), { recursive: true });
+    await writeFile(
+      path,
+      JSON.stringify({
+        hooks: {
+          Notification: [
+            {
+              matcher: '',
+              hooks: [{ type: 'command', command: 'npx twring-connect ring --from-hook claude' }],
+            },
+          ],
+        },
+      }),
+    );
+    await installClaudeHook(home, 'ring', TARGET);
+    const settings = (await readJson(path)) as ClaudeSettings;
+    expect(settings.hooks.Notification).toHaveLength(1);
+    expect(settings.hooks.Notification[0]?.hooks[0]?.command).toBe(
+      hookCommand('claude', 'ring', TARGET),
+    );
+    await uninstallClaudeHook(home);
+    expect(await readJson(path)).toEqual({});
+  });
+
+  it('claude: a connector copy that moved is replaced, not added twice', async () => {
+    const home = await tempHome();
+    const path = claudeSettingsPath(home);
+    await installClaudeHook(home, 'ring', TARGET);
+    const moved = { node: '/usr/bin/node', script: '/opt/twring/cord-connect.mjs' };
+    await installClaudeHook(home, 'ring', moved);
+    const settings = (await readJson(path)) as ClaudeSettings;
+    expect(settings.hooks.Notification).toHaveLength(1);
+    expect(settings.hooks.Notification[0]?.hooks[0]?.command).toBe(
+      hookCommand('claude', 'ring', moved),
+    );
+  });
+
+  it('codex: replaces an old npx notify with the connector copy', async () => {
+    const home = await tempHome();
+    const path = codexConfigPath(home);
+    await mkdir(join(home, '.codex'), { recursive: true });
+    await writeFile(path, 'notify = ["npx", "twring-connect", "ring", "--from-hook", "codex"]\n');
+    await installCodexNotify(home, true, 'ring', TARGET);
+    expect(await readFile(path, 'utf8')).toBe(`${CODEX_RING}\n`);
+  });
+
   it('builds a message hook command', () => {
-    expect(hookCommand('claude', 'message')).toBe('npx twring-connect message --from-hook claude');
+    expect(hookCommand('claude', 'message', TARGET)).toBe(
+      '/usr/bin/node /home/me/.config/twring/cord-connect.mjs message --from-hook claude',
+    );
   });
 
   it('claude: installs message, replaces it with ring, and uninstalls message', async () => {
     const home = await tempHome();
     const path = claudeSettingsPath(home);
-    await installClaudeHook(home, 'message');
+    await installClaudeHook(home, 'message', TARGET);
     expect(
       ((await readJson(path)) as ClaudeSettings).hooks.Notification[0]?.hooks[0]?.command,
-    ).toBe(hookCommand('claude', 'message'));
-    await installClaudeHook(home, 'ring');
+    ).toBe(hookCommand('claude', 'message', TARGET));
+    await installClaudeHook(home, 'ring', TARGET);
     expect(
       ((await readJson(path)) as ClaudeSettings).hooks.Notification[0]?.hooks[0]?.command,
-    ).toBe(hookCommand('claude'));
-    await installClaudeHook(home, 'message');
+    ).toBe(hookCommand('claude', 'ring', TARGET));
+    await installClaudeHook(home, 'message', TARGET);
     await uninstallClaudeHook(home);
     expect(await readJson(path)).toEqual({});
   });
@@ -774,11 +847,11 @@ describe('hooks install/uninstall', () => {
   it('codex: installs message, replaces it with ring, and uninstalls message', async () => {
     const home = await tempHome();
     const path = codexConfigPath(home);
-    await installCodexNotify(home, true, 'message');
+    await installCodexNotify(home, true, 'message', TARGET);
     expect(await readFile(path, 'utf8')).toContain('"message", "--from-hook"');
-    await installCodexNotify(home, true, 'ring');
+    await installCodexNotify(home, true, 'ring', TARGET);
     expect(await readFile(path, 'utf8')).toContain('"ring", "--from-hook"');
-    await installCodexNotify(home, true, 'message');
+    await installCodexNotify(home, true, 'message', TARGET);
     await uninstallCodexNotify(home);
     expect(await readFile(path, 'utf8')).toBe('');
   });
@@ -799,11 +872,13 @@ describe('hooks install/uninstall', () => {
     };
     await writeFile(path, JSON.stringify(original));
 
-    await installClaudeHook(home);
+    await installClaudeHook(home, 'ring', TARGET);
     const settings = (await readJson(path)) as ClaudeSettings;
     expect(settings.hooks.Notification).toHaveLength(2);
     expect(settings.hooks.Notification[0]?.hooks[0]?.command).toBe('say hi');
-    expect(settings.hooks.Notification[1]?.hooks[0]?.command).toBe(hookCommand('claude'));
+    expect(settings.hooks.Notification[1]?.hooks[0]?.command).toBe(
+      hookCommand('claude', 'ring', TARGET),
+    );
     expect(await readJson(`${path}.cord-backup`)).toEqual(original);
   });
 
@@ -839,15 +914,17 @@ describe('hooks install/uninstall', () => {
     };
     await writeFile(path, JSON.stringify(original));
 
-    const first = await installClaudeHook(home);
+    const first = await installClaudeHook(home, 'ring', TARGET);
     expect(first.join('\n')).toContain('Backed up');
     const settings = (await readJson(path)) as ClaudeSettings;
     expect(settings.model).toBe('opus');
     expect(settings.hooks.Notification).toHaveLength(2);
-    expect(settings.hooks.Notification[1]?.hooks[0]?.command).toBe(hookCommand('claude'));
+    expect(settings.hooks.Notification[1]?.hooks[0]?.command).toBe(
+      hookCommand('claude', 'ring', TARGET),
+    );
     expect(await readJson(`${path}.cord-backup`)).toEqual(original);
 
-    expect((await installClaudeHook(home))[0]).toContain('Already installed');
+    expect((await installClaudeHook(home, 'ring', TARGET))[0]).toContain('Already installed');
     expect(((await readJson(path)) as ClaudeSettings).hooks.Notification).toHaveLength(2);
 
     await uninstallClaudeHook(home);
@@ -857,13 +934,13 @@ describe('hooks install/uninstall', () => {
 
   it('claude: creates the file in an empty home and refuses to touch invalid JSON', async () => {
     const home = await tempHome();
-    await installClaudeHook(home);
+    await installClaudeHook(home, 'ring', TARGET);
     const path = claudeSettingsPath(home);
     expect(((await readJson(path)) as ClaudeSettings).hooks.Notification).toHaveLength(1);
     await uninstallClaudeHook(home);
     expect(await readJson(path)).toEqual({});
     await writeFile(path, '{ nope');
-    await expect(installClaudeHook(home)).rejects.toThrow(/not valid JSON/);
+    await expect(installClaudeHook(home, 'ring', TARGET)).rejects.toThrow(/not valid JSON/);
     expect(await readFile(path, 'utf8')).toBe('{ nope');
   });
 
@@ -874,20 +951,22 @@ describe('hooks install/uninstall', () => {
     const original = 'model = "gpt-5"\n\n[profiles.fast]\nmodel = "mini"\n';
     await writeFile(path, original);
 
-    expect((await installCodexNotify(home, false)).join(' ')).toContain('off by default');
+    expect((await installCodexNotify(home, false, 'ring', TARGET)).join(' ')).toContain(
+      'off by default',
+    );
     expect(await readFile(path, 'utf8')).toBe(original);
 
-    await installCodexNotify(home, true);
+    await installCodexNotify(home, true, 'ring', TARGET);
     const text = await readFile(path, 'utf8');
     const lines = text.split('\n');
     const notifyAt = lines.findIndex((l) => l.startsWith('notify = '));
     expect(notifyAt).toBeGreaterThan(-1);
     expect(notifyAt).toBeLessThan(lines.indexOf('[profiles.fast]'));
-    expect(lines[notifyAt]).toBe(
-      'notify = ["npx", "twring-connect", "ring", "--from-hook", "codex"]',
-    );
+    expect(lines[notifyAt]).toBe(CODEX_RING);
 
-    expect((await installCodexNotify(home, true))[0]).toContain('Already installed');
+    expect((await installCodexNotify(home, true, 'ring', TARGET))[0]).toContain(
+      'Already installed',
+    );
     expect(await readFile(path, 'utf8')).toBe(text);
 
     await uninstallCodexNotify(home);
@@ -900,7 +979,7 @@ describe('hooks install/uninstall', () => {
     await mkdir(join(home, '.codex'), { recursive: true });
     const original = 'notify = ["my-notifier"]\n';
     await writeFile(codexConfigPath(home), original);
-    await expect(installCodexNotify(home, true)).rejects.toThrow(/another program/);
+    await expect(installCodexNotify(home, true, 'ring', TARGET)).rejects.toThrow(/another program/);
     expect((await uninstallCodexNotify(home))[0]).toContain('No Twring notify');
     expect(await readFile(codexConfigPath(home), 'utf8')).toBe(original);
   });
@@ -912,10 +991,8 @@ describe('hooks install/uninstall', () => {
       'notify = ["npx", "cord-connect", "ring", "--from-hook", "codex"]\nmodel = "gpt-5"\n';
     await writeFile(path, original);
 
-    await installCodexNotify(home, true);
-    expect(await readFile(path, 'utf8')).toBe(
-      'notify = ["npx", "twring-connect", "ring", "--from-hook", "codex"]\nmodel = "gpt-5"\n',
-    );
+    await installCodexNotify(home, true, 'ring', TARGET);
+    expect(await readFile(path, 'utf8')).toBe(`${CODEX_RING}\nmodel = "gpt-5"\n`);
     expect(await readFile(`${path}.cord-backup`, 'utf8')).toBe(original);
   });
 

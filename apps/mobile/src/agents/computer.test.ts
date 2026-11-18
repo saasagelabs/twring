@@ -35,8 +35,23 @@ const run = (state: ComputerState, ...actions: ComputerAction[]) =>
 describe('computer wizard', () => {
   it('builds the command with the code and server, without a trailing slash', () => {
     expect(connectCommand('ABCD-EFGH', 'https://cord.example.com/')).toBe(
-      'npx twring-connect --code ABCD-EFGH --server https://cord.example.com',
+      'curl -fsSL https://cord.example.com/downloads/twring-connect.mjs -o twring-connect.mjs && node twring-connect.mjs --code ABCD-EFGH --server https://cord.example.com',
     );
+  });
+
+  it('downloads the connector from Twring, never runs it through npx', () => {
+    // twring-connect is not on npm: npx would fetch whatever someone else published under that name.
+    const command = connectCommand('ABCD-EFGH', 'https://self.example.com', 'https://twring.com');
+    expect(command).toBe(
+      'curl -fsSL https://twring.com/downloads/twring-connect.mjs -o twring-connect.mjs && node twring-connect.mjs --code ABCD-EFGH --server https://self.example.com',
+    );
+    expect(command).not.toMatch(/(^|\s)npx\s/);
+  });
+
+  it('makes no command for a server or code it cannot use', () => {
+    expect(connectCommand('ABCD-EFGH', '')).toBeUndefined();
+    expect(connectCommand('ABCD-EFGH', 'https://cord.example.com/$(id)')).toBeUndefined();
+    expect(connectCommand('not a code; rm -rf ~', 'https://cord.example.com')).toBeUndefined();
   });
 
   it('counts down and reports expiry', () => {

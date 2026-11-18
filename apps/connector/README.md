@@ -6,11 +6,16 @@ public address, open port, or tunnel. Design: ADR-023.
 
 ## Use
 
-1. On your computer, in the folder your agent should work in:
+1. On your computer, in the folder your agent should work in, download the connector from Twring
+   and run it with Node.js 20 or newer:
 
    ```sh
-   npx twring-connect
+   curl -fsSL https://twring.com/downloads/twring-connect.mjs -o twring-connect.mjs
+   node twring-connect.mjs
    ```
+
+   (Windows PowerShell: use `curl.exe` in place of `curl`.) It is not on npm, so do not run it
+   with `npx`: that would fetch whatever package someone else published under the name.
 
    It finds the agents installed on this computer and shows a QR code and a code like `ABCD-EFGH`
    (10 minutes, single use).
@@ -19,7 +24,7 @@ public address, open port, or tunnel. Design: ADR-023.
    "Link <your computer's name>?" with the agents it found; tap **Link**, then choose which agents
    to add. They are ready to call from Home.
 
-3. Later, just run `npx twring-connect` again to reconnect. Ctrl+C disconnects. Home shows
+3. Later, just run `node twring-connect.mjs` again to reconnect. Ctrl+C disconnects. Home shows
    "On your computer · Online" while it runs, and "Computer offline" when it does not.
 
 The server defaults to Twring's own (today the staging server); `--server <url>` or the
@@ -27,10 +32,10 @@ The server defaults to Twring's own (today the staging server); `--server <url>`
 own.
 
 **Other way (phone shows the code):** in the app, **On my computer → Other ways to connect** shows
-a command with a code; run `npx twring-connect --code ABCD-EFGH` on the computer.
+a command that downloads the connector and runs `node twring-connect.mjs --code ABCD-EFGH` on the computer.
 
 In this repository: `pnpm --filter @twring/connector start -- --code … --server http://localhost:8080`
-(see docs/DEVELOPMENT.md). Publishing to npm needs a build step (the bin is TypeScript today).
+(see docs/DEVELOPMENT.md). The downloadable `twring-connect.mjs` is this package built into one file.
 
 The pairing is saved in `~/.config/cord-connect/config.json` (Windows: `%APPDATA%\cord-connect`),
 readable by you only (mode 600). The token in it is never printed. `--forget` removes it; remove

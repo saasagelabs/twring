@@ -61,20 +61,25 @@ function loaderFlags(execArgv: readonly string[]): string[] {
   return out;
 }
 
+/** The Node flags needed to run this script again: tsx's loader for a TypeScript entry point. */
+export function relaunchFlags(launch: Launch): string[] {
+  return launch.script !== undefined && /\.[cm]?ts$/i.test(launch.script)
+    ? loaderFlags(launch.execArgv)
+    : [];
+}
+
 /**
  * The command that rings the owner from this computer, e.g. `node /home/me/cord-connect.mjs ring`:
  * this very node and script, quoted for a POSIX shell or (on Windows) PowerShell. Unknown script:
- * `npx cord-connect ring`.
+ * `twring-connect.mjs` in the working folder, where the setup command downloads it. Never `npx`:
+ * the connector is not on npm, so `npx` would run whatever package holds its name.
  */
 export function ringCommand(launch: Launch = currentLaunch()): string {
-  if (launch.script === undefined || launch.script === '') return `npx ${CONNECTOR_CLI_NAME} ring`;
-  const typescript = /\.[cm]?ts$/i.test(launch.script);
-  const argv = [
-    launch.execPath,
-    ...(typescript ? loaderFlags(launch.execArgv) : []),
-    launch.script,
-    'ring',
-  ];
+  const script =
+    launch.script === undefined || launch.script === ''
+      ? `${CONNECTOR_CLI_NAME}.mjs`
+      : launch.script;
+  const argv = [launch.execPath, ...relaunchFlags({ ...launch, script }), script, 'ring'];
   if (launch.platform === 'win32') {
     const quoted = argv.map(powershellQuote);
     // A quoted first word is a string to PowerShell, not a command: `&` runs it.

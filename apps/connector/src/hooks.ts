@@ -9,6 +9,8 @@ import {
 } from '@twring/contracts';
 import { z } from 'zod';
 
+import { posixQuote } from './preamble';
+
 /**
  * Lets coding agents ring their owner by themselves (ADR-024).
  *
@@ -92,13 +94,44 @@ export function parseHookInput(source: HookSource, raw: string): HookRing | unde
   };
 }
 
-/** The command each hook runs. Also how install/uninstall recognise the hook as Twring's. */
-export function hookCommand(source: HookSource, mode: 'ring' | 'message' = 'ring'): string {
-  return `npx ${CONNECTOR_CLI_NAME} ${mode} --from-hook ${source}`;
+/**
+ * What a hook runs: this computer's Node and the connector copy kept in the config folder. Never
+ * `npx`: the connector is not on npm, so `npx` would fetch whatever package holds its name.
+ */
+export interface HookTarget {
+  /** Absolute path of the Node binary. */
+  node: string;
+  /** Node flags needed to run `script` again (a TypeScript loader when run from source). */
+  nodeArgs?: readonly string[];
+  /** Absolute path of the connector script. */
+  script: string;
+}
+
+function hookArgv(target: HookTarget, mode: 'ring' | 'message', source: HookSource): string[] {
+  return [target.node, ...(target.nodeArgs ?? []), target.script, mode, '--from-hook', source];
+}
+
+/**
+ * The shell command a Claude Code hook runs. Claude Code runs hooks with bash (Git Bash on
+ * Windows), so Windows paths get forward slashes, which bash and Windows both take.
+ */
+export function hookCommand(
+  source: HookSource,
+  mode: 'ring' | 'message',
+  target: HookTarget,
+): string {
+  return hookArgv(target, mode, source)
+    .map((arg) => posixQuote(arg.replace(/\\/g, '/')))
+    .join(' ');
 }
 const LEGACY_CLI_NAME = 'cord-connect';
-const HOOK_MARKS = [CONNECTOR_CLI_NAME, LEGACY_CLI_NAME].flatMap((name) =>
-  ['ring', 'message'].map((mode) => `${name} ${mode} --from-hook`),
+/**
+ * Recognises a Twring hook command, whichever way it was written: `npx twring-connect ring
+ * --from-hook claude` (before), or `/usr/bin/node '/home/me/.../cord-connect.mjs' ring --from-hook
+ * claude` (now).
+ */
+const OUR_HOOK = new RegExp(
+  `(?:${CONNECTOR_CLI_NAME}|${LEGACY_CLI_NAME})(?:\\.[cm]?[jt]s)?'?\\s+(?:ring|message)\\s+--from-hook\\b`,
 );
 
 export function claudeSettingsPath(home: string): string {
@@ -139,21 +172,22 @@ interface ClaudeMatcher {
   hooks?: { type?: string; command?: string }[];
 }
 
-function hasHookMark(group: unknown, mark: string): boolean {
+function hasCommand(group: unknown, test: (command: string) => boolean): boolean {
   if (!isRecord(group) || !Array.isArray(group.hooks)) return false;
   return (group as ClaudeMatcher).hooks!.some(
-    (h) => isRecord(h) && typeof h.command === 'string' && h.command.includes(mark),
+    (h) => isRecord(h) && typeof h.command === 'string' && test(h.command),
   );
 }
 
-const isOurs = (group: unknown): boolean => HOOK_MARKS.some((mark) => hasHookMark(group, mark));
+const isOurs = (group: unknown): boolean => hasCommand(group, (command) => OUR_HOOK.test(command));
 
 /** Result lines describing exactly what changed (or that nothing did). */
 export type HookChange = string[];
 
 export async function installClaudeHook(
   home: string,
-  mode: 'ring' | 'message' = 'ring',
+  mode: 'ring' | 'message',
+  target: HookTarget,
 ): Promise<HookChange> {
   const path = claudeSettingsPath(home);
   const text = await readText(path);
@@ -170,13 +204,10 @@ export async function installClaudeHook(
   }
   const hooks = isRecord(settings.hooks) ? settings.hooks : {};
   const notification = Array.isArray(hooks.Notification) ? (hooks.Notification as unknown[]) : [];
-  // Already exactly this hook: ours in this mode, and no other mode or legacy name left over.
-  const wanted = `${CONNECTOR_CLI_NAME} ${mode} --from-hook`;
-  const others = HOOK_MARKS.filter((mark) => mark !== wanted);
-  if (
-    notification.some((group) => hasHookMark(group, wanted)) &&
-    !notification.some((group) => others.some((mark) => hasHookMark(group, mark)))
-  ) {
+  // Already exactly this hook, and no other Twring hook (another mode, an old npx one) left over.
+  const wanted = hookCommand('claude', mode, target);
+  const ours = notification.filter(isOurs);
+  if (ours.length === 1 && hasCommand(ours[0], (command) => command === wanted)) {
     return [`Already installed in ${path}. Nothing changed.`];
   }
   const changes: string[] = [];
@@ -187,12 +218,12 @@ export async function installClaudeHook(
       ...hooks,
       Notification: [
         ...notification.filter((group) => !isOurs(group)),
-        { matcher: '', hooks: [{ type: 'command', command: hookCommand('claude', mode) }] },
+        { matcher: '', hooks: [{ type: 'command', command: wanted }] },
       ],
     },
   };
   await writeWithDir(path, `${JSON.stringify(next, null, 2)}\n`);
-  changes.push(`Added a Notification hook to ${path}: ${hookCommand('claude', mode)}`);
+  changes.push(`Added a Notification hook to ${path}: ${wanted}`);
   return changes;
 }
 
@@ -224,8 +255,9 @@ export async function uninstallClaudeHook(home: string): Promise<HookChange> {
   return [`Backed up ${path} to ${backup}.`, `Removed the Twring Notification hook from ${path}.`];
 }
 
-function codexNotifyLine(mode: 'ring' | 'message' = 'ring'): string {
-  const argv = ['npx', CONNECTOR_CLI_NAME, mode, '--from-hook', 'codex'];
+function codexNotifyLine(mode: 'ring' | 'message', target: HookTarget): string {
+  // Codex runs notify as a program with arguments, not through a shell: no quoting needed.
+  const argv = hookArgv(target, mode, 'codex');
   return `notify = [${argv.map((a) => JSON.stringify(a)).join(', ')}]`;
 }
 
@@ -291,32 +323,37 @@ function findNotify(lines: string[]): number {
   return -1;
 }
 
+/** Why `hooks install codex` without --on-turn-complete changes nothing. */
+export const CODEX_OFF: readonly string[] = [
+  'Codex can only ring after every finished turn, which gets noisy, so it is off by default.',
+  'To turn it on, run hooks install codex again with --on-turn-complete.',
+];
+
 export async function installCodexNotify(
   home: string,
   onTurnComplete: boolean,
-  mode: 'ring' | 'message' = 'ring',
+  mode: 'ring' | 'message',
+  target: HookTarget,
 ): Promise<HookChange> {
   const path = codexConfigPath(home);
-  if (!onTurnComplete) {
-    return [
-      'Codex can only ring after every finished turn, which gets noisy, so it is off by default.',
-      `To turn it on: ${CONNECTOR_CLI_NAME} hooks install codex --on-turn-complete`,
-    ];
-  }
+  if (!onTurnComplete) return [...CODEX_OFF];
   const text = await readText(path);
   const eol = text?.includes('\r\n') === true ? '\r\n' : '\n';
   const lines = text === undefined || text === '' ? [] : text.split(/\r?\n/);
   const at = findNotify(lines);
   if (at >= 0) {
     if (isOurNotify(lines[at]!)) {
-      if (lines[at]!.replace(BOM, '') === codexNotifyLine(mode)) {
+      if (lines[at]!.replace(BOM, '') === codexNotifyLine(mode, target)) {
         return [`Already installed in ${path}. Nothing changed.`];
       }
       const backup = await backUp(path);
       const bom = lines[at]!.startsWith(BOM) ? BOM : '';
-      lines[at] = `${bom}${codexNotifyLine(mode)}`;
+      lines[at] = `${bom}${codexNotifyLine(mode, target)}`;
       await writeFile(path, lines.join(eol));
-      return [`Backed up ${path} to ${backup}.`, `Set notify in ${path}: ${codexNotifyLine(mode)}`];
+      return [
+        `Backed up ${path} to ${backup}.`,
+        `Set notify in ${path}: ${codexNotifyLine(mode, target)}`,
+      ];
     }
     throw new Error(
       `${path} already sets notify to another program. Remove that line first; nothing was changed.`,
@@ -328,11 +365,11 @@ export async function installCodexNotify(
   // never inside a multi-line value.
   const bom = lines[0]?.startsWith(BOM) === true;
   if (bom) lines[0] = lines[0]!.slice(1);
-  const next = [`${bom ? BOM : ''}${codexNotifyLine(mode)}`, ...lines];
+  const next = [`${bom ? BOM : ''}${codexNotifyLine(mode, target)}`, ...lines];
   let out = next.join(eol);
   if (!out.endsWith(eol)) out += eol;
   await writeWithDir(path, out);
-  changes.push(`Set notify in ${path}: ${codexNotifyLine(mode)}`);
+  changes.push(`Set notify in ${path}: ${codexNotifyLine(mode, target)}`);
   return changes;
 }
 

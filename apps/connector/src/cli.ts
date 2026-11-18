@@ -37,14 +37,17 @@ import {
   type ConnectorConfig,
 } from './config';
 import {
+  CODEX_OFF,
   installClaudeHook,
   installCodexNotify,
   parseHookInput,
   uninstallClaudeHook,
   uninstallCodexNotify,
   type HookSource,
+  type HookTarget,
 } from './hooks';
 import { computerName, linkComputer, linkedLines, serverConflict } from './link';
+import { currentLaunch, relaunchFlags } from './preamble';
 import { uploadFile, UploadError } from './upload';
 import { systemSpawn } from './process';
 import { AgentPool } from './pool';
@@ -87,12 +90,12 @@ const VERSION = '0.1.0';
 const HELP = `${CONNECTOR_CLI_NAME} lets the Twring app on your phone call the AI agents on this computer.
 
 Link this computer (scan the code it shows with the Twring app):
-  npx ${CONNECTOR_CLI_NAME}
+  node ${CONNECTOR_CLI_NAME}.mjs
 
 Run the same command later to reconnect.
 
 Or pair with a code the app shows:
-  npx ${CONNECTOR_CLI_NAME} --code XXXX-XXXX
+  node ${CONNECTOR_CLI_NAME}.mjs --code XXXX-XXXX
 
 Options:
   --code <code>          One-time pairing code from the app (Add agent, On my computer).
@@ -117,9 +120,9 @@ Options:
                          their own memory and files on this computer; everyone who uses them
                          may see what the agent remembers.
 
-  npx ${CONNECTOR_CLI_NAME} agents [--registry]  List agents.
-  npx ${CONNECTOR_CLI_NAME} doctor [--agent <id>] Test agent connections.
-  npx ${CONNECTOR_CLI_NAME} mcp                Run the stdio MCP server.
+  node ${CONNECTOR_CLI_NAME}.mjs agents [--registry]  List agents.
+  node ${CONNECTOR_CLI_NAME}.mjs doctor [--agent <id>] Test agent connections.
+  node ${CONNECTOR_CLI_NAME}.mjs mcp                Run the stdio MCP server.
 
 Set it up to run in the background (starts with the machine, restarts by itself):
   node ${CONNECTOR_CLI_NAME}.mjs setup --code XXXX-XXXX [--server <url>]
@@ -128,25 +131,25 @@ Set it up to run in the background (starts with the machine, restarts by itself)
   node ${CONNECTOR_CLI_NAME}.mjs uninstall [--forget]   (stop and remove it; --forget also unlinks)
 
 Ring your phone (the agent needs you):
-  npx ${CONNECTOR_CLI_NAME} ring "The tests pass; can I push?" [--agent <id>] [--session <ref>] [--wait]
+  node ${CONNECTOR_CLI_NAME}.mjs ring "The tests pass; can I push?" [--agent <id>] [--session <ref>] [--wait]
   --wait waits for the answer; exit code 0 answered, 2 refused, 3 declined, 4 missed, 5 cancelled.
-  npx ${CONNECTOR_CLI_NAME} ring --cancel   (stops your last ring if it is still ringing)
+  node ${CONNECTOR_CLI_NAME}.mjs ring --cancel   (stops your last ring if it is still ringing)
 
 Send your phone a message (no ring):
-  npx ${CONNECTOR_CLI_NAME} message "The nightly backup finished." [--agent <id>]
-  npx ${CONNECTOR_CLI_NAME} message --file <path> [--file <path> ...] ["optional caption"]
+  node ${CONNECTOR_CLI_NAME}.mjs message "The nightly backup finished." [--agent <id>]
+  node ${CONNECTOR_CLI_NAME}.mjs message --file <path> [--file <path> ...] ["optional caption"]
   Up to five photos, PDFs or text files, 10 MB each.
 
 Teach Twring words it mishears in calls and voice notes (names, people, projects, places):
-  npx ${CONNECTOR_CLI_NAME} words "Gowri" "Lightsail" [--agent <id>]
+  node ${CONNECTOR_CLI_NAME}.mjs words "Gowri" "Lightsail" [--agent <id>]
   Up to 40 per agent; your owner can change them on the agent's Words page in the app.
 
 Let Claude Code or Codex ring you by themselves:
-  npx ${CONNECTOR_CLI_NAME} hooks install claude       (when Claude needs permission or input)
-  npx ${CONNECTOR_CLI_NAME} hooks install claude --message
-  npx ${CONNECTOR_CLI_NAME} hooks install codex --on-turn-complete   (after every Codex turn)
-  npx ${CONNECTOR_CLI_NAME} hooks install codex --on-turn-complete --message
-  npx ${CONNECTOR_CLI_NAME} hooks uninstall claude|codex
+  node ${CONNECTOR_CLI_NAME}.mjs hooks install claude       (when Claude needs permission or input)
+  node ${CONNECTOR_CLI_NAME}.mjs hooks install claude --message
+  node ${CONNECTOR_CLI_NAME}.mjs hooks install codex --on-turn-complete   (after every Codex turn)
+  node ${CONNECTOR_CLI_NAME}.mjs hooks install codex --on-turn-complete --message
+  node ${CONNECTOR_CLI_NAME}.mjs hooks uninstall claude|codex
 `;
 
 function print(line: string): void {
@@ -513,7 +516,7 @@ function run(config: ConnectorConfig): Promise<void> {
             );
           } else {
             print('This computer is no longer paired with your Twring account.');
-            print(`Link it again: npx ${CONNECTOR_CLI_NAME}`);
+            print(`Link it again: node ${CONNECTOR_CLI_NAME}.mjs`);
             forgetting = deleteConfigIfOwned(configPath(), config.connector_id).catch(() => false);
           }
           return;
@@ -623,7 +626,7 @@ async function ringCommand(
   }
   const config = await loadConfig(configPath());
   if (config === undefined) {
-    print(`Not linked yet. Link this computer first: npx ${CONNECTOR_CLI_NAME}`);
+    print(`Not linked yet. Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
     return RING_EXIT.error;
   }
   const dir = configDir();
@@ -670,7 +673,7 @@ async function messageCommand(
   }
   const config = await loadConfig(configPath());
   if (config === undefined) {
-    output(`Not linked yet. Link this computer first: npx ${CONNECTOR_CLI_NAME}`);
+    output(`Not linked yet. Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
     return MESSAGE_EXIT.error;
   }
   const text = args.length > 0 ? args.join(' ') : await readStdin();
@@ -768,6 +771,21 @@ async function messageCommand(
   );
 }
 
+/**
+ * What hooks run: this Node and the connector copy in the config folder (the one the background
+ * service runs), so a hook keeps working when the downloaded file is moved or deleted. From source,
+ * the TypeScript entry point with its loader. Undefined when this script's path is unknown.
+ */
+async function hookTarget(): Promise<HookTarget | undefined> {
+  const launch = currentLaunch();
+  if (launch.script === undefined || launch.script === '') return undefined;
+  return {
+    node: launch.execPath,
+    nodeArgs: relaunchFlags(launch),
+    script: await installScript(launch.script, configDir()),
+  };
+}
+
 async function hooksCommand(
   values: Record<string, string | boolean | undefined>,
   args: string[],
@@ -781,17 +799,27 @@ async function hooksCommand(
     return 1;
   }
   const home = homedir();
+  const mode = values.message === true ? 'message' : 'ring';
+  if (action === 'install' && (source === 'claude' || values['on-turn-complete'] === true)) {
+    const target = await hookTarget();
+    if (target === undefined) {
+      print(
+        `Run this from the downloaded ${SCRIPT_NAME}: node ${SCRIPT_NAME} hooks install ${source}`,
+      );
+      return 1;
+    }
+    const lines =
+      source === 'claude'
+        ? await installClaudeHook(home, mode, target)
+        : await installCodexNotify(home, true, mode, target);
+    lines.forEach(print);
+    return 0;
+  }
   const lines =
-    source === 'claude'
-      ? action === 'install'
-        ? await installClaudeHook(home, values.message === true ? 'message' : 'ring')
-        : await uninstallClaudeHook(home)
-      : action === 'install'
-        ? await installCodexNotify(
-            home,
-            values['on-turn-complete'] === true,
-            values.message === true ? 'message' : 'ring',
-          )
+    action === 'install'
+      ? CODEX_OFF
+      : source === 'claude'
+        ? await uninstallClaudeHook(home)
         : await uninstallCodexNotify(home);
   lines.forEach(print);
   return 0;
@@ -996,7 +1024,7 @@ async function main(): Promise<void> {
     const linked = async () => {
       const config = await loadConfig(configPath());
       if (!config)
-        throw new Error("This computer isn't linked to Twring. Run npx twring-connect first.");
+        throw new Error("This computer isn't linked to Twring. Run node twring-connect.mjs first.");
       return config;
     };
     return serveMcp(
@@ -1055,7 +1083,7 @@ async function main(): Promise<void> {
   if (command === 'words') {
     const config = await loadConfig(configPath());
     if (config === undefined) {
-      print(`Not linked yet. Link this computer first: npx ${CONNECTOR_CLI_NAME}`);
+      print(`Not linked yet. Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
       return exitWhenDrained(WORDS_EXIT.error);
     }
     return exitWhenDrained(

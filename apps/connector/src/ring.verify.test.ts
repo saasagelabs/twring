@@ -19,6 +19,7 @@ import {
   uninstallCodexNotify,
 } from './hooks';
 import { ringOwner, type FetchFn } from './ring';
+const HOOK_TARGET = { node: '/usr/bin/node', script: '/home/me/.config/twring/cord-connect.mjs' };
 
 /** Verifier edge cases for rings (ADR-024): argument injection, truncation, hooks, --from-hook. */
 
@@ -203,7 +204,7 @@ describe('hooks install never clobbers', () => {
       '',
     ].join('\n');
     await writeFile(path, original);
-    await installCodexNotify(home, true);
+    await installCodexNotify(home, true, 'ring', HOOK_TARGET);
     const text = await readFile(path, 'utf8');
     // The string's content is untouched.
     expect(text).toContain('Rules:\n[important] never push to main\n"""');
@@ -234,10 +235,10 @@ describe('hooks install never clobbers', () => {
       '',
     ].join('\r\n');
     await writeFile(path, original);
-    await installCodexNotify(home, true);
+    await installCodexNotify(home, true, 'ring', HOOK_TARGET);
     const installed = await readFile(path, 'utf8');
     expect(installed.startsWith(`${BOM}notify = [`)).toBe(true);
-    expect(await installCodexNotify(home, true)).toEqual([
+    expect(await installCodexNotify(home, true, 'ring', HOOK_TARGET)).toEqual([
       `Already installed in ${path}. Nothing changed.`,
     ]);
     await uninstallCodexNotify(home);
@@ -255,7 +256,7 @@ describe('hooks install never clobbers', () => {
     } catch {
       ctx.skip(); // Windows without symlink rights.
     }
-    await installClaudeHook(home);
+    await installClaudeHook(home, 'ring', HOOK_TARGET);
     expect((await lstat(claudeSettingsPath(home))).isSymbolicLink()).toBe(true);
     const settings = JSON.parse(await readFile(target, 'utf8')) as Record<string, unknown>;
     expect(settings.model).toBe('opus');

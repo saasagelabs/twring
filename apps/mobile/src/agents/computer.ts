@@ -1,6 +1,7 @@
 import {
   CONNECTOR_CLI_NAME,
   connectorEndpointUrl,
+  normalizePairingCode,
   type Connector,
   type CreateAgentRequest,
   type LocalAgent,
@@ -9,6 +10,7 @@ import {
 } from '@twring/contracts';
 
 import { ApiError, type TwringApi } from '../api/client';
+import { connectorDownloadUrl, serverBase } from './agent-message';
 import type { ErrorCopy } from '@/api/errors';
 
 /**
@@ -57,9 +59,23 @@ export function createComputerWizard(): ComputerState {
   return { step: 'pair', pairing: { kind: 'loading' }, name: '' };
 }
 
-/** The command the user runs on their computer. */
-export function connectCommand(code: string, serverUrl: string): string {
-  return `npx ${CONNECTOR_CLI_NAME} --code ${code} --server ${serverUrl.replace(/\/+$/, '')}`;
+/**
+ * The command the user runs on their computer: download the connector from Twring (`downloads`,
+ * which defaults to `server`) and pair it with the code. Never `npx`: the connector is not on npm,
+ * so npx would run whatever someone else published under its name. Undefined when the server or
+ * code cannot make a safe, working command.
+ */
+export function connectCommand(
+  code: string,
+  server: string,
+  downloads: string = server,
+): string | undefined {
+  const file = `${CONNECTOR_CLI_NAME}.mjs`;
+  const base = serverBase(server);
+  const download = connectorDownloadUrl(server, downloads);
+  const formatted = normalizePairingCode(code);
+  if (base === undefined || download === undefined || formatted === undefined) return undefined;
+  return `curl -fsSL ${download} -o ${file} && node ${file} --code ${formatted} --server ${base}`;
 }
 
 /**

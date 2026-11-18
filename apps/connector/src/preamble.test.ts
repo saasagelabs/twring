@@ -86,8 +86,8 @@ describe('ring command', () => {
     );
   });
 
-  it('falls back to npx when the script is unknown', () => {
-    expect(ringCommand(posix({ script: undefined }))).toBe('npx twring-connect ring');
+  it('never falls back to npx: an unknown script means the downloaded file in this folder', () => {
+    expect(ringCommand(posix({ script: undefined }))).toBe('/usr/bin/node twring-connect.mjs ring');
   });
 });
 
@@ -404,10 +404,10 @@ describe('call preamble, verifier pass', () => {
     expect(powershellQuote('')).toBe(`''`);
   });
 
-  it('falls back to npx when argv[1] is empty, and the preamble still names it', () => {
-    expect(ringCommand(posix({ script: '' }))).toBe('npx twring-connect ring');
+  it('an empty argv[1] still gets the downloaded file, never npx, and the preamble names it', () => {
+    expect(ringCommand(posix({ script: '' }))).toBe('/usr/bin/node twring-connect.mjs ring');
     expect(callPreamble(ringCommand(posix({ script: undefined })))).toContain(
-      'run: npx twring-connect ring "<short reason>"',
+      'run: /usr/bin/node twring-connect.mjs ring "<short reason>"',
     );
   });
 });
