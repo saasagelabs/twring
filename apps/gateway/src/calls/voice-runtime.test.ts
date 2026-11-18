@@ -241,8 +241,8 @@ describe('CallRuntime conversation (repeat agent)', () => {
     expect(ended).toEqual([{ reason: 'voice_failed', failed: true }]);
   });
 
-  it('a TTS error naming no generation still ends the answer it interrupted', async () => {
-    const { transport, stt, tts, ended } = await started();
+  it('a TTS drop naming no generation pauses the answer it interrupted; it goes on after the reconnect', async () => {
+    const { transport, stt, tts, scheduler, ended } = await started();
     stt.send({ type: 'turn_ended', turnIndex: 0, text: 'one' });
     await flushMicrotasks();
     tts.send({ type: 'audio', generationId: 'gen_1', bytes: speechBytes() });
@@ -250,6 +250,14 @@ describe('CallRuntime conversation (repeat agent)', () => {
     expect(floorsOf(transport).at(-1)).toBe('agent_speaking:turn_1');
     tts.send({ type: 'error', error: { code: 'connection_lost', recoverable: true } });
     await flushMicrotasks();
+    expect(floorsOf(transport).at(-1)).toBe('agent_speaking:turn_1');
+    tts.calls.length = 0;
+    scheduler.advance(250);
+    await settleAll();
+    expect(tts.calls).toEqual(['speak gen_1 You said: one', 'flush gen_1']);
+    tts.send({ type: 'audio', generationId: 'gen_1', bytes: speechBytes() });
+    tts.send({ type: 'done', generationId: 'gen_1' });
+    await settleAll();
     expect(floorsOf(transport).at(-1)).toBe('listening');
     expect(ended).toEqual([]);
   });
@@ -466,7 +474,7 @@ describe('CallRuntime conversation edge cases (verifier)', () => {
     ]);
   });
 
-  it('a Deepgram TTS drop mid-answer ends that answer, and the next turn speaks after reconnect', async () => {
+  it('a Deepgram TTS drop mid-answer pauses that answer until the reconnect, and the next turn speaks', async () => {
     const factory = fakeSocketFactory();
     const transport = new FakeTransport();
     const scheduler = new ManualScheduler();
@@ -501,11 +509,21 @@ describe('CallRuntime conversation edge cases (verifier)', () => {
     await flushMicrotasks();
     first.drop(1006);
     await flushMicrotasks();
-    expect(floorsOf(transport).at(-1)).toBe('listening');
+    // The answer waits for the voice instead of ending.
+    expect(floorsOf(transport).at(-1)).toBe('agent_speaking:turn_1');
 
     scheduler.advance(250);
     await settleAll();
     const second = factory.sockets[1]!;
+    expect(second.jsonSent()).toEqual([
+      { type: 'Speak', text: 'You said: one' },
+      { type: 'Flush' },
+    ]);
+    second.receive({ type: 'SpeechStarted', speech_id: 's1b' });
+    second.receive(speechBytes());
+    second.receive({ type: 'SpeechMetadata', speech_id: 's1b' });
+    await settleAll();
+    expect(floorsOf(transport).at(-1)).toBe('listening');
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'two' });
     await flushMicrotasks();
     expect(second.jsonSent()).toContainEqual({ type: 'Speak', text: 'two' });
@@ -864,7 +882,7 @@ describe('CallRuntime barge-in edge cases (verifier)', () => {
     expect(floorsOf(transport).slice(-2)).toEqual(['agent_speaking:turn_2', 'listening']);
   });
 
-  it('caller speech while TTS is reconnecting is not a barge-in, and the next turn still speaks', async () => {
+  it('caller speech while TTS is reconnecting drops the paused answer (no barge-in), and the next turn still speaks', async () => {
     const factory = fakeSocketFactory();
     const transport = new FakeTransport();
     const scheduler = new ManualScheduler();

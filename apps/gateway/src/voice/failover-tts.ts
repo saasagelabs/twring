@@ -13,6 +13,12 @@ export interface FailoverOptions {
    * person's own key keeps its refusals (`auth_failed`), so the phone can say the key was refused.
    */
   failsOver?(error: VoiceError): boolean;
+  /**
+   * A primary session that drops mid-call (a recoverable error) is reopened on the primary; only a
+   * primary that then cannot be opened, or an error no reconnect can cure, moves to the backup. For a non-English speaker, whose backup voice speaks
+   * English only (production 2026-11-17: a Spanish caller's answers moved to an English voice).
+   */
+  reopensPrimaryOnDrop?: boolean;
 }
 
 /**
@@ -23,7 +29,10 @@ function voiceNotFound(error: VoiceError): boolean {
   return error.providerStatus === 404;
 }
 
-/** One call's TTS provider. A failed primary session is never reopened. */
+/**
+ * One call's TTS provider. Once it has moved to the backup it stays there; before that, a dropped
+ * primary session is reopened on the primary only with `reopensPrimaryOnDrop`.
+ */
 export function createFailoverTts(
   primary: TtsProvider,
   backup: TtsProvider,
@@ -55,7 +64,8 @@ export function createFailoverTts(
           if (failed) return;
           const onPrimary = provider === primary;
           if (event.type === 'error') {
-            if (!onPrimary || !failsOver(event.error)) return end(event);
+            const reopen = options.reopensPrimaryOnDrop === true && event.error.recoverable;
+            if (!onPrimary || !failsOver(event.error) || reopen) return end(event);
             switchToBackup(event.error.code);
             // Recoverable: the pipeline reconnects, and the reconnect opens the backup.
             return end({ ...event, error: { ...event.error, recoverable: true } });

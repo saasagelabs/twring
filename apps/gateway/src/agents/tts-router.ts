@@ -120,6 +120,9 @@ export function createTtsRouter(options: TtsRouterOptions): TtsRouter {
         if (backup === undefined) return provider;
         return createFailoverTts(provider, backup, {
           ...(ownKey && { failsOver: (error: VoiceError) => error.code !== 'auth_failed' }),
+          // The Deepgram backup speaks English only: a non-English speaker's dropped Cartesia
+          // voice is reconnected first, and moves to it only when Cartesia cannot be reached.
+          ...(isCartesia && language !== undefined && { reopensPrimaryOnDrop: true }),
           onFailover: (reason) =>
             options.logger?.warn(
               {
