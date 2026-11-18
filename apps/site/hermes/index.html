@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Call your Hermes agent from your phone | Twring</title>
+<meta name="description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/hermes/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://twring.com/hermes/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Call your Hermes agent from your phone | Twring">
+<meta property="og:description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=7">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebPage",
+   "@id": "https://twring.com/hermes/",
+   "url": "https://twring.com/hermes/",
+   "name": "Call your Hermes agent from your phone | Twring",
+   "description": "Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.",
+   "isPartOf": {
+    "@id": "https://twring.com/#site"
+   },
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Hermes",
+      "item": "https://twring.com/hermes/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/hermes/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Does Twring replace Hermes's model?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can Twring approve commands for me?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Are my calls recorded?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring listens only while a call is on, and never records or keeps your audio. The privacy notice lists everything it does keep."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is Twring free?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <div class="wrap">
+    <h1>Call your Hermes. Hermes calls you.</h1>
+    <p class="lead">Twring is in the Hermes plugin catalog. Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions by voice, and get a ring when a scheduled job is done.</p>
+    <p class="hero-ctas"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+
+    <div class="prose prose-tight">
+<h2>Set it up</h2>
+<ol>
+  <li><a href="/beta/">Get an invite</a> and install Twring on your iPhone or Android phone.</li>
+  <li>On the computer or server where Hermes runs:<pre><code>hermes plugins install twring
+hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>, <strong>Scan a code on my computer</strong>, and scan the code it shows.</li>
+  <li>Start the Hermes gateway, so your phone can reach Hermes:<pre><code>hermes gateway</code></pre>Hermes appears in the app. Press <strong>Call</strong>.</li>
+</ol>
+
+<h2>What happens on a call</h2>
+<ul>
+  <li>Your words reach Hermes as a message, with its own model, memory, tools and permissions. Twring speaks its answer as it streams in.</li>
+  <li>Talk over Hermes at any time: its voice stops at once. Ask something new and it stops the old run and answers you. Hang up and it keeps working.</li>
+  <li>Typed messages and spoken turns reach the same Hermes conversation.</li>
+</ul>
+
+<h2>Approvals by voice or tap</h2>
+<p>When Hermes needs your OK for a risky command, the request appears on your phone. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.</p>
+
+<h2>It rings you</h2>
+<p>Deliver any Hermes scheduled job to <code>twring</code>. Its result lands in your Twring chat, and your phone rings with its first sentence.</p>
+<p>Twring also works with <a href="/claude-code/">Claude Code</a>, <a href="/codex/">Codex</a> and <a href="/gemini-cli/">Gemini CLI</a>, and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can <a href="/connector/">ring and message you</a> too.</p>
+
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Does Twring replace Hermes's model?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions.</p></div></details>
+      <details><summary>Can Twring approve commands for me?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no.</p></div></details>
+      <details><summary>Are my calls recorded?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
+      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK.</p></div></details>
+    </div>
+  </div>
+</main>
+
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/connector/">Connect an AI app</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>

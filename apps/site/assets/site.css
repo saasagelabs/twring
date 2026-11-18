@@ -269,3 +269,7 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+.works a { text-decoration: none; }
+.works a:hover b, .works a:focus-visible b { text-decoration: underline; text-underline-offset: 0.2em; }
+/* Commands must read exactly as typed: no -- or => ligatures. */
+code, pre { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }

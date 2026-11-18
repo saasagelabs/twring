@@ -18,6 +18,10 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 
 - [Home](https://twring.com/): what Twring does, how calls and rings work, FAQ
 - [Get an invite](https://twring.com/beta/): ask for access on iPhone or Android
+- [Claude Code](https://twring.com/claude-code/): talk to Claude Code from your phone; it can ring you when it needs permission
+- [Codex](https://twring.com/codex/): talk to Codex from your phone; it can ring you when it finishes a turn
+- [Gemini CLI](https://twring.com/gemini-cli/): talk to Gemini CLI from your phone
+- [Hermes](https://twring.com/hermes/): the Twring plugin for Hermes: calls, voice approvals, rings for scheduled jobs
 - [Connect an AI app](https://twring.com/connector/): let Claude, ChatGPT, Grok, Cursor or another AI app ring and message you
 - [Self-hosting](https://twring.com/self-hosting/): run Twring on your own server
 - [Server guide](https://twring.com/self-hosting/guide/): install, update, back up and fix a self-hosted server
