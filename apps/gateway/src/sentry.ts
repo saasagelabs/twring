@@ -28,6 +28,7 @@ export function initSentry(env: GatewayEnv): boolean {
       stackFrameVariables: false,
     },
     tracesSampleRate: 0,
+    integrations: [Sentry.fastifyIntegration({ shouldHandleError: reportsFastifyError })],
     beforeSend: scrubEvent,
     beforeBreadcrumb: scrubBreadcrumb,
   });
@@ -35,6 +36,25 @@ export function initSentry(env: GatewayEnv): boolean {
 }
 
 const WITHHELD = 'message withheld by log policy';
+
+/**
+ * Which request errors are faults worth an alert. The SDK's default looks only at the reply's
+ * status, which is still 200 when a body read fails, so a phone that hung up mid-upload was
+ * reported as a crash (TWRING-SERVER-1). Prefer the status the error itself carries (Fastify sets
+ * 400 on a failed body read), and skip requests the client abandoned.
+ */
+export function reportsFastifyError(
+  error: Error,
+  request: object,
+  reply: { statusCode: number },
+): boolean {
+  // The SDK types the request loosely; Fastify's real one carries the Node request as `raw`.
+  const raw = (request as { raw?: { aborted?: unknown } }).raw;
+  if (raw?.aborted === true) return false;
+  const own = (error as { statusCode?: unknown }).statusCode;
+  const status = typeof own === 'number' ? own : reply.statusCode;
+  return status >= 500 || status <= 299;
+}
 
 /**
  * Breadcrumbs (console output, HTTP calls) carry arbitrary free text and URLs. Keep only the
