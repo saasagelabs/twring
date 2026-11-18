@@ -1,0 +1,31 @@
+# Twring
+
+> Twring is a phone app (Android and iPhone) that gives the AI agents you already run a live voice. You press Call and talk to your own agent, such as Hermes, Claude Code, Codex or Gemini CLI, in a real-time call. Your agent can also ring your phone when a job is done or needs your OK. Twring handles the voice: speech recognition, speech, turn-taking and interruptions. Your agent keeps its own brain, memory, tools and permissions; Twring never runs its tools.
+
+Twring is made by SaaSage Labs. It is free while it launches, and access is by invite. It does not record or keep call audio. The source is public on GitHub.
+
+## Key facts
+
+- What it is: a voice layer for existing AI agents, not a new agent or chatbot.
+- Platforms: Android (APK from twring.com) and iPhone (TestFlight). Sign in with Google, or Apple on iPhone.
+- Works with: agents you run yourself on a computer or server (Hermes, Claude Code, Codex, Gemini CLI), agents reachable at their own web address, and AI apps such as Claude or ChatGPT through the Twring connector (so they can ring and message you).
+- Rings: your agent can call your phone full screen, even when it is locked. You can decline with a short reply, and set quiet hours.
+- Privacy: no call recordings; agent keys are stored encrypted; you can delete your data at any time.
+- Self-hosting: one command runs Twring on your own Linux server next to your agents.
+- Price: free while launching.
+
+## Pages
+
+- [Home](https://twring.com/): what Twring does, how calls and rings work, FAQ
+- [Get an invite](https://twring.com/beta/): ask for access on iPhone or Android
+- [Connect an AI app](https://twring.com/connector/): let Claude, ChatGPT, Grok, Cursor or another AI app ring and message you
+- [Self-hosting](https://twring.com/self-hosting/): run Twring on your own server
+- [Server guide](https://twring.com/self-hosting/guide/): install, update, back up and fix a self-hosted server
+- [Support](https://twring.com/support/): installing, calls, rings, account and data questions
+- [Privacy notice](https://twring.com/privacy): what Twring keeps and for how long
+- [Terms of service](https://twring.com/terms/)
+
+## Optional
+
+- [Source code](https://github.com/saasagelabs/twring)
+- Contact: support@twring.com (help), hello@twring.com (everything else)

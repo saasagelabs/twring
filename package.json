@@ -9,7 +9,7 @@
   "scripts": {
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "lint": "eslint . --max-warnings 0 && node scripts/check-no-em-dash.mjs",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-no-em-dash.mjs && node scripts/check-site.mjs",
     "typecheck": "pnpm -r --parallel run typecheck",
     "test": "pnpm -r run test",
     "test:integration": "pnpm -r --if-present run test:integration",
