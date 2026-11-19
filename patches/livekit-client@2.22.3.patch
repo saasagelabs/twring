@@ -1,5 +1,5 @@
 diff --git a/dist/livekit-client.esm.mjs b/dist/livekit-client.esm.mjs
-index 6cae7d070c48905f43ee7cc1031769fb02b94a0f..724e2176579097150865937afd86b0a61008b20e 100644
+index 6cae7d070c48905f43ee7cc1031769fb02b94a0f..c968f28235dc5900ae3780a64a84a52b75d5c47a 100644
 --- a/dist/livekit-client.esm.mjs
 +++ b/dist/livekit-client.esm.mjs
 @@ -14943,7 +14943,8 @@ function getAbortReasonAsString(signal) {
@@ -12,6 +12,18 @@ index 6cae7d070c48905f43ee7cc1031769fb02b94a0f..724e2176579097150865937afd86b0a6
    }
  }
  function getErrorDescription(error, errorCategory) {
+@@ -25010,7 +25011,10 @@ class RTCEngine extends eventsExports.EventEmitter {
+     };
+     this.client.onMediaSectionsRequirement = requirement => {
+       this.addMediaSections(requirement.numAudios, requirement.numVideos);
+-      this.negotiate();
++      // A call that just ended rejects with "PC manager is closed" (TWRING-APP-4)
++      this.negotiate().catch(err => {
++        this.log.error(err);
++      });
+     };
+     this.client.onPublishDataTrackResponse = event => {
+       this.emit(EngineEvent.PublishDataTrackResponse, event);
 diff --git a/src/api/utils.ts b/src/api/utils.ts
 index c3549a077f0ee6264bfcaa54cd5a6fec4c5c45fc..7a9909a3582660ff14222c7d2dddedcbcf694497 100644
 --- a/src/api/utils.ts
@@ -26,3 +38,19 @@ index c3549a077f0ee6264bfcaa54cd5a6fec4c5c45fc..7a9909a3582660ff14222c7d2dddedcb
    }
  }
  
+diff --git a/src/room/RTCEngine.ts b/src/room/RTCEngine.ts
+index b640f4316a53b4c4f4211849b78457f425f8849c..a5c759d9d7301311f6fa3bbd5d6b6a2c0fcab655 100644
+--- a/src/room/RTCEngine.ts
++++ b/src/room/RTCEngine.ts
+@@ -738,7 +738,10 @@ export default class RTCEngine extends (EventEmitter as new () => TypedEventEmit
+ 
+     this.client.onMediaSectionsRequirement = (requirement: MediaSectionsRequirement) => {
+       this.addMediaSections(requirement.numAudios, requirement.numVideos);
+-      this.negotiate();
++      // A call that just ended rejects with "PC manager is closed" (TWRING-APP-4)
++      this.negotiate().catch((err) => {
++        this.log.error(err);
++      });
+     };
+ 
+     this.client.onPublishDataTrackResponse = (event: PublishDataTrackResponse) => {
