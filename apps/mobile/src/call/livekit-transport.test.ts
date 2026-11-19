@@ -92,6 +92,8 @@ vi.mock('livekit-client', () => {
 });
 
 const { LiveKitCallTransport } = await import('./livekit-transport');
+const { STOP_RETRY_DELAYS_MS, cancelPendingStop } = await import('./audio-session');
+const RETRY_TOTAL_MS = STOP_RETRY_DELAYS_MS.reduce((sum, ms) => sum + ms, 0);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -103,6 +105,7 @@ beforeEach(() => {
   reported.length = 0;
 });
 afterEach(() => {
+  cancelPendingStop();
   vi.useRealTimers();
 });
 
@@ -193,14 +196,42 @@ describe('LiveKitCallTransport audio session', () => {
     expect(audio.stopped).toBe(1);
   });
 
-  // iOS can refuse to end the audio session (TWRING-APP-5). The call is over either way, so a
-  // hang-up still finishes and the failure is reported once instead of escaping unhandled.
-  it('finishes the hang-up and reports it when iOS refuses to stop the audio session', async () => {
+  // iOS can refuse to end the audio session while WebRTC audio winds down (TWRING-APP-5/6). The
+  // call is over either way, so a hang-up still finishes; the stop is retried in the background
+  // and reported once only if it never succeeds.
+  it('finishes the hang-up and reports it when iOS keeps refusing to stop the audio session', async () => {
     audio.stopError = new Error('Session deactivation failed');
     const transport = new LiveKitCallTransport();
     await transport.connect(PARAMS, () => undefined, new AbortController().signal);
     await expect(transport.disconnect()).resolves.toBeUndefined();
+    expect(reported).toEqual([]);
+    await vi.advanceTimersByTimeAsync(RETRY_TOTAL_MS);
+    expect(audio.stopped).toBe(1 + STOP_RETRY_DELAYS_MS.length);
     expect(reported).toEqual([{ stage: 'audio_session_stop', error: audio.stopError }]);
+  });
+
+  it('reports nothing when a retry ends the audio session', async () => {
+    audio.stopError = new Error('Session deactivation failed');
+    const transport = new LiveKitCallTransport();
+    await transport.connect(PARAMS, () => undefined, new AbortController().signal);
+    await transport.disconnect();
+    audio.stopError = undefined;
+    await vi.advanceTimersByTimeAsync(RETRY_TOTAL_MS);
+    expect(audio.stopped).toBe(2);
+    expect(reported).toEqual([]);
+  });
+
+  it('a new call cancels a retry still ending the previous call', async () => {
+    audio.stopError = new Error('Session deactivation failed');
+    const first = new LiveKitCallTransport();
+    await first.connect(PARAMS, () => undefined, new AbortController().signal);
+    await first.disconnect();
+    audio.stopError = undefined;
+    const second = new LiveKitCallTransport();
+    await second.connect(PARAMS, () => undefined, new AbortController().signal);
+    await vi.advanceTimersByTimeAsync(RETRY_TOTAL_MS);
+    expect(audio.stopped).toBe(1);
+    expect(reported).toEqual([]);
   });
 
   it('reports a refused audio session stop on the abort path too', async () => {
@@ -214,6 +245,7 @@ describe('LiveKitCallTransport audio session', () => {
     controller.abort();
     start();
     await expect(connecting).rejects.toThrow(/aborted/);
+    await vi.advanceTimersByTimeAsync(RETRY_TOTAL_MS);
     expect(reported.map((r) => r.stage)).toEqual(['audio_session_stop']);
   });
 });
