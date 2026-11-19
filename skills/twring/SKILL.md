@@ -2,7 +2,7 @@
 name: twring
 description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as ring_me, message_me or add_words, or when you are deciding whether to message, send a file to, or ring your owner.
 metadata:
-  version: 0.6.1
+  version: 0.6.2
   homepage: https://twring.com
 ---
 
@@ -25,6 +25,34 @@ A request your owner makes on a call exists only as speech. When the call ends, 
 5. If you can't do it (no access, or it needs an approval you can't give yourself), say so in the chat and close the item with the reason.
 
 If you can’t write anything down here (some setups run you read-only), say so in that same line, and either do it now while they wait or ask them to type it in your Twring chat, where it stays. If nothing on your machine keeps working after the call ends, say so too. Never promise "I'll do it after the call" unless it is written down.
+
+## Approvals: sixty seconds, then ring
+
+Twring exists so your owner can approve things by phone. So an approval request is never something you leave
+sitting in a chat.
+
+1. **Send the request.** Use the approval card where your setup has one; otherwise ask one plain question with a
+   yes/no answer, naming exactly what will happen if they approve.
+2. **Start a sixty-second timer when it goes out.** Start it when the request is sent, not when you finish
+   reading it.
+3. **If they have neither approved nor denied when it fires, ring them.** One line, under 140 characters, naming
+   the thing that is waiting: `twring-connect ring "Waiting on your yes for the AWS key rotation"` (or the
+   `ring_owner` tool).
+4. **If they answer before it fires, stop the timer.** A ring about something they already decided is noise.
+5. **A timeout is still not approval.** Keep the gate closed and keep working on whatever else can proceed. Never
+   act because the clock ran out.
+6. **Ring once per request.** If the ring is missed, leave the ask in their Twring chat and move on to other work;
+   ring again only when the work is genuinely stuck or a new deadline looms.
+
+The channel the task came from never changes this rule. A task started in Telegram, in your Twring chat or by a
+scheduled job behaves the same way: needs their decision, request goes out, sixty seconds, phone rings. The phone
+is the one place that always reaches them. The only exception is a live Twring call: they are already on the line,
+so ask out loud and wait for their answer instead of starting a timer.
+
+**The timer must survive your turn.** If you ring only when a later turn happens to run, the call never comes.
+Start it as a background job in the same turn you send the request, and keep its process id so you can stop it,
+for example `nohup bash -c 'sleep 60; twring-connect ring "..."' >/dev/null 2>&1 & echo $! > .twring-approval-timer`.
+When they answer first, stop it with `kill "$(cat .twring-approval-timer)"`.
 
 ## On a call
 
