@@ -28,6 +28,12 @@ const audio = vi.hoisted(() => ({
   started: 0,
   stopped: 0,
   startGate: Promise.resolve(),
+  stopError: undefined as Error | undefined,
+}));
+
+const reported = vi.hoisted(() => [] as { stage: string; error: unknown }[]);
+vi.mock('@/observability/sentry', () => ({
+  reportClientError: (stage: string, error: unknown) => reported.push({ stage, error }),
 }));
 
 vi.mock('@livekit/react-native', () => ({
@@ -40,7 +46,7 @@ vi.mock('@livekit/react-native', () => ({
     },
     stopAudioSession: () => {
       audio.stopped += 1;
-      return Promise.resolve();
+      return audio.stopError === undefined ? Promise.resolve() : Promise.reject(audio.stopError);
     },
   },
 }));
@@ -93,6 +99,8 @@ beforeEach(() => {
   audio.started = 0;
   audio.stopped = 0;
   audio.startGate = Promise.resolve();
+  audio.stopError = undefined;
+  reported.length = 0;
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -183,6 +191,30 @@ describe('LiveKitCallTransport audio session', () => {
     await transport.connect(PARAMS, () => undefined, new AbortController().signal);
     await Promise.all([transport.disconnect(), transport.disconnect()]);
     expect(audio.stopped).toBe(1);
+  });
+
+  // iOS can refuse to end the audio session (TWRING-APP-5). The call is over either way, so a
+  // hang-up still finishes and the failure is reported once instead of escaping unhandled.
+  it('finishes the hang-up and reports it when iOS refuses to stop the audio session', async () => {
+    audio.stopError = new Error('Session deactivation failed');
+    const transport = new LiveKitCallTransport();
+    await transport.connect(PARAMS, () => undefined, new AbortController().signal);
+    await expect(transport.disconnect()).resolves.toBeUndefined();
+    expect(reported).toEqual([{ stage: 'audio_session_stop', error: audio.stopError }]);
+  });
+
+  it('reports a refused audio session stop on the abort path too', async () => {
+    let start!: () => void;
+    audio.startGate = new Promise<void>((resolve) => (start = resolve));
+    audio.stopError = new Error('Session deactivation failed');
+    const transport = new LiveKitCallTransport();
+    const controller = new AbortController();
+    const connecting = transport.connect(PARAMS, () => undefined, controller.signal);
+    await Promise.resolve();
+    controller.abort();
+    start();
+    await expect(connecting).rejects.toThrow(/aborted/);
+    expect(reported.map((r) => r.stage)).toEqual(['audio_session_stop']);
   });
 });
 

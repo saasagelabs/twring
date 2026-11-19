@@ -1,0 +1,28 @@
+diff --git a/dist/livekit-client.esm.mjs b/dist/livekit-client.esm.mjs
+index 6cae7d070c48905f43ee7cc1031769fb02b94a0f..724e2176579097150865937afd86b0a61008b20e 100644
+--- a/dist/livekit-client.esm.mjs
++++ b/dist/livekit-client.esm.mjs
+@@ -14943,7 +14943,8 @@ function getAbortReasonAsString(signal) {
+     case 'object':
+       return reason instanceof Error ? reason.message : defaultMessage;
+     default:
+-      return 'toString' in reason ? reason.toString() : defaultMessage;
++      // React Native can abort with no reason; `'toString' in undefined` throws (TWRING-APP-3)
++      return reason === undefined ? defaultMessage : String(reason);
+   }
+ }
+ function getErrorDescription(error, errorCategory) {
+diff --git a/src/api/utils.ts b/src/api/utils.ts
+index c3549a077f0ee6264bfcaa54cd5a6fec4c5c45fc..7a9909a3582660ff14222c7d2dddedcbcf694497 100644
+--- a/src/api/utils.ts
++++ b/src/api/utils.ts
+@@ -60,7 +60,8 @@ export function getAbortReasonAsString(
+     case 'object':
+       return reason instanceof Error ? reason.message : defaultMessage;
+     default:
+-      return 'toString' in reason ? reason.toString() : defaultMessage;
++      // React Native can abort with no reason; `'toString' in undefined` throws (TWRING-APP-3)
++      return reason === undefined ? defaultMessage : String(reason);
+   }
+ }
+ 

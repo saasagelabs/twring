@@ -18,6 +18,8 @@ import {
   type RemoteParticipant,
 } from 'livekit-client';
 
+import { reportClientError } from '@/observability/sentry';
+
 import { downlinkWindow, type ReceiverSample } from './downlink';
 import { LEVEL_INTERVAL_MS } from './levels';
 import {
@@ -267,10 +269,18 @@ export class LiveKitCallTransport implements CallTransport {
     return this.disconnecting;
   }
 
-  /** Stops the audio session once, whichever of connect's abort path or disconnect gets there first. */
+  /**
+   * Stops the audio session once, whichever of connect's abort path or disconnect gets there first.
+   * iOS can refuse to end it (TWRING-APP-5); the call is over either way, so that is reported, not
+   * thrown, and a hang-up always finishes.
+   */
   private async stopAudioSession(): Promise<void> {
     if (!this.audioSessionStarted) return;
     this.audioSessionStarted = false;
-    await AudioSession.stopAudioSession();
+    try {
+      await AudioSession.stopAudioSession();
+    } catch (error) {
+      reportClientError('audio_session_stop', error);
+    }
   }
 }

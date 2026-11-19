@@ -72,3 +72,6 @@ auditConfig:
     # Expo CLI file watcher, eslint's glob); no server package depends on it and it is not bundled
     # into the app. Patterns come from our own config, never from users. Remove once 4.0.8 ships.
     - GHSA-fc5q-39xc-vjpf # picomatch 2.3.2 and 4.0.7 (via metro, @expo/cli, typescript-eslint)
+
+patchedDependencies:
+  livekit-client@2.22.3: patches/livekit-client@2.22.3.patch
