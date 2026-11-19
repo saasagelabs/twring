@@ -33,6 +33,19 @@ describe('ios-testflight.yml', () => {
     }
   });
 
+  // Crash reports from the app are unreadable without source maps and debug symbols.
+  it('uploads source maps and symbols to Sentry, with the token only where the build runs', () => {
+    expect(text).not.toMatch(/SENTRY_DISABLE_AUTO_UPLOAD/);
+    expect(text).toContain('SENTRY_ORG: saasage-labs');
+    expect(text).toContain('SENTRY_PROJECT: twring-app');
+    // A Sentry outage must not stop a release.
+    expect(text).toContain("SENTRY_ALLOW_FAILURE: 'true'");
+    const steps = text.slice(text.indexOf('    steps:\n')).split(/\n {6}- /);
+    const withToken = steps.filter((step) => step.includes('secrets.SENTRY_AUTH_TOKEN'));
+    expect(withToken).toHaveLength(1);
+    expect(withToken[0]).toMatch(/^name: Archive and export/);
+  });
+
   it('always removes the signing material and never keeps the IPA', () => {
     expect(text).toMatch(
       /if: always\(\)\s*\n\s+run: bash apps\/mobile\/scripts\/ios-testflight\.sh cleanup/,
@@ -42,13 +55,6 @@ describe('ios-testflight.yml', () => {
 });
 
 describe('both iOS workflows', () => {
-  it.each(['ios-build-check.yml', 'ios-testflight.yml'])(
-    '%s turns off the Sentry upload during builds (no Sentry account in CI)',
-    (name) => {
-      expect(read(name)).toMatch(/SENTRY_DISABLE_AUTO_UPLOAD: 'true'/);
-    },
-  );
-
   it.each(['ios-build-check.yml', 'ios-testflight.yml'])(
     '%s pins the Xcode version, so a runner update cannot change a release build',
     (name) => {
@@ -60,6 +66,10 @@ describe('both iOS workflows', () => {
 
 describe('ios-build-check.yml', () => {
   const text = read('ios-build-check.yml');
+
+  it('never uploads to Sentry (pull requests have no Sentry account)', () => {
+    expect(text).toMatch(/SENTRY_DISABLE_AUTO_UPLOAD: 'true'/);
+  });
 
   it('uses no secrets and no environment', () => {
     expect(text).not.toMatch(/\$\{\{\s*secrets\./);

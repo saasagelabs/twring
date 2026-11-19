@@ -31,7 +31,11 @@ jobs:
       EXPO_PUBLIC_SUPABASE_URL: https://gifdayffysmzskxdgmgp.supabase.co
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_JOl2BTQPnkT0cN4lQA3Lrw_7lZRFovX
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: 605371988164-rtamegb6hegcll2kbu2e2i7o1udaordu.apps.googleusercontent.com
-      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
+      # Source maps and debug symbols go to Sentry during the archive, so crash reports from the
+      # app point at real code. A Sentry outage must not stop a release.
+      SENTRY_ORG: saasage-labs
+      SENTRY_PROJECT: twring-app
+      SENTRY_ALLOW_FAILURE: 'true'
       COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
       EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID: ${{ secrets.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID }}
       EXPO_PUBLIC_SENTRY_DSN: ${{ secrets.EXPO_PUBLIC_SENTRY_DSN }}
@@ -82,6 +86,8 @@ jobs:
       - name: Generate iOS project (CNG)
         run: bash apps/mobile/scripts/ios-testflight.sh prebuild
       - name: Archive and export
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bash apps/mobile/scripts/ios-testflight.sh archive
       - name: Upload to App Store Connect
         if: inputs.upload

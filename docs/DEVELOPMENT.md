@@ -296,6 +296,7 @@ The rules are validated by `@twring/config`:
 - `apps/mobile/eas.json`: the `staging` profile points at `https://api.staging.cord.invalid`. Replace it with the real staging API.
 - `apps/gateway/.env.staging.example` lists the staging variables, including those added in Milestones 1–2.
 - Sentry: `EXPO_PUBLIC_SENTRY_DSN` / `SENTRY_DSN` are empty, so Sentry is a no-op. To enable source-map upload, set `SENTRY_ORG` and `SENTRY_PROJECT`, add the EAS secret `SENTRY_AUTH_TOKEN`, and drop `SENTRY_DISABLE_AUTO_UPLOAD` from that EAS profile.
+- Production builds upload source maps and debug symbols to Sentry (org `saasage-labs`, project `twring-app`). The iPhone TestFlight workflow gives the repository secret `SENTRY_AUTH_TOKEN` to its archive step only, and a Sentry outage does not stop the build (`SENTRY_ALLOW_FAILURE`). `apps/mobile/scripts/build-android-release.sh` uploads when `SENTRY_AUTH_TOKEN`, `SENTRY_ORG` and `SENTRY_PROJECT` are set. Pull request builds never upload.
 - Separate staging LiveKit and Deepgram projects arrive with the milestones that use them. Supabase (sign-in) uses one project for now; its URL and publishable key are in `eas.json` for staging and production. Add `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` to those profiles once the Google client exists: staging and production builds refuse to start without it.
 
 ## CI
