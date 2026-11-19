@@ -20,6 +20,7 @@ import {
 
 import { reportClientError } from '@/observability/sentry';
 
+import { cancelPendingStop, stopAudioSessionWithRetry } from './audio-session';
 import { downlinkWindow, type ReceiverSample } from './downlink';
 import { LEVEL_INTERVAL_MS } from './levels';
 import {
@@ -165,6 +166,8 @@ export class LiveKitCallTransport implements CallTransport {
         },
         ios: { defaultOutput: 'speaker' },
       });
+      // A retry still ending the previous call's session must not switch this one off.
+      cancelPendingStop();
       await AudioSession.startAudioSession();
       this.audioSessionStarted = true;
       // An abort while the session was starting ran disconnect() before there was a session to stop.
@@ -271,16 +274,15 @@ export class LiveKitCallTransport implements CallTransport {
 
   /**
    * Stops the audio session once, whichever of connect's abort path or disconnect gets there first.
-   * iOS can refuse to end it (TWRING-APP-5); the call is over either way, so that is reported, not
-   * thrown, and a hang-up always finishes.
+   * iOS can refuse to end it while WebRTC audio is still winding down (TWRING-APP-5/6): that is
+   * retried in the background and reported only if it never ends, so a hang-up always finishes.
    */
   private async stopAudioSession(): Promise<void> {
     if (!this.audioSessionStarted) return;
     this.audioSessionStarted = false;
-    try {
-      await AudioSession.stopAudioSession();
-    } catch (error) {
-      reportClientError('audio_session_stop', error);
-    }
+    await stopAudioSessionWithRetry(
+      () => AudioSession.stopAudioSession(),
+      (error) => reportClientError('audio_session_stop', error),
+    );
   }
 }
