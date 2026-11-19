@@ -10,7 +10,8 @@
 # values are public by design (the app ships them too).
 #
 # Caddy serves /var/www/twring-site for https://twring.com. Files are copied
-# as root-owned, world-readable; the APK itself goes to /var/www/cord-downloads separately.
+# as root-owned, world-readable; the APK itself goes to /var/www/cord-downloads separately. The
+# downloads page (apps/site/downloads/index.html) is also copied there, as that folder's index.
 #
 # The self-host installer ships with the site: /install.sh (from deploy/selfhost) with
 # /install.sh.sha256, and /selfhost/kit.tar.gz (the templates and the twring command, as
@@ -100,9 +101,12 @@ tar -C "$STAGE" -cf - . | ssh -i "$KEY" -o BatchMode=yes "$HOST" 'set -e
   sudo chown -R root:root /var/www/twring-site
   sudo find /var/www/twring-site -type d -exec chmod 755 {} +
   sudo find /var/www/twring-site -type f -exec chmod 644 {} +
+  # Caddy serves /downloads/* from that folder, so its page lives there too. The copy in the site
+  # folder only lets /downloads (no slash) redirect to /downloads/.
+  sudo install -m 644 -o root -g root "$tmp/downloads/index.html" /var/www/cord-downloads/index.html
   rm -rf "$tmp"'
 
-for path in / /beta/ /support/ /terms/ /connector/ /oauth/consent/ /self-hosting/ /self-hosting/guide/ /install.sh /selfhost/versions.json; do
+for path in / /beta/ /support/ /downloads/ /terms/ /connector/ /oauth/consent/ /self-hosting/ /self-hosting/guide/ /install.sh /selfhost/versions.json; do
   code=$(curl -sS -o /dev/null -w '%{http_code}' "$URL$path")
   [ "$code" = 200 ] || die "$URL$path answered $code after publishing."
 done
