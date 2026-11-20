@@ -9,6 +9,8 @@ import {
   GoogleSignInError,
   RESTORE_TIMEOUT_MS,
   SESSION_ENDED_NOTICE,
+  TEST_SIGN_IN_MISSING_COPY,
+  TEST_SIGN_IN_REJECTED_COPY,
   withAuth,
   type ApiAuth,
   type AppleSignIn,
@@ -28,6 +30,7 @@ function fakeBackend(stored: AuthSession | null = null) {
       return () => undefined;
     }),
     signInWithIdToken: vi.fn((_idToken: string) => Promise.resolve(SESSION)),
+    signInWithPassword: vi.fn((_email: string, _password: string) => Promise.resolve(SESSION)),
     refresh: vi.fn(() => Promise.resolve<AuthSession | null>({ ...SESSION, accessToken: 'tok-2' })),
     signOut: vi.fn(() => Promise.resolve()),
   } satisfies AuthBackend;
@@ -480,5 +483,50 @@ describe('iPhone sign-in', () => {
 
     const noApple = new AuthController({ backend: fakeBackend().backend, google: fakeGoogle() });
     await expect(noApple.signInWithApple()).resolves.toMatch(/Apple sign-in didn't finish/);
+  });
+});
+
+describe('test sign-in (email and password, for store and directory reviewers)', () => {
+  it('signs in with the trimmed email and the password as typed', async () => {
+    const { backend } = fakeBackend(null);
+    const auth = new AuthController({ backend, google: fakeGoogle() });
+    auth.start();
+    await flush();
+    await expect(auth.signInWithPassword('  a@example.com ', ' pass word ')).resolves.toBe(
+      undefined,
+    );
+    expect(backend.signInWithPassword).toHaveBeenCalledWith('a@example.com', ' pass word ');
+    expect(auth.getState()).toMatchObject({ status: 'signed_in', userId: 'user-1' });
+  });
+
+  it('asks for both details without calling the sign-in service', async () => {
+    const { backend } = fakeBackend(null);
+    const auth = new AuthController({ backend, google: fakeGoogle() });
+    await expect(auth.signInWithPassword(' ', 'pw')).resolves.toBe(TEST_SIGN_IN_MISSING_COPY);
+    await expect(auth.signInWithPassword('a@example.com', '')).resolves.toBe(
+      TEST_SIGN_IN_MISSING_COPY,
+    );
+    expect(backend.signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it('says plainly when the details are wrong, and stays signed out', async () => {
+    const { backend } = fakeBackend(null);
+    backend.signInWithPassword.mockRejectedValue(new AuthBackendError('rejected'));
+    const auth = new AuthController({ backend, google: fakeGoogle() });
+    auth.start();
+    await flush();
+    await expect(auth.signInWithPassword('a@example.com', 'wrong')).resolves.toBe(
+      TEST_SIGN_IN_REJECTED_COPY,
+    );
+    expect(auth.getState()).toEqual({ status: 'signed_out' });
+  });
+
+  it('says when the sign-in service could not be reached', async () => {
+    const { backend } = fakeBackend(null);
+    backend.signInWithPassword.mockRejectedValue(new AuthBackendError('network'));
+    const auth = new AuthController({ backend, google: fakeGoogle() });
+    await expect(auth.signInWithPassword('a@example.com', 'pw')).resolves.toMatch(
+      /couldn't reach its sign-in service/,
+    );
   });
 });

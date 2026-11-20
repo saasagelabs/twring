@@ -35,10 +35,10 @@
         <button class="btn btn-primary" id="google" type="button">Continue with Google</button>
       </div>
       <p class="signed-in">Sign in the same way you sign in to the Twring app, so this connects to your account.</p>
-      <p class="signed-in">Reviewing Twring for a directory?<button type="button" id="showEmail" aria-expanded="false" aria-controls="emailForm">Sign in with the email we gave you</button></p>
+      <p class="signed-in">Reviewing Twring?<button type="button" id="showEmail" aria-expanded="false" aria-controls="emailForm">Test sign-in</button></p>
       <form class="get" id="emailForm" hidden novalidate>
         <label for="reviewEmail" class="sr">Email</label>
-        <input id="reviewEmail" type="email" placeholder="Email" autocomplete="username" inputmode="email" required>
+        <input id="reviewEmail" type="email" placeholder="Test email" autocomplete="username" inputmode="email" required>
         <label for="reviewPassword" class="sr">Password</label>
         <input id="reviewPassword" type="password" placeholder="Password" autocomplete="current-password" required>
         <button class="btn btn-primary" id="emailSignIn" type="submit">Sign in</button>
@@ -131,7 +131,7 @@
     var email = $('reviewEmail').value.trim();
     var password = $('reviewPassword').value;
     if (!email || !password) {
-      status.textContent = 'Enter the email and password you were given.';
+      status.textContent = 'Enter the test email and password you were given.';
       return;
     }
     $('emailSignIn').disabled = true;

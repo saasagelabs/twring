@@ -73,6 +73,15 @@ export function supabaseBackend(auth: SupabaseClient['auth']): AuthBackend {
         .catch(() => undefined);
       return { ...session, name: name.full };
     },
+    async signInWithPassword(email, password) {
+      const { data, error } = await auth.signInWithPassword({ email, password });
+      if (error !== null) {
+        throw new AuthBackendError(isAuthRetryableFetchError(error) ? 'network' : 'rejected');
+      }
+      const session = toSession(data.session);
+      if (session === null) throw new AuthBackendError('rejected');
+      return session;
+    },
     async refresh() {
       const { data, error } = await auth.refreshSession();
       if (error !== null) {

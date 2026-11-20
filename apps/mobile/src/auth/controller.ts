@@ -30,6 +30,11 @@ export interface AuthBackend {
    */
   signInWithIdToken(idToken: string, apple?: AppleIdToken): Promise<AuthSession>;
   /**
+   * Test sign-in: an email and password made for app store and directory reviewers. The gateway
+   * accepts only the emails it lists (PASSWORD_SIGNIN_EMAILS). Throws `AuthBackendError`.
+   */
+  signInWithPassword(email: string, password: string): Promise<AuthSession>;
+  /**
    * A fresh session. Null when the refresh token is no longer valid (the user must sign in again);
    * throws when Supabase could not be reached, which is not a reason to sign the user out.
    */
@@ -116,6 +121,10 @@ export function signInErrorCopy(error: unknown, provider: SignInProvider = 'goog
     ? "Twring couldn't sign you in with that Apple Account. Try again."
     : "Twring couldn't sign you in with that Google account. Try again, or use another account.";
 }
+
+export const TEST_SIGN_IN_MISSING_COPY = 'Enter the test email and password you were given.';
+export const TEST_SIGN_IN_REJECTED_COPY =
+  "That email and password didn't work. Check them and try again.";
 
 export const SESSION_ENDED_NOTICE = 'Your session ended. Sign in again to continue.';
 
@@ -235,6 +244,24 @@ export class AuthController {
       return undefined;
     } catch (error) {
       return signInErrorCopy(error, 'apple');
+    }
+  }
+
+  /**
+   * Test sign-in for app store and directory reviewers. Resolves with user copy on failure,
+   * undefined on success. The password is passed exactly as typed.
+   */
+  async signInWithPassword(email: string, password: string): Promise<string | undefined> {
+    const address = email.trim();
+    if (address === '' || password === '') return TEST_SIGN_IN_MISSING_COPY;
+    try {
+      this.apply(await this.deps.backend.signInWithPassword(address, password));
+      return undefined;
+    } catch (error) {
+      if (error instanceof AuthBackendError && error.kind === 'network') {
+        return signInErrorCopy(error);
+      }
+      return TEST_SIGN_IN_REJECTED_COPY;
     }
   }
 

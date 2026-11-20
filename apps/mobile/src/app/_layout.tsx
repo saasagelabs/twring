@@ -133,6 +133,7 @@ function RootLayout() {
             </Stack.Protected>
             <Stack.Protected guard={!signedIn}>
               <Stack.Screen name="sign-in" options={{ gestureEnabled: false }} />
+              <Stack.Screen name="test-sign-in" />
             </Stack.Protected>
             <Stack.Screen name="pair" />
             <Stack.Screen name="privacy" />

@@ -16,7 +16,8 @@ import { space, type, usePalette } from '@/theme/tokens';
 
 /**
  * Sign-in (ADR-021): Continue with Google; on the iPhone also Continue with Apple, Apple's own
- * button first (App Store guideline 4.8). Shown whenever the user is signed out.
+ * button first (App Store guideline 4.8). Shown whenever the user is signed out. "Test sign-in"
+ * opens the reviewers' email and password form (`test-sign-in`).
  */
 export default function SignInScreen() {
   const palette = usePalette();
@@ -94,6 +95,8 @@ export default function SignInScreen() {
         <View style={styles.links}>
           <TextButton label="Privacy" onPress={() => router.push('/privacy')} />
           <TextButton label="Use my own server" onPress={() => router.push('/pair')} />
+          {/* For app store and directory reviewers; removed once the reviews are done. */}
+          <TextButton label="Test sign-in" onPress={() => router.push('/test-sign-in')} />
         </View>
       </View>
     </Screen>
@@ -104,7 +107,7 @@ const styles = StyleSheet.create({
   top: { gap: space.lg, paddingTop: space.lg },
   lockup: { alignItems: 'center' },
   wave: { alignItems: 'center', paddingTop: space.xxxl, paddingBottom: space.xl },
-  links: { flexDirection: 'row', justifyContent: 'center', gap: space.lg },
+  links: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: space.lg },
   buttons: { gap: space.md },
   apple: { width: '100%', height: 56 },
 });
