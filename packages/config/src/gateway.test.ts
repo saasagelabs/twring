@@ -27,6 +27,18 @@ const LIVEKIT = {
 };
 
 describe('loadGatewayEnv', () => {
+  it('reads the reviewer password emails as a lower-case list, and none by default', () => {
+    expect(loadGatewayEnv(gatewayEnvFixture()).PASSWORD_SIGNIN_EMAILS).toBeUndefined();
+    expect(
+      loadGatewayEnv(
+        gatewayEnvFixture({ PASSWORD_SIGNIN_EMAILS: ' Reviewer@Example.com, ,second@example.com' }),
+      ).PASSWORD_SIGNIN_EMAILS,
+    ).toEqual(['reviewer@example.com', 'second@example.com']);
+    expect(() =>
+      loadGatewayEnv(gatewayEnvFixture({ PASSWORD_SIGNIN_EMAILS: 'not-an-email' })),
+    ).toThrow(/PASSWORD_SIGNIN_EMAILS/);
+  });
+
   it('keeps the MCP connector off by default and requires Supabase plus a public URL', () => {
     expect(loadGatewayEnv(gatewayEnvFixture()).CONNECTOR_MCP_ENABLED).toBe(false);
     expect(() => loadGatewayEnv(gatewayEnvFixture({ CONNECTOR_MCP_ENABLED: 'true' }))).toThrow(

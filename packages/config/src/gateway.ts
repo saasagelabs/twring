@@ -242,6 +242,21 @@ export const gatewayEnvSchema = z
     CONNECTOR_MCP_ENABLED: envBoolean.default(false),
     /** Supabase project URL, e.g. https://<ref>.supabase.co. Public; its JWKS verifies tokens. */
     SUPABASE_URL: z.url({ protocol: /^https?$/ }).optional(),
+    /**
+     * Comma-separated emails of the only accounts allowed to sign in with an email and password:
+     * store and directory reviewers, who can't get past Google's new-device checks. Everyone else
+     * signs in with Google or Apple; any other password account is refused. Unset: none.
+     */
+    PASSWORD_SIGNIN_EMAILS: z
+      .string()
+      .transform((value) =>
+        value
+          .split(',')
+          .map((entry) => entry.trim().toLowerCase())
+          .filter((entry) => entry !== ''),
+      )
+      .pipe(z.array(z.email()).max(10))
+      .optional(),
 
     // LiveKit (Milestone 1). All three or none; required outside development.
     LIVEKIT_URL: z.url({ protocol: /^wss?$/ }).optional(),

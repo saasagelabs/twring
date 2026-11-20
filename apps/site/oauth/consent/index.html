@@ -35,6 +35,14 @@
         <button class="btn btn-primary" id="google" type="button">Continue with Google</button>
       </div>
       <p class="signed-in">Sign in the same way you sign in to the Twring app, so this connects to your account.</p>
+      <p class="signed-in">Reviewing Twring for a directory?<button type="button" id="showEmail" aria-expanded="false" aria-controls="emailForm">Sign in with the email we gave you</button></p>
+      <form class="get" id="emailForm" hidden novalidate>
+        <label for="reviewEmail" class="sr">Email</label>
+        <input id="reviewEmail" type="email" placeholder="Email" autocomplete="username" inputmode="email" required>
+        <label for="reviewPassword" class="sr">Password</label>
+        <input id="reviewPassword" type="password" placeholder="Password" autocomplete="current-password" required>
+        <button class="btn btn-primary" id="emailSignIn" type="submit">Sign in</button>
+      </form>
     </section>
 
     <section id="ask" hidden>
@@ -110,6 +118,39 @@
   }
   $('apple').addEventListener('click', function () { signIn('apple'); });
   $('google').addEventListener('click', function () { signIn('google'); });
+
+  // Store and directory reviewers can't get past Google's new-device checks, so Twring gives them
+  // an email and password. Only the accounts the gateway lists (PASSWORD_SIGNIN_EMAILS) work.
+  $('showEmail').addEventListener('click', function () {
+    $('emailForm').hidden = false;
+    $('showEmail').setAttribute('aria-expanded', 'true');
+    $('reviewEmail').focus();
+  });
+  $('emailForm').addEventListener('submit', function (event) {
+    event.preventDefault();
+    var email = $('reviewEmail').value.trim();
+    var password = $('reviewPassword').value;
+    if (!email || !password) {
+      status.textContent = 'Enter the email and password you were given.';
+      return;
+    }
+    $('emailSignIn').disabled = true;
+    status.textContent = 'Signing in…';
+    client.auth.signInWithPassword({ email: email, password: password }).then(
+      function (r) {
+        if (r.error) {
+          $('emailSignIn').disabled = false;
+          status.textContent = "That email and password didn't work. Check them and try again.";
+          return;
+        }
+        location.reload();
+      },
+      function () {
+        $('emailSignIn').disabled = false;
+        status.textContent = "That didn't work. Check your connection and try again.";
+      }
+    );
+  });
 
   function decide(approve) {
     if (busy) return;

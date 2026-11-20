@@ -90,6 +90,52 @@ export interface SupabaseAuthOptions {
   keys?: JWTVerifyGetKey;
   /** Allowed clock skew for exp/nbf/iat, in seconds. */
   clockToleranceS?: number;
+  /**
+   * The only emails that may sign in with a password (store and directory reviewers,
+   * PASSWORD_SIGNIN_EMAILS). Any other password sign-in is refused. Unset: none.
+   */
+  passwordEmails?: readonly string[];
+}
+
+/** Ways of signing in to Supabase that prove an email address rather than a Google or Apple account. */
+const EMAIL_SIGN_IN_METHODS: ReadonlySet<string> = new Set([
+  'password',
+  'otp',
+  'magiclink',
+  'email/signup',
+  'email_change',
+  'recovery',
+  'invite',
+]);
+const PERSON_PROVIDERS: ReadonlySet<string> = new Set(['google', 'apple']);
+
+/**
+ * True for a sign-in made with an email instead of Google or Apple: the session's `amr` names an
+ * email method, or the account has no Google or Apple identity at all. Twring has no password
+ * accounts except reviewers', so this decides whether the reviewer list must be checked.
+ */
+function isEmailSignIn(payload: JWTPayload): boolean {
+  const { amr, app_metadata: app } = payload;
+  if (
+    Array.isArray(amr) &&
+    amr.some((entry: unknown) => {
+      const method: unknown =
+        typeof entry === 'object' && entry !== null
+          ? (entry as { method?: unknown }).method
+          : entry;
+      return typeof method === 'string' && EMAIL_SIGN_IN_METHODS.has(method);
+    })
+  ) {
+    return true;
+  }
+  const providers =
+    typeof app === 'object' && app !== null
+      ? (app as { providers?: unknown }).providers
+      : undefined;
+  return (
+    Array.isArray(providers) &&
+    !providers.some((provider) => typeof provider === 'string' && PERSON_PROVIDERS.has(provider))
+  );
 }
 
 export interface McpIdentity extends AuthenticatedUser {
@@ -169,6 +215,9 @@ function createSupabaseVerifier(
   const issuer = `${base}/auth/v1`;
   const keys = options.keys ?? supabaseJwks(base);
   const clockTolerance = options.clockToleranceS ?? 30;
+  const passwordEmails = new Set(
+    (options.passwordEmails ?? []).map((email) => email.toLowerCase()),
+  );
 
   return async (request) => {
     const token = bearerToken(request);
@@ -214,6 +263,14 @@ function createSupabaseVerifier(
     const name = fromMeta('full_name') ?? fromMeta('name');
     const email =
       typeof payload.email === 'string' && payload.email !== '' ? payload.email : undefined;
+    // Twring signs people in with Google or Apple. A password sign-in is only for the reviewers
+    // listed in PASSWORD_SIGNIN_EMAILS; anyone else who made a password account is refused.
+    if (
+      isEmailSignIn(payload) &&
+      (email === undefined || !passwordEmails.has(email.toLowerCase()))
+    ) {
+      throw new AuthError(401, 'auth_invalid', 'Sign in with Google or Apple to use Twring.');
+    }
     return {
       user: { id: sub, ...(name !== undefined && { name }), ...(email !== undefined && { email }) },
       payload,
@@ -309,7 +366,11 @@ export function createRequestAuth(
  * user, and `pairing` needs the paired-phone store (`pairing`), refusing to start without it.
  */
 export function selectAuthenticator(
-  env: { AUTH_MODE: string; SUPABASE_URL?: string | undefined },
+  env: {
+    AUTH_MODE: string;
+    SUPABASE_URL?: string | undefined;
+    PASSWORD_SIGNIN_EMAILS?: readonly string[] | undefined;
+  },
   pairing?: { authenticator: Authenticator },
 ): Authenticator {
   switch (env.AUTH_MODE) {
@@ -317,7 +378,12 @@ export function selectAuthenticator(
       return devAuthenticator;
     case 'supabase':
       if (env.SUPABASE_URL === undefined) throw new Error('AUTH_MODE=supabase needs SUPABASE_URL');
-      return supabaseAuthenticator({ supabaseUrl: env.SUPABASE_URL });
+      return supabaseAuthenticator({
+        supabaseUrl: env.SUPABASE_URL,
+        ...(env.PASSWORD_SIGNIN_EMAILS !== undefined && {
+          passwordEmails: env.PASSWORD_SIGNIN_EMAILS,
+        }),
+      });
     case 'pairing':
       if (pairing === undefined) throw new Error('AUTH_MODE=pairing needs the paired-phone store');
       return pairing.authenticator;
