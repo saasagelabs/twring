@@ -71,11 +71,18 @@ interface Claims {
   sub?: string;
   exp?: number;
   nbf?: number;
+  email?: string;
+  /** Other claims, such as Supabase's `amr` and `app_metadata`. */
+  extra?: Record<string, unknown>;
 }
 
 function token(key: Signer, base: string, claims: Claims = {}): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
-  const jwt = new SignJWT({ role: 'authenticated', email: 'someone@example.com' })
+  const jwt = new SignJWT({
+    role: 'authenticated',
+    email: claims.email ?? 'someone@example.com',
+    ...claims.extra,
+  })
     .setProtectedHeader({ alg: key.alg, kid: key.kid, typ: 'JWT' })
     .setIssuer(claims.iss ?? `${base}/auth/v1`)
     .setAudience(claims.aud ?? 'authenticated')
@@ -103,12 +110,20 @@ afterEach(async () => {
   while (cleanups.length > 0) await cleanups.pop()!();
 });
 
-async function setup(options: { alg?: 'ES256' | 'RS256'; cooldownMs?: number } = {}) {
+async function setup(
+  options: { alg?: 'ES256' | 'RS256'; cooldownMs?: number; passwordEmails?: string[] } = {},
+) {
   const key = await signer('key-1', options.alg);
   const jwks = await startJwks([key.jwk]);
   cleanups.push(() => jwks.close());
   const keys = supabaseJwks(jwks.url, { cooldownMs: options.cooldownMs ?? 0 });
-  const app = appWith(supabaseAuthenticator({ supabaseUrl: jwks.url, keys }));
+  const app = appWith(
+    supabaseAuthenticator({
+      supabaseUrl: jwks.url,
+      keys,
+      ...(options.passwordEmails !== undefined && { passwordEmails: options.passwordEmails }),
+    }),
+  );
   cleanups.push(() => app.close());
   const get = (authorization?: string) =>
     app.inject({
@@ -122,6 +137,93 @@ async function setup(options: { alg?: 'ES256' | 'RS256'; cooldownMs?: number } =
 function codeOf(response: { json(): unknown }): string {
   return (response.json() as { error: { code: string } }).error.code;
 }
+
+// Store and directory reviewers sign in with an email and password; nobody else may.
+describe('password sign-in', () => {
+  const REVIEWER = 'reviewer@example.com';
+  const password = { amr: [{ method: 'password', timestamp: 1 }] };
+  const emailAccount = { app_metadata: { provider: 'email', providers: ['email'] } };
+  const googleAccount = { app_metadata: { provider: 'google', providers: ['google'] } };
+
+  it('lets a listed reviewer in with a password', async () => {
+    const { key, base, get } = await setup({ passwordEmails: [REVIEWER] });
+    const response = await get(
+      `Bearer ${await token(key, base, { email: REVIEWER, extra: { ...password, ...emailAccount } })}`,
+    );
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('matches the listed email whatever its case', async () => {
+    const { key, base, get } = await setup({ passwordEmails: [REVIEWER] });
+    const response = await get(
+      `Bearer ${await token(key, base, { email: 'Reviewer@Example.COM', extra: { ...password, ...emailAccount } })}`,
+    );
+    expect(response.statusCode).toBe(200);
+  });
+
+  it('refuses a password sign-in that is not on the list', async () => {
+    const { key, base, get } = await setup({ passwordEmails: [REVIEWER] });
+    const response = await get(
+      `Bearer ${await token(key, base, { email: 'stranger@example.com', extra: { ...password, ...emailAccount } })}`,
+    );
+    expect(response.statusCode).toBe(401);
+    expect(codeOf(response)).toBe('auth_invalid');
+  });
+
+  it('refuses every password sign-in when no list is set', async () => {
+    const { key, base, get } = await setup();
+    const response = await get(
+      `Bearer ${await token(key, base, { email: REVIEWER, extra: { ...password, ...emailAccount } })}`,
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('refuses an email-only account even when the session does not say password', async () => {
+    const { key, base, get } = await setup();
+    const response = await get(
+      `Bearer ${await token(key, base, { extra: { amr: [{ method: 'otp', timestamp: 1 }], ...emailAccount } })}`,
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('refuses a password session on a Google account that is not on the list', async () => {
+    const { key, base, get } = await setup({ passwordEmails: [REVIEWER] });
+    const both = { app_metadata: { provider: 'google', providers: ['google', 'email'] } };
+    const response = await get(
+      `Bearer ${await token(key, base, { extra: { ...password, ...both } })}`,
+    );
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('leaves Google and Apple sign-ins as they were', async () => {
+    const { key, base, get } = await setup({ passwordEmails: [REVIEWER] });
+    const google = await token(key, base, {
+      extra: { amr: [{ method: 'oauth', timestamp: 1 }], ...googleAccount },
+    });
+    const apple = await token(key, base, {
+      extra: { amr: [{ method: 'oauth', timestamp: 1 }], app_metadata: { providers: ['apple'] } },
+    });
+    expect((await get(`Bearer ${google}`)).statusCode).toBe(200);
+    expect((await get(`Bearer ${apple}`)).statusCode).toBe(200);
+  });
+
+  it('applies the same rule to a connected AI app', async () => {
+    const { key, base } = await setup();
+    const keys = supabaseJwks(base);
+    const mcp = mcpAuthenticator({ supabaseUrl: base, keys, passwordEmails: [REVIEWER] });
+    const connected = (email: string) =>
+      token(key, base, {
+        email,
+        extra: { client_id: 'claude-client', ...password, ...emailAccount },
+      });
+    const ask = async (email: string) =>
+      mcp({
+        headers: { authorization: `Bearer ${await connected(email)}` },
+      } as FastifyRequest);
+    await expect(ask(REVIEWER)).resolves.toMatchObject({ clientId: 'claude-client' });
+    await expect(ask('stranger@example.com')).rejects.toMatchObject({ status: 401 });
+  });
+});
 
 describe('supabase authentication', () => {
   it('separates connected-app tokens from app sign-ins', async () => {

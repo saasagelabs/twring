@@ -747,7 +747,14 @@ const app = buildApp({
   ...(sharedAgents && { sharedAgents }),
   ...(env.CONNECTOR_MCP_ENABLED &&
     env.SUPABASE_URL && {
-      mcp: { authenticate: mcpAuthenticator({ supabaseUrl: env.SUPABASE_URL }) },
+      mcp: {
+        authenticate: mcpAuthenticator({
+          supabaseUrl: env.SUPABASE_URL,
+          ...(env.PASSWORD_SIGNIN_EMAILS !== undefined && {
+            passwordEmails: env.PASSWORD_SIGNIN_EMAILS,
+          }),
+        }),
+      },
     }),
   calls: {
     registry: calls?.registry,
