@@ -285,3 +285,60 @@ describe('supabase backend Apple sign-in', () => {
     expect((await google.backend.signInWithIdToken('t')).apple).toBeUndefined();
   });
 });
+
+describe('supabase backend test sign-in (email and password)', () => {
+  function passwordClient(answer: Answer) {
+    const requests: { url: string; body: unknown }[] = [];
+    const fetch = (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = input instanceof Request ? input.url : String(input);
+      const body: unknown = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      requests.push({ url, body });
+      if (answer === 'offline') return Promise.reject(new TypeError('Network request failed'));
+      return Promise.resolve(
+        new Response(JSON.stringify(answer.body ?? {}), {
+          status: answer.status,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    const supabase = createClient(URL, 'sb_publishable_test', {
+      auth: {
+        storage: chunkedSecureStorage(new MemoryStore()),
+        storageKey: 'cord.auth',
+        autoRefreshToken: false,
+        persistSession: true,
+        detectSessionInUrl: false,
+      },
+      global: { fetch },
+    });
+    clients.push(supabase.auth);
+    return { backend: supabaseBackend(supabase.auth), requests };
+  }
+
+  it('signs in with the email and password and returns the session', async () => {
+    const { backend, requests } = passwordClient({
+      status: 200,
+      body: session('tok-test', 3600),
+    });
+    const signedIn = await backend.signInWithPassword('a@example.com', 'secret-pass');
+    expect(signedIn).toMatchObject({ accessToken: 'tok-test', email: 'a@example.com' });
+    expect(requests[0]?.url).toContain('grant_type=password');
+    expect(requests[0]?.body).toMatchObject({ email: 'a@example.com', password: 'secret-pass' });
+  });
+
+  it('reports wrong details as rejected', async () => {
+    const { backend } = passwordClient({
+      status: 400,
+      body: { code: 'invalid_credentials', message: 'Invalid login credentials' },
+    });
+    await expect(backend.signInWithPassword('a@example.com', 'wrong')).rejects.toEqual(
+      new AuthBackendError('rejected'),
+    );
+  });
+
+  it('reports an unreachable sign-in service as network', async () => {
+    const { backend } = passwordClient('offline');
+    const result = await withFakeClock(() => backend.signInWithPassword('a@example.com', 'pw'));
+    expect(result).toMatchObject({ status: 'rejected', reason: new AuthBackendError('network') });
+  });
+});
