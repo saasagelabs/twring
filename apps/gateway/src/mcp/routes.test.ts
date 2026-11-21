@@ -268,7 +268,7 @@ describe('MCP transport and contacts', () => {
       expect(response.json().result.content[0].text).toContain('Use message_me instead.');
       if (refused === 'no_ring_phone')
         expect(response.json().result.content[0].text).toBe(
-          "The owner's phone can't ring yet. Use message_me instead.",
+          "No phone is signed in to this Twring account right now, so it can't ring. Use message_me instead.",
         );
       expect(response.json().result.isError).toBeUndefined();
     }

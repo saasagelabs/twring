@@ -9,6 +9,8 @@ interface Props {
   tone?: 'accent' | 'danger';
   disabled?: boolean;
   accessibilityHint?: string;
+  /** When the visible label alone is ambiguous, such as several "Remove" buttons on one screen. */
+  accessibilityLabel?: string;
 }
 
 /** A quiet secondary action with a full 44pt hit target. */
@@ -18,6 +20,7 @@ export function TextButton({
   tone = 'accent',
   disabled,
   accessibilityHint,
+  accessibilityLabel,
 }: Props) {
   const palette = usePalette();
   return (
@@ -25,6 +28,7 @@ export function TextButton({
       accessibilityRole="button"
       accessibilityState={{ disabled: !!disabled }}
       accessibilityHint={accessibilityHint}
+      accessibilityLabel={accessibilityLabel}
       disabled={disabled}
       onPress={onPress}
       style={({ pressed }) => [styles.button, { opacity: disabled ? 0.5 : pressed ? 0.6 : 1 }]}

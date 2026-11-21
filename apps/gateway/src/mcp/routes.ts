@@ -135,7 +135,8 @@ const refusal: Record<RingRefusal, string> = {
   agent_not_saved: 'This AI app is no longer connected. Use message_me instead.',
   owner_unavailable: 'Do Not Disturb or quiet hours is on. Use message_me instead.',
   owner_busy: 'The owner is busy on a call. Use message_me instead.',
-  no_ring_phone: "The owner's phone can't ring yet. Use message_me instead.",
+  no_ring_phone:
+    "No phone is signed in to this Twring account right now, so it can't ring. Use message_me instead.",
   ring_pending: 'The phone is already ringing. Use message_me instead.',
   ring_rate_limited: 'The ring limit of 6 per hour was reached. Use message_me instead.',
 };
