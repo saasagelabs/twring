@@ -51,6 +51,15 @@ describe('connected app list state', () => {
     ]);
   });
 
+  it('sorts an app with an unreadable last-used time as never used', () => {
+    const state = connectedAppsState([
+      { client_id: 'a', name: 'Broken', blocked: false, last_used_at: 'not a date' },
+      { client_id: 'b', name: 'Claude', blocked: false, last_used_at: '2026-11-21T10:00:00Z' },
+      { client_id: 'c', name: 'Alpha', blocked: false },
+    ]);
+    expect(state.connected.map((app) => app.name)).toEqual(['Claude', 'Alpha', 'Broken']);
+  });
+
   it('is not empty when only removed apps are left', () => {
     const state = connectedAppsState([{ client_id: 'x', name: 'Claude', blocked: true }]);
     expect(state.empty).toBe(false);

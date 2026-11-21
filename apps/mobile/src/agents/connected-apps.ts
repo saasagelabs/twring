@@ -14,6 +14,12 @@ export interface AppGroup {
 
 const keyOf = (name: string) => name.trim().toLowerCase();
 
+/** A time to compare by; a missing or unreadable one counts as never. */
+const timeOf = (at: string | undefined) => {
+  const time = at === undefined ? NaN : Date.parse(at);
+  return Number.isNaN(time) ? 0 : time;
+};
+
 function group(apps: ConnectedApp[]): AppGroup[] {
   const groups = new Map<string, AppGroup>();
   for (const app of apps) {
@@ -29,18 +35,14 @@ function group(apps: ConnectedApp[]): AppGroup[] {
       continue;
     }
     found.clientIds.push(app.client_id);
-    if (
-      app.last_used_at !== undefined &&
-      (found.lastUsedAt === undefined ||
-        Date.parse(app.last_used_at) > Date.parse(found.lastUsedAt))
-    ) {
+    if (app.last_used_at !== undefined && timeOf(app.last_used_at) > timeOf(found.lastUsedAt)) {
       found.lastUsedAt = app.last_used_at;
     }
   }
   return [...groups.values()];
 }
 
-const used = (app: AppGroup) => (app.lastUsedAt === undefined ? 0 : Date.parse(app.lastUsedAt));
+const used = (app: AppGroup) => timeOf(app.lastUsedAt);
 
 /**
  * Connected apps, most recently used first; removed apps by name, leaving out any the owner has

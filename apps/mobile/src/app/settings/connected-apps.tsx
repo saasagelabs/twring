@@ -73,7 +73,9 @@ export default function ConnectedAppsScreen() {
       {loaded && state.connected.length === 0 && (
         <View style={{ gap: space.md }}>
           <Text style={[type.body, { color: palette.textSecondary }]}>
-            No AI apps yet. Add Twring in Claude, ChatGPT or another AI app.
+            {state.empty
+              ? 'No AI apps yet. Add Twring in Claude, ChatGPT or another AI app.'
+              : 'No AI apps connected right now. Add Twring in Claude, ChatGPT or another AI app, or allow a removed one again below.'}
           </Text>
           <GhostButton
             label="See how"
