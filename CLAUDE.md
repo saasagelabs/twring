@@ -174,6 +174,11 @@ When delegating/subagenting, keep the parent responsible for integration. Do not
   WebSockets: on 2026-11-18 a site change dropped 38 computers, all back within 5 seconds, and the
   "computers dropping" alert fired. Reload Caddy only at 0 live calls (it also cuts a call), and
   expect that alert.
+- **Supabase `signOut()` is global by default:** it ends every session of that account, the phone
+  app's included. Web pages (the consent page) sign out with `{ scope: 'local' }`.
+- **Rings go to the account, not the device in your hand.** An AI app connected as one account
+  can't ring a phone signed in to another (`no_ring_phone`). When a ring fails, check which
+  account consented before suspecting the server.
 - **`livekit-client` is patched** (`patches/livekit-client@<version>.patch`, tested by
   `apps/mobile/scripts/livekit-patch.test.mjs`). Metro bundles only its ESM build, so patch only
   that file. Upgrading livekit-client means checking upstream for each fix and remaking the patch.
