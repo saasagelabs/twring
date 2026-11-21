@@ -55,11 +55,11 @@
         <p>It can't read your other chats, your agents, or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.</p>
       </div>
       <p class="scopes" id="scopes"></p>
+      <p class="signed-in" id="who"></p>
       <div class="pair">
         <button class="btn btn-primary" id="allow" type="button">Allow</button>
         <button class="btn btn-quiet" id="deny" type="button">Deny</button>
       </div>
-      <p class="signed-in" id="who"></p>
     </section>
 
     <p class="form-note" id="status" role="alert" aria-live="assertive"></p>
@@ -196,19 +196,24 @@
         }
         var name = (data.client && (data.client.name || data.client.client_name)) || 'This app';
         $('title').textContent = 'Connect ' + name + ' to Twring';
-        lead.textContent = name + ' is asking to reach you through Twring. If you allow it, it can:';
+        var email = session.user && session.user.email ? session.user.email : '';
+        lead.textContent = email
+          ? name + ' is asking to reach you through your Twring account ' + email + '. If you allow it, it can:'
+          : name + ' is asking to reach you through Twring. If you allow it, it can:';
         var plain = { openid: '', email: 'your email address', profile: 'your name and picture' };
         var shares = (data.scope || '').split(/\s+/).filter(Boolean).map(function (sc) {
           return Object.prototype.hasOwnProperty.call(plain, sc) ? plain[sc] : sc;
         }).filter(Boolean);
         $('scopes').textContent = shares.length ? 'Shares with the app: ' + shares.join(', ') : '';
-        var email = session.user && session.user.email ? session.user.email : 'your account';
-        $('who').textContent = 'Signed in as ' + email + '.';
+        // Rings and messages go to the phone signed in to this same account, so say which it is
+        // before Allow: connecting the wrong account is the easiest way to get no ring.
+        $('who').textContent = 'Your phone must be signed in to Twring as ' + (email || 'this account') + '.';
         var swap = document.createElement('button');
         swap.type = 'button';
-        swap.textContent = 'Not you? Switch account';
+        swap.textContent = 'Use another account';
         swap.addEventListener('click', function () {
-          client.auth.signOut().then(function () { location.reload(); });
+          // Local: signs out of this page only, never the Twring app on the phone.
+          client.auth.signOut({ scope: 'local' }).then(function () { location.reload(); });
         });
         $('who').appendChild(swap);
         $('ask').hidden = false;
