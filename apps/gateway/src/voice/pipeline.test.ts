@@ -1163,6 +1163,41 @@ describe('VoicePipeline answer cut off by a voice drop (production 2026-11-17)',
     await pipeline.close();
   });
 
+  it('a voice drop during the retry wait: spoken once, under the retry id, after the reconnect (verifier)', async () => {
+    const { pipeline, tts, speech, fatal, reconnect, finish } = await setup();
+    const generic = { code: 'provider_error', recoverable: true } as const;
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    tts.send(lost);
+    pipeline.appendSpeech(id, ' More.');
+    pipeline.endSpeech(id);
+    tts.calls.length = 0;
+    await reconnect();
+    expect(tts.calls).toEqual([`speak ${id}_retry Hello. More.`, `flush ${id}_retry`]);
+    finish(`${id}_retry`);
+    expect(speech).toEqual([`${id} playing`, `${id} finished`]);
+    expect(fatal).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('the caller speaking during the retry wait drops the answer, nothing is retried (verifier)', async () => {
+    const { pipeline, tts, stt, speech } = await setup();
+    const generic = { code: 'provider_error', recoverable: true } as const;
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    stt.send({ type: 'speech_started', turnIndex: 0 });
+    tts.calls.length = 0;
+    await reconnect_noop();
+    expect(tts.calls.filter((c) => c.startsWith('speak'))).toEqual([]);
+    expect(speech).toEqual([`${id} failed`]);
+    await pipeline.close();
+    async function reconnect_noop() {
+      await flushMicrotasks();
+    }
+  });
+
   it('nothing heard yet: the whole answer, with text that came during the reconnect', async () => {
     const { pipeline, tts, speech, reconnect, finish } = await setup();
     const id = pipeline.beginSpeech(0);
