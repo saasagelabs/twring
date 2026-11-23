@@ -8,18 +8,11 @@ import { Screen } from '@/components/Screen';
 import { Waveform } from '@/components/Waveform';
 import { markOnboardingSeen } from '@/onboarding/state';
 import { microphonePermission } from '@/platform/microphone';
-import { radius, space, type, usePalette } from '@/theme/tokens';
+import { space, type, usePalette } from '@/theme/tokens';
 
-type Page = 0 | 1 | 2;
+type Page = 0 | 1;
 
-const HOW_IT_WORKS = [
-  'Twring turns your speech into text.',
-  'Your connected agent receives that text, just like a chat message.',
-  "Anything the agent does stays under its own system's control. Twring never runs its tools.",
-  "Twring speaks the agent's reply back to you.",
-];
-
-/** First run (UX_UI_SPEC §4): three short pages, then Connect Agent. */
+/** First run (UX_UI_SPEC §4): one short page, the microphone, then Connect Agent. */
 export default function OnboardingScreen() {
   const palette = usePalette();
   const [page, setPage] = useState<Page>(0);
@@ -35,11 +28,11 @@ export default function OnboardingScreen() {
 
   return (
     <Screen
-      {...(page > 0 && { back: () => setPage(page === 1 ? 0 : 1) })}
+      {...(page > 0 && { back: () => setPage(0) })}
       footer={
         <View style={styles.footer}>
-          <View accessible accessibilityLabel={`Page ${page + 1} of 3`} style={styles.pagination}>
-            {[0, 1, 2].map((index) => (
+          <View accessible accessibilityLabel={`Page ${page + 1} of 2`} style={styles.pagination}>
+            {[0, 1].map((index) => (
               <View
                 key={index}
                 style={[
@@ -54,8 +47,6 @@ export default function OnboardingScreen() {
           </View>
           {page === 0 ? (
             <PrimaryButton label="Connect my agent" onPress={() => setPage(1)} />
-          ) : page === 1 ? (
-            <PrimaryButton label="Continue" onPress={() => setPage(2)} />
           ) : (
             <PrimaryButton
               label="Allow microphone"
@@ -75,9 +66,10 @@ export default function OnboardingScreen() {
       <View style={styles.wave}>
         <Waveform
           width={300}
-          height={page === 1 ? 90 : 140}
+          height={140}
           color={palette.accent}
           intensity={0.6}
+          animated={false}
         />
       </View>
       <View style={styles.copy}>
@@ -85,49 +77,14 @@ export default function OnboardingScreen() {
           accessibilityRole="header"
           style={[type.display, styles.title, { color: palette.textPrimary }]}
         >
-          {page === 0
-            ? 'Call the agent you already use.'
-            : page === 1
-              ? 'Your agent stays in charge'
-              : 'Twring needs your microphone'}
+          {page === 0 ? 'Call the agent you already use.' : 'Twring needs your microphone'}
         </Text>
         {page === 0 && (
           <Text style={[type.body, styles.body, { color: palette.textSecondary }]}>
-            Twring adds realtime voice without replacing your agent&apos;s brain, tools, or memory.
+            Talk to it the way you would on a phone call.
           </Text>
         )}
         {page === 1 && (
-          <View
-            style={[
-              styles.points,
-              { borderColor: palette.border, backgroundColor: palette.surface },
-            ]}
-          >
-            {HOW_IT_WORKS.map((line, index) => (
-              <View
-                key={line}
-                style={[
-                  styles.point,
-                  index < 3 && {
-                    borderBottomWidth: StyleSheet.hairlineWidth,
-                    borderColor: palette.border,
-                  },
-                ]}
-              >
-                <Text
-                  importantForAccessibility="no"
-                  style={[type.mono, styles.number, { color: palette.accent }]}
-                >
-                  {index + 1}
-                </Text>
-                <Text style={[type.body, styles.pointText, { color: palette.textSecondary }]}>
-                  {line}
-                </Text>
-              </View>
-            ))}
-          </View>
-        )}
-        {page === 2 && (
           <>
             <Text style={[type.body, styles.body, { color: palette.textSecondary }]}>
               So your agent can hear you during a call. Twring listens only while a call is on, and
@@ -149,10 +106,6 @@ const styles = StyleSheet.create({
   copy: { gap: space.md },
   title: { fontSize: 38, letterSpacing: -1.3 },
   body: { lineHeight: 22.5 },
-  points: { borderWidth: StyleSheet.hairlineWidth, borderRadius: radius.md, overflow: 'hidden' },
-  point: { flexDirection: 'row', gap: space.md, padding: space.lg },
-  number: { minWidth: 20 },
-  pointText: { flex: 1 },
   footer: { gap: space.xl },
   pagination: { flexDirection: 'row', gap: 6 },
   bar: { height: 3, borderRadius: 2 },

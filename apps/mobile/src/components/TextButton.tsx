@@ -11,6 +11,8 @@ interface Props {
   accessibilityHint?: string;
   /** When the visible label alone is ambiguous, such as several "Remove" buttons on one screen. */
   accessibilityLabel?: string;
+  /** For a button that shows or hides more: whether that is shown now. */
+  expanded?: boolean;
 }
 
 /** A quiet secondary action with a full 44pt hit target. */
@@ -21,12 +23,13 @@ export function TextButton({
   disabled,
   accessibilityHint,
   accessibilityLabel,
+  expanded,
 }: Props) {
   const palette = usePalette();
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled: !!disabled }}
+      accessibilityState={{ disabled: !!disabled, ...(expanded !== undefined && { expanded }) }}
       accessibilityHint={accessibilityHint}
       accessibilityLabel={accessibilityLabel}
       disabled={disabled}

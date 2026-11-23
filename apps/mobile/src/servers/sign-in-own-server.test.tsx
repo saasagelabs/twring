@@ -2,11 +2,12 @@ import { Children, isValidElement, type ReactElement, type ReactNode } from 'rea
 import type * as ReactModule from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ push: vi.fn() }));
+// `expanded` turns every false state on, which opens More options (and marks it busy).
+const mocks = vi.hoisted(() => ({ push: vi.fn(), expanded: false }));
 
 vi.mock('react', async (importOriginal) => ({
   ...(await importOriginal<typeof ReactModule>()),
-  useState: (initial: unknown) => [initial, vi.fn()],
+  useState: (initial: unknown) => [mocks.expanded && initial === false ? true : initial, vi.fn()],
 }));
 vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles },
@@ -53,13 +54,22 @@ function elements(node: ReactNode): ReactElement<Props>[] {
 }
 
 describe('sign-in screen', () => {
-  it('keeps Google and Apple and offers Use my own server beside Privacy', () => {
+  it('keeps Google and Apple and offers Use my own server under More options', () => {
     const all = elements(SignInScreen());
     expect(all.some((e) => e.type === 'AppleButton')).toBe(true);
     expect(all.find((e) => e.props.label === 'Continue with Google')).toBeDefined();
     expect(all.find((e) => e.props.label === 'Privacy')).toBeDefined();
-    all.find((e) => e.props.label === 'Use my own server')?.props.onPress?.();
-    expect(mocks.push).toHaveBeenCalledWith('/pair');
+    expect(all.find((e) => e.props.label === 'More options')).toBeDefined();
+    expect(all.find((e) => e.props.label === 'Use my own server')).toBeUndefined();
+    mocks.expanded = true;
+    try {
+      const open = elements(SignInScreen());
+      expect(open.find((e) => e.props.label === 'Fewer options')).toBeDefined();
+      open.find((e) => e.props.label === 'Use my own server')?.props.onPress?.();
+      expect(mocks.push).toHaveBeenCalledWith('/pair');
+    } finally {
+      mocks.expanded = false;
+    }
   });
 
   it('lists saved servers under the sign-in buttons', () => {

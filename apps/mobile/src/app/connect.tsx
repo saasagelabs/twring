@@ -1,7 +1,15 @@
-import type { Agent, AgentProtocol, Voice } from '@twring/contracts';
+import type { Agent, AgentProtocol, ConnectedApp, Voice } from '@twring/contracts';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { ActivityIndicator, BackHandler, Share, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  BackHandler,
+  Linking,
+  Share,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useReducedMotion } from 'react-native-reanimated';
@@ -32,7 +40,9 @@ import {
   wizardReducer,
   type WizardState,
 } from '@/agents/wizard';
+import { newlyConnectedApp } from '@/agents/connected-apps';
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
+import { useAuth } from '@/auth';
 import { startCall } from '@/call/start';
 import { AgentMessage } from '@/components/AgentMessage';
 import { Choice } from '@/components/Choice';
@@ -64,8 +74,7 @@ const METHODS: { protocol: AgentProtocol; label: string; description: string }[]
   {
     protocol: 'openai-chat',
     label: 'OpenAI-style agent server',
-    description:
-      'OpenClaw and other agent servers that use the OpenAI chat format (/v1/chat/completions).',
+    description: 'OpenClaw and other agent servers that work like the ChatGPT API.',
   },
 ];
 
@@ -198,7 +207,7 @@ export default function ConnectScreen() {
   const [loadError, setLoadError] = useState<ErrorCopy | undefined>(undefined);
   const [loaded, setLoaded] = useState<Agent | undefined>(undefined);
   const [where, setWhere] = useState<
-    'computer' | 'computer-scan' | 'computer-code' | 'online' | undefined
+    'computer' | 'computer-scan' | 'computer-code' | 'online' | 'ai-app' | undefined
   >(params.where === 'computer' && editId === undefined ? 'computer' : undefined);
 
   useEffect(() => {
@@ -240,12 +249,97 @@ export default function ConnectScreen() {
       return <ComputerWizard />;
     case 'online':
       return <Wizard initial={createWizard()} />;
+    case 'ai-app':
+      return <AiAppStep />;
   }
 }
 
+const AI_APP_POLL_MS = 5000;
+
+/** Add Twring in an AI app, signed in as this account; finishes once a new app shows up. */
+function AiAppStep() {
+  const palette = usePalette();
+  const auth = useAuth();
+  const email = auth.status === 'signed_in' ? auth.email : undefined;
+  const [connected, setConnected] = useState<string>();
+  const [linkError, setLinkError] = useState<ErrorCopy>();
+
+  useEffect(() => {
+    const api = twringApi();
+    if (!api) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    let before: ConnectedApp[] | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      try {
+        const apps = await api.listConnectedApps(signal);
+        if (signal.aborted) return;
+        if (before === undefined) before = apps;
+        else {
+          const name = newlyConnectedApp(before, apps);
+          if (name !== undefined) {
+            setConnected(name);
+            return;
+          }
+        }
+      } catch {
+        // Quietly try again: this check only watches for the new app.
+      }
+      if (!signal.aborted) timer = setTimeout(() => void poll(), AI_APP_POLL_MS);
+    };
+    void poll();
+    return () => {
+      controller.abort();
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, []);
+
+  if (connected !== undefined) {
+    return (
+      <Screen footer={<PrimaryButton label="Done" onPress={() => router.replace('/')} />}>
+        <View style={styles.step} accessibilityLiveRegion="polite">
+          <Heading>{`${connected} is connected`}</Heading>
+          <Support>It can now ring and message you.</Support>
+        </View>
+      </Screen>
+    );
+  }
+  const signIn =
+    email !== undefined
+      ? `Sign in there as ${email}, the same account as this phone.`
+      : 'Sign in there with the same account you use here.';
+  return (
+    <Screen
+      back
+      footer={
+        <PrimaryButton
+          label="See how"
+          onPress={() => {
+            setLinkError(undefined);
+            void Linking.openURL('https://twring.com/connector').catch((reason: unknown) =>
+              setLinkError(apiErrorCopy(reason)),
+            );
+          }}
+        />
+      }
+    >
+      <View style={styles.step}>
+        <Heading>Add Twring in your AI app</Heading>
+        <Support>{`Open Claude, ChatGPT, Cursor or another AI app and add Twring there. ${signIn}`}</Support>
+        <ActivityIndicator
+          accessibilityLabel="Waiting for your AI app"
+          color={palette.textSecondary}
+        />
+        {linkError !== undefined && <ErrorNotice error={linkError} />}
+      </View>
+    </Screen>
+  );
+}
+
 /** Where the agent runs (ADR-023): on the user's computer via cord-connect, or at a web address. */
-function WhereStep({ onChoose }: { onChoose: (where: 'computer' | 'online') => void }) {
-  const [where, setWhere] = useState<'computer' | 'online'>('computer');
+function WhereStep({ onChoose }: { onChoose: (where: 'computer' | 'online' | 'ai-app') => void }) {
+  const [where, setWhere] = useState<'computer' | 'online' | 'ai-app'>('computer');
   return (
     <Screen back footer={<PrimaryButton label="Continue" onPress={() => onChoose(where)} />}>
       <View style={styles.step}>
@@ -261,10 +355,17 @@ function WhereStep({ onChoose }: { onChoose: (where: 'computer' | 'online') => v
           />
           <HeroChoice
             label="Online (web address)"
-            description="Your agent has its own https:// or wss:// address."
+            description="Your agent has its own web address."
             icon="globe"
             selected={where === 'online'}
             onPress={() => setWhere('online')}
+          />
+          <HeroChoice
+            label="An AI app"
+            description="Claude, ChatGPT, Cursor or another AI app can ring and message you."
+            icon="chat"
+            selected={where === 'ai-app'}
+            onPress={() => setWhere('ai-app')}
           />
         </View>
       </View>
@@ -282,7 +383,7 @@ function HeroChoice({
 }: {
   label: string;
   description: string;
-  icon: 'computer' | 'globe';
+  icon: 'computer' | 'globe' | 'chat';
   recommended?: boolean;
   selected: boolean;
   onPress: () => void;
@@ -484,7 +585,9 @@ function ComputerWizard() {
               <Support>That code expired. Get a new one and run the new command.</Support>
             )}
             {pairing.kind === 'waiting' && command === undefined && (
-              <Support>This app can't make a command for its server. Check the app setup.</Support>
+              <Support>
+                Something went wrong on our side. Try again later, or write to support@twring.com.
+              </Support>
             )}
             {pairing.kind === 'waiting' && command !== undefined && (
               <>

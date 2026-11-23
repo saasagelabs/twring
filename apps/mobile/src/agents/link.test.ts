@@ -8,6 +8,7 @@ import {
   agentDescription,
   confirmTitle,
   createLinkWizard,
+  doneAction,
   doneCopy,
   linkCommand,
   linkErrorCopy,
@@ -168,8 +169,8 @@ describe('link wizard', () => {
   it('the last step says reconnected for contacts a computer linked again took over', () => {
     const base = run(createLinkWizard(), { type: 'APPROVED', linked: LINKED });
     expect(doneCopy(run(base, { type: 'AGENT_SAVED', localAgent: 'claude-code' }))).toEqual({
-      heading: 'Your agents are ready',
-      support: 'Call them from Home. Leave your computer on while you call.',
+      heading: 'Your agent is ready',
+      support: 'Call now, or later from Home. Leave your computer on while you call.',
       reconnected: {},
     });
     const one = run(base, {
@@ -187,6 +188,18 @@ describe('link wizard', () => {
       heading: 'Your agents are ready',
       reconnected: { 'claude-code': 'Hermes' },
     });
+  });
+
+  it('the done step offers to call the first contact saved', () => {
+    const base = run(createLinkWizard(), { type: 'APPROVED', linked: LINKED });
+    expect(doneAction(base)).toBe('Go to Home');
+    const state = run(
+      base,
+      { type: 'AGENT_SAVED', localAgent: 'claude-code', agent: { id: 'a1', name: 'Hermes' } },
+      { type: 'AGENT_SAVED', localAgent: 'gemini', agent: { id: 'a2', name: 'Gemini' } },
+    );
+    expect(state.callFirst).toEqual({ agentId: 'a1', name: 'Hermes' });
+    expect(doneAction(state)).toBe('Call Hermes');
   });
 
   it('will not save with nothing selected', () => {
