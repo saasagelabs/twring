@@ -21,6 +21,7 @@ import {
   installClaudeHook,
   installCodexNotify,
   parseHookInput,
+  CLAUDE_HOOK_MATCHER,
   uninstallClaudeHook,
   uninstallCodexNotify,
 } from './hooks';
@@ -708,6 +709,21 @@ describe('--from-hook parsing', () => {
     });
   });
 
+  it('claude: rings only for permission and idle notifications', () => {
+    const input = (type?: string): string =>
+      JSON.stringify({
+        hook_event_name: 'Notification',
+        message: 'Needs you',
+        ...(type !== undefined && { notification_type: type }),
+      });
+    const ring = { reason: 'Needs you', text: 'Needs you' };
+    expect(parseHookInput('claude', input('permission_prompt'))).toEqual(ring);
+    expect(parseHookInput('claude', input('idle_prompt'))).toEqual(ring);
+    expect(parseHookInput('claude', input('auth_success'))).toBeUndefined();
+    expect(parseHookInput('claude', input('elicitation_dialog'))).toBeUndefined();
+    expect(parseHookInput('claude', input())).toEqual(ring);
+  });
+
   it('claude: control and bidi characters are stripped, long text is cut to 140', () => {
     const out = parseHookInput(
       'claude',
@@ -798,6 +814,60 @@ describe('hooks install/uninstall', () => {
     );
     await uninstallClaudeHook(home);
     expect(await readJson(path)).toEqual({});
+  });
+
+  it('claude: installs with the permission and idle matcher', async () => {
+    const home = await tempHome();
+    await installClaudeHook(home, 'ring', TARGET);
+    const settings = (await readJson(claudeSettingsPath(home))) as ClaudeSettings;
+    expect(settings.hooks.Notification).toEqual([
+      {
+        matcher: CLAUDE_HOOK_MATCHER,
+        hooks: [{ type: 'command', command: hookCommand('claude', 'ring', TARGET) }],
+      },
+    ]);
+    expect(CLAUDE_HOOK_MATCHER).toBe('permission_prompt|idle_prompt');
+  });
+
+  it('claude: installing twice with the matcher changes nothing the second time', async () => {
+    const home = await tempHome();
+    await installClaudeHook(home, 'ring', TARGET);
+    const before = await readFile(claudeSettingsPath(home), 'utf8');
+    const lines = await installClaudeHook(home, 'ring', TARGET);
+    expect(lines.join('\n')).toMatch(/Nothing changed/);
+    expect(await readFile(claudeSettingsPath(home), 'utf8')).toBe(before);
+  });
+
+  it('claude: an old empty-matcher Twring hook is replaced, other hooks kept', async () => {
+    const home = await tempHome();
+    const path = claudeSettingsPath(home);
+    await mkdir(join(home, '.claude'), { recursive: true });
+    const original = {
+      hooks: {
+        Notification: [
+          { matcher: '', hooks: [{ type: 'command', command: 'say hi' }] },
+          {
+            matcher: '',
+            hooks: [{ type: 'command', command: hookCommand('claude', 'ring', TARGET) }],
+          },
+        ],
+      },
+    };
+    await writeFile(path, JSON.stringify(original));
+    const first = await installClaudeHook(home, 'ring', TARGET);
+    expect(first.join('\n')).toContain('Backed up');
+    expect(await readJson(`${path}.cord-backup`)).toEqual(original);
+    const settings = (await readJson(path)) as {
+      hooks: { Notification: { matcher: string; hooks: { command: string }[] }[] };
+    };
+    expect(settings.hooks.Notification).toEqual([
+      { matcher: '', hooks: [{ type: 'command', command: 'say hi' }] },
+      {
+        matcher: CLAUDE_HOOK_MATCHER,
+        hooks: [{ type: 'command', command: hookCommand('claude', 'ring', TARGET) }],
+      },
+    ]);
+    expect((await installClaudeHook(home, 'ring', TARGET))[0]).toContain('Already installed');
   });
 
   it('claude: a connector copy that moved is replaced, not added twice', async () => {

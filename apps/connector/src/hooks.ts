@@ -16,8 +16,10 @@ import { posixQuote } from './preamble';
  *
  * - Claude Code: a `Notification` hook in `~/.claude/settings.json`. Claude Code runs it when it
  *   needs permission or has waited for input, with JSON on stdin: `session_id`, `transcript_path`,
- *   `cwd`, `hook_event_name: "Notification"`, `message`
- *   (https://docs.claude.com/en/docs/claude-code/hooks).
+ *   `cwd`, `hook_event_name: "Notification"`, `message`, `notification_type`
+ *   (https://docs.claude.com/en/docs/claude-code/hooks). The hook's matcher limits it to
+ *   `permission_prompt` and `idle_prompt`, so a finished sign-in (`auth_success`) or an MCP
+ *   question (`elicitation_dialog`) never rings.
  * - Codex: `notify` in `~/.codex/config.toml`. Codex runs that program after each turn with one
  *   JSON argument: `type: "agent-turn-complete"`, `thread-id`, `turn-id`, `cwd`,
  *   `input-messages`, `last-assistant-message`
@@ -40,8 +42,13 @@ const claudeHookSchema = z
     session_id: z.string().optional(),
     hook_event_name: z.string().optional(),
     message: z.string().optional(),
+    notification_type: z.string().optional(),
   })
   .loose();
+
+/** The Claude Code notification types worth a ring; the installed hook's matcher. */
+const CLAUDE_RING_TYPES = ['permission_prompt', 'idle_prompt'] as const;
+export const CLAUDE_HOOK_MATCHER = CLAUDE_RING_TYPES.join('|');
 
 const codexNotifySchema = z
   .object({
@@ -77,6 +84,11 @@ export function parseHookInput(source: HookSource, raw: string): HookRing | unde
     if (!input.success) return undefined;
     const event = input.data.hook_event_name;
     if (event !== undefined && event !== 'Notification') return undefined;
+    // Older Claude Code sends no type; ring as before. A known other type never rings.
+    const type = input.data.notification_type;
+    if (type !== undefined && !(CLAUDE_RING_TYPES as readonly string[]).includes(type)) {
+      return undefined;
+    }
     const ref = sessionRef(input.data.session_id);
     return {
       reason: reasonFrom(input.data.message, 'Claude Code is waiting for you'),
@@ -204,10 +216,15 @@ export async function installClaudeHook(
   }
   const hooks = isRecord(settings.hooks) ? settings.hooks : {};
   const notification = Array.isArray(hooks.Notification) ? (hooks.Notification as unknown[]) : [];
-  // Already exactly this hook, and no other Twring hook (another mode, an old npx one) left over.
+  // Already exactly this hook with this matcher, and no other Twring hook (another mode, an old
+  // npx one, an old one that rang on every notification) left over.
   const wanted = hookCommand('claude', mode, target);
   const ours = notification.filter(isOurs);
-  if (ours.length === 1 && hasCommand(ours[0], (command) => command === wanted)) {
+  if (
+    ours.length === 1 &&
+    (ours[0] as ClaudeMatcher).matcher === CLAUDE_HOOK_MATCHER &&
+    hasCommand(ours[0], (command) => command === wanted)
+  ) {
     return [`Already installed in ${path}. Nothing changed.`];
   }
   const changes: string[] = [];
@@ -218,7 +235,7 @@ export async function installClaudeHook(
       ...hooks,
       Notification: [
         ...notification.filter((group) => !isOurs(group)),
-        { matcher: '', hooks: [{ type: 'command', command: wanted }] },
+        { matcher: CLAUDE_HOOK_MATCHER, hooks: [{ type: 'command', command: wanted }] },
       ],
     },
   };
