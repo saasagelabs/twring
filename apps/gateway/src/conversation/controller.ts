@@ -1086,7 +1086,7 @@ export class ConversationController {
       id: `turn_${this.turnCount}`,
       controller: new AbortController(),
       committedAt: this.options.scheduler.now(),
-      filter: new SpeechTextFilter(),
+      filter: new SpeechTextFilter({ codeNote: LINES[this.language].codeOnScreen }),
       visible: '',
       lastTextSentAt: Number.NEGATIVE_INFINITY,
       generationEnded: false,
