@@ -57,6 +57,7 @@ import { showAudioRoutePicker } from '@/platform/audio-route';
 import { ringPlatform } from '@/platform/ring';
 import { connectionPill } from '@/theme/call-visuals';
 import { callPalette as palette, space, type } from '@/theme/tokens';
+import { useTimeLeftNotice } from '@/usage/useTimeLeftNotice';
 
 function useNow(enabled: boolean, ms = 1000): number {
   const [now, setNow] = useState(() => Date.now());
@@ -239,6 +240,8 @@ function ActiveCall({
   const avatarSize = compact ? 80 : 104;
   const waveHeight = compact ? 56 : 78;
   const connected = view.connectedAt !== undefined;
+  const clockNow = useNow(connected);
+  const timeLeft = useTimeLeftNotice(view.connectedAt, clockNow);
   const routes = useAudioRoutes();
   const [routesOpen, setRoutesOpen] = useState(false);
   const [waveWidth, setWaveWidth] = useState(0);
@@ -372,6 +375,7 @@ function ActiveCall({
           <View style={styles.clockRow}>
             {view.connectedAt !== undefined && <CallClock connectedAt={view.connectedAt} />}
           </View>
+          {timeLeft !== undefined && <Text style={[type.caption, styles.detail]}>{timeLeft}</Text>}
         </View>
 
         <View
