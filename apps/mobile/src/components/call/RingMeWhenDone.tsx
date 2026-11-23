@@ -1,6 +1,6 @@
 import type { Agent, CallState } from '@twring/contracts';
 import { router } from 'expo-router';
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, useReducedMotion } from 'react-native-reanimated';
 
@@ -31,6 +31,7 @@ export function RingMeWhenDone({
   const chats = chatController();
   const reducedMotion = useReducedMotion();
   const [clientId, setClientId] = useState<string | undefined>(undefined);
+  const sentRef = useRef<string | undefined>(undefined);
   useEffect(() => {
     void chats?.refreshList();
   }, [chats]);
@@ -47,8 +48,9 @@ export function RingMeWhenDone({
 
   const request = ringRequestState(clientId, chats.getPending(agent.id));
   const ask = () => {
-    const sent = askToRing(clientId, (text) => chats.send(agent.id, text));
-    if (sent !== clientId) {
+    const before = sentRef.current;
+    const sent = askToRing(sentRef, (text) => chats.send(agent.id, text));
+    if (sent !== before) {
       setClientId(sent);
       playCallFeedback('connected');
     }

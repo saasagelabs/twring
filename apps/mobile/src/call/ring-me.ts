@@ -7,10 +7,12 @@ export const RING_ME_TEXT =
   "Please carry on with what we talked about, and ring me when it's done.";
 
 /**
- * Agents that can ring this phone: those on the user's computer (`cord-connector`) and AI app
- * contacts (`mcp-app`), both of which have the `ring_me` tool. Other protocols cannot ring.
+ * Agents that will act on the request soon after the call: those on the user's computer
+ * (`cord-connector`), where the gateway runs a chat message as an agent turn and the agent has
+ * `ring_me`. AI app contacts (`mcp-app`) are left out: they cannot take calls, and a chat message
+ * to them waits until the app happens to call `check_replies`. Other protocols cannot ring.
  */
-const RINGING_PROTOCOLS: ReadonlySet<Agent['protocol']> = new Set(['cord-connector', 'mcp-app']);
+const RINGING_PROTOCOLS: ReadonlySet<Agent['protocol']> = new Set(['cord-connector']);
 
 /** Offer "Ring me when it's done" only after a call that connected and ended normally. */
 export function canAskToRing(input: {
@@ -47,11 +49,15 @@ export function ringRequestState(
   return { kind: 'asked' };
 }
 
-/** Sends the request at most once; a later tap while one exists is ignored. */
+/**
+ * Sends the request at most once. `sent` is a ref, not render state, so two taps handled before
+ * the next render (same stale closure) still send one message.
+ */
 export function askToRing(
-  clientId: string | undefined,
+  sent: { current: string | undefined },
   send: (text: string) => string | undefined,
 ): string | undefined {
-  if (clientId !== undefined) return clientId;
-  return send(RING_ME_TEXT);
+  if (sent.current !== undefined) return sent.current;
+  sent.current = send(RING_ME_TEXT);
+  return sent.current;
 }
