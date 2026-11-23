@@ -108,6 +108,18 @@ function message(ws: WebSocket): Promise<unknown> {
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe('phone socket', () => {
+  // The HTTP server waits for every upgraded socket before it closes: phones still connected held
+  // production restarts until the 45 s kill.
+  it('shutting down closes connected phones at once instead of waiting for them', async () => {
+    const { app, connect } = await setup({ pingMs: 60_000 });
+    const ws = await connect();
+    const gone = closed(ws);
+    const started = Date.now();
+    await app.close();
+    expect(Date.now() - started).toBeLessThan(3_000);
+    await gone;
+  }, 40_000);
+
   it('rejects missing and bad tokens, unknown paths, and excessive upgrades', async () => {
     const { rejected } = await setup({ rate: 2 });
     expect(await rejected('/v1/me/socket')).toBe(401);

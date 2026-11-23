@@ -51,6 +51,8 @@ import { hashConnectorToken, newConnectorId, newConnectorToken, type PairingBook
 import type { ConnectorRecord } from './store';
 
 export const CONNECTOR_SOCKET_PATH = '/v1/connectors/socket';
+/** At shutdown, how long computers get to answer the close before their sockets are cut. */
+const SHUTDOWN_CLOSE_GRACE_MS = 1_000;
 
 export interface ConnectorRoutesOptions {
   /** Undefined when saved agents are not configured (development without a key): 503. */
@@ -722,8 +724,18 @@ export function registerConnectorSocket(
   };
 
   options.registerUpgrade(CONNECTOR_SOCKET_PATH, onUpgrade);
-  app.addHook('onClose', (_instance, done) => {
+  // Before the HTTP server closes: it waits for every upgraded socket, so computers still connected
+  // would hold the shutdown until their heartbeat gave up (production restarts were killed at 45 s).
+  // Each computer gets its close and a moment to answer; one that does not (a stalled network) is
+  // cut. Either way it reconnects on its own.
+  app.addHook('preClose', (done) => {
     hub.closeAll();
+    setTimeout(() => {
+      for (const socket of wss.clients) socket.terminate();
+    }, SHUTDOWN_CLOSE_GRACE_MS).unref();
+    done();
+  });
+  app.addHook('onClose', (_instance, done) => {
     wss.close(() => done());
   });
 }
