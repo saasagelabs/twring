@@ -9,7 +9,8 @@ public class CordRingModule: Module {
 
     Events(
       "onPushToken", "onAlertToken", "onRingAnswered", "onRingDeclined", "onCallEnded",
-      "onCallMuted", "onNotificationOpened", "onAudioEvent", "onRingShown")
+      "onCallMuted", "onNotificationOpened", "onAudioEvent", "onRingShown",
+      "onCallAudioActivated", "onCallAudioReleased")
 
     OnCreate {
       CordRing.shared.setEmitter { [weak self] name, body in
@@ -64,8 +65,8 @@ public class CordRingModule: Module {
       CordRing.shared.ringOver(inviteId: inviteId, status: status)
     }
 
-    AsyncFunction("ownsCallAudio") { () -> Bool in
-      CordRing.shared.ownsCallAudio()
+    AsyncFunction("callAudioState") { () -> [String: Bool] in
+      CordRing.shared.callAudioState()
     }.runOnQueue(.main)
 
     Function("takePendingDeclines") { () -> [String] in

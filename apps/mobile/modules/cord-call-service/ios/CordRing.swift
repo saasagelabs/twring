@@ -134,10 +134,10 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     rings.values.filter { !$0.answered }.map { $0.inviteId }
   }
 
-  /// An answered system call owns the audio session: CallKit activates it, not the app.
-  /// Main thread only (the bridge runs it there).
-  func ownsCallAudio() -> Bool {
-    rings.values.contains { $0.answered }
+  /// An answered system call owns the audio session (CallKit activates it, not the app), and
+  /// whether CallKit has activated it yet. Main thread only (the bridge runs it there).
+  func callAudioState() -> [String: Bool] {
+    ["owned": rings.values.contains { $0.answered }, "active": audioActive]
   }
 
   /// The server says this ring is over (JS checks it while the ring shows): close its call screen
@@ -508,7 +508,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     timers.values.forEach { $0.invalidate() }
     timers.removeAll()
     rings.removeAll()
-    releaseCallAudio()
+    if hadCall { emit("onCallAudioReleased") }
     if hadCall { emit("onCallEnded") }
   }
 
@@ -521,8 +521,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     rings[action.callUUID] = ring
     timers.removeValue(forKey: action.callUUID)?.invalidate()
     // Apple's order: set the audio up here, start it once the system activates the session
-    // (didActivate). WebRTC is held off until then, so the call never races CallKit for audio.
-    holdCallAudio()
+    // (didActivate). JS holds WebRTC's audio engine off until then (system-call-audio.ios.ts).
     try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat)
     lock.withLock { answered = ring.payload }
     emit("onRingAnswered", ["invite_id": ring.inviteId])
@@ -534,7 +533,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     stopSpeech()
     if let ring = rings.removeValue(forKey: action.callUUID) {
       if ring.answered {
-        if !rings.values.contains(where: { $0.answered }) { releaseCallAudio() }
+        if !rings.values.contains(where: { $0.answered }) { emit("onCallAudioReleased") }
         emit("onCallEnded")
       } else {
         queueDecline(ring.inviteId)
@@ -551,9 +550,12 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
 
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
     audioActive = true
-    let rtc = LKRTCAudioSession.sharedInstance()
-    rtc.audioSessionDidActivate(audioSession)
-    rtc.isAudioEnabled = true
+    // LiveKit's documented CallKit hook (node_modules/@livekit/react-native/README.md, "it is
+    // important to call RTCAudioSession.audioSessionDidActivate/Deactivate"; example
+    // client-sdk-react-native example/src/callservice/CallService.ios.ts). JS then lets the
+    // engine start (onCallAudioActivated).
+    LKRTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
+    emit("onCallAudioActivated")
     if let player = pendingSpeech {
       pendingSpeech = nil
       play(player)
@@ -562,24 +564,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
 
   func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
     audioActive = false
-    let rtc = LKRTCAudioSession.sharedInstance()
-    rtc.audioSessionDidDeactivate(audioSession)
-    rtc.isAudioEnabled = false
-  }
-
-  /// A system call answered: WebRTC's audio unit waits for CallKit (manual audio, off until
-  /// didActivate), the pattern of Jitsi Meet and LiveKit's CallKit examples.
-  private func holdCallAudio() {
-    let rtc = LKRTCAudioSession.sharedInstance()
-    rtc.useManualAudio = true
-    rtc.isAudioEnabled = audioActive
-  }
-
-  /// The system call ended: calls started in the app manage their own audio again.
-  private func releaseCallAudio() {
-    let rtc = LKRTCAudioSession.sharedInstance()
-    rtc.isAudioEnabled = true
-    rtc.useManualAudio = false
+    LKRTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
   }
 
   // MARK: Notifications

@@ -38,7 +38,7 @@ vi.mock('@/observability/sentry', () => ({
 
 const systemAudio = vi.hoisted(() => ({ owned: false }));
 vi.mock('@/platform/system-call-audio', () => ({
-  systemCallOwnsAudio: () => Promise.resolve(systemAudio.owned),
+  prepareSystemCallAudio: () => Promise.resolve(systemAudio.owned),
 }));
 
 vi.mock('@livekit/react-native', () => ({
