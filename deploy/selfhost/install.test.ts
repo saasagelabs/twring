@@ -59,7 +59,15 @@ const SPEECH_KEY = 'dg_secret_key_123';
 const posix = (path: string) => (WIN ? `/${path[0]!.toLowerCase()}${path.slice(2)}` : path);
 
 const onPath = (name: string) => SYSTEM_PATH.some((dir) => existsSync(join(dir, name)));
-const canRun = existsSync(SH) && (onPath('openssl') || onPath('openssl.exe'));
+// install.sh runs on Linux servers: it needs OpenSSL (macOS ships LibreSSL, which cannot make its
+// Ed25519 key). Elsewhere these suites skip: run them on Linux, or Git Bash on Windows.
+const openssl = SYSTEM_PATH.map((dir) => join(dir, WIN ? 'openssl.exe' : 'openssl')).find((path) =>
+  existsSync(path),
+);
+const canRun =
+  existsSync(SH) &&
+  openssl !== undefined &&
+  /^OpenSSL/.test(spawnSync(openssl, ['version'], { encoding: 'utf8' }).stdout ?? '');
 
 interface Call {
   cmd: string;

@@ -17,6 +17,14 @@ const BASH =
 const PATH = WIN
   ? ['C:/Program Files/Git/usr/bin', process.env.PATH ?? ''].join(';')
   : (process.env.PATH ?? '');
+// The script builds the kit with GNU tar (tar, or Homebrew's gtar on macOS). Without it the
+// dry runs skip: macOS's own tar cannot make a kit with the same digest.
+const gnuTar = ['tar', 'gtar'].some((tar) =>
+  /GNU tar/.test(
+    spawnSync(BASH, ['-c', `${tar} --version`], { encoding: 'utf8', env: { ...process.env, PATH } })
+      .stdout ?? '',
+  ),
+);
 const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -45,71 +53,78 @@ describe('deploy-site.sh', () => {
     );
   });
 
-  it('needs the built connector (DEPLOY_SITE_CONNECTOR) and never falls back to the live download', () => {
-    const out = mkdtempSync(join(tmpdir(), 'deploy-site-'));
-    dirs.push(out);
-    const run = spawnSync(BASH, [SCRIPT, '--dry-run'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH,
-        DEPLOY_SITE_CONNECTOR: '',
-        DEPLOY_SITE_VERSIONS: join(out, 'versions.json'),
-        DEPLOY_SITE_STAGE_OUT: out,
-      },
-    });
-    expect(run.status).not.toBe(0);
-    expect(run.stderr).toContain('DEPLOY_SITE_CONNECTOR');
-    const text = readFileSync(SCRIPT, 'utf8');
-    expect(text).not.toContain('-o "$CONNECTOR"');
-    // After publishing, the live connector is compared with the built one.
-    expect(text).toMatch(/downloads\/twring-connect\.mjs[\s\S]*CONNECT_DIGEST/);
-  });
+  it.skipIf(!gnuTar)(
+    'needs the built connector (DEPLOY_SITE_CONNECTOR) and never falls back to the live download',
+    () => {
+      const out = mkdtempSync(join(tmpdir(), 'deploy-site-'));
+      dirs.push(out);
+      const run = spawnSync(BASH, [SCRIPT, '--dry-run'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH,
+          DEPLOY_SITE_CONNECTOR: '',
+          DEPLOY_SITE_VERSIONS: join(out, 'versions.json'),
+          DEPLOY_SITE_STAGE_OUT: out,
+        },
+      });
+      expect(run.status).not.toBe(0);
+      expect(run.stderr).toContain('DEPLOY_SITE_CONNECTOR');
+      const text = readFileSync(SCRIPT, 'utf8');
+      expect(text).not.toContain('-o "$CONNECTOR"');
+      // After publishing, the live connector is compared with the built one.
+      expect(text).toMatch(/downloads\/twring-connect\.mjs[\s\S]*CONNECT_DIGEST/);
+    },
+  );
 
-  it('stages install.sh with its checksum and the kit install.sh expects, and records digests', () => {
-    const out = mkdtempSync(join(tmpdir(), 'deploy-site-'));
-    dirs.push(out);
-    const connector = join(out, 'twring-connect.mjs');
-    writeFileSync(connector, 'console.log("connector")');
-    const versions = join(out, 'versions.json');
-    const before = JSON.stringify({ images: { latest: `sha256:${'c'.repeat(64)}` } });
-    writeFileSync(versions, before);
-    const run = spawnSync(BASH, [SCRIPT, '--dry-run'], {
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        PATH,
-        DEPLOY_SITE_CONNECTOR: connector,
-        DEPLOY_SITE_VERSIONS: versions,
-        DEPLOY_SITE_STAGE_OUT: out,
-      },
-    });
-    expect(run.stderr).toBe('');
-    expect(run.status).toBe(0);
-    const listing = run.stdout;
-    expect(listing).toMatch(/^\.\/install\.sh$/m);
-    expect(listing).toMatch(/^\.\/install\.sh\.sha256$/m);
-    expect(listing).toMatch(/^\.\/selfhost\/kit\.tar\.gz$/m);
-    expect(listing).toMatch(/^\.\/selfhost\/versions\.json$/m);
-    expect(listing).toMatch(/^\.\/self-hosting\/index\.html$/m);
-    expect(listing).toMatch(/^\.\/self-hosting\/guide\/index\.html$/m);
+  it.skipIf(!gnuTar)(
+    'stages install.sh with its checksum and the kit install.sh expects, and records digests',
+    () => {
+      const out = mkdtempSync(join(tmpdir(), 'deploy-site-'));
+      dirs.push(out);
+      const connector = join(out, 'twring-connect.mjs');
+      writeFileSync(connector, 'console.log("connector")');
+      const versions = join(out, 'versions.json');
+      const before = JSON.stringify({ images: { latest: `sha256:${'c'.repeat(64)}` } });
+      writeFileSync(versions, before);
+      const run = spawnSync(BASH, [SCRIPT, '--dry-run'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH,
+          DEPLOY_SITE_CONNECTOR: connector,
+          DEPLOY_SITE_VERSIONS: versions,
+          DEPLOY_SITE_STAGE_OUT: out,
+        },
+      });
+      expect(run.stderr).toBe('');
+      expect(run.status).toBe(0);
+      const listing = run.stdout;
+      expect(listing).toMatch(/^\.\/install\.sh$/m);
+      expect(listing).toMatch(/^\.\/install\.sh\.sha256$/m);
+      expect(listing).toMatch(/^\.\/selfhost\/kit\.tar\.gz$/m);
+      expect(listing).toMatch(/^\.\/selfhost\/versions\.json$/m);
+      expect(listing).toMatch(/^\.\/self-hosting\/index\.html$/m);
+      expect(listing).toMatch(/^\.\/self-hosting\/guide\/index\.html$/m);
 
-    const tar = spawnSync('tar', ['-tzf', 'selfhost/kit.tar.gz'], {
-      cwd: join(out, 'stage'),
-      encoding: 'utf8',
-      env: { ...process.env, PATH },
-    });
-    expect(tar.stdout.split('\n').filter(Boolean).sort()).toEqual(KIT);
+      const tar = spawnSync('tar', ['-tzf', 'selfhost/kit.tar.gz'], {
+        cwd: join(out, 'stage'),
+        encoding: 'utf8',
+        env: { ...process.env, PATH },
+      });
+      expect(tar.stdout.split('\n').filter(Boolean).sort()).toEqual(KIT);
 
-    // A dry run leaves the source alone and records the digests in the stage only.
-    expect(readFileSync(versions, 'utf8')).toBe(before);
-    const recorded = JSON.parse(
-      readFileSync(join(out, 'stage', 'selfhost', 'versions.json'), 'utf8'),
-    ) as Record<string, unknown>;
-    expect(recorded.images).toEqual({ latest: `sha256:${'c'.repeat(64)}` });
-    expect(recorded.kit).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(recorded.connect).toMatch(/^sha256:[0-9a-f]{64}$/);
-    const staged = readFileSync(join(out, 'stage', 'install.sh.sha256'), 'utf8');
-    expect(staged).toMatch(/^[0-9a-f]{64} {2}install\.sh\n$/);
-  }, 30_000);
+      // A dry run leaves the source alone and records the digests in the stage only.
+      expect(readFileSync(versions, 'utf8')).toBe(before);
+      const recorded = JSON.parse(
+        readFileSync(join(out, 'stage', 'selfhost', 'versions.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      expect(recorded.images).toEqual({ latest: `sha256:${'c'.repeat(64)}` });
+      expect(recorded.kit).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(recorded.connect).toMatch(/^sha256:[0-9a-f]{64}$/);
+      const staged = readFileSync(join(out, 'stage', 'install.sh.sha256'), 'utf8');
+      expect(staged).toMatch(/^[0-9a-f]{64} {2}install\.sh\n$/);
+    },
+    30_000,
+  );
 });
