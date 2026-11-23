@@ -4,6 +4,7 @@ import {
   AudioRoutes,
   iosAudioConfiguration,
   nextRoute,
+  outputsFromDevices,
   parseOutputs,
   type AudioOutput,
 } from './audio-routes';
@@ -37,7 +38,14 @@ describe('route policy', () => {
     expect(nextRoute([], ['speaker', 'earpiece'], undefined)).toBe('speaker');
   });
 
-  it('switches to a newly connected Bluetooth or wired headset, even over a manual choice', () => {
+  it('a manual choice sticks when a headset connects, while its device is still there', () => {
+    expect(
+      nextRoute(['speaker', 'earpiece'], ['bluetooth', 'speaker', 'earpiece'], 'earpiece', true),
+    ).toBe('earpiece');
+    expect(nextRoute(['bluetooth', 'speaker'], ['speaker'], 'bluetooth', true)).toBe('speaker');
+  });
+
+  it('switches to a newly connected Bluetooth or wired headset over an automatic choice', () => {
     expect(
       nextRoute(['speaker', 'earpiece'], ['bluetooth', 'speaker', 'earpiece'], 'earpiece'),
     ).toBe('bluetooth');
@@ -55,6 +63,20 @@ describe('route policy', () => {
     expect(
       nextRoute(['bluetooth', 'speaker', 'earpiece'], ['speaker', 'earpiece'], 'bluetooth'),
     ).toBe('speaker');
+  });
+
+  it('lists Bluetooth only for devices with a call link (no A2DP-only speakers)', () => {
+    expect(outputsFromDevices(['bluetooth_a2dp', 'speaker', 'earpiece'])).toEqual([
+      'speaker',
+      'earpiece',
+    ]);
+    expect(outputsFromDevices(['earpiece', 'ble_headset', 'speaker', 'usb_headset'])).toEqual([
+      'bluetooth',
+      'headset',
+      'speaker',
+      'earpiece',
+    ]);
+    expect(outputsFromDevices(['bluetooth_sco', 'bluetooth_a2dp'])).toEqual(['bluetooth']);
   });
 
   it('has no route when there are no outputs', () => {
@@ -104,6 +126,40 @@ describe('AudioRoutes', () => {
     await routes.choose('earpiece');
     await routes.refresh();
     expect(routes.getState().current).toBe('earpiece');
+  });
+
+  it('keeps a manual Speaker choice when Bluetooth reconnects, until the caller changes it', async () => {
+    const platform = fakePlatform(['bluetooth', 'speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    await routes.choose('speaker');
+    platform.outputs = ['speaker', 'earpiece'];
+    await routes.refresh();
+    platform.outputs = ['bluetooth', 'speaker', 'earpiece'];
+    await routes.refresh();
+    expect(routes.getState().current).toBe('speaker');
+  });
+
+  it('a disappearing chosen device falls back and ends the manual choice', async () => {
+    const platform = fakePlatform(['bluetooth', 'speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    await routes.choose('bluetooth');
+    platform.outputs = ['speaker', 'earpiece'];
+    await routes.refresh();
+    expect(routes.getState().current).toBe('speaker');
+    platform.outputs = ['headset', 'speaker', 'earpiece'];
+    await routes.refresh();
+    expect(routes.getState().current).toBe('headset');
+  });
+
+  it('restore() selects the current output again after an interruption', async () => {
+    const platform = fakePlatform(['speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    await routes.choose('earpiece');
+    await routes.restore();
+    expect(platform.selected).toEqual(['speaker', 'earpiece', 'earpiece']);
   });
 
   it('ignores a choice that is not available', async () => {

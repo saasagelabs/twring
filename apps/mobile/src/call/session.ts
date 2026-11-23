@@ -8,7 +8,7 @@ import { mobileEnv } from '@/config/env';
 import { activeServerUrl, onActiveServerChanged, useActiveServer } from '@/servers/active';
 import { profileStore } from '../servers/profiles';
 import { callBreadcrumb } from '@/observability/sentry';
-import { audioRoutePlatform } from '@/platform/audio-route';
+import { audioRoutePlatform, callInterruptionPlatform } from '@/platform/audio-route';
 import { deviceFacts } from '@/platform/device-facts';
 import {
   callBackgroundService,
@@ -20,6 +20,7 @@ import { microphonePermission } from '@/platform/microphone';
 
 import { createCallApi } from './api';
 import { AudioRoutes, type AudioRouteState } from './audio-routes';
+import { CallInterruption, type CallInterruptionState } from './call-interruption';
 import { CallController, type CallView } from './controller';
 import { DeviceReporter } from './device-report';
 import { feedbackFor } from './feedback';
@@ -29,6 +30,7 @@ import { systemTimers } from './timers';
 let controller: CallController | undefined;
 /** Unregisters what the current controller hooked into the app (listeners, sign-out hook). */
 let disposeController: (() => void) | undefined;
+let currentInterruption: CallInterruption | undefined;
 
 /** The call's audio output. Lives beside the controller; reset when a call finishes. */
 export const audioRoutes = new AudioRoutes(audioRoutePlatform, (detail) =>
@@ -83,6 +85,35 @@ export function callController(): CallController | undefined {
     if (state === 'active') created.retryBackground();
   });
 
+  // A phone call during the call: mute, show a notice, give route and mic back when it ends.
+  const interruption = new CallInterruption(
+    {
+      isMuted: () => created.getView().muted,
+      setMuted: (muted) => created.setMuted(muted),
+      restoreRoute: () => audioRoutes.restore(),
+    },
+    (detail) => callBreadcrumb({ event: 'audio_route_failed', detail }),
+  );
+  currentInterruption = interruption;
+  // Route and interruption events are watched for the whole call, screen off included.
+  let stopWatching: (() => void) | undefined;
+  const watch = (active: boolean) => {
+    if (active && stopWatching === undefined) {
+      const offRoutes = audioRoutePlatform.watch?.(() => void audioRoutes.refresh());
+      const offInterruption = callInterruptionPlatform.watch?.((phase) => {
+        void interruption.handle(phase);
+      });
+      stopWatching = () => {
+        offRoutes?.();
+        offInterruption?.();
+      };
+    } else if (!active && stopWatching !== undefined) {
+      stopWatching();
+      stopWatching = undefined;
+      interruption.reset();
+    }
+  };
+
   // Device and audio route go to the gateway when the call is live and on each route change.
   const reporter = new DeviceReporter(deviceFacts(), (info) => created.reportDevice(info));
   const report = () =>
@@ -97,6 +128,7 @@ export function callController(): CallController | undefined {
     const feedback = feedbackFor(previous, next);
     if (feedback !== undefined) playCallFeedback(feedback);
     if (isActive(previous) && !isActive(next)) audioRoutes.reset();
+    watch(isActive(next));
     previous = next;
   });
   disposeController = () => {
@@ -106,6 +138,8 @@ export function callController(): CallController | undefined {
     appState.remove();
     offView();
     offReportRoute();
+    watch(false);
+    if (currentInterruption === interruption) currentInterruption = undefined;
   };
   return created;
 }
@@ -137,3 +171,20 @@ export function useCallView(): CallView {
 export function useAudioRoutes(): AudioRouteState {
   return useSyncExternalStore(audioRoutes.subscribe, audioRoutes.getState);
 }
+
+const NOT_PAUSED: CallInterruptionState = { paused: false };
+
+/** Whether a phone call has paused the Twring call (shown as a calm notice on the call screen). */
+export function useCallInterruption(): CallInterruptionState {
+  'use no memo';
+  useActiveServer();
+  callController();
+  const active = currentInterruption;
+  return useSyncExternalStore(
+    active?.subscribe ?? noopSubscribe,
+    active?.getState ?? (() => NOT_PAUSED),
+  );
+}
+
+/** True when route changes arrive as events, so the call screen need not poll. */
+export const audioRoutesWatched = audioRoutePlatform.watch !== undefined;
