@@ -19,7 +19,7 @@ const LIVE: ReadonlySet<CallState['status']> = new Set([
 
 /**
  * Sends the device and audio route to the gateway once the call is live, then again whenever the
- * route changes. One report per route per call; a new call starts over.
+ * route changes, and once more after a reconnect. A new call starts over.
  */
 export class DeviceReporter {
   private live = false;
@@ -33,6 +33,11 @@ export class DeviceReporter {
   update(status: CallState['status'], output: AudioOutput | undefined): void {
     if (status === 'IDLE' || status === 'ENDED' || status === 'FAILED') {
       this.live = false;
+      this.sentRoute = undefined;
+      return;
+    }
+    if (status === 'RECONNECTING') {
+      // The room (or the gateway) may have restarted: send the current route again once live.
       this.sentRoute = undefined;
       return;
     }

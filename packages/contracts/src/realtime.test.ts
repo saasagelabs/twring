@@ -142,4 +142,31 @@ describe('parsePhoneMessage', () => {
       parsePhoneMessage(JSON.stringify({ ...info, pad: 'x'.repeat(MAX_PHONE_MESSAGE_BYTES) })),
     ).toBeUndefined();
   });
+
+  it('drops device text fields with newlines, JSON or words-like content', () => {
+    const msg = parsePhoneMessage(
+      JSON.stringify({
+        v: 1,
+        type: 'device_info',
+        route: 'speaker',
+        os: '14\n{"event":"x"}',
+        model: 'call my mom at 555 1234 please now',
+        app_build: '29',
+      }),
+    );
+    expect(msg).toEqual({ v: 1, type: 'device_info', route: 'speaker', app_build: '29' });
+  });
+
+  it('keeps ordinary model and OS strings', () => {
+    const msg = parsePhoneMessage(
+      JSON.stringify({
+        v: 1,
+        type: 'device_info',
+        route: 'bluetooth',
+        os: '17.4.1',
+        model: 'SM-S918B',
+      }),
+    );
+    expect(msg).toMatchObject({ os: '17.4.1', model: 'SM-S918B' });
+  });
 });

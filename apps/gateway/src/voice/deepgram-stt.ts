@@ -21,9 +21,10 @@ const turnInfoSchema = z.object({
   event: z.enum(['StartOfTurn', 'Update', 'EagerEndOfTurn', 'TurnResumed', 'EndOfTurn']),
   turn_index: z.number().int().nonnegative(),
   transcript: z.string().max(20_000),
-  // Optional and lenient: a missing or odd `words` list never drops the turn.
+  // Optional and lenient: a missing or odd `words` list never drops the turn, and an odd
+  // confidence drops only that word. Each Flux turn is summarised on its own turn_committed line.
   words: z
-    .array(z.object({ confidence: z.number().min(0).max(1).optional() }).loose())
+    .array(z.object({ confidence: z.number().min(0).max(1).optional().catch(undefined) }).loose())
     .max(5_000)
     .optional()
     .catch(undefined),

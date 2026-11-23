@@ -38,7 +38,10 @@ describe('DeviceReporter', () => {
     r.update('USER_SPEAKING', undefined);
     r.update('USER_SPEAKING', 'speaker');
     r.update('AGENT_SPEAKING', 'speaker');
+    // While the room reconnects nothing can be delivered; the new route goes once it is back.
     r.update('RECONNECTING', 'bluetooth');
+    expect(sent.map((m) => m.route)).toEqual(['unknown', 'speaker']);
+    r.update('LISTENING', 'bluetooth');
     expect(sent.map((m) => m.route)).toEqual(['unknown', 'speaker', 'bluetooth']);
   });
 
@@ -56,5 +59,26 @@ describe('DeviceReporter', () => {
     const sent: DeviceInfoMessage[] = [];
     new DeviceReporter({}, (info) => sent.push(info)).update('LISTENING', 'headset');
     expect(sent).toEqual([{ v: 1, type: 'device_info', route: 'headset' }]);
+  });
+
+  it('resends the current route once after the room reconnects', () => {
+    const { r, sent } = reporter();
+    r.update('LISTENING', 'speaker');
+    r.update('RECONNECTING', 'speaker');
+    r.update('RECONNECTING', 'speaker');
+    expect(sent).toHaveLength(1);
+    r.update('LISTENING', 'speaker');
+    r.update('AGENT_SPEAKING', 'speaker');
+    expect(sent.map((m) => m.route)).toEqual(['speaker', 'speaker']);
+  });
+
+  it('a new call after an ended one reports again', () => {
+    const { r, sent } = reporter();
+    r.update('LISTENING', 'earpiece');
+    r.update('ENDED', 'earpiece');
+    r.update('CONNECTING', 'earpiece');
+    expect(sent).toHaveLength(1);
+    r.update('LISTENING', 'earpiece');
+    expect(sent).toHaveLength(2);
   });
 });

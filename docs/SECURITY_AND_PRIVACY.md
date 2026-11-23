@@ -136,6 +136,8 @@ Good analytics:
 
 Sentry breadcrumbs must avoid secrets/full transcript.
 
+Device metadata (owner-approved 2026-11-24): during a call the phone sends the gateway its audio route, platform, OS version, model (Android only) and app build on the `cord.phone` data topic, for "it misheard me" diagnosis. No content: the gateway accepts it only from the caller, drops packets over 1 KB, and keeps each text field only if it is short and identifier-like (letters, digits, a few separators, no newlines or sentences).
+
 ## 11. Authentication
 
 Use proven authentication provider.

@@ -137,6 +137,17 @@ describe('call usage telemetry', () => {
     expect(typeof usage.narrowband).toBe('boolean');
   });
 
+  it('handles at most 50 device reports per call, so a flapping route cannot flood the logs', async () => {
+    const { runtime, transport, logger } = await started();
+    for (let i = 0; i < 200; i += 1)
+      transport.emit({
+        type: 'device_info',
+        info: { v: 1, type: 'device_info', route: i % 2 === 0 ? 'speaker' : 'earpiece' },
+      });
+    await runtime.end('hangup');
+    expect(logger.events.filter((e) => e.fields.event === 'call_route')).toHaveLength(50);
+  });
+
   it('estimates cost only from rates that are set', async () => {
     const { runtime, scheduler, ended } = await started({
       rates: { sttPerMinute: 0, ttsPer1kChars: 0, roomPerMinute: 0.01 },

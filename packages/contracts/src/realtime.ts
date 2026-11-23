@@ -192,8 +192,21 @@ export const MAX_PHONE_MESSAGE_BYTES = 1024;
 export const audioRouteSchema = z.enum(['earpiece', 'speaker', 'bluetooth', 'headset', 'unknown']);
 export type AudioRoute = z.infer<typeof audioRouteSchema>;
 
-/** A short free-text field: an unexpected value is dropped, not the whole message. */
-const shortText = (max: number) => z.string().trim().min(1).max(max).optional().catch(undefined);
+/**
+ * A short identifier-like field: an unexpected value is dropped, not the whole message. The
+ * charset (letters, digits and a few separators, no newlines or quotes) and the space limit keep
+ * sentences and injected log text out: a model name is a few tokens, never words.
+ */
+const shortText = (max: number, maxSpaces = 0) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    .regex(/^[A-Za-z0-9 ._,()+-]+$/)
+    .refine((text) => text.split(' ').length - 1 <= maxSpaces)
+    .optional()
+    .catch(undefined);
 
 /**
  * What the phone reports about itself and where call audio is playing: sent when the call
@@ -207,7 +220,7 @@ export const deviceInfoMessageSchema = z.object({
   route: audioRouteSchema.catch('unknown'),
   platform: z.enum(['android', 'ios']).optional().catch(undefined),
   os: shortText(32),
-  model: shortText(64),
+  model: shortText(64, 4),
   app_build: shortText(32),
 });
 export type DeviceInfoMessage = z.infer<typeof deviceInfoMessageSchema>;
