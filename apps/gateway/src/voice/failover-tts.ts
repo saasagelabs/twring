@@ -27,6 +27,13 @@ function voiceNotFound(error: VoiceError): boolean {
   return error.providerStatus === 404;
 }
 
+/**
+ * Primary sessions dropped in a row with no answer finished between them, after which the call
+ * moves to the backup for good (pipecat marks a TTS unusable after 3 silent contexts). Without it
+ * a primary that drops on every answer is reopened all call long.
+ */
+const MAX_PRIMARY_DROPS = 3;
+
 /** Answers remembered per session; older ones are long finished or cancelled. */
 const TRACKED_ANSWERS = 16;
 
@@ -59,6 +66,7 @@ export function createFailoverTts(
 ): TtsProvider {
   let switched = false;
   let restorePending = false;
+  let drops = 0;
   const failsOver = (error: VoiceError) => options.failsOver?.(error) ?? true;
   const switchToBackup = (reason: string): void => {
     if (switched) return;
@@ -213,8 +221,14 @@ export function createFailoverTts(
       const onPrimaryEvent = (event: TtsEvent) => {
         if (failed) return;
         if (event.type === 'error') {
-          // Recoverable: the pipeline reconnects, and the reconnect opens the primary again.
-          if (event.error.recoverable || !failsOver(event.error)) return end(event);
+          // Recoverable: the pipeline reconnects, and the reconnect opens the primary again,
+          // unless it kept dropping with no answer finished.
+          if (!failsOver(event.error)) return end(event);
+          if (event.error.recoverable) {
+            drops += 1;
+            if (drops >= MAX_PRIMARY_DROPS) switchToBackup('primary_unstable');
+            return end(event);
+          }
           switchToBackup(event.error.code);
           return end({ ...event, error: { ...event.error, recoverable: true } });
         }
@@ -230,6 +244,7 @@ export function createFailoverTts(
             }
             break;
           case 'done':
+            drops = 0;
             answers.delete(id);
             break;
           case 'generation_error': {
