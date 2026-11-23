@@ -13,6 +13,8 @@ upload-keystore*
 
 # Gateway file store (saved agents, sealed credentials, call history)
 apps/gateway/data/
+# Call proof voice cache, baselines and reports (scripts/call-proof.ts)
+apps/gateway/.call-proof/
 
 # JavaScript and Expo outputs
 node_modules/

@@ -1,11 +1,15 @@
 import { createDeepgramTts } from '../../src/voice/deepgram-tts';
 
-/** Voices a caller's line with Deepgram TTS (the gateway's own client); returns 48 kHz samples. */
+/**
+ * Voices a caller's line with Deepgram TTS (the gateway's own client); returns 48 kHz samples.
+ * `model` picks another Deepgram voice than the configured one (call-proof uses several).
+ */
 export async function voiceLine(
   deepgram: { apiKey: string; ttsModel: string },
   text: string,
+  model = deepgram.ttsModel,
 ): Promise<Int16Array> {
-  const tts = createDeepgramTts({ apiKey: deepgram.apiKey, model: deepgram.ttsModel });
+  const tts = createDeepgramTts({ apiKey: deepgram.apiKey, model });
   const chunks: Uint8Array[] = [];
   let finish!: () => void;
   const done = new Promise<void>((resolve) => (finish = resolve));

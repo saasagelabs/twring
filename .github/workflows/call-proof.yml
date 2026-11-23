@@ -1,0 +1,47 @@
+# Call proof: the end-to-end hearing test (apps/gateway/scripts/call-proof.ts). Manual only: it
+# spends Deepgram and LiveKit minutes and needs their keys, so it never runs on pull requests
+# (public repository). The keys live in the `call-proof` environment, which has none until the
+# owner adds them; until the repository variable CALL_PROOF_ENABLED is 'true' the job is skipped.
+name: 'Call proof (manual)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      quick:
+        description: 'Quick run (6 lines, one voice)'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    if: vars.CALL_PROOF_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: call-proof
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: corepack enable pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @twring/gateway build
+      - name: Run the call proof
+        working-directory: apps/gateway
+        env:
+          DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY }}
+          LIVEKIT_URL: ${{ secrets.LIVEKIT_URL }}
+          LIVEKIT_API_KEY: ${{ secrets.LIVEKIT_API_KEY }}
+          LIVEKIT_API_SECRET: ${{ secrets.LIVEKIT_API_SECRET }}
+          CALL_PROOF_GATEWAY_URL: ${{ vars.CALL_PROOF_GATEWAY_URL }}
+        run: pnpm call:proof ${{ inputs.quick && '--quick' || '' }}
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: call-proof-report
+          path: apps/gateway/.call-proof/report-*.json
+          if-no-files-found: ignore

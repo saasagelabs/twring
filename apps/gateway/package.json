@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "smoke": "node scripts/smoke.mjs",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --dir src",
+    "test": "vitest run src/ scripts/lib/",
     "test:integration": "vitest run --dir test",
     "gen:privacy": "tsx scripts/gen-privacy-page.ts",
     "export:signups": "tsx scripts/export-signups.ts",
@@ -19,7 +19,8 @@
     "livekit:smoke": "tsx --env-file-if-exists=.env scripts/livekit-smoke.ts",
     "voice:smoke": "tsx --env-file-if-exists=.env scripts/voice-smoke.ts",
     "conversation:smoke": "tsx --env-file-if-exists=.env scripts/conversation-smoke.ts",
-    "load:test": "tsx --env-file-if-exists=.env scripts/load-test.ts"
+    "load:test": "tsx --env-file-if-exists=.env scripts/load-test.ts",
+    "call:proof": "tsx --env-file-if-exists=.env scripts/call-proof.ts"
   },
   "dependencies": {
     "@livekit/rtc-node": "^1.1.0",
