@@ -15,6 +15,8 @@ import {
 } from './types';
 
 const lost = { code: 'connection_lost', recoverable: true } as const;
+/** A primary session error no reconnect cures: it moves the call to the backup. */
+const broken = { code: 'connection_lost', recoverable: false } as const;
 const FRAME_BYTES = 1920; // 960 samples of 48 kHz linear16
 
 function setup(stt: SttProvider, tts: TtsProvider) {
@@ -93,7 +95,7 @@ describe('voice failover: exactly once (verifier)', () => {
     const { primary, backup, tts, reasons } = failover();
     const { pipeline, scheduler, logger } = setup(new FakeSttProvider(), tts);
     await pipeline.start();
-    for (let i = 0; i < 5; i += 1) primary.send({ type: 'error', error: lost });
+    for (let i = 0; i < 5; i += 1) primary.send({ type: 'error', error: broken });
     expect(reasons).toHaveLength(1);
     scheduler.advance(10_000);
     await flushMicrotasks();
@@ -108,10 +110,10 @@ describe('voice failover: exactly once (verifier)', () => {
     const { primary, backup, tts, reasons } = failover();
     const { pipeline, scheduler } = setup(new FakeSttProvider(), tts);
     await pipeline.start();
-    primary.send({ type: 'error', error: lost });
+    primary.send({ type: 'error', error: broken });
     scheduler.advance(250);
     await flushMicrotasks();
-    primary.send({ type: 'error', error: lost });
+    primary.send({ type: 'error', error: broken });
     scheduler.advance(10_000);
     await flushMicrotasks();
     expect(backup.opens).toBe(1);
@@ -125,7 +127,7 @@ describe('voice failover: give up (verifier)', () => {
     const { primary, backup, tts } = failover();
     const { pipeline, scheduler, fatal } = setup(new FakeSttProvider(), tts);
     await pipeline.start();
-    primary.send({ type: 'error', error: lost });
+    primary.send({ type: 'error', error: broken });
     for (const delay of [250, 1000, 3000]) {
       expect(fatal).toEqual([]);
       scheduler.advance(delay);
@@ -150,7 +152,7 @@ describe('voice failover: give up (verifier)', () => {
       backup.opens += 1;
       return Promise.reject(new VoiceProviderError(lost));
     };
-    primary.send({ type: 'error', error: lost });
+    primary.send({ type: 'error', error: broken });
     for (const delay of [250, 1000, 3000]) {
       scheduler.advance(delay);
       await flushMicrotasks();
@@ -284,7 +286,7 @@ describe('start-of-call retries (verifier)', () => {
     const { pipeline, scheduler } = setup(stt, tts);
     const opening = pipeline.start();
     await flushMicrotasks();
-    primary.send({ type: 'error', error: lost }); // reconnect due at 250 ms
+    primary.send({ type: 'error', error: broken }); // reconnect due at 250 ms
     scheduler.advance(250); // STT retry and TTS reconnect both fire
     await flushMicrotasks();
     await opening;
@@ -308,7 +310,7 @@ describe('start-of-call retries (verifier)', () => {
     const { pipeline, scheduler } = setup(stt, tts);
     const opening = pipeline.start();
     await flushMicrotasks();
-    primary.send({ type: 'error', error: lost });
+    primary.send({ type: 'error', error: broken });
     scheduler.advance(250); // TTS reconnected on the backup; STT still retrying
     await flushMicrotasks();
     scheduler.advance(1000);

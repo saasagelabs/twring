@@ -69,6 +69,12 @@ export interface TtsSession {
   flush(generationId: string): void;
   cancel(generationId: string): void;
   close(): Promise<void>;
+  /**
+   * The pipeline's watchdog saw no audio for `generationId` in time. True when the session took
+   * the answer over (a failover voice speaking it on its backup); otherwise the pipeline treats it
+   * as a failed generation. Sessions without another voice leave this out.
+   */
+  stalled?(generationId: string): boolean;
 }
 
 export interface TtsProvider {

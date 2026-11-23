@@ -1387,7 +1387,8 @@ describe('VoicePipeline retries a one-off generation error', () => {
     pipeline.appendSpeech(id, 'Hello.');
     tts.send({ type: 'audio', generationId: id, bytes: frameBytes() });
     tts.send({ type: 'generation_error', generationId: id, error: generic });
-    expect(speech).toEqual(['failed']);
+    // What arrived plays out first; `failed` follows its playout (not simulated here).
+    expect(speech).toEqual([]);
     scheduler.advance(1000);
     expect(speaks()).toHaveLength(1);
     expect(retries()).toEqual([]);

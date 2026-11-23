@@ -1,9 +1,12 @@
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { createDeepgramTts } from './deepgram-tts';
 import { HandshakeRefusedError, waitForOpen, wsSocketFactory } from './socket';
+import { fakeSocketFactory } from './testing';
+import { VoiceProviderError } from './types';
 
 let server: Server | undefined;
 
@@ -52,5 +55,47 @@ describe('wsSocketFactory handshake refusals', () => {
     const error = (await refusal(url)) as HandshakeRefusedError;
     expect(error.status).toBe(503);
     expect(error.body.length).toBe(1024);
+  });
+});
+
+describe('waitForOpen handshake timeout', () => {
+  it('a handshake that never answers fails after 5 s as a lost connection, socket closed', async () => {
+    vi.useFakeTimers();
+    try {
+      const factory = fakeSocketFactory(false);
+      const opening = createDeepgramTts({
+        apiKey: 'test-key',
+        model: 'aura-2-thalia-en',
+        socketFactory: factory,
+      })
+        .open(() => undefined, new AbortController().signal)
+        .catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(4999);
+      expect(factory.sockets[0]?.closedWith).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(1);
+      const error = await opening;
+      expect(error).toBeInstanceOf(VoiceProviderError);
+      expect((error as VoiceProviderError).error).toEqual({
+        code: 'connection_lost',
+        recoverable: true,
+      });
+      expect(factory.sockets[0]?.closedWith).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an open within the limit leaves no timer behind', async () => {
+    vi.useFakeTimers();
+    try {
+      const factory = fakeSocketFactory(false);
+      const socket = factory('wss://example.test', {});
+      const opening = waitForOpen(socket, new AbortController().signal);
+      factory.sockets[0]!.acceptConnection();
+      await opening;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

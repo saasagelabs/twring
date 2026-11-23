@@ -3,7 +3,7 @@ import { Downsampler48To16, FrameAssembler } from '../audio/resample';
 import type { CallLogger } from '../calls/runtime';
 import type { Scheduler } from '../calls/scheduler';
 
-import { isKeyRefusal } from './key-refusal';
+import { retryTtsId, retryable } from './tts-retry';
 import {
   VoiceProviderError,
   type SttEvent,
@@ -47,16 +47,19 @@ const SURELY_HEARD_MS_PER_CHAR = 100;
 const SENTENCE_END = /(?:[.!?…]+["'”’)\]]*\s+|[。！？।॥]+["'”’)\]」]*\s*)/g;
 
 /**
+ * An answer whose text has all been sent and that has made no sound (no audio, no done) this long
+ * is treated as a failed generation: retried once, then spoken on a backup voice when there is one.
+ * After pipecat `tts_service.py` (stop_frame_timeout_s 3.0, silent contexts mark the service
+ * unusable) and livekit/agents `tts/tts.py` ("no audio frames were pushed" raises and retries).
+ * It starts at the end of the text, not the first words: an agent may pause mid-answer for a tool,
+ * and a provider may hold text until it is flushed.
+ */
+export const TTS_WATCHDOG_MS = 5_000;
+
+/**
  * Where to pick an answer up after its voice dropped: the start of the sentence the caller was
  * hearing, judged from how much audio played (`heardMs`). Nothing heard starts over.
  */
-/** A generation error worth one retry: not a missing voice, a refused key or used-up quota. */
-function retryable(error: VoiceError): boolean {
-  const status = error.providerStatus;
-  if (error.code === 'auth_failed' || status === 404 || status === 429) return false;
-  return !isKeyRefusal(status);
-}
-
 export function resumeOffset(text: string, heardMs: number): number {
   const heardChars = Math.floor(heardMs / SURELY_HEARD_MS_PER_CHAR);
   if (heardChars <= 0) return 0;
@@ -127,8 +130,13 @@ export interface VoicePipelineOptions {
   /**
    * A speech generation's audio: `playing` when its first frame is published, `finished` after its
    * last, `failed` when the provider lost it. A cancelled generation reports nothing further.
+   * `cutOff` marks a failure after part of the answer played: the rest of it was lost.
    */
-  onSpeech: (speech: { generationId: string; state: 'playing' | 'finished' | 'failed' }) => void;
+  onSpeech: (speech: {
+    generationId: string;
+    state: 'playing' | 'finished' | 'failed';
+    cutOff?: boolean;
+  }) => void;
   /**
    * Queue 20 ms, 48 kHz frames for publication. `onFirstPublished` runs when the first frame is
    * handed off, `onLastPublished` when the last of these frames is; `onDone` runs once everything
@@ -223,6 +231,8 @@ export class VoicePipeline {
    */
   private lastEndedTurn: number | undefined;
   private readonly cancelTimers = new Set<() => void>();
+  /** Cancels the active answer's watchdog (TTS_WATCHDOG_MS), while one is armed. */
+  private stopWatchdog: (() => void) | undefined;
   private lastSttAudioAt = 0;
   private sttSamplesSent = 0;
   private sttOpenedAt: number | undefined;
@@ -453,7 +463,10 @@ export class VoicePipeline {
       this.options.onSpeech({ generationId: id, state: 'finished' });
       return;
     }
-    if (!active.suspended) this.tts?.flush(active.ttsId);
+    if (!active.suspended && this.tts !== undefined) {
+      this.tts.flush(active.ttsId);
+      this.armWatchdog(active);
+    }
   }
 
   /** Stops any speech in progress: generation cancelled, queued audio dropped. */
@@ -462,6 +475,7 @@ export class VoicePipeline {
     if (active === undefined) return;
     this.active = undefined;
     this.resetOnset();
+    this.clearWatchdog();
     active.cancelled = true;
     this.tts?.cancel(active.ttsId);
     const partialSamples = this.assembler.pendingSamples;
@@ -619,6 +633,7 @@ export class VoicePipeline {
           return;
         if (!active.firstAudioLogged) {
           active.firstAudioLogged = true;
+          this.clearWatchdog();
           this.retryOutcome(active, true);
           this.silentFailures = 0;
           this.log('tts_first_audio', {
@@ -636,6 +651,7 @@ export class VoicePipeline {
           return;
         // Stays active until its queued audio has played, so a new turn can still cut it off.
         active.providerDone = true;
+        this.clearWatchdog();
         this.log('tts_done', { generation_id: active.id });
         this.play(active, this.assembler.flush(), () => {
           if (active.cancelled) return;
@@ -653,7 +669,7 @@ export class VoicePipeline {
         if (active !== undefined && !active.providerDone) {
           if (event.error.recoverable && active.resumes < MAX_SPEECH_RESUMES)
             this.suspendSpeech(active);
-          else this.failSpeech(active);
+          else this.failSpeech(active, active.firstAudioLogged);
         }
         this.handleProviderError('tts', event.error);
         return;
@@ -674,23 +690,96 @@ export class VoicePipeline {
         );
         const active = this.active;
         if (active !== undefined && event.generationId === active.ttsId && !active.providerDone) {
-          this.retryOutcome(active, false);
-          if (retryable(event.error) && !active.retried && !active.firstAudioLogged) {
-            this.retrySpeech(active);
-            return;
-          }
-          this.failSpeech(active);
-          if (!active.firstAudioLogged) this.silentFailures += 1;
-        }
-        // Answer after answer failing without a sound (a voice the provider deleted, an account
-        // out of credit) would leave the caller in silence: end the call so the phone says why.
-        if (this.silentFailures >= SILENT_ANSWERS_FATAL) {
-          this.silentFailures = 0;
-          this.options.onFatal({ code: event.error.code, recoverable: false }, 'tts');
+          this.generationFailed(active, event.error);
         }
         return;
       }
     }
+  }
+
+  /**
+   * Generation `active.ttsId` will not complete. Before any audio it is retried once (#91), then
+   * fails; after audio, what arrived plays out (livekit/agents fallback_adapter keeps audio already
+   * pushed and stops) and the answer is reported failed once it has.
+   */
+  private generationFailed(active: NonNullable<VoicePipeline['active']>, error: VoiceError): void {
+    this.clearWatchdog();
+    this.retryOutcome(active, false);
+    if (active.firstAudioLogged) {
+      this.endAfterAudio(active);
+      return;
+    }
+    if (retryable(error) && !active.retried) {
+      this.retrySpeech(active);
+      return;
+    }
+    this.failSpeech(active);
+    this.silentFailures += 1;
+    // Answer after answer failing without a sound (a voice the provider deleted, an account
+    // out of credit) would leave the caller in silence: end the call so the phone says why.
+    if (this.silentFailures >= SILENT_ANSWERS_FATAL) {
+      this.silentFailures = 0;
+      this.options.onFatal({ code: error.code, recoverable: false }, 'tts');
+    }
+  }
+
+  /** The rest of a speaking answer was lost: what was queued still plays, then it is `failed`. */
+  private endAfterAudio(active: NonNullable<VoicePipeline['active']>): void {
+    active.providerDone = true;
+    this.tts?.cancel(active.ttsId);
+    this.log('tts_failed_after_audio', { generation_id: active.id });
+    this.play(active, this.assembler.flush(), () => {
+      if (active.cancelled) return;
+      if (this.active === active) this.active = undefined;
+      this.options.onSpeech({ generationId: active.id, state: 'failed', cutOff: true });
+    });
+  }
+
+  private armWatchdog(active: NonNullable<VoicePipeline['active']>): void {
+    this.clearWatchdog();
+    if (active.firstAudioLogged || active.providerDone) return;
+    const cancel = this.options.scheduler.setTimeout(() => {
+      this.cancelTimers.delete(cancel);
+      this.stopWatchdog = undefined;
+      this.onWatchdog(active);
+    }, TTS_WATCHDOG_MS);
+    this.cancelTimers.add(cancel);
+    this.stopWatchdog = () => {
+      cancel();
+      this.cancelTimers.delete(cancel);
+    };
+  }
+
+  private clearWatchdog(): void {
+    this.stopWatchdog?.();
+    this.stopWatchdog = undefined;
+  }
+
+  /** The answer's text was all sent and nothing came back in time. */
+  private onWatchdog(active: NonNullable<VoicePipeline['active']>): void {
+    const tts = this.tts;
+    if (
+      this.closed ||
+      tts === undefined ||
+      this.active !== active ||
+      active.cancelled ||
+      active.suspended ||
+      active.firstAudioLogged ||
+      active.providerDone
+    )
+      return;
+    const takenOver = tts.stalled?.(active.ttsId) === true;
+    this.log('tts_watchdog', {
+      generation_id: active.id,
+      waited_ms: TTS_WATCHDOG_MS,
+      taken_over: takenOver,
+    });
+    if (takenOver) {
+      this.armWatchdog(active);
+      return;
+    }
+    tts.cancel(active.ttsId);
+    this.generationFailed(active, { code: 'provider_error', recoverable: true });
   }
 
   private play(
@@ -734,6 +823,7 @@ export class VoicePipeline {
     this.options.stopPlayback();
     this.assembler.clear();
     this.resetOnset();
+    this.clearWatchdog();
     const playout = this.playout.get(active.id);
     if (playout !== undefined) playout.queuedFrames = playout.playedFrames;
     active.resumes += 1;
@@ -774,6 +864,7 @@ export class VoicePipeline {
       return;
     }
     tts.flush(active.ttsId);
+    this.armWatchdog(active);
   }
 
   /**
@@ -788,7 +879,7 @@ export class VoicePipeline {
     const cancel = this.options.scheduler.setTimeout(() => {
       this.cancelTimers.delete(cancel);
       if (signal.aborted || active.cancelled || this.active !== active || !active.suspended) return;
-      active.ttsId = `${active.id}_retry`;
+      active.ttsId = retryTtsId(active.id);
       active.retryPending = true;
       this.resumeSpeech();
     }, TTS_RETRY_DELAY_MS);
@@ -801,9 +892,13 @@ export class VoicePipeline {
     this.log('tts_retry', { generation_id: active.id, attempt: 1, ok });
   }
 
-  private failSpeech(active: NonNullable<VoicePipeline['active']>): void {
+  private failSpeech(active: NonNullable<VoicePipeline['active']>, cutOff = false): void {
     this.cancelSpeech('failed');
-    this.options.onSpeech({ generationId: active.id, state: 'failed' });
+    this.options.onSpeech({
+      generationId: active.id,
+      state: 'failed',
+      ...(cutOff && { cutOff }),
+    });
   }
 
   private handleProviderError(which: 'stt' | 'tts', error: VoiceError): void {
