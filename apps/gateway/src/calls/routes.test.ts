@@ -356,6 +356,15 @@ describe('POST /v1/calls', () => {
     );
   });
 
+  it('replaces a never-joined call even when it holds the last server slot (verifier 6)', async () => {
+    const { createCall, registry } = setup({ CALL_MAX_CONCURRENT: '1' });
+    const first = createCallResponseSchema.parse((await createCall()).json());
+    await flushMicrotasks();
+    expect((await createCall()).statusCode).toBe(201);
+    expect(registry.get(first.call_id)?.status).toBe('ended');
+    expect(registry.activeCount).toBe(1);
+  });
+
   it('replaces a call in its rejoin grace (the caller left and did not come back)', async () => {
     const { createCall, registry, transports } = setup({ CALL_MAX_CONCURRENT: '5' });
     const first = createCallResponseSchema.parse((await createCall()).json());

@@ -856,6 +856,47 @@ describe('answering', () => {
       const { invite_id: id } = await ringOk(g, token);
       expect((await answer(g, id, 'x')).statusCode).toBe(400);
     });
+
+    it('refuses a device id with characters outside the allowed set (400)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id, 'phone aaaa/0001')).statusCode).toBe(400);
+      expect((await answer(g, id, 'p'.repeat(129))).statusCode).toBe(400);
+    });
+
+    it('a repeat after the app started a new call (which replaced the ring call) is 409 (verifier 3)', async () => {
+      const { g, token, agentId } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
+      expect(call.statusCode).toBe(201);
+      await waitFor(() => g.calls!.registry.get(first.call_id)?.status === 'ended');
+      const again = await answer(g, id, 'phone-aaaa-0001');
+      expect(again.statusCode).toBe(409);
+      expect(code(again)).toBe('invite_already_handled');
+      expect(g.calls!.registry.activeCount).toBe(1);
+    });
+
+    it('a repeat after the call was hung up is 409 and the token is gone (verifier 4)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      await g.send('POST', `/v1/calls/${first.call_id}/end`, { user: 'alice' });
+      expect((await answer(g, id, 'phone-aaaa-0001')).statusCode).toBe(409);
+      expect(g.calls!.registry.unjoinedAnswer('alice', first.call_id)).toBeUndefined();
+    });
+
+    it('another user cannot use the device id to reach the invite or its token (verifier 4)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      const probe = await g.send('POST', `/v1/invites/${id}/answer`, {
+        user: 'mallory',
+        body: { device_id: 'phone-aaaa-0001' },
+      });
+      expect(probe.statusCode).toBe(404);
+      expect(g.calls!.registry.unjoinedAnswer('mallory', first.call_id)).toBeUndefined();
+    });
   });
 
   it('answer after expiry is invite_expired (410)', async () => {
