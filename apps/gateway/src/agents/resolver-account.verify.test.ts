@@ -37,31 +37,17 @@ const userFor = (r: FastifyRequest) => (r as unknown as { user: string }).user;
 
 describe('savedAgentResolver account words (ADR-042)', () => {
   it('gives the owner their name and words from all their agents', async () => {
-    const resolve = savedAgentResolver(
-      stores,
-      policy,
-      userFor,
-      shared,
-      () =>
-        ({
-          name: 'Ada Lovelace',
-        }),
-    );
+    const resolve = savedAgentResolver(stores, policy, userFor, shared, () => ({
+      name: 'Ada Lovelace',
+    }));
     const call = await resolve(req('owner'), 'a1');
     expect(call?.account).toEqual({ ownerName: 'Ada Lovelace', words: ['SaaSage', 'Rishflips'] });
   });
 
   it('gives a team member on a shared agent no account words and no owner name', async () => {
-    const resolve = savedAgentResolver(
-      stores,
-      policy,
-      userFor,
-      shared,
-      () =>
-        ({
-          name: 'Bob',
-        }),
-    );
+    const resolve = savedAgentResolver(stores, policy, userFor, shared, () => ({
+      name: 'Bob',
+    }));
     const call = await resolve(req('member'), 'a1');
     expect(call).toBeDefined();
     expect(call?.account).toBeUndefined();
