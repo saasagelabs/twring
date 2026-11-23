@@ -118,7 +118,7 @@ export function toConnector(record: ConnectorRecord, online: boolean): Connector
 
 /**
  * Whether a call to `endpoint` can start now (`POST /v1/calls` checks this before counting the
- * call): the computer must still be paired, connected, and offering the agent.
+ * call): the computer must still be paired, connected (or reconnecting), and offering the agent.
  */
 export function connectorCallStatus(
   connectors: Pick<Stores['connectors'], 'get'>,
@@ -127,6 +127,9 @@ export function connectorCallStatus(
   return async (userId, endpoint, scoped = false) => {
     if ((await connectors.get(userId, endpoint.connectorId)) === undefined) return 'removed';
     const status = hub.agentStatus(userId, endpoint.connectorId, endpoint.localAgent);
+    // A computer reconnecting (a blip, a server restart) may start the call: the phone shows
+    // "connecting" while the call's agent connect waits for its hello (`waitForComputer`).
+    if (status === 'offline' && hub.reconnecting(endpoint.connectorId)) return 'online';
     if (
       status === 'online' &&
       scoped &&

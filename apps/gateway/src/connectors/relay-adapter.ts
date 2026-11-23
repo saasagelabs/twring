@@ -1,6 +1,7 @@
 import {
   AdapterError,
   NativeWsAdapter,
+  systemSleep,
   type AgentConnectionContext,
   type TwringAgentAdapter,
   type NativeWsTimeouts,
@@ -54,8 +55,15 @@ export class ConnectorRelayAdapter implements TwringAgentAdapter {
         ) as unknown as WebSocket;
       },
       timeouts,
-      // A channel is opened only while the computer is connected; retries would only wait.
+      // One reopen for the next turn. Before it, a computer that just dropped (a network blip, a
+      // server restart) gets the reconnect grace to say hello again; one offline for longer fails
+      // at once, as before.
       reconnectDelaysMs: [0],
+      sleep: async (ms, signal) => {
+        await hub.waitForComputer(userId, endpoint.connectorId, signal);
+        if (signal.aborted) throw signal.reason as Error;
+        await systemSleep(ms, signal);
+      },
     });
   }
 
@@ -65,6 +73,9 @@ export class ConnectorRelayAdapter implements TwringAgentAdapter {
   }
 
   async connect(context: AgentConnectionContext, signal: AbortSignal): Promise<void> {
+    // A computer reconnecting after a blip or a server restart gets a short grace to say hello.
+    await this.hub.waitForComputer(this.userId, this.endpoint.connectorId, signal);
+    if (signal.aborted) throw signal.reason as Error;
     const status = this.hub.agentStatus(
       this.userId,
       this.endpoint.connectorId,
