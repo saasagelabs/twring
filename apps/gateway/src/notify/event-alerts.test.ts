@@ -85,6 +85,27 @@ describe('EventAlerts', () => {
   });
 });
 
+describe('why computers dropped', () => {
+  it('the alert says why, in plain words, most common first', () => {
+    const t = setup();
+    const reasons = ['no_pong', 'no_pong', 'closed', 'no_pong', 'revoked', 'closed'];
+    reasons.forEach((reason, n) =>
+      t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: `con_${n}`, reason }),
+    );
+    expect(t.sent).toHaveLength(1);
+    expect(t.sent[0]!.text).toContain(
+      'Why: 3 stopped answering (a network stall), 2 closed by the computer, 1 removed by its owner.',
+    );
+  });
+
+  it('lines without a reason (an older release) leave the reasons out', () => {
+    const t = setup();
+    for (let n = 0; n < 6; n += 1)
+      t.alerts.record(INFO, { event: 'connector_disconnected', connector_id: `con_${n}` });
+    expect(t.sent[0]!.text).not.toContain('Why:');
+  });
+});
+
 describe('review fixes', () => {
   it('computers dropping counts different computers, not one flapping laptop', () => {
     const t = setup();

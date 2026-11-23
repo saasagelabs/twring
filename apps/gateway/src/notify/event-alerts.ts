@@ -17,7 +17,29 @@ export interface AlertRule {
   count(level: number, fields: Record<string, unknown>): number;
   /** With a key, the count is how many different keys were seen (one flapping laptop is one). */
   key?(fields: Record<string, unknown>): string | undefined;
-  text(count: number): string;
+  /** A label for why this line counted; the alert text gets how many of each it saw. */
+  detail?(fields: Record<string, unknown>): string | undefined;
+  text(count: number, details: ReadonlyMap<string, number>): string;
+}
+
+/** Why a computer dropped (`connector_disconnected.reason`), in the owner's words. */
+const DROP_REASONS: Readonly<Record<string, string>> = {
+  no_pong: 'stopped answering (a network stall)',
+  closed: 'closed by the computer',
+  replaced: 'replaced by a newer connection',
+  revoked: 'removed by its owner',
+  no_hello: 'never finished connecting',
+  bad_frame: 'sent something unreadable',
+  shutting_down: 'dropped by a server restart',
+};
+
+/** " Why: 3 stopped answering (a network stall), 2 closed by the computer." or nothing. */
+function why(details: ReadonlyMap<string, number>): string {
+  if (details.size === 0) return '';
+  const parts = [...details]
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, n]) => `${n} ${DROP_REASONS[reason] ?? reason.replace(/_/g, ' ')}`);
+  return ` Why: ${parts.join(', ')}.`;
 }
 
 const isEvent = (fields: Record<string, unknown>, ...names: string[]) =>
@@ -57,8 +79,9 @@ export const WAVE_ONE_RULES: readonly AlertRule[] = [
     threshold: 6,
     count: (_level, f) => (isEvent(f, 'connector_disconnected') ? 1 : 0),
     key: (f) => (typeof f.connector_id === 'string' ? f.connector_id : undefined),
-    text: (n) =>
-      `${n} computers disconnected in 5 minutes. A network problem on the server, or a bad release of the computer tool, can do this.`,
+    detail: (f) => (typeof f.reason === 'string' ? f.reason : undefined),
+    text: (n, details) =>
+      `${n} computers disconnected in 5 minutes.${why(details)} A network problem on the server, or a bad release of the computer tool, can do this.`,
   },
 ];
 
@@ -66,6 +89,7 @@ export class EventAlerts {
   private window = -1;
   private readonly counts = new Map<AlertRule, number>();
   private readonly keys = new Map<AlertRule, Set<string>>();
+  private readonly details = new Map<AlertRule, Map<string, number>>();
   private readonly fired = new Set<AlertRule>();
   private stopped = false;
 
@@ -88,11 +112,18 @@ export class EventAlerts {
         this.window = window;
         this.counts.clear();
         this.keys.clear();
+        this.details.clear();
         this.fired.clear();
       }
       for (const rule of this.options.rules) {
         const add = rule.count(level, f);
         if (!(add > 0)) continue;
+        const label = rule.detail?.(f);
+        if (label !== undefined) {
+          const tally = this.details.get(rule) ?? new Map<string, number>();
+          tally.set(label, (tally.get(label) ?? 0) + 1);
+          this.details.set(rule, tally);
+        }
         const key = rule.key?.(f);
         let total: number;
         if (key !== undefined) {
@@ -106,7 +137,7 @@ export class EventAlerts {
         }
         if (total >= rule.threshold && !this.fired.has(rule)) {
           this.fired.add(rule);
-          this.options.alert(rule.subject, rule.text(total));
+          this.options.alert(rule.subject, rule.text(total, this.details.get(rule) ?? new Map()));
         }
       }
     } catch {
