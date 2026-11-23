@@ -86,6 +86,12 @@ export interface RingTarget {
 const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
 
 /** Told to the agent when a ring reached no phone (fits the 60-character decline note). */
+/**
+ * How long a same-phone repeat waits for that phone's first answer, still starting a call, before
+ * it is refused as handled. Longer than the phone's own answer timeout is pointless.
+ */
+export const ANSWER_REPEAT_WAIT_MS = 20_000;
+
 export const UNREACHABLE_NOTE = 'Phone unreachable; send a message instead';
 
 /** `inv_` + 26 base32 characters: 130 random bits. */
@@ -136,6 +142,8 @@ export type AnswerClaim =
   | { kind: 'handled' }
   /** The same phone answered again after its call started (its first response was lost). */
   | { kind: 'repeat'; invite: InviteRecord; callId: string }
+  /** The same phone repeated an AI app ring's answer: the chat was already delivered. */
+  | { kind: 'repeat_chat'; invite: InviteRecord }
   | {
       kind: 'claimed';
       invite: InviteRecord;
@@ -154,6 +162,8 @@ export class RingService {
   private readonly waiters = new Map<string, Set<() => void>>();
   /** Invites whose answer is starting a call right now: expiry and cancel wait for it. */
   private readonly answering = new Set<string>();
+  /** The phone answering each invite in `answering`, and when that answer settles. */
+  private readonly answeringBy = new Map<string, { deviceId?: string; settled: Promise<void> }>();
   /** The connector cancelled while an answer was starting: applied if that answer fails. */
   private readonly cancelledWhileAnswering = new Set<string>();
   private readonly background = new Set<Promise<void>>();
@@ -373,17 +383,30 @@ export class RingService {
    * learns why instead of waiting out the ring. `release(false)` alone (the start failed
    * unexpectedly) puts it back to ringing.
    */
-  async claimAnswer(userId: string, id: string, deviceId?: string): Promise<AnswerClaim> {
+  async claimAnswer(
+    userId: string,
+    id: string,
+    deviceId?: string,
+    waited = false,
+  ): Promise<AnswerClaim> {
     const invite = await this.get(userId, id);
     if (invite === undefined) return { kind: 'not_found' };
     if (invite.status === 'missed') return { kind: 'expired' };
+    if (invite.status === 'answered' && deviceId !== undefined && invite.answered_by === deviceId) {
+      if (invite.call_id !== undefined) return { kind: 'repeat', invite, callId: invite.call_id };
+      if (invite.connector_id === undefined) return { kind: 'repeat_chat', invite };
+    }
+    const inFlight = this.answeringBy.get(id);
     if (
-      invite.status === 'answered' &&
+      inFlight !== undefined &&
+      !waited &&
       deviceId !== undefined &&
-      invite.answered_by === deviceId &&
-      invite.call_id !== undefined
+      inFlight.deviceId === deviceId
     ) {
-      return { kind: 'repeat', invite, callId: invite.call_id };
+      // The same phone timed out and asked again while its first answer is still starting the
+      // call: wait for that answer and give it the same result instead of a call nobody joins.
+      await this.boundedWait(inFlight.settled, ANSWER_REPEAT_WAIT_MS);
+      return this.claimAnswer(userId, id, deviceId, true);
     }
     if (invite.status !== 'pending' || this.answering.has(id)) return { kind: 'handled' };
     if (Date.parse(invite.expires_at) <= this.now().getTime()) {
@@ -391,6 +414,11 @@ export class RingService {
       return { kind: 'expired' };
     }
     this.answering.add(id);
+    let settle = () => undefined as void;
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
+    this.answeringBy.set(id, { ...(deviceId !== undefined && { deviceId }), settled });
     let released = false;
     return {
       kind: 'claimed',
@@ -398,27 +426,53 @@ export class RingService {
       release: async (answered, refusedNote, answeredBy) => {
         if (released) return;
         released = true;
-        this.answering.delete(id);
-        const cancelled = this.cancelledWhileAnswering.delete(id);
-        if (answered) {
-          await this.finish(id, 'answered', undefined, answeredBy);
-          return;
+        try {
+          await this.settleAnswer(id, invite, answered, refusedNote, answeredBy);
+        } finally {
+          this.answeringBy.delete(id);
+          settle();
         }
-        if (cancelled) {
-          await this.finish(id, 'cancelled');
-          return;
-        }
-        if (refusedNote !== undefined) {
-          await this.finish(id, 'declined', refusedNote);
-          return;
-        }
-        // Failed: it rings on, unless its time ran out meanwhile. The expiry timer skips an
-        // invite being answered, so if it already fired, it is armed again for the time left.
-        const left = Date.parse(invite.expires_at) - this.now().getTime();
-        if (left <= 0) await this.expire(id);
-        else if (!this.timers.has(id)) this.arm(id, left);
       },
     };
+  }
+
+  private async settleAnswer(
+    id: string,
+    invite: InviteRecord,
+    answered: boolean,
+    refusedNote: string | undefined,
+    answeredBy: AnsweredBy | undefined,
+  ): Promise<void> {
+    this.answering.delete(id);
+    const cancelled = this.cancelledWhileAnswering.delete(id);
+    if (answered) {
+      await this.finish(id, 'answered', undefined, answeredBy);
+      return;
+    }
+    if (cancelled) {
+      await this.finish(id, 'cancelled');
+      return;
+    }
+    if (refusedNote !== undefined) {
+      await this.finish(id, 'declined', refusedNote);
+      return;
+    }
+    // Failed: it rings on, unless its time ran out meanwhile. The expiry timer skips an
+    // invite being answered, so if it already fired, it is armed again for the time left.
+    const left = Date.parse(invite.expires_at) - this.now().getTime();
+    if (left <= 0) await this.expire(id);
+    else if (!this.timers.has(id)) this.arm(id, left);
+  }
+
+  /** Resolves when `promise` settles or after `ms`, whichever is first. */
+  private boundedWait(promise: Promise<void>, ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      const cancel = this.options.scheduler.setTimeout(resolve, ms);
+      void promise.then(() => {
+        cancel();
+        resolve();
+      });
+    });
   }
 
   /** Deletes the user's invites (their data was deleted) and stops their timers. */

@@ -640,6 +640,44 @@ describe('answering', () => {
       apps: [],
     });
   });
+  it('repeats a lost chat answer for the same phone only', async () => {
+    const g = await gateway({ calls: {}, threads: {}, ring: {} });
+    const id = newAgentId();
+    const at = new Date().toISOString();
+    await g.stores.agents.create({
+      id,
+      user_id: 'alice',
+      name: 'Claude',
+      protocol: 'mcp-app',
+      endpoint_url: 'mcp-app://claude',
+      voice_id: 'flux-haley-en',
+      status: 'ready',
+      created_at: at,
+      updated_at: at,
+    });
+    const placed = await g.ring!.service.ring({
+      userId: 'alice',
+      agentId: id,
+      agentName: 'Claude',
+      reason: 'The build failed',
+    });
+    if (!('invite' in placed)) throw new Error('not rung');
+    const answerFrom = (deviceId: string) =>
+      g.send('POST', `/v1/invites/${placed.invite.id}/answer`, {
+        user: 'alice',
+        body: { device_id: deviceId },
+      });
+    expect((await answerFrom('phone-chat-0001')).statusCode).toBe(200);
+    const again = await answerFrom('phone-chat-0001');
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual({ mode: 'chat', agent_id: id });
+    const other = await answerFrom('phone-chat-0002');
+    expect(other.statusCode).toBe(409);
+    expect(code(other)).toBe('invite_already_handled');
+    const page = await g.threads!.store.listMessages('alice', id, { limit: 20 });
+    expect(page.messages.filter((m) => m.kind === 'agent_text')).toHaveLength(1);
+  });
+
   it('answers an AI app ring in chat without a call or agent turn', async () => {
     const g = await gateway({ calls: {}, threads: {}, ring: {} });
     const id = newAgentId();
@@ -818,6 +856,17 @@ describe('answering', () => {
       const b = createCallResponseSchema.parse(again.json());
       expect(b.call_id).toBe(a.call_id);
       expect(b.livekit.token).toBeTruthy();
+      expect(g.calls!.registry.activeCount).toBe(1);
+    });
+
+    it('another phone answering while the first answer is starting is refused (409)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const [a, b] = await Promise.all([
+        answer(g, id, 'phone-aaaa-0001'),
+        answer(g, id, 'phone-bbbb-0002'),
+      ]);
+      expect([a.statusCode, b.statusCode].sort()).toEqual([201, 409]);
       expect(g.calls!.registry.activeCount).toBe(1);
     });
 
@@ -1007,6 +1056,65 @@ describe('restart', () => {
     expect(outcomes).toEqual(['answered:', 'declined:busy', 'cancelled:', 'missed:']);
     service.close();
   });
+  it('a same-phone answer while the first is still starting waits for it; another phone gets handled', async () => {
+    const g = await gateway();
+    const service = new RingService({
+      stores: g.ring!.stores,
+      scheduler: new ManualScheduler(),
+      inCall: () => false,
+      logger: recordingLogger(),
+      now: () => new Date('2026-10-01T09:00:00.000Z'),
+    });
+    const placed = await service.ring({
+      userId: 'alice',
+      connectorId: 'con_test',
+      localAgent: 'claude-code',
+      agentId: `agt_${'a'.repeat(20)}`,
+      agentName: 'Agent',
+      reason: 'Done',
+    });
+    if (!('invite' in placed)) throw new Error('ring refused');
+    const id = placed.invite.id;
+    const first = await service.claimAnswer('alice', id, 'phone-aaaa-0001');
+    if (first.kind !== 'claimed') throw new Error('answer failed');
+    const same = service.claimAnswer('alice', id, 'phone-aaaa-0001');
+    expect((await service.claimAnswer('alice', id, 'phone-bbbb-0002')).kind).toBe('handled');
+    expect((await service.claimAnswer('alice', id)).kind).toBe('handled');
+    await first.release(true, undefined, {
+      deviceId: 'phone-aaaa-0001',
+      callId: 'call_abcdefghij0123456789',
+    });
+    expect(await same).toMatchObject({ kind: 'repeat', callId: 'call_abcdefghij0123456789' });
+    service.close();
+  });
+
+  it('a same-phone answer waiting on a failed first answer claims it afresh', async () => {
+    const g = await gateway();
+    const service = new RingService({
+      stores: g.ring!.stores,
+      scheduler: new ManualScheduler(),
+      inCall: () => false,
+      logger: recordingLogger(),
+      now: () => new Date('2026-10-01T09:00:00.000Z'),
+    });
+    const placed = await service.ring({
+      userId: 'alice',
+      connectorId: 'con_test',
+      localAgent: 'claude-code',
+      agentId: `agt_${'a'.repeat(20)}`,
+      agentName: 'Agent',
+      reason: 'Done',
+    });
+    if (!('invite' in placed)) throw new Error('ring refused');
+    const id = placed.invite.id;
+    const first = await service.claimAnswer('alice', id, 'phone-aaaa-0001');
+    if (first.kind !== 'claimed') throw new Error('answer failed');
+    const same = service.claimAnswer('alice', id, 'phone-aaaa-0001');
+    await first.release(false);
+    expect((await same).kind).toBe('claimed');
+    service.close();
+  });
+
   function service(stores: RingStores, now: number, scheduler = new ManualScheduler()) {
     const history: { userId: string; item: unknown }[] = [];
     const s = new RingService({
