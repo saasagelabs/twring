@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Call your Hermes agent from your phone, and let its scheduled jobs ring you | Twring</title>
+<meta name="description" content="Install the Twring plugin in Hermes to talk to your own Hermes agent in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/blog/hermes-agent-phone-call/">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://twring.com/blog/hermes-agent-phone-call/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Call your Hermes agent from your phone, and let its scheduled jobs ring you">
+<meta property="og:description" content="Install the Twring plugin in Hermes to talk to your own Hermes agent in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="article:published_time" content="2026-11-24">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=8">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "BlogPosting",
+   "@id": "https://twring.com/blog/hermes-agent-phone-call/#post",
+   "mainEntityOfPage": "https://twring.com/blog/hermes-agent-phone-call/",
+   "headline": "Call your Hermes agent from your phone, and let its scheduled jobs ring you",
+   "description": "Install the Twring plugin in Hermes to talk to your own Hermes agent in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.",
+   "datePublished": "2026-11-24",
+   "dateModified": "2026-11-24",
+   "image": "https://twring.com/media/twring-in-30-seconds.jpg",
+   "author": {
+    "@id": "https://twring.com/#org"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "isPartOf": {
+    "@id": "https://twring.com/blog/#blog"
+   },
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://twring.com/blog/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Hermes phone calls",
+      "item": "https://twring.com/blog/hermes-agent-phone-call/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/blog/hermes-agent-phone-call/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Do I need a phone number or a Twilio account?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring calls happen over the internet inside the Twring app, so there is no phone number or telephony account to set up."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can a scheduled Hermes job send a notification instead of a ring?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Set TWRING_RING_ON_DELIVERY=false and results still land in your Twring chat, with a notification instead of a ring."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "What happens if I hang up while Hermes is working?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Hermes keeps working. The rest of its answer reaches your Twring chat, with a ring if your Twring settings allow."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Is the plugin open source?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. It is licensed Apache-2.0 and lives in the Twring repository on GitHub, along with the rest of Twring."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/blog/">Blog</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <article class="wrap">
+    <p class="post-meta"><a href="/blog/">Blog</a> · <time datetime="2026-11-24">24 November 2026</time></p>
+    <h1>Call your Hermes agent from your phone, and let its scheduled jobs ring you</h1>
+    <p class="lead">Install the Twring plugin in Hermes (<code>hermes plugins install twring</code>, then <code>hermes twring link</code> and <code>hermes gateway</code>), and your own Hermes appears in the Twring app on your iPhone or Android phone: press Call and talk to it live. Deliver any Hermes scheduled job to <code>twring</code>, and your phone rings with the first sentence of its result.</p>
+
+    <div class="prose">
+<h2>What you get</h2>
+<p>Twring is a phone app for the AI agents you already run. The Hermes plugin makes Twring a Hermes messaging platform, a bit like Telegram, except you can also talk. Three things change once it is set up:</p>
+<ul>
+  <li><strong>Live calls.</strong> Press Call in the app and speak. Your words reach Hermes as a message, and Twring speaks its answer as it streams in.</li>
+  <li><strong>Approvals by voice or tap.</strong> When Hermes needs your OK for a risky command, the request shows up on your phone.</li>
+  <li><strong>Rings from scheduled jobs.</strong> A job that delivers to <code>twring</code> puts its result in your Twring chat and rings your phone.</li>
+</ul>
+<p>Hermes keeps its own model, memory, tools and permissions. Twring only handles the voice: it turns your speech into text for Hermes, and Hermes's reply into speech for you. Twring never runs Hermes's tools.</p>
+
+<h2>Set it up</h2>
+<ol>
+  <li>Get an invite and install Twring on your iPhone (through TestFlight) or Android phone (an APK from twring.com). Sign in.</li>
+  <li>On the computer or server where Hermes runs, install and link the plugin:
+<pre><code>hermes plugins install twring
+hermes twring link</code></pre></li>
+  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>, <strong>Scan a code on my computer</strong>, and scan the code the link step shows.</li>
+  <li>Start the Hermes gateway so your phone can reach Hermes:
+<pre><code>hermes gateway</code></pre></li>
+  <li>Hermes appears in the app. Press <strong>Call</strong>.</li>
+</ol>
+<p><code>hermes gateway setup</code> offers the same link step. <code>hermes twring status</code> shows whether you are linked, and <code>hermes twring unlink</code> forgets the link on that computer (delete Hermes in the app too).</p>
+
+<h2>What a call with Hermes is like</h2>
+<p>You talk, Hermes answers out loud as its reply arrives. A few things make it feel like a call rather than swapping voice notes:</p>
+<ul>
+  <li><strong>You can talk over it.</strong> Start speaking and Hermes's voice stops at once, while its work carries on. If you go on to ask something new, Twring replaces the old turn and Hermes stops that run, as if you had typed <code>/stop</code>, then answers what you just said.</li>
+  <li><strong>Hanging up does not stop the work.</strong> If you hang up while Hermes is still busy, it keeps going, and the rest of its answer reaches your Twring chat, with a ring if your Twring settings allow.</li>
+  <li><strong>One conversation.</strong> Typed messages in the Twring app and spoken turns on a call reach the same Hermes conversation, so you can start by voice and carry on by text.</li>
+</ul>
+
+<h2>Approving risky commands from your phone</h2>
+<p>When Hermes wants to run a command that needs your OK, the approval request appears on your phone. On a call, Twring reads a short fixed line saying Hermes wants to run a command, and asks you to say yes or no, or tap. The details sit on the card on your screen.</p>
+<p>Your answer goes back through Hermes's own approval system. The plugin never approves anything for you, and silence means no. If a command is too long to show on the phone, you get a card that can only deny it from the phone; approving that one has to happen at the computer.</p>
+<p>We cover this in more depth, agent by agent, in <a href="/blog/approve-agent-actions-by-voice/">approving your agent's risky actions by voice</a>.</p>
+
+<h2>Make a scheduled job ring you</h2>
+<p>Hermes can run jobs on a schedule (cron jobs: tasks that run at set times). Point any of them at <code>twring</code> as the place to deliver results. When the job finishes:</p>
+<ol>
+  <li>Its result is saved in your Twring chat with Hermes.</li>
+  <li>Your phone rings, full screen even when it is locked, and Twring reads the first sentence of the result (at most 140 characters).</li>
+  <li>Answer to hear it, or read the full result in the chat later.</li>
+</ol>
+<p>Prefer a quiet notification to a ring? Set <code>TWRING_RING_ON_DELIVERY=false</code> in Hermes's settings. Write the job so its first sentence stands alone, for example "The nightly backup finished and all checks passed." That sentence is what you hear.</p>
+
+<h2>How it compares with Hermes's own voice features</h2>
+<p>Hermes has its own <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode">voice mode</a>. As of November 2026, its docs describe push-to-talk in the Hermes command line, spoken replies in Telegram and Discord chats, and a bot that joins Discord voice channels, with a choice of speech providers, some of which run locally.</p>
+<p>If you mostly talk to Hermes at your desk, or you already live in Discord, its built-in voice may be all you need. Twring is for a different moment: you are away from the computer, you want a phone call with your own Hermes, and you want Hermes to be able to ring you when something is done or needs a decision.</p>
+
+<h2>When it doesn't work</h2>
+<ul>
+  <li><strong>Hermes doesn't appear in the app.</strong> Check that <code>hermes gateway</code> is running. Your phone reaches Hermes only while it runs.</li>
+  <li><strong>Two "Hermes" agents in the app.</strong> You may also be running Twring's separate connector program for Hermes on the same computer. Stop it and use only the plugin, or the two take the same link from each other.</li>
+  <li><strong>No ring from a scheduled job.</strong> Check the job delivers to <code>twring</code>, that <code>TWRING_RING_ON_DELIVERY</code> is not set to false, and that Do Not Disturb and quiet hours in Twring's settings aren't on.</li>
+  <li><strong>You run your own Twring server.</strong> Link with <code>hermes twring link --server https://your-twring-server</code>. See <a href="/self-hosting/">self-hosting</a>.</li>
+</ul>
+<p>Still stuck? The <a href="/support/">support page</a> has more, and the full plugin page is at <a href="/hermes/">twring.com/hermes</a>.</p>
+
+<h2>What the plugin sends, and what it doesn't</h2>
+<p>The plugin keeps one outbound connection to your Twring server while the gateway runs. It sends Hermes's replies, approval questions and scheduled-job results, plus the name of each tool Hermes starts and whether it succeeded (never the tool's arguments or output). It writes no files of its own, runs no shell commands and sends no telemetry. Twring never records or keeps call audio; the <a href="/privacy">privacy notice</a> lists what it does keep.</p>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Do I need a phone number or a Twilio account?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring calls happen over the internet inside the Twring app, so there is no phone number or telephony account to set up.</p></div></details>
+      <details><summary>Can a scheduled Hermes job send a notification instead of a ring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Set TWRING_RING_ON_DELIVERY=false and results still land in your Twring chat, with a notification instead of a ring.</p></div></details>
+      <details><summary>What happens if I hang up while Hermes is working?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Hermes keeps working. The rest of its answer reaches your Twring chat, with a ring if your Twring settings allow.</p></div></details>
+      <details><summary>Is the plugin open source?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. It is licensed Apache-2.0 and lives in the Twring repository on GitHub, along with the rest of Twring.</p></div></details>
+    </div>
+
+    <div class="prose">
+<h2>Read next</h2>
+<ul>
+  <li><a href="/blog/approve-agent-actions-by-voice/">Approving your agent's risky actions by voice, away from your desk</a></li>
+  <li><a href="/blog/how-a-voice-call-with-your-agent-works/">How a live voice call with your AI agent works</a></li>
+</ul>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/blog/">Blog</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/gemini-cli/">Gemini CLI</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT and other AI apps</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>
