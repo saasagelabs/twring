@@ -306,6 +306,9 @@ export function registerCallRoutes(app: FastifyInstance, options: CallRoutesOpti
         );
       }
     }
+    // A stuck call nobody joined is replaced before the allowance is checked, so its daily count
+    // is back first: otherwise a user whose stuck call was the day's last could never call again.
+    await registry.releaseUnjoinedCalls(userId);
     let admission: Admission | undefined;
     try {
       admission = await options.dailyLimits?.admit(userId);

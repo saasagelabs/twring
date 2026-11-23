@@ -190,6 +190,10 @@ interface CallRecord {
    * same phone whose first response was lost gets the same call (ring/routes.ts).
    */
   answer?: CreateCallResponse;
+  /** The daily-count give-back in flight, so a replacing start can wait for it. */
+  refunding?: Promise<void>;
+  /** Ended by `releaseUnjoinedCalls`; the next `create` logs `call_replaced` for it. */
+  replacedUnlogged?: boolean;
 }
 
 /** Endings before any turn that mean the user's computer, not the user, stopped the call. */
@@ -375,9 +379,41 @@ export class CallRegistry {
     return answer;
   }
 
+  /**
+   * Ends `userId`'s live calls nobody ever joined and waits for their daily count to come back,
+   * so a start whose stuck call was the day's last is admitted (checked before the allowance).
+   * Calls someone is on, or still starting, are left alone; `create` refuses those.
+   */
+  async releaseUnjoinedCalls(userId: string): Promise<void> {
+    const idle = [...this.calls.values()].filter(
+      (record) =>
+        record.ownerId === userId &&
+        isLive(record.status) &&
+        record.status !== 'ending' &&
+        record.callerJoined !== true &&
+        !inUse(record),
+    );
+    // Logged by the `create` that follows, which knows the new call's id.
+    for (const record of idle) record.replacedUnlogged = true;
+    await Promise.all(idle.map((record) => this.end(record.ids.callId, 'replaced')));
+    // A start racing this one may have ended the same call: wait for its give-back too.
+    const owned = [...this.calls.values()].filter((record) => record.ownerId === userId);
+    await Promise.all(owned.map((record) => record.refunding));
+  }
+
   /** Ends `owner`'s live calls that nobody is on, for the new call `newCallId`. */
   private replaceIdleCalls(owner: string, newCallId: string): void {
     for (const record of this.calls.values()) {
+      if (record.ownerId === owner && record.replacedUnlogged === true) {
+        delete record.replacedUnlogged;
+        this.options.logger.info({
+          event: 'call_replaced',
+          old_call_id: record.ids.callId,
+          new_call_id: newCallId,
+          why: 'caller_never_joined',
+        });
+        continue;
+      }
       if (record.ownerId !== owner || record.status === 'ending' || !isLive(record.status))
         continue;
       this.options.logger.info({
@@ -705,6 +741,7 @@ export class CallRegistry {
       })
       .finally(() => this.pendingHistory.delete(write));
     this.pendingHistory.add(write);
+    record.refunding = write;
   }
 
   private pruneFinished(): void {
