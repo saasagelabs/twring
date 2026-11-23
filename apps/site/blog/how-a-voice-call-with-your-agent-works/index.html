@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>How a live voice call with your AI agent works | Twring</title>
+<meta name="description" content="A Twring call turns your speech into text, sends it to the agent you already run, and speaks its answer as it streams, so you can talk and interrupt naturally.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/blog/how-a-voice-call-with-your-agent-works/">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://twring.com/blog/how-a-voice-call-with-your-agent-works/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="How a live voice call with your AI agent works">
+<meta property="og:description" content="A Twring call turns your speech into text, sends it to the agent you already run, and speaks its answer as it streams, so you can talk and interrupt naturally.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="article:published_time" content="2026-11-24">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=8">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "BlogPosting",
+   "@id": "https://twring.com/blog/how-a-voice-call-with-your-agent-works/#post",
+   "mainEntityOfPage": "https://twring.com/blog/how-a-voice-call-with-your-agent-works/",
+   "headline": "How a live voice call with your AI agent works",
+   "description": "A Twring call turns your speech into text, sends it to the agent you already run, and speaks its answer as it streams, so you can talk and interrupt naturally.",
+   "datePublished": "2026-11-24",
+   "dateModified": "2026-11-24",
+   "image": "https://twring.com/media/twring-in-30-seconds.jpg",
+   "author": {
+    "@id": "https://twring.com/#org"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "isPartOf": {
+    "@id": "https://twring.com/blog/#blog"
+   },
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://twring.com/blog/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "How a voice call with your agent works",
+      "item": "https://twring.com/blog/how-a-voice-call-with-your-agent-works/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/blog/how-a-voice-call-with-your-agent-works/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Does my agent hear my voice or read text?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "It reads text. Twring turns your speech into text and sends your agent one finished turn at a time, the same as if you had typed it. Raw microphone audio is never forwarded to your agent."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "If I interrupt, does my agent stop what it was doing?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Interrupting always stops the agent's voice quickly. Stopping its work is separate: Twring can ask the agent to stop generating where the agent supports it, but it never assumes an action that already started was undone."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I see what was said during the call?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. The call screen shows your agent's reply as text while it speaks, and your calls and typed chats with each agent sit side by side in the app. Twring still does not record or keep the call audio."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I run the voice part on my own server?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Twring's source is on GitHub and you can run your own server. The self-hosting page explains how, including how rings work for self-hosted servers."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/blog/">Blog</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <article class="wrap">
+    <p class="post-meta"><a href="/blog/">Blog</a> · <time datetime="2026-11-24">24 November 2026</time></p>
+    <h1>How a live voice call with your AI agent works</h1>
+    <p class="lead">A live call with your agent is a relay: Twring turns your speech into text, hands that text to the agent you already run, and turns the agent's reply back into speech while it is still being written. Your agent does all the thinking and acting with its own model, tools and permissions; Twring only handles listening, speaking, taking turns and interruptions.</p>
+
+    <div class="prose">
+<h2>What happens when I speak?</h2>
+<p>Think of Twring as a very fast interpreter sitting between you and your agent. The interpreter does not answer for the agent. It only listens and speaks.</p>
+<ol>
+  <li><strong>You talk.</strong> Your phone sends your voice over the internet to the Twring server, the same way a video call app does.</li>
+  <li><strong>Speech becomes text.</strong> A speech-to-text service writes down what you are saying as you say it.</li>
+  <li><strong>Twring decides you have finished.</strong> When you have actually stopped talking, not just paused for breath, your words become one finished turn.</li>
+  <li><strong>Your agent gets the text.</strong> The finished turn is sent once to your agent: Claude Code, Codex, Gemini CLI, Hermes or another agent you connected.</li>
+  <li><strong>Your agent works and replies.</strong> It uses its own model, memory and tools, exactly as it would if you had typed.</li>
+  <li><strong>Text becomes speech.</strong> As the reply streams in, a text-to-speech service reads it out in the voice you chose.</li>
+</ol>
+<p>This chain (speech to text, your agent, text to speech) is often called a cascade. Each link does one job.</p>
+
+<h2>Why does it feel like a call and not voice notes?</h2>
+<p>Two things: streaming and turn-taking.</p>
+<p><strong>Streaming</strong> means nothing waits for anything to be complete. Your words are written down while you speak. Your agent's reply is spoken while it is still being written, a few words at a time, so you hear the start of the answer before the end exists.</p>
+<p><strong>Turn-taking</strong> means Twring listens all the time and works out when you have handed the floor to the agent. It combines the speech service's own end-of-turn signal with its own checks, and it avoids long fixed silence timers that would make every reply feel slow. Only a finished turn is ever sent to your agent as an instruction.</p>
+
+<h2>What happens when I interrupt?</h2>
+<p>You can cut in, just like on a phone call. This is often called barge-in.</p>
+<p>The microphone stays on while the agent is speaking. When Twring is confident you have started talking, it stops the agent's voice straight away, throws away any speech still queued, and starts listening to your new turn. Any late audio from the old answer is dropped, so the agent never carries on talking over you.</p>
+<p>Stopping the voice is not the same as undoing work. If your agent had already started a command, Twring does not pretend it was reversed. Twring can ask the agent to stop generating where the agent supports that, but what happens to actions is up to your agent and its own permissions.</p>
+
+<h2>What does the agent do while it is working?</h2>
+<p>Coding agents often spend a while running commands or reading files before they say anything. If the agent reports what it is doing, Twring shows that on screen and may say a short line about it, built only from the agent's own activity. If the agent reports nothing, the screen just says it is working. Twring never invents progress or tool names.</p>
+
+<h2>Why not use a speech-to-speech model?</h2>
+<p>Some voice products use one model that listens and talks directly, with no text in between. Those can sound very natural. Twring deliberately does not let such a model take control of your agent's actions.</p>
+<p>The reason is simple. You already chose an agent, set up its tools and decided what it is allowed to do. If a separate voice model sat in the middle and made its own decisions, it would be a second brain with its own idea of what you meant. In Twring, voice is input and output only. The agent you connected stays the only thing that reasons, remembers and acts, and Twring never calls its tools for it.</p>
+
+<h2>What happens if my connection drops?</h2>
+<p>Phones move between Wi-Fi and mobile data all the time. During a short drop Twring keeps the call screen up, shows that it is reconnecting, and tries to recover the same call. It is careful not to send your last turn to the agent twice and not to replay old speech. Twring never re-sends something to your agent just because the network hiccuped, because the agent might do a risky action twice. If the call cannot be recovered, it ends with a clear reason and a way to call again.</p>
+
+<h2>Does Twring record the call?</h2>
+<p>No. Twring listens only while a call is on, and never records or keeps your audio. Your agent receives text, not your raw microphone audio. The <a href="/privacy">privacy policy</a> has the details.</p>
+
+<h2>A little deeper, for developers</h2>
+<p>For readers who want the plumbing:</p>
+<ul>
+  <li><strong>Media.</strong> Calls run on LiveKit (WebRTC). The Twring gateway owns the audio channel and never forwards raw microphone audio to agent endpoints.</li>
+  <li><strong>Speech.</strong> The first providers are Deepgram Flux for speech to text and Deepgram streaming text to speech. Provider events are turned into Twring's own event types (partial, final, end of turn, error) before anything else sees them, so the app never depends on one vendor's format.</li>
+  <li><strong>Turns.</strong> A committed user turn has a call ID, session ID and turn ID and is sent to the agent adapter exactly once. Duplicate finals are deduplicated where possible.</li>
+  <li><strong>Cancellation.</strong> Every chunk of speech is tagged with a speech generation ID. On barge-in the old generation is invalidated and any late audio for it is discarded. Agent cancellation uses an abort signal where the agent supports it, and is kept separate from audio cancellation.</li>
+  <li><strong>Adapters.</strong> Agents connect through a small adapter contract: an agent on your computer through the Twring tool, an agent at its own web address through a Twring-made endpoint, a web service or a server that works like the ChatGPT API. The <a href="/connector/">connector page</a> covers AI apps like Claude and ChatGPT.</li>
+  <li><strong>Open source.</strong> The code is <a href="https://github.com/saasagelabs/twring">on GitHub</a>, and you can <a href="/self-hosting/">run your own server</a>.</li>
+</ul>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Does my agent hear my voice or read text?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>It reads text. Twring turns your speech into text and sends your agent one finished turn at a time, the same as if you had typed it. Raw microphone audio is never forwarded to your agent.</p></div></details>
+      <details><summary>If I interrupt, does my agent stop what it was doing?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Interrupting always stops the agent's voice quickly. Stopping its work is separate: Twring can ask the agent to stop generating where the agent supports it, but it never assumes an action that already started was undone.</p></div></details>
+      <details><summary>Can I see what was said during the call?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. The call screen shows your agent's reply as text while it speaks, and your calls and typed chats with each agent sit side by side in the app. Twring still does not record or keep the call audio.</p></div></details>
+      <details><summary>Can I run the voice part on my own server?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring's source is on GitHub and you can run your own server. The self-hosting page explains how, including how rings work for self-hosted servers.</p></div></details>
+    </div>
+
+    <div class="prose">
+<h2>Read next</h2>
+<ul>
+<li><a href="/blog/reach-your-coding-agent-from-your-phone/">Every way to reach your coding agent from your phone, compared</a></li>
+  <li><a href="/blog/approve-agent-actions-by-voice/">Approving your agent's risky actions by voice, away from your desk</a></li>
+</ul>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/blog/">Blog</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/gemini-cli/">Gemini CLI</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT and other AI apps</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>

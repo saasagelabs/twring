@@ -225,6 +225,19 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); }
 .signed-in { margin-top: 1.1rem; font-size: 0.875rem; color: var(--text-ter); }
 .signed-in button { min-height: 2.75rem; margin-left: 0.4rem; padding: 0; border: 0; background: none; color: var(--text); font: inherit; text-decoration: underline; text-decoration-color: var(--cyan-line); text-underline-offset: 0.2em; cursor: pointer; }
 .scopes { margin-top: 1rem; font: 0.75rem/1.6 var(--mono); color: var(--text-ter); overflow-wrap: anywhere; }
+/* Blog: post date line, the call to action, tables, and the list of posts */
+.post-meta { font-size: 0.875rem; color: var(--text-ter); margin-bottom: 1.25rem; }
+.post-meta a { color: var(--text-sec); text-decoration-color: var(--cyan-line); }
+.post-cta { margin-top: 2.25rem; }
+.prose table { width: 100%; margin-top: 1.25rem; border-collapse: collapse; font-size: 0.875rem; display: block; overflow-x: auto; }
+.prose th, .prose td { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; color: var(--text-sec); min-width: 7rem; }
+.prose th { color: var(--text); font-weight: 500; border-bottom-color: var(--line-strong); }
+.posts { list-style: none; margin-top: 2.5rem; padding: 0; border-top: 1px solid var(--line); }
+.posts li { padding-block: 1.5rem; border-bottom: 1px solid var(--line); }
+.posts a { text-decoration: none; }
+.posts h2 { font-size: clamp(1.25rem, 2.6vw, 1.5rem); font-weight: 300; letter-spacing: -0.01em; }
+.posts a:hover h2 { text-decoration: underline; text-decoration-color: var(--cyan-line); text-underline-offset: 0.2em; }
+.posts p { margin-top: 0.5rem; color: var(--text-sec); font-size: 0.9375rem; }
 .prose-tight { margin-top: 1.5rem; }
 .faq-tight { margin-top: 1.25rem; border-top: 0; }
 .legal-plain { margin-top: 0; padding-top: 0; border-top: 0; }
