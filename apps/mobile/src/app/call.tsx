@@ -617,7 +617,12 @@ function FinishedCall({
             </>
           )}
         </Animated.View>
-        <RingMeWhenDone call={call} connectedAt={view.connectedAt} agent={agent} />
+        <RingMeWhenDone
+          key={('callId' in call ? call.callId : undefined) ?? 'none'}
+          call={call}
+          connectedAt={view.connectedAt}
+          agent={agent}
+        />
         {(call.status === 'ENDED' || call.status === 'FAILED') &&
           call.callId !== undefined &&
           view.connectedAt !== undefined &&
