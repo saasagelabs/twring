@@ -279,7 +279,15 @@ interface Utterance {
   echoLogged: boolean;
   /** It confirmed a barge-in that cut the agent's speech. */
   cut: boolean;
+  /**
+   * It started shortly after an answer played out (not audible any more, so never judged as echo):
+   * that answer's text and how long ago it ended, logged at commit as evidence (issue 80).
+   */
+  afterTail?: { text: string; sinceEndMs: number };
 }
+
+/** A turn starting this soon after an answer played out is logged with how much it repeats it. */
+const ECHO_EVIDENCE_MS = 3000;
 
 /** A short committed utterance waiting for the caller's next words (ADR-017). */
 interface HeldShortTurn {
@@ -479,6 +487,8 @@ export class ConversationController {
   private heldShort: HeldShortTurn | undefined;
   /** Generations still playing, or still in their echo tail (echo window). */
   private generations: SpokenGeneration[] = [];
+  /** The last answer that played out in full, for the after-tail echo evidence. */
+  private lastFinished?: { text: string; endedAt: number };
   private floor: Floor = { floor: 'listening' };
   private floorSeq = 0;
   private closed = false;
@@ -550,6 +560,12 @@ export class ConversationController {
         cut: false,
       };
       if (utterance.audibleStart) this.extendSpans(utterance);
+      else if (this.lastFinished !== undefined) {
+        const sinceEndMs = this.options.scheduler.now() - this.lastFinished.endedAt;
+        if (sinceEndMs <= ECHO_EVIDENCE_MS) {
+          utterance.afterTail = { text: this.lastFinished.text, sinceEndMs };
+        }
+      }
       this.utterance = utterance;
     }
     const turn = this.turn;
@@ -590,6 +606,11 @@ export class ConversationController {
         }
         return;
       }
+      this.log('echo_passed', {
+        phase: 'partial',
+        words: verdict.words,
+        overlap: round2(verdict.overlap),
+      });
     }
     utterance.real = true;
     this.confirmBargeIn();
@@ -695,6 +716,9 @@ export class ConversationController {
     if (generation === undefined || generation.endedAt !== undefined) return;
     generation.endedAt = this.options.scheduler.now();
     generation.finished = finished;
+    if (finished && generation.cue !== true && generation.text.trim() !== '') {
+      this.lastFinished = { text: generation.text, endedAt: generation.endedAt };
+    }
   }
 
   /** A committed user turn: sent to the agent exactly once, superseding any turn in progress. */
@@ -702,18 +726,33 @@ export class ConversationController {
     if (this.closed) return;
     const utterance = this.utterance;
     this.utterance = undefined;
-    if (utterance?.audibleStart === true && !utterance.real) {
+    if (utterance?.afterTail !== undefined) {
+      // Issue 80 evidence: speech that began just after an answer played out is never judged as
+      // echo. Log how much of it repeats that answer (counts only, never the words).
+      const words = echoWords(text);
+      const matched = echoPrefixLength(words, echoWindow([utterance.afterTail.text]));
+      this.log('echo_passed', {
+        phase: 'after_tail',
+        since_end_ms: utterance.afterTail.sinceEndMs,
+        words: words.length,
+        overlap: words.length === 0 ? 0 : round2(matched / words.length),
+      });
+    }
+    if (utterance?.audibleStart === true) {
       // Only an utterance that started over the agent's voice and never proved itself can be echo:
       // it is, if nothing is left once the leading run of the agent's audible words is stripped.
       const window = this.extendSpans(utterance);
       const words = echoWords(text);
       const matched = echoPrefixLength(words, window);
-      if (matched === words.length) {
+      const overlap = words.length === 0 ? 1 : round2(matched / words.length);
+      if (utterance.real || matched !== words.length) {
+        this.log('echo_passed', { phase: 'commit', words: words.length, overlap });
+      } else {
         // The agent's own voice, committed by STT: dropped as if it were noise.
         this.log('echo_rejected', {
           phase: 'commit',
           words: words.length,
-          overlap: words.length === 0 ? 1 : round2(matched / words.length),
+          overlap,
         });
         const approval = this.turn?.approval;
         if (

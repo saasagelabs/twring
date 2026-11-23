@@ -280,6 +280,41 @@ describe('connector hub: channels', () => {
     expect(h.isOnline('alice', CONNECTOR)).toBe(false);
   });
 
+  it('says why a computer dropped: no answer to the ping, or the computer closing', async () => {
+    const logged: Record<string, unknown>[] = [];
+    const logger = {
+      info: (fields: Record<string, unknown>) => logged.push(fields),
+      warn: () => undefined,
+    };
+    const dropped = () => logged.filter((f) => f.event === 'connector_disconnected');
+
+    const silent = hub({ heartbeatMs: 15, logger });
+    const ws = await readyConnector(silent);
+    await new Promise((resolve) => ws.once('close', resolve));
+    await tick();
+    expect(dropped()).toEqual([
+      { event: 'connector_disconnected', connector_id: CONNECTOR, reason: 'no_pong' },
+    ]);
+
+    logged.length = 0;
+    const closing = hub({ logger });
+    const other = await readyConnector(closing);
+    other.emit('close', 1001, Buffer.from('going away'));
+    await tick();
+    expect(dropped()).toEqual([
+      { event: 'connector_disconnected', connector_id: CONNECTOR, reason: 'closed', code: 1001 },
+    ]);
+
+    logged.length = 0;
+    const revoking = hub({ logger });
+    await readyConnector(revoking);
+    revoking.disconnect(CONNECTOR);
+    await tick();
+    expect(dropped()).toEqual([
+      { event: 'connector_disconnected', connector_id: CONNECTOR, reason: 'revoked' },
+    ]);
+  });
+
   it('a pong keeps the socket alive', async () => {
     // Pongs every 5 ms against a 100 ms heartbeat: wide enough that a busy machine (the whole
     // workspace testing in parallel) can't stall the pong timer past a heartbeat.

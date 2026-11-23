@@ -155,6 +155,11 @@ interface LiveConnector extends ConnectorIdentity {
   heartbeat?: ReturnType<typeof setInterval>;
   helloTimer?: ReturnType<typeof setTimeout>;
   awaitingPong: boolean;
+  /**
+   * Why the server ended this socket, set just before it does; unset when the computer (or the
+   * network on its side) closed it. Logged with `connector_disconnected`.
+   */
+  endReason?: string;
 }
 
 export class ConnectorHub {
@@ -221,9 +226,10 @@ export class ConnectorHub {
       entry.awaitingPong = false;
     });
     ws.on('error', () => undefined);
-    ws.on('close', () => this.release(entry));
+    ws.on('close', (code: number) => this.release(entry, code));
     entry.heartbeat = setInterval(() => {
       if (entry.awaitingPong) {
+        entry.endReason = 'no_pong';
         ws.terminate();
         return;
       }
@@ -231,6 +237,7 @@ export class ConnectorHub {
       try {
         ws.ping();
       } catch {
+        entry.endReason = 'no_pong';
         ws.terminate();
       }
     }, this.heartbeatMs);
@@ -418,6 +425,7 @@ export class ConnectorHub {
   }
 
   private drop(entry: LiveConnector, code: number, reason: string): void {
+    entry.endReason = reason.replace(/ /g, '_');
     this.release(entry);
     try {
       entry.ws.close(code, reason);
@@ -426,7 +434,7 @@ export class ConnectorHub {
     }
   }
 
-  private release(entry: LiveConnector): void {
+  private release(entry: LiveConnector, code?: number): void {
     clearTimeout(entry.helloTimer);
     clearInterval(entry.heartbeat);
     if (this.live.get(entry.connectorId) !== entry) return;
@@ -435,8 +443,14 @@ export class ConnectorHub {
     entry.channels.clear();
     if (entry.ready) {
       this.dropped.set(entry.connectorId, Date.now());
+      // The reason tells a network stall (no_pong) from a computer that closed its end (closed).
       this.options.logger?.info(
-        { event: 'connector_disconnected', connector_id: entry.connectorId },
+        {
+          event: 'connector_disconnected',
+          connector_id: entry.connectorId,
+          reason: entry.endReason ?? 'closed',
+          ...(entry.endReason === undefined && code !== undefined && { code }),
+        },
         'connector disconnected',
       );
     }

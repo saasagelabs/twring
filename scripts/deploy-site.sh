@@ -53,13 +53,26 @@ fi
 cp -r "$SITE"/. "$STAGE"/
 
 # The installer, its checksum, and the kit it downloads when piped (same layout as deploy/selfhost).
-hex() { sha256sum <"$1" | cut -c1-64; }
+# macOS has shasum, not always sha256sum.
+if command -v sha256sum >/dev/null; then
+  hex() { sha256sum <"$1" | cut -c1-64; }
+else
+  hex() { shasum -a 256 <"$1" | cut -c1-64; }
+fi
 digest() { echo "sha256:$(hex "$1")"; }
 cp "$SELFHOST/install.sh" "$STAGE/install.sh"
 printf '%s  install.sh\n' "$(hex "$STAGE/install.sh")" >"$STAGE/install.sh.sha256"
 mkdir -p "$STAGE/selfhost"
 KIT_FILES=(Caddyfile.tmpl compose.own.yml compose.twring.yml livekit.yaml.tmpl twring)
-tar -C "$SELFHOST" --sort=name --owner=0 --group=0 --numeric-owner \
+# The kit's digest must not depend on the machine, so it is built with GNU tar's options for a
+# fixed order, owner, time and mode. macOS's own tar has none of them: Homebrew's gnu-tar is gtar.
+TAR=tar
+if ! tar --version 2>/dev/null | grep -q 'GNU tar'; then
+  command -v gtar >/dev/null ||
+    die "needs GNU tar to build the installer kit (on macOS: brew install gnu-tar)."
+  TAR=gtar
+fi
+"$TAR" -C "$SELFHOST" --sort=name --owner=0 --group=0 --numeric-owner \
   --mtime='2026-01-01 00:00Z' --mode='u+rwX,go+rX,go-w' -cf - "${KIT_FILES[@]}" |
   gzip -n >"$STAGE/selfhost/kit.tar.gz"
 KIT_DIGEST="$(digest "$STAGE/selfhost/kit.tar.gz")"

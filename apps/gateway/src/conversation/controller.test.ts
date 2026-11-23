@@ -2018,6 +2018,59 @@ describe('ConversationController echo rejection (ADR-015)', () => {
     expect(adapter.channels).toHaveLength(2);
   });
 
+  // Issue 80 evidence: what made speech over (or just after) the agent count as the caller. Counts
+  // only, never the words.
+  it('logs why speech over the agent passed as the caller: on the partial, and at commit', async () => {
+    const { conversation, logger } = await speaking();
+    conversation.userSpeechStarted();
+    conversation.userPartial('part one wait');
+    conversation.userTurn('part one wait');
+    await flushMicrotasks();
+    const passed = logger.events.filter((e) => e.fields.event === 'echo_passed');
+    expect(passed.map((e) => e.fields)).toEqual([
+      { event: 'echo_passed', call_id: CALL_ID, phase: 'partial', words: 3, overlap: 0.67 },
+      { event: 'echo_passed', call_id: CALL_ID, phase: 'commit', words: 3, overlap: 0.67 },
+    ]);
+  });
+
+  it('logs how close to a finished answer a turn started, and how much of it repeats the answer', async () => {
+    const { adapter, conversation, scheduler, logger } = setup();
+    conversation.userTurn('hi');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('Hello there, how are you.');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'finished');
+    scheduler.advance(900);
+    conversation.userSpeechStarted();
+    conversation.userTurn('how are you');
+    await flushMicrotasks();
+    expect(adapter.channels).toHaveLength(2);
+    expect(logger.events.find((e) => e.fields.event === 'echo_passed')?.fields).toEqual({
+      event: 'echo_passed',
+      call_id: CALL_ID,
+      phase: 'after_tail',
+      since_end_ms: 900,
+      words: 3,
+      overlap: 1,
+    });
+  });
+
+  it('logs nothing for a turn that starts well after the answer finished', async () => {
+    const { adapter, conversation, scheduler, logger } = setup();
+    conversation.userTurn('hi');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('Hello there.');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'finished');
+    scheduler.advance(5_000);
+    conversation.userSpeechStarted();
+    conversation.userTurn('hello there');
+    await flushMicrotasks();
+    expect(logger.names()).not.toContain('echo_passed');
+  });
+
   it('a committed echo never supersedes a working turn', async () => {
     const { adapter, speech, conversation, agent, floors } = await speaking();
     agent.push({ type: 'tool.start', tool_call_id: 't', tool_name: 'x' });
