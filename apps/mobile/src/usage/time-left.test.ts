@@ -53,6 +53,6 @@ describe('timeLeftNotice', () => {
     expect(timeLeftNotice(undefined, 999_999_000)).toBeUndefined();
   });
   it('copy has no em dash', () => {
-    for (const line of Object.values(TIME_LEFT_COPY)) expect(line).not.toContain('—');
+    for (const line of Object.values(TIME_LEFT_COPY)) expect(line).not.toContain('\u2014');
   });
 });
