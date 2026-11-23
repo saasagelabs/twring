@@ -63,7 +63,7 @@ export interface RingServiceOptions {
   requireRingPhone?: boolean;
   /** Platforms whose phones can be rung (default Android); iOS joins when APNs is configured. */
   ringPlatforms?: readonly ('android' | 'ios')[];
-  /** Whether the owner is in a call right now. */
+  /** Whether the owner is on a call right now (a call nobody is on does not count). */
   inCall: (userId: string) => boolean;
   scheduler: Pick<Scheduler, 'setTimeout'>;
   now?: () => Date;
@@ -134,11 +134,19 @@ export type AnswerClaim =
   | { kind: 'not_found' }
   | { kind: 'expired' }
   | { kind: 'handled' }
+  /** The same phone answered again after its call started (its first response was lost). */
+  | { kind: 'repeat'; invite: InviteRecord; callId: string }
   | {
       kind: 'claimed';
       invite: InviteRecord;
-      release: (answered: boolean, refusedNote?: string) => Promise<void>;
+      /** `answeredBy`: the phone and call that answered, so that phone can repeat its answer. */
+      release: (answered: boolean, refusedNote?: string, answeredBy?: AnsweredBy) => Promise<void>;
     };
+
+export interface AnsweredBy {
+  deviceId?: string;
+  callId?: string;
+}
 
 export class RingService {
   private readonly now: () => Date;
@@ -365,10 +373,18 @@ export class RingService {
    * learns why instead of waiting out the ring. `release(false)` alone (the start failed
    * unexpectedly) puts it back to ringing.
    */
-  async claimAnswer(userId: string, id: string): Promise<AnswerClaim> {
+  async claimAnswer(userId: string, id: string, deviceId?: string): Promise<AnswerClaim> {
     const invite = await this.get(userId, id);
     if (invite === undefined) return { kind: 'not_found' };
     if (invite.status === 'missed') return { kind: 'expired' };
+    if (
+      invite.status === 'answered' &&
+      deviceId !== undefined &&
+      invite.answered_by === deviceId &&
+      invite.call_id !== undefined
+    ) {
+      return { kind: 'repeat', invite, callId: invite.call_id };
+    }
     if (invite.status !== 'pending' || this.answering.has(id)) return { kind: 'handled' };
     if (Date.parse(invite.expires_at) <= this.now().getTime()) {
       await this.expire(id);
@@ -379,13 +395,13 @@ export class RingService {
     return {
       kind: 'claimed',
       invite,
-      release: async (answered, refusedNote) => {
+      release: async (answered, refusedNote, answeredBy) => {
         if (released) return;
         released = true;
         this.answering.delete(id);
         const cancelled = this.cancelledWhileAnswering.delete(id);
         if (answered) {
-          await this.finish(id, 'answered');
+          await this.finish(id, 'answered', undefined, answeredBy);
           return;
         }
         if (cancelled) {
@@ -478,8 +494,15 @@ export class RingService {
     id: string,
     status: Exclude<InviteStatus, 'pending'>,
     note?: string,
+    answeredBy?: AnsweredBy,
   ): Promise<InviteRecord | undefined> {
-    const settled = await this.options.stores.invites.settle(id, status, this.now(), note);
+    const settled = await this.options.stores.invites.settle(
+      id,
+      status,
+      this.now(),
+      note,
+      answeredBy,
+    );
     if (settled === undefined) return undefined;
     this.timers.get(id)?.();
     this.timers.delete(id);

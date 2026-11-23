@@ -314,9 +314,20 @@ describe('ringing', () => {
     const { token, agentId } = await setupAgent(g, 'alice', true);
     const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
     expect(call.statusCode).toBe(201);
+    const transport = g.calls!.transports[0]!;
+    await waitFor(() => transport.states.includes('ready'));
+    transport.emit({ type: 'caller_joined' });
     const res = await ring(g, token);
     expect(res.statusCode).toBe(409);
     expect(code(res)).toBe('owner_busy');
+  });
+
+  it('rings when the only call of the owner has nobody on it (a lost reconnect)', async () => {
+    const g = await gateway({ calls: { allowance: { callSeconds: 0, calls: 5 } } });
+    const { token, agentId } = await setupAgent(g, 'alice', true);
+    const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
+    expect(call.statusCode).toBe(201);
+    expect((await ring(g, token)).statusCode).toBe(201);
   });
 
   it('refuses a ring with push when no Android phone is registered', async () => {
@@ -787,6 +798,108 @@ describe('answering', () => {
     expect([a.statusCode, b.statusCode].sort()).toEqual([201, 409]);
     expect(code(a.statusCode === 409 ? a : b)).toBe('invite_already_handled');
     expect(g.calls!.registry.activeCount).toBe(1);
+  });
+
+  describe('repeating a lost answer', () => {
+    const answer = (g: ConnectorGateway, id: string, deviceId?: string) =>
+      g.send('POST', `/v1/invites/${id}/answer`, {
+        user: 'alice',
+        ...(deviceId !== undefined && { body: { device_id: deviceId } }),
+      });
+
+    it('the same phone gets the same call again while its caller has not joined', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = await answer(g, id, 'phone-aaaa-0001');
+      expect(first.statusCode).toBe(201);
+      const again = await answer(g, id, 'phone-aaaa-0001');
+      expect(again.statusCode).toBe(200);
+      const a = createCallResponseSchema.parse(first.json());
+      const b = createCallResponseSchema.parse(again.json());
+      expect(b.call_id).toBe(a.call_id);
+      expect(b.livekit.token).toBeTruthy();
+      expect(g.calls!.registry.activeCount).toBe(1);
+    });
+
+    it('another phone is refused (409)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id, 'phone-aaaa-0001')).statusCode).toBe(201);
+      const other = await answer(g, id, 'phone-bbbb-0002');
+      expect(other.statusCode).toBe(409);
+      expect(code(other)).toBe('invite_already_handled');
+    });
+
+    it('is refused once the caller has joined (409)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id, 'phone-aaaa-0001')).statusCode).toBe(201);
+      const transport = g.calls!.transports[0]!;
+      await waitFor(() => transport.states.includes('ready'));
+      transport.emit({ type: 'caller_joined' });
+      const again = await answer(g, id, 'phone-aaaa-0001');
+      expect(again.statusCode).toBe(409);
+      expect(code(again)).toBe('invite_already_handled');
+    });
+
+    it('without a device id, a repeat is refused as before (409)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id)).statusCode).toBe(201);
+      const again = await answer(g, id);
+      expect(again.statusCode).toBe(409);
+      expect(code(again)).toBe('invite_already_handled');
+    });
+
+    it('refuses a malformed device id (400)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id, 'x')).statusCode).toBe(400);
+    });
+
+    it('refuses a device id with characters outside the allowed set (400)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      expect((await answer(g, id, 'phone aaaa/0001')).statusCode).toBe(400);
+      expect((await answer(g, id, 'p'.repeat(129))).statusCode).toBe(400);
+    });
+
+    it('a repeat after the app started a new call (which replaced the ring call) is 409 (verifier 3)', async () => {
+      const { g, token, agentId } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      const call = await g.send('POST', '/v1/calls', {
+        user: 'alice',
+        body: { agent_id: agentId },
+      });
+      expect(call.statusCode).toBe(201);
+      await waitFor(() => g.calls!.registry.get(first.call_id)?.status === 'ended');
+      const again = await answer(g, id, 'phone-aaaa-0001');
+      expect(again.statusCode).toBe(409);
+      expect(code(again)).toBe('invite_already_handled');
+      expect(g.calls!.registry.activeCount).toBe(1);
+    });
+
+    it('a repeat after the call was hung up is 409 and the token is gone (verifier 4)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      await g.send('POST', `/v1/calls/${first.call_id}/end`, { user: 'alice' });
+      expect((await answer(g, id, 'phone-aaaa-0001')).statusCode).toBe(409);
+      expect(g.calls!.registry.unjoinedAnswer('alice', first.call_id)).toBeUndefined();
+    });
+
+    it('another user cannot use the device id to reach the invite or its token (verifier 4)', async () => {
+      const { g, token } = await callingGateway();
+      const { invite_id: id } = await ringOk(g, token);
+      const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
+      const probe = await g.send('POST', `/v1/invites/${id}/answer`, {
+        user: 'mallory',
+        body: { device_id: 'phone-aaaa-0001' },
+      });
+      expect(probe.statusCode).toBe(404);
+      expect(g.calls!.registry.unjoinedAnswer('mallory', first.call_id)).toBeUndefined();
+    });
   });
 
   it('answer after expiry is invite_expired (410)', async () => {

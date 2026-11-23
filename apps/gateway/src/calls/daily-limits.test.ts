@@ -253,7 +253,7 @@ afterEach(async () => {
 function setup(
   allowance: { callSeconds: number; calls: number },
   service?: ServiceCap,
-  extra: { refusals?: Pick<RefusalCounter, 'count'>; logs?: string[] } = {},
+  extra: { refusals?: Pick<RefusalCounter, 'count'>; logs?: string[]; join?: boolean } = {},
 ) {
   const env = loadGatewayEnv(gatewayEnvFixture({ CALL_MAX_DURATION_S: '1800' }));
   const scheduler = new ManualScheduler();
@@ -271,7 +271,7 @@ function setup(
     transports: () => {
       const transport = new FakeTransport();
       // The caller joins at once, so only the duration caps end the call.
-      queueMicrotask(() => transport.emit({ type: 'caller_joined' }));
+      if (extra.join !== false) queueMicrotask(() => transport.emit({ type: 'caller_joined' }));
       transports.push(transport);
       return transport;
     },
@@ -566,6 +566,36 @@ describe('daily limits: edge cases', () => {
     // The refused starts were never counted, and the day's seconds are used exactly once.
     expect((await daily.usage('user-1')).calls_used).toBe(1);
     expect((await createCall()).statusCode).toBe(429);
+  });
+
+  it('a call replaced before its caller joined gives its daily count back', async () => {
+    const { createCall, daily } = setup({ callSeconds: 0, calls: 2 }, undefined, { join: false });
+    expect((await createCall()).statusCode).toBe(201);
+    await flushMicrotasks();
+    expect((await createCall()).statusCode).toBe(201);
+    // Two calls admitted, the first never had: only the call that replaced it counts.
+    await vi.waitFor(async () => expect((await daily.usage('user-1')).calls_used).toBe(1));
+  });
+
+  it('a stuck call that was the last of the day is replaced, not refused (verifier 1)', async () => {
+    const { createCall, daily } = setup({ callSeconds: 0, calls: 1 }, undefined, { join: false });
+    expect((await createCall()).statusCode).toBe(201);
+    await flushMicrotasks();
+    // The first call nobody joined holds the only daily call: the new call must replace it.
+    expect((await createCall()).statusCode).toBe(201);
+    await vi.waitFor(async () => expect((await daily.usage('user-1')).calls_used).toBe(1));
+  });
+
+  it('two parallel replacements of a stuck last call leave one call, one count (verifier 2)', async () => {
+    const { createCall, daily, registry } = setup({ callSeconds: 0, calls: 1 }, undefined, {
+      join: false,
+    });
+    expect((await createCall()).statusCode).toBe(201);
+    await flushMicrotasks();
+    const results = await Promise.all([createCall(), createCall()]);
+    expect(results.some((r) => r.statusCode === 201)).toBe(true);
+    await vi.waitFor(() => expect(registry.activeCount).toBe(1));
+    await vi.waitFor(async () => expect((await daily.usage('user-1')).calls_used).toBe(1));
   });
 
   it('"Delete my data" does not reset the daily allowance', async () => {

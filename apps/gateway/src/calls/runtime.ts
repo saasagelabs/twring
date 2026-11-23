@@ -54,6 +54,8 @@ export type EndReason =
   | 'agent_offline'
   | 'agent_not_on_computer'
   | 'agent_hangup'
+  /** The owner started a new call while this one had no caller in it (newest call wins). */
+  | 'replaced'
   | 'shutdown';
 
 /**
@@ -111,6 +113,8 @@ export function publicEndReason(reason: EndReason): GatewayEndReason {
       return reason;
     case 'caller_never_joined':
       return 'caller_left';
+    case 'replaced':
+      return 'hangup';
     case 'gateway_connect_failed':
     case 'gateway_disconnected':
       return 'gateway_failed';
@@ -303,6 +307,11 @@ export class CallRuntime {
       'audio_stats',
       scheduler.setInterval(() => this.flushAudioStats(), CALL_TIMEOUTS.audioStatsIntervalMs),
     );
+  }
+
+  /** True while the caller's participant is in the room (not before the first join, nor in rejoin grace). */
+  get hasCaller(): boolean {
+    return this.callerPresent && this.ending === undefined;
   }
 
   /** Ends the call and releases everything. Idempotent: later calls return the same promise. */

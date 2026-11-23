@@ -183,6 +183,17 @@ interface CallRecord {
   speech?: ResolvedSpeech;
   /** Whose key each provider used, for history. Never the key. */
   speechSource?: NonNullable<CallHistoryItem['speech_source']>;
+  /** The caller has been in the room at least once. */
+  callerJoined?: boolean;
+  /**
+   * What `create` answered, kept only until the caller joins, so a repeated ring answer from the
+   * same phone whose first response was lost gets the same call (ring/routes.ts).
+   */
+  answer?: CreateCallResponse;
+  /** The daily-count give-back in flight, so a replacing start can wait for it. */
+  refunding?: Promise<void>;
+  /** Ended by `releaseUnjoinedCalls`; the next `create` logs `call_replaced` for it. */
+  replacedUnlogged?: boolean;
 }
 
 /** Endings before any turn that mean the user's computer, not the user, stopped the call. */
@@ -243,6 +254,31 @@ export class CallRegistry {
     return false;
   }
 
+  /**
+   * True while `userId` has a call someone is on, or one still starting. A live call with no caller
+   * in it (never joined, or gone and in its rejoin grace) does not count: a new call replaces it.
+   */
+  hasCallInUse(userId: string): boolean {
+    for (const record of this.calls.values()) {
+      if (record.ownerId === userId && inUse(record)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The answer `create` gave for `callId` while its caller has not joined yet; otherwise undefined.
+   * Lets a phone that lost the response to its ring answer join the call it already started.
+   */
+  unjoinedAnswer(userId: string, callId: string): CreateCallResponse | undefined {
+    const record = this.calls.get(callId);
+    if (record?.ownerId !== userId || record.callerJoined === true) return undefined;
+    if (record.status !== 'connecting' && record.status !== 'active') return undefined;
+    const { answer } = record;
+    if (answer === undefined || Date.parse(answer.expires_at) <= this.now().getTime())
+      return undefined;
+    return answer;
+  }
+
   hasLiveCallToAgent(userId: string, agentId: string): boolean {
     for (const record of this.calls.values()) {
       if (
@@ -271,10 +307,13 @@ export class CallRegistry {
     const owner = agent?.userId ?? ownerId;
     // One call at a time per user, like a phone line. Checked and reserved with no await in
     // between, so of two parallel starts exactly one gets the line.
-    if (owner !== undefined && this.hasLiveCall(owner)) throw new CallCreateError('in_progress');
+    if (owner !== undefined && this.hasCallInUse(owner)) throw new CallCreateError('in_progress');
     if (this.activeCount >= env.CALL_MAX_CONCURRENT) throw new CallCreateError('capacity');
 
     const ids = this.newIds();
+    // The newest call wins over one nobody is on (LiveKit's duplicate-identity rule): the phone
+    // gave up reconnecting, lost the create response, or was killed, so that call is ended.
+    if (owner !== undefined) this.replaceIdleCalls(owner, ids.callId);
     const createdAt = this.now();
     const record: CallRecord = {
       ids,
@@ -328,7 +367,7 @@ export class CallRegistry {
     logger.info({ event: 'call_created', call_id: ids.callId, session_id: ids.sessionId });
     this.startRuntime(record, gatewayToken);
 
-    return {
+    const answer: CreateCallResponse = {
       call_id: ids.callId,
       session_id: ids.sessionId,
       livekit: { url: session.url, token: callerToken, room: session.room },
@@ -336,6 +375,55 @@ export class CallRegistry {
         session.expiresAt ?? new Date(createdAt.getTime() + env.CALL_TOKEN_TTL_S * 1000)
       ).toISOString(),
     };
+    if (record.callerJoined !== true) record.answer = answer;
+    return answer;
+  }
+
+  /**
+   * Ends `userId`'s live calls nobody ever joined and waits for their daily count to come back,
+   * so a start whose stuck call was the day's last is admitted (checked before the allowance).
+   * Calls someone is on, or still starting, are left alone; `create` refuses those.
+   */
+  async releaseUnjoinedCalls(userId: string): Promise<void> {
+    const idle = [...this.calls.values()].filter(
+      (record) =>
+        record.ownerId === userId &&
+        isLive(record.status) &&
+        record.status !== 'ending' &&
+        record.callerJoined !== true &&
+        !inUse(record),
+    );
+    // Logged by the `create` that follows, which knows the new call's id.
+    for (const record of idle) record.replacedUnlogged = true;
+    await Promise.all(idle.map((record) => this.end(record.ids.callId, 'replaced')));
+    // A start racing this one may have ended the same call: wait for its give-back too.
+    const owned = [...this.calls.values()].filter((record) => record.ownerId === userId);
+    await Promise.all(owned.map((record) => record.refunding ?? Promise.resolve()));
+  }
+
+  /** Ends `owner`'s live calls that nobody is on, for the new call `newCallId`. */
+  private replaceIdleCalls(owner: string, newCallId: string): void {
+    for (const record of this.calls.values()) {
+      if (record.ownerId === owner && record.replacedUnlogged === true) {
+        delete record.replacedUnlogged;
+        this.options.logger.info({
+          event: 'call_replaced',
+          old_call_id: record.ids.callId,
+          new_call_id: newCallId,
+          why: 'caller_never_joined',
+        });
+        continue;
+      }
+      if (record.ownerId !== owner || record.status === 'ending' || !isLive(record.status))
+        continue;
+      this.options.logger.info({
+        event: 'call_replaced',
+        old_call_id: record.ids.callId,
+        new_call_id: newCallId,
+        why: record.callerJoined === true ? 'caller_gone' : 'caller_never_joined',
+      });
+      void this.end(record.ids.callId, 'replaced');
+    }
   }
 
   get(callId: string): CallSummary | undefined {
@@ -545,6 +633,8 @@ export class CallRegistry {
       scheduler,
       logger,
       onCallerJoined: () => {
+        record.callerJoined = true;
+        delete record.answer;
         if (record.status === 'connecting') record.status = 'active';
       },
       onUnexpectedParticipant: (identity) => {
@@ -560,7 +650,14 @@ export class CallRegistry {
         record.endedAt = this.now();
         this.recordHistory(record, failed, reason, usage);
         this.recordFinished(record);
-        if (REFUNDED_REASONS.has(reason) && usage.agent_turns === 0) this.refund(record);
+        delete record.answer;
+        // A replaced call nobody ever joined was never had: its daily count goes back, so the
+        // call that replaced it is the one counted.
+        if (
+          (REFUNDED_REASONS.has(reason) && usage.agent_turns === 0) ||
+          (reason === 'replaced' && record.callerJoined !== true)
+        )
+          this.refund(record);
         // Deleting the room disconnects the phone promptly instead of leaving it in a dead room.
         // Tracked with history so shutdown waits (bounded) for the relay to hear the end.
         const ended = audio.end(ids.room).catch((error: unknown) => {
@@ -644,6 +741,7 @@ export class CallRegistry {
       })
       .finally(() => this.pendingHistory.delete(write));
     this.pendingHistory.add(write);
+    record.refunding = write;
   }
 
   private pruneFinished(): void {
@@ -697,6 +795,12 @@ function speechSource(speech: ResolvedSpeech): NonNullable<CallHistoryItem['spee
     ...(speech.cartesia && { cartesia: speech.cartesia.source }),
     ...(speech.xai && { xai: speech.xai.source }),
   };
+}
+
+/** Someone is on the call, or it is still starting (no runtime yet), so it holds the line. */
+function inUse(record: CallRecord): boolean {
+  if (!isLive(record.status) || record.status === 'ending') return false;
+  return record.runtime === undefined || record.runtime.hasCaller;
 }
 
 function isLive(status: CallRecordStatus): boolean {
