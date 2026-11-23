@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Approving your agent's risky actions by voice, away from your desk | Twring</title>
+<meta name="description" content="How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code, Codex and Gemini CLI run with safe limits you set in advance.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/blog/approve-agent-actions-by-voice/">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://twring.com/blog/approve-agent-actions-by-voice/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Approving your agent's risky actions by voice, away from your desk">
+<meta property="og:description" content="How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code, Codex and Gemini CLI run with safe limits you set in advance.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="article:published_time" content="2026-11-24">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=8">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "BlogPosting",
+   "@id": "https://twring.com/blog/approve-agent-actions-by-voice/#post",
+   "mainEntityOfPage": "https://twring.com/blog/approve-agent-actions-by-voice/",
+   "headline": "Approving your agent's risky actions by voice, away from your desk",
+   "description": "How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code, Codex and Gemini CLI run with safe limits you set in advance.",
+   "datePublished": "2026-11-24",
+   "dateModified": "2026-11-24",
+   "image": "https://twring.com/media/twring-in-30-seconds.jpg",
+   "author": {
+    "@id": "https://twring.com/#org"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "isPartOf": {
+    "@id": "https://twring.com/blog/#blog"
+   },
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://twring.com/blog/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Approvals by voice",
+      "item": "https://twring.com/blog/approve-agent-actions-by-voice/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/blog/approve-agent-actions-by-voice/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Can Twring approve an action for me?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring never approves anything on its own. With Hermes, only you approve, by voice or tap, and silence means no. With Gemini CLI, Twring denies every tool request you didn't allow when you connected."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can Claude Code ask me for permission in the middle of a call?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Not through Twring. On a call it runs with the limits you set when you connected it: reading and searching by default, and editing only if you added --claude-allow-edits."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "What happens if I miss a Hermes approval request?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "It counts as no, and the command does not run. Silence means no."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/blog/">Blog</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <article class="wrap">
+    <p class="post-meta"><a href="/blog/">Blog</a> · <time datetime="2026-11-24">24 November 2026</time></p>
+    <h1>Approving your agent's risky actions by voice, away from your desk</h1>
+    <p class="lead">It depends on the agent: with Hermes, a risky command shows up on your phone as an approval card, you say yes or no or tap, and silence means no. Claude Code, Codex and Gemini CLI don't ask mid-call through Twring; instead they run with safe limits you choose when you connect them (read-only by default), and they can ring you when they need your OK.</p>
+
+    <div class="prose">
+<h2>Why approvals matter more away from your desk</h2>
+<p>Agents that can run commands, edit files or change systems usually stop and ask before anything risky. That is fine at your desk. On a walk, it means work sits waiting until you get back.</p>
+<p>Twring is a phone app for calling the agents you already run. It doesn't add its own rules about what your agent may do. Your agent keeps its own permissions, and Twring never runs its tools. What Twring changes is how the question reaches you, and that is different for each agent. So here they are one at a time.</p>
+
+<h2>Hermes: ask and answer on the call</h2>
+<p><a href="/hermes/">Hermes</a> has its own approval system, and the Twring plugin carries it to your phone:</p>
+<ol>
+  <li>Hermes wants to run a command that needs your OK.</li>
+  <li>An approval card appears on your phone, with the command and Hermes's reason.</li>
+  <li>On a call, Twring reads a short fixed line: Hermes wants to run a command; say yes or no, or tap on your phone. The card's details are shown, not read aloud.</li>
+  <li>Say "yes" or "no", or tap. Your answer goes back through Hermes's own approval system.</li>
+</ol>
+<p>Three rules make this safe:</p>
+<ul>
+  <li><strong>Only you can approve.</strong> The plugin never approves anything for you.</li>
+  <li><strong>Silence means no.</strong> If you don't answer, the request is denied.</li>
+  <li><strong>Long commands are deny-only from the phone.</strong> If a command is too long to show on the card, you can decline it from your phone but approve it only at the computer.</li>
+</ul>
+<p>Because the card shows the full detail and the spoken line doesn't, glance at the screen before you say yes to anything you can't undo.</p>
+
+<h2>Claude Code: safe by default, edits only if you allow them</h2>
+<p>On a Twring call, <a href="/claude-code/">Claude Code</a> doesn't stop to ask you questions about permissions. Instead, the Twring connector starts it in a mode where anything it isn't already allowed to do is simply not done. By default it can read, search and look things up on the web, but not change your files.</p>
+<p>If you want it to edit files on calls, you decide that up front, when you connect it, by adding <code>--claude-allow-edits</code> to the command. That lets it edit and write files in that folder.</p>
+<p>Claude Code can also ring your phone when it needs your OK or a job is done, so you hear about it even when you aren't on a call. See <a href="/blog/claude-code-call-me-when-done/">getting a call when Claude Code finishes or needs your OK</a>.</p>
+
+<h2>Codex: a read-only sandbox unless you allow writing</h2>
+<p>On a Twring call, <a href="/codex/">Codex</a> works in a read-only sandbox (a fenced-off space that limits what it can touch): it can read your files but not change them. To let it write in that folder, add <code>--codex-sandbox workspace-write</code> when you connect it.</p>
+<p>Like Claude Code, Codex can ring your phone when a job is done or it needs your OK.</p>
+
+<h2>Gemini CLI: Twring says no unless you said yes in advance</h2>
+<p><a href="/gemini-cli/">Gemini CLI</a> asks before it uses a tool. On a Twring call, Twring answers those requests for you, and the answer is always no, unless you allowed that kind of tool when you connected. To let it read and search, add <code>--acp-allow read,search</code> to the command.</p>
+<p>That is a deliberate choice: a request you never saw is never approved behind your back.</p>
+
+<h2>The pattern, side by side</h2>
+<table>
+  <thead><tr><th>Agent</th><th>On a call, by default</th><th>To allow more</th></tr></thead>
+  <tbody>
+    <tr><td>Hermes</td><td>Asks you; voice or tap; silence means no</td><td>Answer yes on the card</td></tr>
+    <tr><td>Claude Code</td><td>Reads and searches, no edits</td><td><code>--claude-allow-edits</code></td></tr>
+    <tr><td>Codex</td><td>Read-only sandbox</td><td><code>--codex-sandbox workspace-write</code></td></tr>
+    <tr><td>Gemini CLI</td><td>Every tool request denied</td><td><code>--acp-allow read,search</code></td></tr>
+  </tbody>
+</table>
+<p>The flags go on the connect command the app shows you when you tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>, <strong>Scan a code on my computer</strong>.</p>
+
+<h2>Good habits for approving by voice</h2>
+<ul>
+  <li><strong>Ask the agent to say what it wants first.</strong> One plain sentence, such as "I need to run the database migration; it adds one column and is hard to undo", makes yes or no easy.</li>
+  <li><strong>Check names and numbers.</strong> Speech recognition can mishear. For anything costly or hard to undo, have the agent read back the exact target, and check the card on your screen.</li>
+  <li><strong>Grant less, not more.</strong> Start with the read-only defaults, and widen them only for the folders and agents where you need it.</li>
+  <li><strong>"No" is a fine answer.</strong> A denied request is not a failure. A good agent offers another way.</li>
+</ul>
+
+<h2>Other ways to approve from your phone</h2>
+<p>If you only want to tap through permission prompts in text, an official remote-control app for your agent may suit you better than a voice call. As of November 2026, <a href="https://code.claude.com/docs/en/mobile">Anthropic's Claude Code docs</a> describe Remote Control: you drive a Claude Code session running on your computer from the Claude app on your phone, and it can send a push notification when it needs a decision from you. If typing is what you want, that is the better pick. Twring is for when you'd rather talk, or want your agent to ring you instead of waiting in a chat.</p>
+<p>Twring never records or keeps call audio. See the <a href="/privacy">privacy notice</a>, and <a href="/support/">support</a> if something doesn't behave as described.</p>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Can Twring approve an action for me?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring never approves anything on its own. With Hermes, only you approve, by voice or tap, and silence means no. With Gemini CLI, Twring denies every tool request you didn't allow when you connected.</p></div></details>
+      <details><summary>Can Claude Code ask me for permission in the middle of a call?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Not through Twring. On a call it runs with the limits you set when you connected it: reading and searching by default, and editing only if you added --claude-allow-edits.</p></div></details>
+      <details><summary>What happens if I miss a Hermes approval request?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>It counts as no, and the command does not run. Silence means no.</p></div></details>
+    </div>
+
+    <div class="prose">
+<h2>Read next</h2>
+<ul>
+  <li><a href="/blog/hermes-agent-phone-call/">Call your Hermes agent from your phone, and let its scheduled jobs ring you</a></li>
+  <li><a href="/blog/claude-code-call-me-when-done/">Get a phone call when Claude Code finishes or needs your OK</a></li>
+</ul>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/blog/">Blog</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/gemini-cli/">Gemini CLI</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT and other AI apps</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>

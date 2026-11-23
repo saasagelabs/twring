@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Get a phone call when Claude Code finishes or needs your OK | Twring</title>
+<meta name="description" content="Let Claude Code ring your phone when a job is done or it needs your OK. Twring rings full screen, even on a locked phone, and you answer straight into a call.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/blog/claude-code-call-me-when-done/">
+<meta property="og:type" content="article">
+<meta property="og:url" content="https://twring.com/blog/claude-code-call-me-when-done/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Get a phone call when Claude Code finishes or needs your OK">
+<meta property="og:description" content="Let Claude Code ring your phone when a job is done or it needs your OK. Twring rings full screen, even on a locked phone, and you answer straight into a call.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta property="article:published_time" content="2026-11-24">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=8">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "BlogPosting",
+   "@id": "https://twring.com/blog/claude-code-call-me-when-done/#post",
+   "mainEntityOfPage": "https://twring.com/blog/claude-code-call-me-when-done/",
+   "headline": "Get a phone call when Claude Code finishes or needs your OK",
+   "description": "Let Claude Code ring your phone when a job is done or it needs your OK. Twring rings full screen, even on a locked phone, and you answer straight into a call.",
+   "datePublished": "2026-11-24",
+   "dateModified": "2026-11-24",
+   "image": "https://twring.com/media/twring-in-30-seconds.jpg",
+   "author": {
+    "@id": "https://twring.com/#org"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "isPartOf": {
+    "@id": "https://twring.com/blog/#blog"
+   },
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Blog",
+      "item": "https://twring.com/blog/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 3,
+      "name": "Claude Code: call me when done",
+      "item": "https://twring.com/blog/claude-code-call-me-when-done/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/blog/claude-code-call-me-when-done/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Can I approve Claude Code's permission prompt by answering the ring?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. The ring tells you Claude Code is waiting, and you can talk to it on the call, but the prompt stays in your terminal. Twring never approves or runs Claude Code's tools."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does the hook ring me after every reply?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. The Claude Code hook rings only when Claude Code needs permission or has waited for your input. To be told when a job is done, ask Claude Code to ring you in a Twring call or chat."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Will rings wake me up at night?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Not if you set quiet hours in Twring's settings. During those hours no agent can ring you, and you can still call your agents yourself."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/blog/">Blog</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+  <article class="wrap">
+    <p class="post-meta"><a href="/blog/">Blog</a> · <time datetime="2026-11-24">24 November 2026</time></p>
+    <h1>Get a phone call when Claude Code finishes or needs your OK</h1>
+    <p class="lead">Connect Claude Code to Twring, and it can ring your phone like a real call, full screen even on a locked phone, when a long job is done or it needs permission or input. You can ask it to ring you in a Twring call or chat, or add a Twring hook so Claude Code rings you by itself whenever it is waiting on you.</p>
+
+    <div class="prose">
+<h2>Why a ring and not a notification?</h2>
+<p>Long Claude Code jobs end at awkward times. You walk away, the tests finish, and Claude Code sits there waiting for a yes you didn't know it needed. A notification is easy to miss in a stack of others. A ring is hard to miss, and when you answer, you can talk it through right away.</p>
+<p>Twring rings like a phone call: full screen, even on a locked phone. Answer and you're in a voice call with Claude Code, and it tells you why it rang. Don't want to talk? Decline with a quick reply: Busy, Outside, Let's text, or up to 60 characters of your own. Claude Code gets the message.</p>
+<p>No phone number or phone plan is needed. The ring and the call go over the internet through the Twring app.</p>
+
+<h2>Set it up</h2>
+<ol>
+  <li>Get an invite at <a href="/beta/">twring.com/beta</a> and install Twring on your iPhone (through TestFlight) or Android phone (an APK from twring.com).</li>
+  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>, and follow the steps. Paste the short message into Claude Code and approve the command it runs, or scan the code the command prints. It needs Node.js 20 or newer on the computer.</li>
+  <li>Turn on notifications for Twring on your phone. Rings can't reach you without them.</li>
+</ol>
+<p>That's enough for the first way to get a ring. The <a href="/claude-code/">Claude Code page</a> has the same steps.</p>
+
+<h2>Way one: ask it to ring you</h2>
+<p>In a Twring call or chat, Claude Code is told how to ring your phone. So just ask: "Run the full test suite and ring me when it's done." It rings with a short reason, for example "The migration finished and all tests pass."</p>
+<p>This also works when you hang up mid-task. Claude Code keeps going, and its answer lands in your Twring chat. Depending on your settings you may get a call or a notification, and the first sentence of its reply becomes the ring message.</p>
+
+<h2>Way two: let Claude Code ring you by itself</h2>
+<p>Claude Code has hooks: small commands it runs at certain moments. One of them, the Notification hook, runs when Claude Code needs permission or has been waiting for your input. The Twring connector can add a hook there that rings your phone. On the computer, in the folder where you downloaded the connector, run:</p>
+<pre><code>node twring-connect.mjs hooks install claude</code></pre>
+<p>From then on, when your Claude Code in the terminal stops to ask for permission or waits for you, your phone rings with Claude Code's own message as the reason. To get a message in your Twring chat instead of a ring, add <code>--message</code>. To remove it, run <code>node twring-connect.mjs hooks uninstall claude</code>. Running install again replaces the old Twring hook instead of adding a second one.</p>
+
+<h2>What happens to the permission prompt?</h2>
+<p>Be clear about this part. The ring tells you Claude Code is waiting. The permission prompt itself is still in your terminal, and Twring doesn't press it for you. Twring never runs Claude Code's tools, and on a Twring call Claude Code works with read-only tools by default (add <code>--claude-allow-edits</code> to let it edit).</p>
+<p>So a ring is your cue: answer to hear what it's stuck on and talk it through, or head back to your desk. If you want to tap Allow from your phone, Anthropic's Remote Control is built for that (see below).</p>
+
+<h2>Other ways to get pinged</h2>
+<p>Twring isn't the only option, and some of these may suit you better:</p>
+<ul>
+  <li><strong>Remote Control push notifications.</strong> With Remote Control active, Claude can send push notifications to the Claude app when a long task finishes or needs a decision, and you can drive the session from your phone. (<a href="https://code.claude.com/docs/en/mobile">Anthropic's docs</a>, as of November 2026.) If you want to approve the exact prompt in your terminal, this is the better pick.</li>
+  <li><strong>ntfy with a hook.</strong> A <a href="https://dev.to/felipeelias/perfect-claude-code-notifications-setup-with-tailscale-and-ntfy-1ii1">guide on dev.to</a> shows a Claude Code notification hook posting to a self-hosted ntfy server that your phone subscribes to. It's free and fully yours, but it's a notification, not a call, and you set it up yourself.</li>
+</ul>
+<p>Twring's difference is the ring itself, plus being able to answer and talk to the agent that rang.</p>
+
+<h2>Keeping rings useful, not noisy</h2>
+<ul>
+  <li><strong>Quiet hours.</strong> In Twring's settings, pick hours when no agent can ring you. You can still call them any time.</li>
+  <li><strong>A cap on bursts.</strong> An agent can ring you a few times an hour at most, so a burst of rings is held back on purpose.</li>
+  <li><strong>Messages for small news.</strong> Use the <code>--message</code> hook if you only want to read updates later.</li>
+</ul>
+
+<h2>When rings don't arrive</h2>
+<ul>
+  <li>Check that notifications are on for Twring, and that Do Not Disturb and Twring's quiet hours are off.</li>
+  <li>Check the computer is on and awake, with the Twring connector running. The agent's page in the app shows whether it is online.</li>
+  <li>If you set up the hook in a different folder than the connector, run the install command again from the connector's folder.</li>
+</ul>
+<p>Still stuck? See <a href="/support/">support</a>. Twring never records call audio; the <a href="/privacy">privacy notice</a> lists what it keeps.</p>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Can I approve Claude Code's permission prompt by answering the ring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. The ring tells you Claude Code is waiting, and you can talk to it on the call, but the prompt stays in your terminal. Twring never approves or runs Claude Code's tools.</p></div></details>
+      <details><summary>Does the hook ring me after every reply?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. The Claude Code hook rings only when Claude Code needs permission or has waited for your input. To be told when a job is done, ask Claude Code to ring you in a Twring call or chat.</p></div></details>
+      <details><summary>Will rings wake me up at night?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Not if you set quiet hours in Twring's settings. During those hours no agent can ring you, and you can still call your agents yourself.</p></div></details>
+    </div>
+
+    <div class="prose">
+<h2>Read next</h2>
+<ul>
+  <li><a href="/blog/approve-agent-actions-by-voice/">Approving your agent's risky actions by voice, away from your desk</a></li>
+  <li><a href="/blog/talk-to-claude-code-from-your-phone/">How to talk to Claude Code from your phone</a></li>
+</ul>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div>
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the agents you already run. Let them ring you when it matters.</p>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/blog/">Blog</a><a href="/beta/">Get an invite</a></div>
+        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/gemini-cli/">Gemini CLI</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT and other AI apps</a></div>
+        <div><b>Help</b><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by Rish at SaaSage Labs. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>
