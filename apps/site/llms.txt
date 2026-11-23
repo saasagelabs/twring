@@ -37,6 +37,8 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 - [Self-hosting](https://twring.com/self-hosting/): run Twring on your own server
 - [Server guide](https://twring.com/self-hosting/guide/): install, update, back up and fix a self-hosted server
 - [Support](https://twring.com/support/): installing, calls, rings, account and data questions
+- [Pricing](https://twring.com/pricing/): free while launching; daily calling-time limit; what you still pay others for; self-hosting charge later
+- [About](https://twring.com/about/): who makes Twring, the rules it is built on, open source, where it is listed
 - [Privacy notice](https://twring.com/privacy): what Twring keeps and for how long
 - [Terms of service](https://twring.com/terms/)
 
