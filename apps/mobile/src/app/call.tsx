@@ -606,10 +606,11 @@ function FinishedCall({
           {failed !== undefined && (
             <>
               <Text style={[type.body, styles.outcomeDetail]}>{failed.message}</Text>
-              <Text selectable style={[type.mono, styles.outcomeCode]}>
-                {failed.code}
-                {failed.correlationId !== undefined ? ` · ref ${failed.correlationId}` : ''}
-              </Text>
+              <Text
+                selectable
+                accessibilityLabel={`Reference code ${reference(failed)}`}
+                style={[type.caption, styles.outcomeCode]}
+              >{`Reference: ${reference(failed)}`}</Text>
             </>
           )}
         </Animated.View>
@@ -801,3 +802,10 @@ const styles = StyleSheet.create({
   outcomeCode: { color: palette.textTertiary, textAlign: 'center', marginTop: 10 },
   actions: { gap: 10, paddingBottom: space.xl },
 });
+
+/** The failure's code and server reference, for support. */
+function reference(failed: { code: string; correlationId?: string }): string {
+  return failed.correlationId === undefined
+    ? failed.code
+    : `${failed.code} · ref ${failed.correlationId}`;
+}

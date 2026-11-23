@@ -24,6 +24,7 @@ export default function SignInScreen() {
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const [more, setMore] = useState(false);
   const notice = auth.status === 'signed_out' ? auth.notice : undefined;
   const apple = authController()?.appleAvailable === true;
 
@@ -100,10 +101,19 @@ export default function SignInScreen() {
         )}
         <View style={styles.links}>
           <TextButton label="Privacy" onPress={() => router.push('/privacy')} />
-          <TextButton label="Use my own server" onPress={() => router.push('/pair')} />
-          {/* For app store and directory reviewers; removed once the reviews are done. */}
-          <TextButton label="Test sign-in" onPress={() => router.push('/test-sign-in')} />
+          <TextButton
+            label={more ? 'Fewer options' : 'More options'}
+            expanded={more}
+            onPress={() => setMore(!more)}
+          />
         </View>
+        {more && (
+          <View style={styles.links}>
+            <TextButton label="Use my own server" onPress={() => router.push('/pair')} />
+            {/* For app store and directory reviewers; removed once the reviews are done. */}
+            <TextButton label="Test sign-in" onPress={() => router.push('/test-sign-in')} />
+          </View>
+        )}
       </View>
     </Screen>
   );
