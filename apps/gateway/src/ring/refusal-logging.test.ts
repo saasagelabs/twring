@@ -1,7 +1,7 @@
 import { Writable } from 'node:stream';
 
 import { errorResponseSchema, ringResponseSchema } from '@twring/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { startConnectorGateway, type ConnectorGateway } from '../connectors/harness';
 
@@ -66,6 +66,10 @@ describe('refusals log no error', () => {
     const { invite_id: inviteId } = ringResponseSchema.parse(rang.json());
     const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
     expect(call.statusCode).toBe(201);
+    // Someone is on that call (a call nobody is on would be replaced).
+    const transport = g.calls!.transports[0]!;
+    await vi.waitFor(() => expect(transport.states).toContain('ready'));
+    transport.emit({ type: 'caller_joined' });
 
     const answer = await g.send('POST', `/v1/invites/${inviteId}/answer`, { user: 'alice' });
     expect(answer.statusCode).toBe(409);

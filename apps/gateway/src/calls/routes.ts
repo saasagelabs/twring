@@ -235,7 +235,7 @@ export function registerCallRoutes(app: FastifyInstance, options: CallRoutesOpti
     const userId = userFor(request);
     // One call at a time: refused before anything is looked up or counted. `create` checks again
     // atomically, which settles two starts that race past this point.
-    if (registry.hasLiveCall(userId)) {
+    if (registry.hasCallInUse(userId)) {
       return refuse(reply, 409, 'call_in_progress', CALL_IN_PROGRESS_MESSAGE);
     }
     const erasures = registry.erasureCount(userId);

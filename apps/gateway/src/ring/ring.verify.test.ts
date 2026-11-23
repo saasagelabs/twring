@@ -162,6 +162,9 @@ describe('answer refused by the ordinary call rules', () => {
     const { invite_id: id } = await ringOk(g, token);
     const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
     expect(call.statusCode).toBe(201);
+    const transport = g.calls!.transports[0]!;
+    await waitFor(() => transport.states.includes('ready'));
+    transport.emit({ type: 'caller_joined' });
     const answer = await g.send('POST', `/v1/invites/${id}/answer`, { user: 'alice' });
     expect(answer.statusCode).toBe(409);
     expect(code(answer)).toBe('call_in_progress');

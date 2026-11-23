@@ -417,6 +417,13 @@ export function answeredTurnText(reason: string, options?: { spoken: boolean }):
   return `[The owner answered your call. You rang because: ${because}. Tell them, then let them talk. ${STAY_ON_CALL_RULE}]`;
 }
 
+/**
+ * `POST /v1/invites/:id/answer` body. `device_id` (the phone's ring registration id) lets the same
+ * phone repeat an answer whose response it lost and get the same call; optional for older apps.
+ */
+export const ringAnswerRequestSchema = z.object({ device_id: deviceIdSchema.optional() });
+export type RingAnswerRequest = z.infer<typeof ringAnswerRequestSchema>;
+
 /** `POST /v1/invites/:id/answer`: a call for a computer agent, the chat for an AI app (no call). */
 export const ringAnswerResponseSchema = z.union([
   createCallResponseSchema.extend({ mode: z.literal('call').default('call') }),

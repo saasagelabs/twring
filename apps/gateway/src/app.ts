@@ -591,6 +591,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ...(threads && { threads: threads.service }),
       ...(env.FILES_ENABLED && files && { files: files.service }),
       startCall,
+      ...(liveCalls !== undefined && {
+        resumeAnswer: (userId: string, callId: string) => liveCalls.unjoinedAnswer(userId, callId),
+      }),
       connectorRatePerMinute: ring.connectorRatePerMinute,
       writeRatePerMinute: ring.writeRatePerMinute,
       ...(agents?.readRatePerMinute !== undefined && {

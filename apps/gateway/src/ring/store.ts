@@ -133,6 +133,10 @@ export const inviteRecordSchema = z.object({
   created_at: z.iso.datetime(),
   expires_at: z.iso.datetime(),
   handled_at: z.iso.datetime().optional(),
+  /** The phone that answered (`POST /v1/invites/:id/answer` `device_id`), when it said. */
+  answered_by: deviceIdSchema.optional(),
+  /** The call the answer started, so the same phone can repeat a lost answer. */
+  call_id: z.string().max(100).optional(),
 });
 export type InviteRecord = z.infer<typeof inviteRecordSchema>;
 
@@ -185,6 +189,7 @@ export class InviteRepository {
     status: Exclude<InviteStatus, 'pending'>,
     now: Date,
     note?: string,
+    answeredBy?: { deviceId?: string; callId?: string },
   ): Promise<InviteRecord | undefined> {
     return this.rows.update((items) => {
       let updated: InviteRecord | undefined;
@@ -195,6 +200,8 @@ export class InviteRepository {
           status,
           handled_at: now.toISOString(),
           ...(note !== undefined && note !== '' && { note }),
+          ...(answeredBy?.deviceId !== undefined && { answered_by: answeredBy.deviceId }),
+          ...(answeredBy?.callId !== undefined && { call_id: answeredBy.callId }),
         };
         return updated;
       });

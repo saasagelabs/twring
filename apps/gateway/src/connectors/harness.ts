@@ -250,7 +250,7 @@ export async function startConnectorGateway(
       ...(options.ring.ringPlatforms !== undefined && {
         ringPlatforms: options.ring.ringPlatforms,
       }),
-      inCall: (userId) => registry?.hasLiveCall(userId) ?? false,
+      inCall: (userId) => registry?.hasCallInUse(userId) ?? false,
       scheduler,
       now: () => new Date(clock.ms),
       logger: recordingLogger(),

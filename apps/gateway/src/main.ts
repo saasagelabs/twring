@@ -477,7 +477,7 @@ const ringService = new RingService({
   ...ringPush,
   // With push on, a ring nobody could receive is refused so the agent messages instead.
   requireRingPhone: true,
-  inCall: (userId) => calls?.registry.hasLiveCall(userId) ?? false,
+  inCall: (userId) => calls?.registry.hasCallInUse(userId) ?? false,
   scheduler: systemScheduler,
   logger: ringLogger,
   onSettled: async (invite) => {

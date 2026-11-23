@@ -14,6 +14,7 @@ import {
   localAgentIdSchema,
   sessionScopeSchema,
   RING_MAX_WAIT_S,
+  ringAnswerRequestSchema,
   ringRequestSchema,
   ringSettingsSchema,
   sessionRefSchema,
@@ -60,6 +61,11 @@ export interface RingRoutesOptions {
   files?: FileService;
   /** Starts the answered call with every `POST /v1/calls` rule. Undefined: calling is off (503). */
   startCall: CallStarter | undefined;
+  /**
+   * The answer an answered ring's call gave while its caller has not joined (CallRegistry
+   * `unjoinedAnswer`), so the phone that answered can repeat a lost answer.
+   */
+  resumeAnswer?: (userId: string, callId: string) => CreateCallResponse | undefined;
   userFor?: UserResolver;
   /** Connector-token requests per IP per minute (bounds token guessing). */
   connectorRatePerMinute: number;
@@ -619,7 +625,11 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
       if (!inviteIdSchema.safeParse(request.params.id).success) {
         return sendError(reply, 404, 'not_found', INVITE_NOT_FOUND);
       }
-      const claim = await service.claimAnswer(userFor(request), request.params.id);
+      const body = ringAnswerRequestSchema.safeParse(request.body ?? {});
+      if (!body.success) return sendError(reply, 400, 'bad_request', 'Invalid answer.');
+      const deviceId = body.data.device_id;
+      const userId = userFor(request);
+      const claim = await service.claimAnswer(userId, request.params.id, deviceId);
       switch (claim.kind) {
         case 'not_found':
           return sendError(reply, 404, 'not_found', INVITE_NOT_FOUND);
@@ -627,6 +637,15 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           return sendError(reply, 410, 'invite_expired', INVITE_EXPIRED);
         case 'handled':
           return sendError(reply, 409, 'invite_already_handled', INVITE_HANDLED);
+        case 'repeat': {
+          // The same phone answered again: its first response was lost. Until the caller joins,
+          // it gets the same call; after that the answer was handled.
+          const answer = options.resumeAnswer?.(userId, claim.callId);
+          if (answer === undefined)
+            return sendError(reply, 409, 'invite_already_handled', INVITE_HANDLED);
+          request.log.info({ event: 'ring_answer_repeated', invite_id: claim.invite.id });
+          return { ...answer, mode: 'call' };
+        }
         case 'claimed':
           break;
       }
@@ -660,6 +679,7 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
       const openingLine = invite.reason.trim();
       let answered = false;
       let refused: string | undefined;
+      let callId: string | undefined;
       try {
         const result = await options.startCall(
           request,
@@ -678,9 +698,16 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           },
         );
         answered = result !== undefined;
+        callId = result?.call_id;
         return result ? { ...result, mode: 'call' } : reply;
       } finally {
-        await claim.release(answered, refused);
+        await claim.release(
+          answered,
+          refused,
+          deviceId === undefined
+            ? undefined
+            : { deviceId, ...(callId !== undefined && { callId }) },
+        );
       }
     },
   );

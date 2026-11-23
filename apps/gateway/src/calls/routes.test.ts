@@ -316,10 +316,11 @@ describe('POST /v1/calls', () => {
     });
   });
 
-  it('refuses a second call while the user has a live one (one line per user)', async () => {
-    const { app, createCall, registry } = setup({ CALL_MAX_CONCURRENT: '5' });
+  it('refuses a second call while the user is on a live one (one line per user)', async () => {
+    const { app, createCall, registry, transports } = setup({ CALL_MAX_CONCURRENT: '5' });
     const first = createCallResponseSchema.parse((await createCall()).json());
     await flushMicrotasks();
+    transports[0]!.emit({ type: 'caller_joined' });
     const second = await createCall();
     expect(second.statusCode).toBe(409);
     expect(errorResponseSchema.parse(second.json()).error).toMatchObject({
@@ -334,14 +335,47 @@ describe('POST /v1/calls', () => {
     expect(registry.activeCount).toBe(2);
   });
 
-  it('lets exactly one of two simultaneous starts by the same user through', async () => {
+  it('replaces a call the caller never joined: old ended, new created, count refunded', async () => {
+    const { createCall, registry, rooms, logger } = setup({ CALL_MAX_CONCURRENT: '5' });
+    const first = createCallResponseSchema.parse((await createCall()).json());
+    await flushMicrotasks();
+    const second = await createCall();
+    expect(second.statusCode).toBe(201);
+    const created = createCallResponseSchema.parse(second.json());
+    await vi.waitFor(() => expect(registry.get(first.call_id)?.status).toBe('ended'));
+    expect(registry.get(created.call_id)?.status).not.toBe('ended');
+    expect(registry.activeCount).toBe(1);
+    expect(rooms.deleted).toContain(first.livekit.room);
+    expect(logger.events.map((e) => e.fields)).toContainEqual(
+      expect.objectContaining({
+        event: 'call_replaced',
+        old_call_id: first.call_id,
+        new_call_id: created.call_id,
+        why: 'caller_never_joined',
+      }),
+    );
+  });
+
+  it('replaces a call in its rejoin grace (the caller left and did not come back)', async () => {
+    const { createCall, registry, transports } = setup({ CALL_MAX_CONCURRENT: '5' });
+    const first = createCallResponseSchema.parse((await createCall()).json());
+    await flushMicrotasks();
+    transports[0]!.emit({ type: 'caller_joined' });
+    expect((await createCall()).statusCode).toBe(409);
+    transports[0]!.emit({ type: 'caller_left' });
+    expect((await createCall()).statusCode).toBe(201);
+    await vi.waitFor(() => expect(registry.get(first.call_id)?.status).toBe('ended'));
+    expect(registry.activeCount).toBe(1);
+  });
+
+  it('leaves exactly one live call after two simultaneous starts by the same user', async () => {
     const { createCall, registry } = setup({ CALL_MAX_CONCURRENT: '5' });
     const results = await Promise.all([createCall(), createCall()]);
-    expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409]);
-    expect(results.find((r) => r.statusCode === 409)?.json()).toMatchObject({
-      error: { code: 'call_in_progress' },
-    });
-    expect(registry.activeCount).toBe(1);
+    // One is refused while the other is still starting, or the newer replaces the older, which
+    // nobody had joined yet. Either way the line holds one call.
+    for (const result of results) expect([201, 409]).toContain(result.statusCode);
+    expect(results.some((r) => r.statusCode === 201)).toBe(true);
+    await vi.waitFor(() => expect(registry.activeCount).toBe(1));
   });
 
   it('rate-limits call creation per person, not per address (review finding 6)', async () => {
