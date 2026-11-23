@@ -1,4 +1,4 @@
-import type { GatewayEndReason, StatusMessage } from '@twring/contracts';
+import type { DeviceInfoMessage, GatewayEndReason, StatusMessage } from '@twring/contracts';
 
 import type { DownlinkWindow } from './downlink';
 import type { AudioLevels } from './levels';
@@ -52,6 +52,8 @@ export interface CallTransport {
   restartMicrophone(): Promise<void>;
   /** Leaves the room and releases the audio session. Idempotent. */
   disconnect(): Promise<void>;
+  /** Tells the gateway the phone's device and audio route (diagnostics). Best effort. */
+  sendDeviceInfo?(info: DeviceInfoMessage): Promise<void>;
 }
 
 /**

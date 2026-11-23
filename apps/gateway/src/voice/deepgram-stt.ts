@@ -4,6 +4,7 @@ import {
   VoiceProviderError,
   closeError,
   type SttEvent,
+  type TurnConfidence,
   type SttProvider,
   type SttSession,
   type VoiceError,
@@ -20,7 +21,15 @@ const turnInfoSchema = z.object({
   event: z.enum(['StartOfTurn', 'Update', 'EagerEndOfTurn', 'TurnResumed', 'EndOfTurn']),
   turn_index: z.number().int().nonnegative(),
   transcript: z.string().max(20_000),
+  // Optional and lenient: a missing or odd `words` list never drops the turn.
+  words: z
+    .array(z.object({ confidence: z.number().min(0).max(1).optional() }).loose())
+    .max(5_000)
+    .optional()
+    .catch(undefined),
 });
+/** A word below this confidence counts as a low-confidence word. */
+const LOW_CONFIDENCE = 0.5;
 const errorSchema = z.object({ type: z.literal('Error') });
 
 export interface DeepgramSttOptions {
@@ -141,7 +150,7 @@ class DeepgramSttSession implements SttSession {
     }
     const turn = turnInfoSchema.safeParse(json);
     if (!turn.success) return; // Connected, metadata, and future message types are ignored.
-    const { event, turn_index: turnIndex, transcript } = turn.data;
+    const { event, turn_index: turnIndex, transcript, words } = turn.data;
     switch (event) {
       case 'StartOfTurn':
         this.lastPartial = '';
@@ -158,7 +167,12 @@ class DeepgramSttSession implements SttSession {
         this.onEvent(
           transcript.trim() === ''
             ? { type: 'speech_discarded', turnIndex }
-            : { type: 'turn_ended', turnIndex, text: transcript },
+            : {
+                type: 'turn_ended',
+                turnIndex,
+                text: transcript,
+                ...wordConfidence(words),
+              },
         );
         return;
     }
@@ -170,4 +184,23 @@ class DeepgramSttSession implements SttSession {
     this.lastPartial = text;
     this.onEvent({ type: 'partial', turnIndex, text });
   }
+}
+
+/** Word confidence summary for diagnostics; absent when Flux sent no per-word confidence. */
+export function wordConfidence(words: readonly { confidence?: number | undefined }[] | undefined): {
+  confidence?: TurnConfidence;
+} {
+  let sum = 0;
+  let count = 0;
+  let min = 1;
+  let low = 0;
+  for (const word of words ?? []) {
+    if (word.confidence === undefined) continue;
+    sum += word.confidence;
+    count += 1;
+    if (word.confidence < min) min = word.confidence;
+    if (word.confidence < LOW_CONFIDENCE) low += 1;
+  }
+  if (count === 0) return {};
+  return { confidence: { mean: sum / count, min, lowWords: low } };
 }

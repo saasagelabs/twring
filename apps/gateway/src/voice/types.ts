@@ -20,6 +20,14 @@ export interface VoiceError {
   providerStatus?: number;
 }
 
+/** Per-word recognition confidence over a turn (diagnostics only; never drives behavior). */
+export interface TurnConfidence {
+  mean: number;
+  min: number;
+  /** Words under 0.5. */
+  lowWords: number;
+}
+
 export type SttEvent =
   /** The provider is confident a new user turn has begun (Flux StartOfTurn). */
   | { type: 'speech_started'; turnIndex: number }
@@ -28,7 +36,7 @@ export type SttEvent =
   /** Interim text for the current turn. Display only; never drives agent work. */
   | { type: 'partial'; turnIndex: number; text: string }
   /** The user has yielded the floor; `text` is final for this turn. */
-  | { type: 'turn_ended'; turnIndex: number; text: string }
+  | { type: 'turn_ended'; turnIndex: number; text: string; confidence?: TurnConfidence }
   | { type: 'error'; error: VoiceError };
 
 export interface SttSession {

@@ -182,3 +182,45 @@ export function parseStatusMessage(text: string): StatusMessage | undefined {
   const result = statusMessageSchema.safeParse(json);
   return result.success ? result.data : undefined;
 }
+
+/** Data-packet topic for phone → gateway diagnostics. Older apps never send on it. */
+export const PHONE_TOPIC = 'cord.phone';
+
+/** Upper bound for a phone packet; anything larger is dropped before parsing. */
+export const MAX_PHONE_MESSAGE_BYTES = 1024;
+
+export const audioRouteSchema = z.enum(['earpiece', 'speaker', 'bluetooth', 'headset', 'unknown']);
+export type AudioRoute = z.infer<typeof audioRouteSchema>;
+
+/** A short free-text field: an unexpected value is dropped, not the whole message. */
+const shortText = (max: number) => z.string().trim().min(1).max(max).optional().catch(undefined);
+
+/**
+ * What the phone reports about itself and where call audio is playing: sent when the call
+ * connects and again on each audio route change. Metadata only, never words or audio (approved
+ * for "it misheard me" diagnosis). Every field but `route` is optional, and an unknown value in
+ * one field is dropped without rejecting the rest.
+ */
+export const deviceInfoMessageSchema = z.object({
+  v: z.literal(1),
+  type: z.literal('device_info'),
+  route: audioRouteSchema.catch('unknown'),
+  platform: z.enum(['android', 'ios']).optional().catch(undefined),
+  os: shortText(32),
+  model: shortText(64),
+  app_build: shortText(32),
+});
+export type DeviceInfoMessage = z.infer<typeof deviceInfoMessageSchema>;
+
+/** Parses an untrusted phone packet; undefined for anything oversized or malformed. */
+export function parsePhoneMessage(text: string): DeviceInfoMessage | undefined {
+  if (text.length > MAX_PHONE_MESSAGE_BYTES) return undefined;
+  let json: unknown;
+  try {
+    json = JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+  const result = deviceInfoMessageSchema.safeParse(json);
+  return result.success ? result.data : undefined;
+}

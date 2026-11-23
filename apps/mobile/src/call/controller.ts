@@ -21,6 +21,7 @@ import {
   type NoticeMessage,
   type StatusMessage,
   type ApprovalAction,
+  type DeviceInfoMessage,
 } from '@twring/contracts';
 import { ApiError, type TwringApi } from '../api/client';
 import { keyRefusedCallMessage } from '../settings/voice-accounts';
@@ -526,6 +527,11 @@ export class CallController {
     delete next.approvalError;
     this.view = next;
     this.emit();
+  }
+
+  /** Sends the phone's device and audio route to the gateway (diagnostics); dropped on failure. */
+  reportDevice(info: DeviceInfoMessage): void {
+    void this.transport?.sendDeviceInfo?.(info).catch(() => undefined);
   }
 
   /**

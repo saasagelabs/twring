@@ -1,5 +1,6 @@
 import { FRAME_MS, SAMPLES_PER_FRAME, peakDbfs } from '../audio/pcm';
 import { Downsampler48To16, FrameAssembler } from '../audio/resample';
+import { SpeechStats, type SpeechAudioSummary } from '../audio/speech-stats';
 import type { CallLogger } from '../calls/runtime';
 import type { Scheduler } from '../calls/scheduler';
 
@@ -158,6 +159,8 @@ export interface VoicePipelineOptions {
 export class VoicePipeline {
   private readonly controller = new AbortController();
   private readonly downsampler = new Downsampler48To16();
+  /** Level and bandwidth of the caller's speech, for the end-of-call diagnostics line. */
+  private readonly speechStats = new SpeechStats(VOICE_ONSET_DBFS);
   private readonly assembler = new FrameAssembler();
   private stt: SttSession | undefined;
   private tts: TtsSession | undefined;
@@ -316,8 +319,14 @@ export class VoicePipeline {
     if (this.closed || this.stt === undefined) return;
     this.trackOnset(samples);
     const downsampled = this.downsampler.process(samples);
+    this.speechStats.add(downsampled);
     this.options.capture?.write(downsampled);
     this.sendStt(this.stt, downsampled);
+  }
+
+  /** Caller speech level and bandwidth over the call; undefined if they never spoke. */
+  speechAudio(): SpeechAudioSummary | undefined {
+    return this.speechStats.summary();
   }
 
   /** Provider usage so far (session time counts up to now while a session is open). */
@@ -575,6 +584,11 @@ export class VoicePipeline {
           // How long the caller spoke, and how long the words had stopped changing before the turn
           // ended: a long turn of speech, or a long wait after it.
           ...this.turnTiming(),
+          ...(event.confidence !== undefined && {
+            conf_mean: round2(event.confidence.mean),
+            conf_min: round2(event.confidence.min),
+            low_conf_words: event.confidence.lowWords,
+          }),
         });
         this.callerSpeaking = false;
         this.options.onCaption({ turnIndex: event.turnIndex, text: clip(event.text), final: true });
@@ -903,4 +917,8 @@ export class VoicePipeline {
 
 function clip(text: string): string {
   return text.length <= MAX_CAPTION_CHARS ? text : `…${text.slice(-MAX_CAPTION_CHARS + 1)}`;
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { MAX_STATUS_MESSAGE_BYTES, parseStatusMessage, type AudioStatsMessage } from './realtime';
+import {
+  MAX_PHONE_MESSAGE_BYTES,
+  MAX_STATUS_MESSAGE_BYTES,
+  parsePhoneMessage,
+  parseStatusMessage,
+  type AudioStatsMessage,
+} from './realtime';
 import { agentEventSchema } from './agent';
 
 it('accepts optional new session marker on run.started', () => {
@@ -91,5 +97,49 @@ describe('parseStatusMessage', () => {
       final: false,
     };
     expect(parseStatusMessage(JSON.stringify(caption))).toBeUndefined();
+  });
+});
+
+describe('parsePhoneMessage', () => {
+  const info = {
+    v: 1,
+    type: 'device_info',
+    route: 'bluetooth',
+    platform: 'android',
+    os: '14',
+    model: 'Pixel 7',
+    app_build: '29',
+  };
+
+  it('accepts a full device_info message', () => {
+    expect(parsePhoneMessage(JSON.stringify(info))).toEqual(info);
+  });
+
+  it('accepts a message with only the route', () => {
+    expect(
+      parsePhoneMessage(JSON.stringify({ v: 1, type: 'device_info', route: 'speaker' })),
+    ).toEqual({ v: 1, type: 'device_info', route: 'speaker' });
+  });
+
+  it('drops unknown or oversized field values but keeps the rest', () => {
+    const parsed = parsePhoneMessage(
+      JSON.stringify({ ...info, route: 'car', platform: 'web', model: 'x'.repeat(65), extra: 1 }),
+    );
+    expect(parsed).toEqual({
+      v: 1,
+      type: 'device_info',
+      route: 'unknown',
+      os: '14',
+      app_build: '29',
+    });
+  });
+
+  it('rejects other types, versions, malformed and oversized packets', () => {
+    expect(parsePhoneMessage(JSON.stringify({ ...info, type: 'caption' }))).toBeUndefined();
+    expect(parsePhoneMessage(JSON.stringify({ ...info, v: 2 }))).toBeUndefined();
+    expect(parsePhoneMessage('not json')).toBeUndefined();
+    expect(
+      parsePhoneMessage(JSON.stringify({ ...info, pad: 'x'.repeat(MAX_PHONE_MESSAGE_BYTES) })),
+    ).toBeUndefined();
   });
 });

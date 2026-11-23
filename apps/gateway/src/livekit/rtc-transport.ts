@@ -1,7 +1,10 @@
 import {
   GATEWAY_END_REASON_ATTRIBUTE,
   GATEWAY_STATE_ATTRIBUTE,
+  MAX_PHONE_MESSAGE_BYTES,
+  PHONE_TOPIC,
   STATUS_TOPIC,
+  parsePhoneMessage,
   type GatewayEndReason,
   type GatewayState,
 } from '@twring/contracts';
@@ -34,6 +37,7 @@ export class LiveKitRtcTransport implements MediaTransport {
   private readonly room = new Room();
   private readonly source = new AudioSource(SAMPLE_RATE, 1, OUTPUT_QUEUE_MS);
   private readonly encoder = new TextEncoder();
+  private readonly decoder = new TextDecoder();
   private handlers: TransportHandlers | undefined;
   private readingTrackSid: string | undefined;
   private closed = false;
@@ -161,6 +165,12 @@ export class LiveKitRtcTransport implements MediaTransport {
       })
       .on(RoomEvent.TrackUnmuted, (_publication, participant) => {
         if (participant.identity === callerIdentity) emit({ type: 'caller_unmuted' });
+      })
+      .on(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
+        if (topic !== PHONE_TOPIC || participant?.identity !== callerIdentity) return;
+        if (payload.byteLength > MAX_PHONE_MESSAGE_BYTES) return;
+        const info = parsePhoneMessage(this.decoder.decode(payload));
+        if (info !== undefined) emit({ type: 'device_info', info });
       })
       .on(RoomEvent.LocalTrackSubscribed, () => emit({ type: 'caller_listening' }))
       .on(RoomEvent.Reconnecting, () => emit({ type: 'reconnecting' }))
