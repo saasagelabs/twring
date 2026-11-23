@@ -14,6 +14,8 @@ import {
 } from '@twring/contracts';
 import type WebSocket from 'ws';
 
+import { systemScheduler, type Scheduler } from '../calls/scheduler';
+
 import { newChannelId } from './pairing';
 
 /**
@@ -38,7 +40,24 @@ export interface ConnectorHubOptions {
    */
   onHello?: (connectorId: string, agents: LocalAgent[]) => Promise<boolean>;
   logger?: HubLogger;
+  /**
+   * The reconnect grace: a computer that dropped within `windowMs`, or any computer while this
+   * server started under `windowMs` ago, is likely on its way back (the connector retries after
+   * 1, 2, 4, 8 s), so opening a call to it waits up to `waitMs` for its hello first. A computer
+   * offline for longer still fails at once. `windowMs: 0` turns it off.
+   */
+  reconnectGrace?: { windowMs: number; waitMs: number };
+  /** Clock and timer for the grace (tests use a manual scheduler). */
+  scheduler?: Pick<Scheduler, 'now' | 'setTimeout'>;
 }
+
+/** Like LiveKit's worker reconnect grace: how long a dropped computer counts as reconnecting. */
+export const RECONNECT_GRACE_WINDOW_MS = 30_000;
+/**
+ * How long opening a call waits for a reconnecting computer. Under the call's 10 s agent connect
+ * budget (`CALL_TIMEOUTS.agentConnectMs`), so the channel handshake still fits after the hello.
+ */
+export const RECONNECT_WAIT_MS = 8_000;
 
 /** Who a socket authenticated as. */
 export interface ConnectorIdentity {
@@ -169,10 +188,83 @@ export class ConnectorHub {
   private readonly heartbeatMs: number;
   private readonly helloTimeoutMs: number;
   private onReplaced?: (identity: ConnectorIdentity) => void;
+  /** When each computer last dropped, on the grace clock. */
+  private readonly droppedOnClock = new Map<string, number>();
+  /** Callers waiting for a computer's hello (reconnect grace). */
+  private readonly helloWaiters = new Map<string, Set<() => void>>();
+  private readonly scheduler: Pick<Scheduler, 'now' | 'setTimeout'>;
+  private readonly startedAt: number;
+  private readonly grace: { windowMs: number; waitMs: number };
 
   constructor(private readonly options: ConnectorHubOptions = {}) {
     this.heartbeatMs = options.heartbeatMs ?? 20_000;
     this.helloTimeoutMs = options.helloTimeoutMs ?? 10_000;
+    this.scheduler = options.scheduler ?? systemScheduler;
+    this.startedAt = this.scheduler.now();
+    this.grace = options.reconnectGrace ?? {
+      windowMs: RECONNECT_GRACE_WINDOW_MS,
+      waitMs: RECONNECT_WAIT_MS,
+    };
+  }
+
+  /**
+   * True while a computer that is not connected is likely reconnecting: it dropped within the
+   * grace window, or this server itself started within it (every computer is dialling back in).
+   */
+  reconnecting(connectorId: string): boolean {
+    if (this.live.get(connectorId)?.ready === true) return false;
+    const now = this.scheduler.now();
+    if (now - this.startedAt < this.grace.windowMs) return true;
+    const at = this.droppedOnClock.get(connectorId);
+    return at !== undefined && now - at < this.grace.windowMs;
+  }
+
+  /**
+   * Waits up to the grace for the user's computer to say hello again, when it is `reconnecting`.
+   * Resolves true once it is connected, false when it is not (at once if it was not reconnecting).
+   * Aborting ends the wait at once and clears its timer and listener.
+   */
+  async waitForComputer(
+    userId: string,
+    connectorId: string,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    if (this.isOnline(userId, connectorId)) return true;
+    if (!this.reconnecting(connectorId) || signal.aborted) return false;
+    const startedAt = this.scheduler.now();
+    const ok = await new Promise<boolean>((resolve) => {
+      let waiters = this.helloWaiters.get(connectorId);
+      if (waiters === undefined) {
+        waiters = new Set();
+        this.helloWaiters.set(connectorId, waiters);
+      }
+      const set = waiters;
+      const finish = (result: boolean) => {
+        cancelTimer();
+        signal.removeEventListener('abort', onAbort);
+        set.delete(onHello);
+        if (set.size === 0 && this.helloWaiters.get(connectorId) === set) {
+          this.helloWaiters.delete(connectorId);
+        }
+        resolve(result);
+      };
+      const onHello = () => finish(true);
+      const onAbort = () => finish(false);
+      const cancelTimer = this.scheduler.setTimeout(() => finish(false), this.grace.waitMs);
+      set.add(onHello);
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    const online = ok && this.isOnline(userId, connectorId);
+    this.options.logger?.info(
+      {
+        event: 'connector_wait',
+        connector_id: connectorId,
+        waited_ms: Math.round(this.scheduler.now() - startedAt),
+        ok: online,
+      },
+      'waited for a computer to reconnect',
+    );
+    return online;
   }
 
   /**
@@ -405,6 +497,8 @@ export class ConnectorHub {
       name: entry.name,
     };
     entry.ws.send(JSON.stringify(ready));
+    const waiters = this.helloWaiters.get(entry.connectorId);
+    if (waiters !== undefined) for (const wake of [...waiters]) wake();
     this.options.logger?.info(
       { event: 'connector_connected', connector_id: entry.connectorId, agents: agents.length },
       'connector connected',
@@ -443,6 +537,7 @@ export class ConnectorHub {
     entry.channels.clear();
     if (entry.ready) {
       this.dropped.set(entry.connectorId, Date.now());
+      this.droppedOnClock.set(entry.connectorId, this.scheduler.now());
       // The reason tells a network stall (no_pong) from a computer that closed its end (closed).
       this.options.logger?.info(
         {

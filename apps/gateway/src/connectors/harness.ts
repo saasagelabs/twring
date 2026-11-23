@@ -47,7 +47,7 @@ import { ThreadService } from '../threads/service';
 import { SqliteThreadStore } from '../threads/store';
 import { FakeSttProvider, FakeTtsProvider } from '../voice/testing';
 
-import { ConnectorHub } from './hub';
+import { ConnectorHub, type HubLogger } from './hub';
 import type { LinkBook } from './link-requests';
 import { PairingBook } from './pairing';
 import { connectorCallStatus, CONNECTOR_SOCKET_PATH } from './routes';
@@ -121,6 +121,13 @@ export interface ConnectorGatewayOptions {
   linkCreatePerHour?: number;
   linkGuessesPerHour?: number;
   heartbeatMs?: number;
+  /**
+   * The hub's reconnect grace, on `hubScheduler` (default: off, so an offline computer fails at
+   * once as before), and a logger for the hub's events.
+   */
+  reconnectGrace?: { windowMs: number; waitMs: number };
+  hubScheduler?: ManualScheduler;
+  hubLogger?: HubLogger;
   /** Mounts `POST /v1/calls` for saved agents (fake media and speech), with this allowance. */
   calls?: { allowance?: DailyAllowance };
   /** Mounts rings (ADR-024). `push: false` leaves push unconfigured. */
@@ -154,6 +161,9 @@ export async function startConnectorGateway(
   const stores = createMemoryStores(TEST_KEYS);
   const hub = new ConnectorHub({
     ...(options.heartbeatMs !== undefined && { heartbeatMs: options.heartbeatMs }),
+    reconnectGrace: options.reconnectGrace ?? { windowMs: 0, waitMs: 0 },
+    ...(options.hubScheduler !== undefined && { scheduler: options.hubScheduler }),
+    ...(options.hubLogger !== undefined && { logger: options.hubLogger }),
     onHello: async (id, agents) =>
       (await stores.connectors.touch(id, agents, new Date())) !== undefined,
   });
