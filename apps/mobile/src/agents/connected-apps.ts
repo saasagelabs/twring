@@ -58,3 +58,15 @@ export function connectedAppsState(apps: ConnectedApp[]) {
     .sort((a, b) => a.name.localeCompare(b.name));
   return { empty: connected.length === 0 && removed.length === 0, connected, removed };
 }
+
+/**
+ * The name of an app connected since `before` was read, or undefined. Removed (blocked) apps do
+ * not count; an app connected again under a new connection does.
+ */
+export function newlyConnectedApp(
+  before: readonly ConnectedApp[],
+  now: readonly ConnectedApp[],
+): string | undefined {
+  const known = new Set(before.map((app) => app.client_id));
+  return now.find((app) => !app.blocked && !known.has(app.client_id))?.name.trim();
+}

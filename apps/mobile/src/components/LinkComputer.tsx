@@ -278,7 +278,9 @@ export function LinkComputer({
               Windows) and run this. It shows a code to scan.
             </Support>
             {command === undefined ? (
-              <Support>This app can't make a command for its server. Check the app setup.</Support>
+              <Support>
+                Something went wrong on our side. Try again later, or write to support@twring.com.
+              </Support>
             ) : (
               <>
                 <Text

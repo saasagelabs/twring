@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { connectedAppsState } from './connected-apps';
+import { connectedAppsState, newlyConnectedApp } from './connected-apps';
 
 describe('connected app list state', () => {
   it('is empty with no apps', () => {
@@ -64,5 +64,23 @@ describe('connected app list state', () => {
     const state = connectedAppsState([{ client_id: 'x', name: 'Claude', blocked: true }]);
     expect(state.empty).toBe(false);
     expect(state.connected).toEqual([]);
+  });
+});
+
+describe('a newly connected app', () => {
+  const claude = { client_id: 'c1', name: 'Claude', blocked: false };
+  it('is none when nothing changed', () => {
+    expect(newlyConnectedApp([claude], [claude])).toBeUndefined();
+    expect(newlyConnectedApp([], [])).toBeUndefined();
+  });
+
+  it('names an app that was not there before', () => {
+    const cursor = { client_id: 'c2', name: ' Cursor ', blocked: false };
+    expect(newlyConnectedApp([claude], [claude, cursor])).toBe('Cursor');
+  });
+
+  it('ignores removed apps and apps already there', () => {
+    expect(newlyConnectedApp([], [{ ...claude, blocked: true }])).toBeUndefined();
+    expect(newlyConnectedApp([{ ...claude, blocked: true }], [claude])).toBeUndefined();
   });
 });
