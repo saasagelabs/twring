@@ -240,7 +240,7 @@ describe('SpeechTextFilter tables, emoji, separators and CJK', () => {
       );
       const { pieces, text } = speak(deltas);
       expect(text).toBe('Hi and bye');
-      for (const piece of pieces) expect(piece).not.toMatch(/[\uD800-\uDFFF\u200D\uFE0F]/);
+      for (const piece of pieces) expect(piece).not.toMatch(/[\uD800-\uDFFF]|\u200D|\uFE0F/);
     }
   });
 

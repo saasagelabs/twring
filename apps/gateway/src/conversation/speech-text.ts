@@ -28,7 +28,7 @@ const HEX = /(?<![\w-])(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{1
  * characters, keycap marks, joiners and variation selectors (after livekit/agents `filter_emoji`).
  */
 const EMOJI =
-  /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u{E0020}-\u{E007F}‍︎️⃣]/gu;
+  /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u{E0020}-\u{E007F}]|\u200D|\uFE0E|\uFE0F|\u20E3/gu;
 /** A CJK sentence end with any closing quotes: speech is released after it, as after a space. */
 const CJK_END = /[。！？．][」』）”]*/g;
 /** A thematic break (---, ***, ___), a setext underline (===) or a table's |---|:--:| row. */
