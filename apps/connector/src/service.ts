@@ -23,6 +23,12 @@ export const SERVICE_ENV = 'CORD_CONNECT_SERVICE';
  * launcher stops on it, and launchd keeps the job alive only while the pairing file exists.
  */
 export const NOT_PAIRED_EXIT = 78;
+/**
+ * The exit code when another copy with the same pairing took over (the gateway's 4409). Starting
+ * this one again would only replace that copy, which then replaces this one, without end; systemd
+ * and the Windows launcher stop on it. launchd cannot tell exit codes apart and still restarts it.
+ */
+export const REPLACED_EXIT = 79;
 /** Past this size the log starts again, the previous part kept as `<log>.1`. */
 export const LOG_MAX_BYTES = 5 * 1024 * 1024;
 /** The script's stable copy in the config folder (the downloaded one may be in a temp folder). */
@@ -135,7 +141,7 @@ WorkingDirectory=-${systemdPath(spec.cwd)}
 ${env}
 Restart=always
 RestartSec=5
-RestartPreventExitStatus=${NOT_PAIRED_EXIT}
+RestartPreventExitStatus=${NOT_PAIRED_EXIT} ${REPLACED_EXIT}
 
 [Install]
 WantedBy=${system ? 'multi-user.target' : 'default.target'}
@@ -247,7 +253,7 @@ export function windowsLauncher(spec: ServiceSpec): string {
     '  End If',
     '  On Error GoTo 0',
     `  code = shell.Run(${vbsString(command.replace(/%/g, '%CORD_PCT%'))}, 0, True)`,
-    `  If code = ${NOT_PAIRED_EXIT} Then Exit Do`,
+    `  If code = ${NOT_PAIRED_EXIT} Or code = ${REPLACED_EXIT} Then Exit Do`,
     '  WScript.Sleep 5000',
     'Loop',
     '',

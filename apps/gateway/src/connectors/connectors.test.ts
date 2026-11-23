@@ -10,6 +10,8 @@ import {
   pairingResponseSchema,
   pairingStatusResponseSchema,
   RELAY_CLOSE,
+  RELAY_PAIRING_HEADER,
+  RELAY_PAIRING_REVOKED,
   type AgentEvent,
   type UserTurn,
 } from '@twring/contracts';
@@ -19,7 +21,7 @@ import WebSocket from 'ws';
 import { savedAgentFactory, targetAgentFactory } from '../agents/service';
 
 import { startConnectorGateway, type ConnectorGateway } from './harness';
-import { OfflineSocket } from './hub';
+import { CONNECTOR_HEARTBEAT_MS, OfflineSocket } from './hub';
 import { PairingBook, PAIRING_TTL_MS } from './pairing';
 import { FAKE_AGENTS, startFakeConnector, type FakeConnectorScript } from './testing';
 
@@ -78,6 +80,25 @@ function relayAdapter(
 }
 
 /** Opens a raw socket; resolves the HTTP status it was refused with, or 101 when upgraded. */
+/** The refusal's pairing header (`x-twring-pairing`), or undefined. */
+function upgradePairingHeader(
+  url: string,
+  headers: Record<string, string>,
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const ws = new WebSocket(url, { headers });
+    ws.on('unexpected-response', (_req, res) => {
+      const value = res.headers[RELAY_PAIRING_HEADER];
+      resolve(typeof value === 'string' ? value : undefined);
+    });
+    ws.on('open', () => {
+      resolve(undefined);
+      ws.terminate();
+    });
+    ws.on('error', () => undefined);
+  });
+}
+
 function upgradeStatus(url: string, headers: Record<string, string>): Promise<number> {
   return new Promise((resolve) => {
     const ws = new WebSocket(url, { headers });
@@ -292,6 +313,11 @@ describe('relay socket', () => {
     connector.terminate();
   }, 40_000);
 
+  it('pings often enough that a dead link is found within 45 s', () => {
+    // An unanswered ping is caught at the next one: two intervals at most.
+    expect(CONNECTOR_HEARTBEAT_MS * 2).toBeLessThanOrEqual(30_000);
+  });
+
   it('refuses an upgrade without a valid connector token', async () => {
     const g = await gateway();
     expect(await upgradeStatus(g.socketUrl, {})).toBe(401);
@@ -464,6 +490,12 @@ describe('cord-connector agents', () => {
     expect(res.statusCode).toBe(204);
     expect(await connector.closed).toBe(RELAY_CLOSE.revoked);
     expect(await upgradeStatus(g.socketUrl, { Authorization: `Bearer ${token}` })).toBe(401);
+    // The explicit revoke word, so the connector forgets this pairing (a bare 401 is retried).
+    expect(await upgradePairingHeader(g.socketUrl, { Authorization: `Bearer ${token}` })).toBe(
+      RELAY_PAIRING_REVOKED,
+    );
+    // No token at all is not a revoke.
+    expect(await upgradePairingHeader(g.socketUrl, {})).toBeUndefined();
   });
 
   it("never lets one user reach another user's computer", async () => {

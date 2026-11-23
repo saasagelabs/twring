@@ -272,6 +272,20 @@ describe('channel session: work after a call', () => {
     expect(t.results).toEqual([]);
   });
 
+  it('delivers the whole answer when the link dropped (not a hang-up), even a short one', async () => {
+    const t = running(30 * 60_000, 'call', 60_000);
+    await waitFor(() => t.signal !== undefined);
+    t.adapter.queue.push({ type: 'text', text: 'The build ' });
+    await waitFor(() => t.sent.some((m) => m.type === 'text.delta'));
+    t.session.close('link');
+    t.adapter.queue.push({ type: 'text', text: 'passed.' });
+    t.adapter.queue.end();
+    await waitFor(() => t.results.length === 1);
+    expect(t.results).toEqual([
+      { text: 'The build passed.', turn: { turnId: 't1', surface: 'call' } },
+    ]);
+  });
+
   it('still delivers a quick result when the turn used a tool', async () => {
     const t = running(30 * 60_000, 'call', 60_000);
     await waitFor(() => t.signal !== undefined);

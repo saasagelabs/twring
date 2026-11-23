@@ -224,6 +224,20 @@ describe('detached result delivery', () => {
     }
   });
 
+  it('says to hold the result when Twring stays unreachable, and never rings for it', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = run();
+      t.fetch.mockRejectedValue(new Error('offline'));
+      const pending = deliverBackgroundResult(config(), 'codex', 'Done.', undefined, turn, t.deps);
+      await vi.advanceTimersByTimeAsync(200_000);
+      expect(await pending).toBe('retry');
+      expect(t.ring).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('falls back on 404 by surface; other 4xx stops', async () => {
     const t = run();
     t.fetch.mockResolvedValue(new Response('', { status: 404 }));

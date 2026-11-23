@@ -42,14 +42,21 @@ export interface ConnectorHubOptions {
   logger?: HubLogger;
   /**
    * The reconnect grace: a computer that dropped within `windowMs`, or any computer while this
-   * server started under `windowMs` ago, is likely on its way back (the connector retries after
-   * 1, 2, 4, 8 s), so opening a call to it waits up to `waitMs` for its hello first. A computer
+   * server started under `windowMs` ago, is likely on its way back (the connector retries about
+   * 1 s after a server restart, else within 1, 2, 4, 8 s), so opening a call to it waits up to `waitMs` for its hello first. A computer
    * offline for longer still fails at once. `windowMs: 0` turns it off.
    */
   reconnectGrace?: { windowMs: number; waitMs: number };
   /** Clock and timer for the grace (tests use a manual scheduler). */
   scheduler?: Pick<Scheduler, 'now' | 'setTimeout'>;
 }
+
+/**
+ * How often the server pings each computer. A ping still unanswered at the next one ends the
+ * socket, so a dead link is found within two intervals (30 s); the connector itself gives up
+ * after 42 s without traffic.
+ */
+export const CONNECTOR_HEARTBEAT_MS = 15_000;
 
 /** Like LiveKit's worker reconnect grace: how long a dropped computer counts as reconnecting. */
 export const RECONNECT_GRACE_WINDOW_MS = 30_000;
@@ -197,7 +204,7 @@ export class ConnectorHub {
   private readonly grace: { windowMs: number; waitMs: number };
 
   constructor(private readonly options: ConnectorHubOptions = {}) {
-    this.heartbeatMs = options.heartbeatMs ?? 20_000;
+    this.heartbeatMs = options.heartbeatMs ?? CONNECTOR_HEARTBEAT_MS;
     this.helloTimeoutMs = options.helloTimeoutMs ?? 10_000;
     this.scheduler = options.scheduler ?? systemScheduler;
     this.startedAt = this.scheduler.now();

@@ -2,6 +2,8 @@ import {
   MAX_RELAY_MESSAGE_BYTES,
   NATIVE_PROTOCOL,
   RELAY_CLOSE,
+  RELAY_PAIRING_HEADER,
+  RELAY_PAIRING_REVOKED,
   RELAY_PROTOCOL,
   relayGatewayMessageSchema,
   SCOPED_SESSIONS_FEATURE,
@@ -14,10 +16,22 @@ import type { AgentPool } from './pool';
 import { ChannelSession } from './session';
 import { uploadFile } from './upload';
 
-/** Waits between reconnect attempts; the last value repeats. Jitter is added on top. */
-export const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 30_000] as const;
-/** The gateway pings every 20 s; this long without any traffic means the link is dead. */
-export const SILENCE_TIMEOUT_MS = 60_000;
+/**
+ * The longest wait before each reconnect attempt; the last value repeats. The actual wait is
+ * random between 0 and it (full jitter), so many computers dropped together do not return at once.
+ */
+export const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const;
+/**
+ * After the server closed for a restart (1001 going away, 1012 service restart) it is usually back
+ * within a second: the first retry comes after this, plus up to as much again of jitter.
+ */
+export const RESTART_RETRY_MS = 500;
+const RESTART_CLOSE_CODES: ReadonlySet<number> = new Set([1001, 1012]);
+/**
+ * The gateway pings every 15 s (20 s before 2026-11); this long without any traffic means the link
+ * is dead. Above two ping intervals of either, so one late ping is not a drop.
+ */
+export const SILENCE_TIMEOUT_MS = 42_000;
 
 export type RelayStatus =
   | { kind: 'connecting'; attempt: number }
@@ -126,7 +140,13 @@ export class RelayClient {
     let fatal: 'unauthorized' | 'revoked' | 'replaced' | undefined;
 
     ws.on('unexpected-response', (req, res) => {
-      if (res.statusCode === 401 || res.statusCode === 403) fatal = 'unauthorized';
+      // Only the gateway's explicit word unpairs. A bare 401 or 403 can come from a proxy, a
+      // deploy in progress, or a clock problem: it is retried like any other refusal.
+      if (
+        (res.statusCode === 401 || res.statusCode === 403) &&
+        res.headers[RELAY_PAIRING_HEADER] === RELAY_PAIRING_REVOKED
+      )
+        fatal = 'unauthorized';
       req.destroy();
       ws.terminate();
     });
@@ -159,7 +179,7 @@ export class RelayClient {
       if (this.ws !== ws) return;
       this.ws = null;
       clearTimeout(this.silenceTimer);
-      this.closeSessions();
+      this.closeSessions('link');
       if (code === RELAY_CLOSE.revoked) fatal = 'revoked';
       if (code === RELAY_CLOSE.replaced) fatal = 'replaced';
       if (fatal !== undefined) {
@@ -167,7 +187,7 @@ export class RelayClient {
         this.stop();
         return;
       }
-      this.scheduleReconnect();
+      this.scheduleReconnect(RESTART_CLOSE_CODES.has(code));
     });
   }
 
@@ -254,24 +274,28 @@ export class RelayClient {
     }, this.options.silenceTimeoutMs ?? SILENCE_TIMEOUT_MS);
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(serverRestart: boolean): void {
     if (this.stopped) return;
+    const random = (this.options.random ?? Math.random)();
     const delays = this.options.delaysMs ?? RECONNECT_DELAYS_MS;
-    const base = delays[Math.max(0, Math.min(this.attempt, delays.length) - 1)] ?? 1_000;
-    const jitter = Math.round(base * 0.2 * (this.options.random ?? Math.random)());
-    const wait = base + jitter;
+    const ceiling = delays[Math.max(0, Math.min(this.attempt, delays.length) - 1)] ?? 1_000;
+    // A restart close on a link that was up (attempt 1 after a ready) comes back fast.
+    const wait =
+      serverRestart && this.attempt <= 1
+        ? Math.round(RESTART_RETRY_MS * (1 + random))
+        : Math.round(ceiling * random);
     this.options.onStatus?.({ kind: 'disconnected', retryInMs: wait });
     this.retryTimer = setTimeout(() => this.connect(), wait);
   }
 
-  private closeSessions(): void {
-    for (const channel of this.sessions.keys()) this.closeChannel(channel);
+  private closeSessions(reason: 'hangup' | 'link' = 'hangup'): void {
+    for (const channel of this.sessions.keys()) this.closeChannel(channel, reason);
   }
 
-  private closeChannel(channel: string): boolean {
+  private closeChannel(channel: string, reason: 'hangup' | 'link' = 'hangup'): boolean {
     const entry = this.sessions.get(channel);
     if (entry === undefined) return false;
-    entry.session.close();
+    entry.session.close(reason);
     this.options.pool.release(entry.agent, entry.scope);
     this.sessions.delete(channel);
     return true;

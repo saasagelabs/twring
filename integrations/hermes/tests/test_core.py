@@ -11,10 +11,13 @@ from twring_core import (
     TurnState,
     approval_choice,
     approval_required,
+    RESTART_CLOSE_CODES,
     backoff_delays,
     channel_message,
     connector_hello,
+    pairing_revoked,
     parse_frame,
+    restart_delay,
     session_ready,
     tool_name,
     tool_status,
@@ -181,11 +184,31 @@ class TestApprovals:
         assert approval_choice("maybe") == "deny"
 
 
-def test_backoff_follows_the_connector_schedule_with_jitter_and_a_cap():
+def test_backoff_follows_the_connector_schedule_with_full_jitter_and_a_15_s_cap():
     delays = backoff_delays()
     seen = [next(delays) for _ in range(8)]
-    for base, delay in zip([1, 2, 4, 8, 15, 30, 30, 30], seen):
-        assert base <= delay <= base * 1.25
+    for ceiling, delay in zip([1, 2, 4, 8, 15, 15, 15, 15], seen):
+        assert 0 <= delay <= ceiling
+
+
+def test_a_server_restart_is_retried_within_a_second():
+    assert RESTART_CLOSE_CODES == {1001, 1012}
+    for _ in range(20):
+        assert 0.5 <= restart_delay() <= 1.0
+
+
+@pytest.mark.parametrize(
+    ("status", "headers", "revoked"),
+    [
+        (401, {"x-twring-pairing": "revoked"}, True),
+        (403, {"X-Twring-Pairing": "revoked"}, True),
+        (401, {}, False),
+        (403, {}, False),
+        (503, {"x-twring-pairing": "revoked"}, False),
+    ],
+)
+def test_only_the_gateways_revoke_word_unpairs(status, headers, revoked):
+    assert pairing_revoked(status, headers) is revoked
 
 
 class TestParseFrame:

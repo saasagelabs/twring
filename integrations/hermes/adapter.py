@@ -42,7 +42,10 @@ try:  # loaded by Hermes as a package
         TurnState,
         approval_choice,
         approval_required,
+        RESTART_CLOSE_CODES,
         backoff_delays,
+        pairing_revoked,
+        restart_delay,
         channel_message,
         connector_hello,
         parse_frame,
@@ -62,7 +65,10 @@ except ImportError:  # loaded directly (tests)
         TurnState,
         approval_choice,
         approval_required,
+        RESTART_CLOSE_CODES,
         backoff_delays,
+        pairing_revoked,
+        restart_delay,
         channel_message,
         connector_hello,
         parse_frame,
@@ -74,7 +80,7 @@ except ImportError:  # loaded directly (tests)
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_VERSION = "0.1.2"
+PLUGIN_VERSION = "0.1.3"
 TEXT_TURN_TAG = "[Twring message]"
 #: Twring ends a quiet turn after 30 s; a working Hermes says so at least this often.
 ACTIVITY_EVERY_S = 10.0
@@ -258,14 +264,16 @@ class TwringAdapter(BasePlatformAdapter):
         delays = backoff_delays()
         while not self._stopping:
             close_code: Optional[int] = None
+            connected = False
             try:
                 async with ws_connect(
                     _socket_url(self._server or DEFAULT_SERVER),
                     additional_headers={"Authorization": f"Bearer {self._token}"},
                     user_agent_header=f"twring-hermes/{PLUGIN_VERSION}",
                     max_size=MAX_FRAME_BYTES,
-                    ping_interval=20,
-                    ping_timeout=20,
+                    # A dead link is found within 30 s, like Twring's own pings.
+                    ping_interval=15,
+                    ping_timeout=15,
                     open_timeout=15,
                 ) as ws:
                     self._ws = ws
@@ -276,13 +284,16 @@ class TwringAdapter(BasePlatformAdapter):
                             continue
                         if frame["type"] == "connector.ready":
                             delays = backoff_delays()
+                            connected = True
                             self._ready.set()
                             self._mark_connected()
                             continue
                         await self._on_frame(frame)
             except InvalidStatus as error:
-                status = getattr(getattr(error, "response", None), "status_code", 0)
-                if status in (401, 403):
+                response = getattr(error, "response", None)
+                status = getattr(response, "status_code", 0)
+                # Only Twring's explicit revoke word unpairs; a bare 401 or 403 is retried.
+                if pairing_revoked(status, getattr(response, "headers", None)):
                     self._fatal = ("auth_failed", "Twring refused this link. Run `hermes twring link` again.")
             except ConnectionClosed as error:
                 close_code = getattr(getattr(error, "rcvd", None), "code", None)
@@ -309,6 +320,10 @@ class TwringAdapter(BasePlatformAdapter):
             self._mark_disconnected()
             if self._stopping:
                 return
+            if close_code in RESTART_CLOSE_CODES and connected:
+                # The server is restarting: it is back in a moment.
+                await asyncio.sleep(restart_delay())
+                continue
             await asyncio.sleep(next(delays))
 
     async def _send(self, frame: dict[str, Any]) -> bool:

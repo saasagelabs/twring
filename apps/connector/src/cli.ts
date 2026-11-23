@@ -51,6 +51,7 @@ import { currentLaunch, relaunchFlags } from './preamble';
 import { uploadFile, UploadError } from './upload';
 import { systemSpawn } from './process';
 import { AgentPool } from './pool';
+import { ResultOutbox } from './outbox';
 import { RelayClient } from './relay';
 import {
   cancelLastRing,
@@ -73,6 +74,7 @@ import {
   prepareLog,
   readStatus,
   removeRunFiles,
+  REPLACED_EXIT,
   rotateLog,
   SERVICE_ENV,
   serviceSpecFor,
@@ -440,7 +442,8 @@ async function link(
   return config;
 }
 
-function run(config: ConnectorConfig): Promise<void> {
+/** Runs the link until it stops; resolves the process exit code. */
+function run(config: ConnectorConfig): Promise<number> {
   const byId = new Map(config.agents.map((agent) => [agent.id, agent]));
   const labels = config.agents.map((a) => a.label).join(', ');
   // A pid file lets `setup` stop this copy; the status file tells it when the service connected.
@@ -464,12 +467,14 @@ function run(config: ConnectorConfig): Promise<void> {
   }
   // Forgetting a revoked pairing is async: `main` exits right after `run`, so it waits for it.
   let forgetting: Promise<unknown> = Promise.resolve();
+  let exitCode = 0;
   const log = (line: string) => print(`  ${line}`);
   // This copy's Twring skill replaces an older one an agent already has (never adds one). Done
   // before the relay starts, so no agent starts while its skill folder is being swapped.
   const skillsRefreshed = refreshInstalledSkills(config.agents, process.env, homedir())
     .then((results) => skillLines(results, homedir()).forEach(log))
     .catch(() => undefined);
+  const outbox = new ResultOutbox();
   const pool = new AgentPool({
     dir,
     createAdapter: (id, resumeRef, scope) => {
@@ -486,11 +491,16 @@ function run(config: ConnectorConfig): Promise<void> {
     version: VERSION,
     pool,
     onBackgroundResult: (agentId, text, sessionRef, turn) => {
-      void deliverBackgroundResult(config, agentId, text, sessionRef, turn, {
-        hasOpenChannel: (id, scope) => client.hasOpenChannel(id, scope),
-        supports: (feature) => client.supports(feature),
-        signal: client.stopSignal,
-        print: log,
+      const deliver = () =>
+        deliverBackgroundResult(config, agentId, text, sessionRef, turn, {
+          hasOpenChannel: (id, scope) => client.hasOpenChannel(id, scope),
+          supports: (feature) => client.supports(feature),
+          signal: client.stopSignal,
+          print: log,
+        });
+      // Twring unreachable (the link is down too): held, and sent again once it is back.
+      void deliver().then((result) => {
+        if (result === 'retry') outbox.hold(turn.turnId, deliver);
       });
     },
     log,
@@ -501,6 +511,7 @@ function run(config: ConnectorConfig): Promise<void> {
           return;
         case 'connected':
           report(true);
+          void outbox.flush();
           print(`Connected as "${status.name}". Your phone can call: ${labels}.`);
           if (!inService) print('Keep this window open. Press Ctrl+C to disconnect.');
           return;
@@ -512,8 +523,12 @@ function run(config: ConnectorConfig): Promise<void> {
           report(false);
           if (status.reason === 'replaced') {
             print(
-              `${CONNECTOR_CLI_NAME} started on another window with this pairing; this one stopped.`,
+              `${CONNECTOR_CLI_NAME} started on another window or computer with this pairing, so this one stopped.`,
             );
+            print(
+              'Keep one copy running. To use this one again, close the other and start it here.',
+            );
+            exitCode = REPLACED_EXIT;
           } else {
             print('This computer is no longer paired with your Twring account.');
             print(`Link it again: node ${CONNECTOR_CLI_NAME}.mjs`);
@@ -549,7 +564,7 @@ function run(config: ConnectorConfig): Promise<void> {
       pool.closeAll();
       return forgetting;
     })
-    .then(() => undefined);
+    .then(() => exitCode);
 }
 
 function readStdin(): Promise<string> {
@@ -1150,8 +1165,7 @@ async function main(): Promise<void> {
   const config =
     values.code !== undefined ? await pair(commandValues) : (saved ?? (await link(commandValues)));
   if (config === undefined) return exitWhenDrained(1);
-  await run(config);
-  process.exit(0);
+  process.exit(await run(config));
 }
 
 /**

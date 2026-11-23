@@ -145,7 +145,7 @@ describe('systemd unit text (systemd.exec(5))', () => {
   });
 
   it('does not restart a service that has no pairing (exit 78)', () => {
-    expect(systemdUnit(SPEC, { system: true })).toContain('RestartPreventExitStatus=78\n');
+    expect(systemdUnit(SPEC, { system: true })).toContain('RestartPreventExitStatus=78 79\n');
   });
 });
 
