@@ -13,6 +13,7 @@ import {
   agentDescription,
   confirmTitle,
   createLinkWizard,
+  doneAction,
   doneCopy,
   linkCommand,
   linkBackAction,
@@ -26,6 +27,7 @@ import {
 } from '@/agents/link';
 import type { LinkApproveResponse } from '@twring/contracts';
 import { twringApi } from '@/api';
+import { startCall } from '@/call/start';
 import { Avatar } from '@/components/Avatar';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { Field } from '@/components/Field';
@@ -207,6 +209,7 @@ export function LinkComputer({
               type: 'AGENT_SAVED',
               localAgent,
               ...(saved.relinked === true && { relinkedAs: saved.name }),
+              agent: { id: saved.id, name: saved.name },
             });
           }
           if (!signal.aborted) dispatch({ type: 'ALL_SAVED' });
@@ -474,7 +477,23 @@ export function LinkComputer({
           />
         );
       case 'done':
-        return <PrimaryButton label="Go to Home" onPress={() => router.replace('/')} />;
+        if (state.callFirst === undefined) {
+          return <PrimaryButton label={doneAction(state)} onPress={() => router.replace('/')} />;
+        }
+        return (
+          <>
+            <PrimaryButton
+              label={doneAction(state)}
+              onPress={() => {
+                const target = state.callFirst;
+                if (target === undefined) return;
+                router.replace({ pathname: '/agents/[id]', params: { id: target.agentId } });
+                startCall({ agentId: target.agentId, name: target.name });
+              }}
+            />
+            <TextButton label="Later" onPress={() => router.replace('/')} />
+          </>
+        );
     }
   }
 

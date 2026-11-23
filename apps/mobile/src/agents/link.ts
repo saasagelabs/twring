@@ -42,6 +42,8 @@ export interface LinkState {
   saved: string[];
   /** Local agent id to contact name, for contacts a computer linked again took over. */
   reconnected?: Record<string, string>;
+  /** The first contact saved on this run: the done step offers to call it. */
+  callFirst?: { agentId: string; name: string };
   busy: boolean;
   error?: ErrorCopy;
 }
@@ -59,7 +61,13 @@ export type LinkAction =
   | { type: 'APPROVED'; linked: LinkApproveResponse; alreadyAdded?: readonly string[] }
   | { type: 'TOGGLE'; localAgent: string }
   | { type: 'SAVE_STARTED' }
-  | { type: 'AGENT_SAVED'; localAgent: string; relinkedAs?: string }
+  | {
+      type: 'AGENT_SAVED';
+      localAgent: string;
+      relinkedAs?: string;
+      /** The saved contact, so the done step can call it. */
+      agent?: { id: string; name: string };
+    }
   | { type: 'ALL_SAVED' };
 
 export function createLinkWizard(): LinkState {
@@ -247,6 +255,10 @@ export function linkReducer(state: LinkState, action: LinkAction): LinkState {
         : {
             ...state,
             saved: [...state.saved, action.localAgent],
+            ...(state.callFirst === undefined &&
+              action.agent !== undefined && {
+                callFirst: { agentId: action.agent.id, name: action.agent.name },
+              }),
             ...(action.relinkedAs !== undefined && {
               reconnected: { ...state.reconnected, [action.localAgent]: action.relinkedAs },
             }),
@@ -277,6 +289,11 @@ export function pendingAgentRequests(
     }));
 }
 
+/** The done step's main button: call the first contact saved, or just go Home. */
+export function doneAction(state: Pick<LinkState, 'callFirst'>): string {
+  return state.callFirst === undefined ? 'Go to Home' : `Call ${state.callFirst.name}`;
+}
+
 /**
  * The last step's words. One agent that took over its old contact: "Reconnected to <name>";
  * otherwise the usual heading, with reconnected ones marked in the list.
@@ -296,8 +313,8 @@ export function doneCopy(state: LinkState): {
     };
   }
   return {
-    heading: 'Your agents are ready',
-    support: 'Call them from Home. Leave your computer on while you call.',
+    heading: state.saved.length === 1 ? 'Your agent is ready' : 'Your agents are ready',
+    support: 'Call now, or later from Home. Leave your computer on while you call.',
     reconnected,
   };
 }
