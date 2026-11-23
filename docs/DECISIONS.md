@@ -1267,3 +1267,38 @@ and outside pull requests need a review path that does not slow the maintainers'
 - Contributors need no paperwork beyond the sign-off.
 - Every reply waits for the owner, so answers can take a day or more.
 
+
+## ADR-042: Account words and held audio while hearing reconnects (2026-11-24)
+
+**Status:** Accepted (amends the keyterm order of ADR-017)
+
+### Context
+
+A real end-to-end call test missed invented and personal names ("Rishflips", "Claude", "Twring" on
+narrowband; users report "SaaSage" heard as "sausage"). Agents carry at most a couple of words each,
+and a long agent list could push the agent's own name and "Twring" out of the keyterm budget.
+Separately, caller audio arriving while the Flux socket reconnected was dropped, losing words.
+
+### Decision
+
+- Every saved-agent call's keyterms are built by `agentSttKeyterms`: the agent's words, then the
+  interruption words, then identity terms (Twring, the agent's name, the owner's display name as
+  separate words), then the owner's words from all their agents (`add_words`, union), then
+  `DEEPGRAM_STT_KEYTERMS`. Deduped case-insensitively; within 50 terms and the 450-token estimate
+  (Deepgram documents 500 tokens per request and per Configure, and at most 100 terms per Configure).
+  Room for the interruption and identity terms is reserved, so agent words can no longer push them
+  out; account words give way first. Only the caller's own agents get account words; a team member
+  on a shared agent gets the agent's list.
+- When words are added during a call, the owner's live calls rebuild the list and send it with
+  Flux `Configure` (replaces the whole list). The list is re-sent after an STT reconnect. xAI
+  listening has no mid-stream update: the words apply from the next call. Logs carry counts only
+  (`stt_keyterms_updated` with `keyterms_count`).
+- While the STT socket reconnects, the newest 2 s of 16 kHz caller audio is held in a fixed ring
+  and sent first on the new session; older audio is dropped and counted as `stt_audio_dropped_ms`
+  in call usage.
+
+### Consequences
+
+- Keyterms help recall but do not guarantee it: "Rishflips" was still heard as "Rishfit" with the
+  hint. Deepgram advises proper-noun capitalisation and a focused list of 20 to 50 terms.
+- A reconnect can deliver up to 2 s of speech late; a turn spoken over a longer gap loses its start.

@@ -127,6 +127,12 @@ class DeepgramSttSession implements SttSession {
     }
   }
 
+  /** Flux `Configure`: the list replaces the active one; a refused list keeps the old one. */
+  updateKeyterms(keyterms: readonly string[]): void {
+    if (this.closing || !this.socket.isOpen) return;
+    this.socket.send(JSON.stringify({ type: 'Configure', keyterms }));
+  }
+
   close(): Promise<void> {
     if (this.closing) return Promise.resolve();
     this.closing = true;

@@ -248,6 +248,11 @@ export class CallRuntime {
     this.startedAt = options.scheduler.now();
   }
 
+  /** New words to listen for, mid-call; false when the hearing side cannot take them now. */
+  updateKeyterms(keyterms: readonly string[]): boolean {
+    return this.voice?.updateKeyterms(keyterms) ?? false;
+  }
+
   decideApproval(id: string, decision: 'approve' | 'deny'): 'applied' | 'decided' | 'unknown' {
     const status = this.conversation?.approvalStatus(id) ?? 'unknown';
     if (status === 'decided') return 'decided';
@@ -451,6 +456,7 @@ export class CallRuntime {
       gateway_connected_s: seconds(this.joinedAt === undefined ? 0 : now - this.joinedAt),
       stt_reconnects: voice?.sttReconnects ?? 0,
       tts_reconnects: voice?.ttsReconnects ?? 0,
+      stt_audio_dropped_ms: Math.round(voice?.sttAudioDroppedMs ?? 0),
     };
     const cost = estimateCost(usage, this.options.usageRates);
     return cost === undefined ? usage : { ...usage, estimated_cost_usd: cost };

@@ -259,6 +259,20 @@ describe('Deepgram Flux STT', () => {
     });
   });
 
+  it('replaces the keyterms mid-stream with Flux Configure, and not after close', async () => {
+    const { session, socket, events } = await openStt();
+    session.updateKeyterms?.(['Twring', 'SaaSage']);
+    await session.close();
+    session.updateKeyterms?.(['late']);
+    expect(socket.jsonSent()).toEqual([
+      { type: 'Configure', keyterms: ['Twring', 'SaaSage'] },
+      { type: 'CloseStream' },
+    ]);
+    // Flux acknowledges with ConfigureSuccess / ConfigureFailure: neither is a turn or an error.
+    socket.receive(JSON.stringify({ type: 'ConfigureFailure', code: 'x', description: 'y' }));
+    expect(events).toEqual([]);
+  });
+
   it('closes with CloseStream and reports nothing afterwards', async () => {
     const { session, socket, events } = await openStt();
     await session.close();

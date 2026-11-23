@@ -30,6 +30,24 @@ export function callWords(agent: AgentRecord, personId: string): string[] {
   return words;
 }
 
+/**
+ * Words an owner taught any of their agents, once each (any case), first-seen first: every call of
+ * theirs listens for them (ADR-042).
+ */
+export function accountWords(agents: readonly AgentRecord[]): string[] {
+  const words: string[] = [];
+  const seen = new Set<string>();
+  for (const agent of agents) {
+    for (const word of agent.keyterms ?? []) {
+      const key = word.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      words.push(word);
+    }
+  }
+  return words;
+}
+
 export async function addAgentWords(
   agents: AgentRepository,
   userId: string,

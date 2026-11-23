@@ -120,6 +120,8 @@ export class FakeSttProvider implements SttProvider {
   failNextOpen: VoiceError | undefined;
   samplesReceived = 0;
   closed = 0;
+  /** Each mid-stream keyterm update, in order. */
+  keytermUpdates: (readonly string[])[] = [];
   private emit: ((event: SttEvent) => void) | undefined;
 
   open(onEvent: (event: SttEvent) => void): Promise<SttSession> {
@@ -133,6 +135,9 @@ export class FakeSttProvider implements SttProvider {
     return Promise.resolve({
       sendAudio: (samples) => {
         this.samplesReceived += samples.length;
+      },
+      updateKeyterms: (keyterms) => {
+        this.keytermUpdates.push(keyterms);
       },
       close: () => {
         this.closed += 1;

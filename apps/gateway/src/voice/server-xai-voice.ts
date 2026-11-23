@@ -1,4 +1,8 @@
-import { INTERRUPTION_KEYTERMS, type GatewayEnv } from '@twring/config/gateway';
+import {
+  INTERRUPTION_KEYTERMS,
+  type AccountKeyterms,
+  type GatewayEnv,
+} from '@twring/config/gateway';
 import type { SpeakerLanguage } from '@twring/contracts';
 
 import type { TtsRouter } from '../agents/tts-router';
@@ -37,7 +41,12 @@ export interface ServerXaiVoiceOptions {
    * an own Deepgram key, and voices spoken exactly (`forCallVoice`) on the key `speech` names.
    */
   ownKeys?: {
-    stt: (keyterms: readonly string[], agentName?: string, speech?: ResolvedSpeech) => SttProvider;
+    stt: (
+      keyterms: readonly string[],
+      agentName?: string,
+      speech?: ResolvedSpeech,
+      account?: AccountKeyterms,
+    ) => SttProvider;
     tts: Pick<TtsRouter, 'forCallVoice'>;
   };
   logger?: { warn(fields: object, message: string): void };
@@ -72,6 +81,7 @@ export interface ServerCallVoice {
     keyterms: readonly string[],
     agentName?: string,
     speech?: ResolvedSpeech,
+    account?: AccountKeyterms,
   ) => SttProvider;
   ttsForVoice: (voiceId: string, speech?: ResolvedSpeech) => TtsProvider;
 }
@@ -131,9 +141,9 @@ export function serverXaiCallVoice(options: ServerXaiVoiceOptions): ServerCallVo
   return {
     speaksServerXai: true,
     voice: { stt: listen(INTERRUPTION_KEYTERMS), tts: speak(undefined) },
-    sttForKeyterms: (agentTerms, agentName, speech) =>
+    sttForKeyterms: (agentTerms, agentName, speech, account) =>
       own !== undefined && serverXaiListensOnDeepgram(speech)
-        ? own.stt(agentTerms, agentName, speech)
+        ? own.stt(agentTerms, agentName, speech, account)
         : listen(
             [
               ...INTERRUPTION_KEYTERMS,

@@ -85,6 +85,8 @@ export interface BuildAppOptions {
   readinessTimeoutMs?: number;
   /** Mounts the /v1/calls API when provided. */
   calls?: CallRoutesOptions;
+  /** An agent added words (add_words): live calls of that owner pick them up. */
+  wordsAdded?: (ownerId: string) => void;
   /** Mounts /v1/agents, /v1/voices, and /v1/calls/history when provided. */
   agents?: AgentRoutesOptions;
   threads?: {
@@ -414,6 +416,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       ring: ring.service,
       ...(files && env.FILES_ENABLED && { files: files.service }),
       fileFetchEnv: env.CORD_ENV,
+      ...(options.wordsAdded !== undefined && { wordsAdded: options.wordsAdded }),
     });
   } else if (env.CONNECTOR_MCP_ENABLED && env.SUPABASE_URL) {
     registerMcpMetadata(app, env.CORD_PUBLIC_URL, env.SUPABASE_URL);
@@ -595,6 +598,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         resumeAnswer: (userId: string, callId: string) => liveCalls.unjoinedAnswer(userId, callId),
       }),
       connectorRatePerMinute: ring.connectorRatePerMinute,
+      ...(options.wordsAdded !== undefined && { wordsAdded: options.wordsAdded }),
       writeRatePerMinute: ring.writeRatePerMinute,
       ...(agents?.readRatePerMinute !== undefined && {
         readRatePerMinute: agents.readRatePerMinute,

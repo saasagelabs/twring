@@ -61,6 +61,8 @@ export interface RingRoutesOptions {
   files?: FileService;
   /** Starts the answered call with every `POST /v1/calls` rule. Undefined: calling is off (503). */
   startCall: CallStarter | undefined;
+  /** Words were added: the owner's live calls pick them up (ADR-042). */
+  wordsAdded?: (ownerId: string) => void;
   /**
    * The answer an answered ring's call gave while its caller has not joined (CallRegistry
    * `unjoinedAnswer`), so the phone that answered can repeat a lost answer.
@@ -506,7 +508,10 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
         // A team member's session teaches that person's own list.
         recipient === connector.user_id ? undefined : recipient,
       );
-      if (added.ok) return { words: added.words, not_added: added.notAdded };
+      if (added.ok) {
+        options.wordsAdded?.(connector.user_id);
+        return { words: added.words, not_added: added.notAdded };
+      }
       if (added.reason === 'not_found') {
         const [status, message] = REFUSALS.agent_not_saved;
         return sendError(reply, status, 'agent_not_saved', message);

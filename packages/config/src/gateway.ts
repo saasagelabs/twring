@@ -1003,32 +1003,50 @@ function withInterruptionKeyterms(owner: readonly string[]): string[] {
   return mergeSttKeyterms(owner, INTERRUPTION_KEYTERMS, identityKeyterms());
 }
 
+/** Account-wide words for every call of one owner (ADR-042). */
+export interface AccountKeyterms {
+  /** The owner's display name from their profile; each word becomes its own term. */
+  ownerName?: string;
+  /** Words added with add_words across all of the owner's agents. */
+  words?: readonly string[];
+}
+
+/** At most this many words of an owner's display name are kept ("Ana Maria de la Cruz"). */
+const MAX_OWNER_NAME_WORDS = 4;
+
+/** The owner's first and last name (each word of the display name) as separate terms. */
+export function ownerNameKeyterms(ownerName?: string): string[] {
+  return (ownerName?.trim() ?? '')
+    .split(/\s+/)
+    .filter((word) => [...word].length > 1 && word.length <= MAX_KEYTERM_CHARS)
+    .slice(0, MAX_OWNER_NAME_WORDS);
+}
+
 /**
  * Keyterms for a call to a saved agent: the agent's own terms first (what its owner asked for),
- * then the interruption defaults, then Twring and the agent's name (identityKeyterms), then the
- * deployment-wide DEEPGRAM_STT_KEYTERMS. Room for the
- * interruption words is reserved, so a long agent list can never crowd out barge-in (ADR-017).
+ * then the interruption defaults, then Twring, the agent's name (identityKeyterms) and the owner's
+ * name, then the owner's words from all their agents, then the deployment-wide
+ * DEEPGRAM_STT_KEYTERMS. Room for the interruption words and the identity terms is reserved, so a
+ * long agent list can never crowd out barge-in (ADR-017) or the names a caller says most (ADR-042).
  */
 export function agentSttKeyterms(
   config: DeepgramConfig,
   agentTerms: readonly string[],
   agentName?: string,
+  account: AccountKeyterms = {},
 ): string[] {
-  const reservedTokens = INTERRUPTION_KEYTERMS.reduce(
-    (sum, t) => sum + estimateKeytermTokens(t),
-    0,
+  const reserved = mergeSttKeyterms(
+    INTERRUPTION_KEYTERMS,
+    identityKeyterms(agentName),
+    ownerNameKeyterms(account.ownerName),
   );
+  const reservedTokens = reserved.reduce((sum, t) => sum + estimateKeytermTokens(t), 0);
   const agent = mergeWithin(
-    MAX_STT_KEYTERMS - INTERRUPTION_KEYTERMS.length,
+    MAX_STT_KEYTERMS - reserved.length,
     MAX_STT_KEYTERM_TOKENS - reservedTokens,
     [agentTerms],
   );
-  return mergeSttKeyterms(
-    agent,
-    INTERRUPTION_KEYTERMS,
-    identityKeyterms(agentName),
-    config.sttEnvKeyterms,
-  );
+  return mergeSttKeyterms(agent, reserved, account.words ?? [], config.sttEnvKeyterms);
 }
 
 export interface DeepgramConfig {

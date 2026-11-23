@@ -51,6 +51,7 @@ import {
 } from './voice/server-xai-voice';
 import { createSpeechResolver, type ResolvedSpeech } from './voice/speech-resolver';
 import { LanguageRepository, languageRecordSchema } from './language/store';
+import { accountWords, callWords } from './agents/words';
 import { toSafeError } from './redact';
 import { AppleSignInRevoker } from './apple-signin';
 import { RefusalCounter, refusalRowSchema } from './calls/refusal-counter';
@@ -172,8 +173,8 @@ const xaiCallVoice =
           stt: createCallStt({
             deepgram: sttSettings,
             xai: xaiSttSettings,
-            keyterms: (agentTerms, agentName) =>
-              agentSttKeyterms(sttSettings, agentTerms, agentName),
+            keyterms: (agentTerms, agentName, account) =>
+              agentSttKeyterms(sttSettings, agentTerms, agentName, account),
           }),
           tts: xaiOwnKeyTts,
         },
@@ -342,7 +343,8 @@ const calls: LiveKitCalls | undefined =
               smartTurnTimeoutMs: env.XAI_STT_SMART_TURN_TIMEOUT_MS,
             }),
           },
-          keyterms: (agentTerms, agentName) => agentSttKeyterms(deepgram, agentTerms, agentName),
+          keyterms: (agentTerms, agentName, account) =>
+            agentSttKeyterms(deepgram, agentTerms, agentName, account),
         }),
         ttsForVoice: (voiceId: string, speech?: ResolvedSpeech) => tts.forCall(voiceId, speech),
       }),
@@ -731,7 +733,34 @@ const deepgramNotes =
       )
     : undefined;
 const voiceNotes = deepgramNotes && (deepgram ? deepgramNotes : ownDeepgramKeyOnly(deepgramNotes));
+/**
+ * add_words during a call (ADR-042): the owner's live calls rebuild their word list and push it to
+ * Flux with Configure. Counts only in the log, never the words.
+ */
+const wordsAdded =
+  stores === undefined
+    ? undefined
+    : (ownerId: string): void => {
+        const registry = calls?.registry;
+        if (registry === undefined) return;
+        void registry
+          .refreshKeyterms(ownerId, async (agent) => {
+            const all = await stores.agents.list(ownerId);
+            const record = all.find((a) => a.id === agent.agentId);
+            return agentSttKeyterms(
+              sttSettings,
+              record === undefined ? agent.keyterms : callWords(record, agent.userId),
+              agent.agentName,
+              { ...agent.account, words: accountWords(all) },
+            );
+          })
+          .catch((error: unknown) =>
+            callsLogger.warn({ event: 'stt_keyterms_refresh_failed', err: toSafeError(error) }),
+          );
+      };
+
 const app = buildApp({
+  ...(wordsAdded !== undefined && { wordsAdded }),
   env,
   ...(inviteStores && { invites: inviteStores }),
   ...(agentReminder && { agentReminder }),
@@ -767,7 +796,13 @@ const app = buildApp({
       new JsonFileCollection(join(env.CORD_DATA_DIR, 'call-refusals.json'), refusalRowSchema),
     ),
     ...(stores && {
-      resolveAgent: savedAgentResolver(stores, endpointPolicy, auth.userFor, sharedAgents),
+      resolveAgent: savedAgentResolver(
+        stores,
+        endpointPolicy,
+        auth.userFor,
+        sharedAgents,
+        auth.profileFor,
+      ),
       connectorStatus: connectorCallStatus(stores.connectors, connectorHub),
     }),
     speech: speechResolver,

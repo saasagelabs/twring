@@ -16,7 +16,7 @@ import {
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
-import { DEV_USER_ID, devUserResolver, type UserResolver } from '../auth';
+import { DEV_USER_ID, devUserResolver, type ProfileResolver, type UserResolver } from '../auth';
 import { newAgentId } from '../calls/ids';
 import type { SavedAgentCall, SavedAgentExtras } from '../calls/registry';
 import { FixedWindowLimiter, rateKey } from '../rate-limit';
@@ -39,7 +39,7 @@ import { DEEPGRAM_DEFAULT_VOICE_ID, defaultVoiceId, isAllowedVoice, voiceList } 
 import { relinkConnectorContact } from './relink';
 import type { AvatarStore } from './avatars';
 import type { SharedAgents } from './shared';
-import { callWords } from './words';
+import { accountWords, callWords } from './words';
 
 export { DEV_USER_ID };
 
@@ -897,6 +897,8 @@ export function savedAgentResolver(
   policy: EndpointPolicy,
   userFor: UserResolver = devUserResolver,
   shared?: SharedAgents,
+  /** The caller's display name, heard on their own agents' calls (ADR-042). */
+  profileFor?: ProfileResolver,
 ): (
   request: FastifyRequest,
   agentId: string,
@@ -916,6 +918,14 @@ export function savedAgentResolver(
         ? parseConnectorEndpoint(record.endpoint_url)
         : undefined;
     const { resumeRef, openingTurn, openingLine } = extras;
+    // Account words are the owner's own: a team member on a shared agent gets the agent's list.
+    const account =
+      ownerId === userId
+        ? {
+            ...ownerNameOf(profileFor, request),
+            words: accountWords(await stores.agents.list(ownerId)),
+          }
+        : undefined;
     const connector =
       parsed === undefined || resumeRef === undefined ? parsed : { ...parsed, resumeRef };
     return {
@@ -928,6 +938,7 @@ export function savedAgentResolver(
       voiceId: isAllowedVoice(record.voice_id) ? record.voice_id : DEEPGRAM_DEFAULT_VOICE_ID,
       // A team member hears the owner's words plus the ones the agent learned with them.
       keyterms: callWords(record, userId),
+      ...(account !== undefined && { account }),
       // The agent and its computer are the owner's.
       createAgent: savedAgentFactory(ownerId, record, stores, policy, connector?.resumeRef, caller),
       ...(ownerId !== userId && { agentOwnerId: ownerId }),
@@ -937,4 +948,17 @@ export function savedAgentResolver(
       ...(openingLine !== undefined && { openingLine }),
     };
   };
+}
+
+function ownerNameOf(
+  profileFor: ProfileResolver | undefined,
+  request: FastifyRequest,
+): { ownerName?: string } {
+  try {
+    const name = profileFor?.(request).name;
+    return name === undefined ? {} : { ownerName: name };
+  } catch {
+    // A request without a signed-in profile (development) simply has no name to listen for.
+    return {};
+  }
 }
