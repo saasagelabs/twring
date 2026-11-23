@@ -15,6 +15,8 @@ export interface Lines {
   ack: readonly [string, string, string];
   progress: string;
   stopped: string;
+  /** After an answer that broke off: says only that the rest was lost, nothing about the work. */
+  replyBroken: string;
   approvalPrompt: (agentName: string, action: ApprovalAction) => string;
   approvalReask: string;
   approvalTimeout: string;
@@ -120,6 +122,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Okay, one moment.', 'Sure, let me see.', 'Right, let me think.'],
     progress: 'Still working on it.',
     stopped: 'Okay, stopped.',
+    replyBroken: 'I lost the rest of that answer.',
     approvalPrompt: (agent, action) =>
       `${agent} wants to ${EN_PHRASES[action]}. Say yes or no, or tap on your phone.`,
     approvalReask: 'Please say yes or no, or tap on your phone.',
@@ -130,6 +133,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['De acuerdo, veamos.', 'Claro, déjame ver.', 'Bien, déjame pensar.'],
     progress: 'Sigo trabajando en ello.',
     stopped: 'De acuerdo, me detengo.',
+    replyBroken: 'Lo siento, perdí el resto de esa respuesta.',
     approvalPrompt: (agent, action) =>
       `${agent} quiere ${ES_PHRASES[action]}. Di sí o no, o toca en tu teléfono.`,
     approvalReask: 'Por favor, di sí o no, o toca en tu teléfono.',
@@ -140,6 +144,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['ठीक है, ज़रा देखते हैं।', 'अच्छा, एक पल दीजिए।', 'जी, सोचने दीजिए।'],
     progress: 'अभी भी इस पर काम चल रहा है।',
     stopped: 'ठीक है, रोक दिया।',
+    replyBroken: 'माफ़ कीजिए, उस जवाब का बाकी हिस्सा खो गया।',
     approvalPrompt: (agent, action) =>
       `${agent} को ${HI_PHRASES[action]} की अनुमति चाहिए। हाँ या ना बोलिए, या फ़ोन पर टैप कीजिए।`,
     approvalReask: 'कृपया हाँ या ना बोलिए, या फ़ोन पर टैप कीजिए।',
@@ -150,6 +155,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ["D'accord, voyons.", 'Bien sûr, je regarde.', 'Bon, je réfléchis.'],
     progress: 'Je suis encore dessus.',
     stopped: "D'accord, j'arrête.",
+    replyBroken: "Désolé, j'ai perdu la fin de cette réponse.",
     approvalPrompt: (agent, action) =>
       `${agent} veut ${FR_PHRASES[action]}. Répondez sur votre téléphone.`,
     approvalReask: 'Merci de répondre sur votre téléphone.',
@@ -160,6 +166,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Okay, einen Moment.', 'Klar, ich schaue mal.', 'Gut, ich überlege kurz.'],
     progress: 'Ich arbeite noch daran.',
     stopped: 'Okay, gestoppt.',
+    replyBroken: 'Entschuldigung, der Rest dieser Antwort ist verloren gegangen.',
     approvalPrompt: (agent, action) =>
       `${agent} möchte ${DE_PHRASES[action]}. Bitte antworten Sie auf Ihrem Telefon.`,
     approvalReask: 'Bitte antworten Sie auf Ihrem Telefon.',
@@ -170,6 +177,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Хорошо, одну секунду.', 'Сейчас посмотрю.', 'Так, дайте подумать.'],
     progress: 'Всё ещё работаю над этим.',
     stopped: 'Хорошо, останавливаюсь.',
+    replyBroken: 'Извините, остаток этого ответа потерялся.',
     approvalPrompt: (agent, action) =>
       `${agent} хочет ${RU_PHRASES[action]}. Ответьте на телефоне.`,
     approvalReask: 'Пожалуйста, ответьте на телефоне.',
@@ -180,6 +188,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Certo, um momento.', 'Claro, vou ver.', 'Bom, vou pensar.'],
     progress: 'Ainda estou nisso.',
     stopped: 'Certo, parei.',
+    replyBroken: 'Desculpe, perdi o resto dessa resposta.',
     approvalPrompt: (agent, action) =>
       `${agent} quer ${PT_PHRASES[action]}. Responda no seu telefone.`,
     approvalReask: 'Por favor, responda no seu telefone.',
@@ -190,6 +199,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['はい、少々お待ちください。', '確認しますね。', 'ちょっと考えますね。'],
     progress: 'まだ作業中です。',
     stopped: 'はい、止めました。',
+    replyBroken: 'すみません、その回答の続きが途切れました。',
     approvalPrompt: (agent, action) =>
       `${agent}が${JA_PHRASES[action]}許可を求めています。スマートフォンで答えてください。`,
     approvalReask: 'スマートフォンで答えてください。',
@@ -200,6 +210,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Va bene, un momento.', 'Certo, vediamo.', 'Bene, ci penso un attimo.'],
     progress: 'Ci sto ancora lavorando.',
     stopped: 'Va bene, mi fermo.',
+    replyBroken: 'Scusa, ho perso il resto di quella risposta.',
     approvalPrompt: (agent, action) =>
       `${agent} vuole ${IT_PHRASES[action]}. Rispondi sul telefono.`,
     approvalReask: 'Per favore, rispondi sul telefono.',
@@ -210,6 +221,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     ack: ['Oké, een momentje.', 'Tuurlijk, ik kijk even.', 'Goed, even denken.'],
     progress: 'Ik ben er nog mee bezig.',
     stopped: 'Oké, gestopt.',
+    replyBroken: 'Excuses, de rest van dat antwoord is verloren gegaan.',
     approvalPrompt: (agent, action) =>
       `${agent} wil ${NL_PHRASES[action]}. Antwoord op je telefoon.`,
     approvalReask: 'Antwoord alsjeblieft op je telefoon.',

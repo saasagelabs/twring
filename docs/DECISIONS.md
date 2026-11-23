@@ -892,6 +892,27 @@ in a long silence.
   `caller_audio_resumed` when a caller's audio stops arriving for 5 s mid-call (not while muted or
   while the gateway reconnects).
 
+### Amendment (2026-11-23): only when the wait will be long
+
+Production: the agent's first text now arrives at about p50 2.5 s, so the 1.5 s line played on most
+turns and was usually cut by the answer a moment later. The owner heard it as an interruption
+(2026-10-24, again 2026-11-23).
+
+- Per call, Twring keeps the agent's first-text latency (committed turn to first agent text) of its
+  last 3 turns that produced text; failed or superseded turns with no text are not counted. The
+  expected wait is their median.
+- No history yet (the call's first owner turn): the line comes at 2.5 s (`ACK_LINE_FIRST_AFTER_MS`)
+  instead of 1.5 s.
+- With history: an expected wait under 4 s (`ACK_EXPECTED_WAIT_MS`) means no line for that turn,
+  logged `ack_skipped` with `turn_id` and `expected_ms`; otherwise the line comes at 1.5 s as before.
+- The tone, the progress lines, approvals and every other rule above are unchanged.
+
+A related change the same day: when the agent's stream fails after part of its answer was already
+spoken or queued, Twring says one short line in the call's language once that part has played
+("I lost the rest of that answer."), logged `agent_reply_broken`. It says nothing about the agent's
+work, is played like the other Twring lines (echo-matched, barge-in-able, never sent to the agent),
+and is skipped if the owner talked over the answer. A failure before any answer is unchanged.
+
 ## ADR-033: Open source for adoption, subscriptions for revenue (2026-10-27)
 
 **Status:** Accepted (owner-approved: "yes add it to the ADR")

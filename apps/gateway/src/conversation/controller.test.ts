@@ -36,7 +36,9 @@ import {
 } from './approvals';
 import {
   ACK_LINES,
+  ACK_EXPECTED_WAIT_MS,
   ACK_LINE_AFTER_MS,
+  ACK_LINE_FIRST_AFTER_MS,
   CUE_FINISH_GRACE_MS,
   GENERIC_PROGRESS_LINE,
   GENERIC_PROGRESS_LINE_AFTER_MS,
@@ -47,6 +49,7 @@ import {
   PROGRESS_LINE_AFTER_MS,
   PROGRESS_LINE_REPEAT_MS,
   STOPPED_LINE,
+  expectedWaitMs,
   ackLine,
   progressLine,
   spokenActivityLabel,
@@ -4610,9 +4613,9 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     expect(ackLine(0)).toBe(ACK_LINES[0]);
   });
 
-  it('speaks one short line 1.5 s after the owner’s turn while the agent says nothing', async () => {
+  it('speaks one short line 2.5 s after the owner’s turn while the agent says nothing', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS - 1);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS - 1);
     expect(p.acks()).toEqual([]);
     p.scheduler.advance(1);
     expect(p.acks()).toEqual([`append gen_1 ${ACK_LINES[0]}`]);
@@ -4625,7 +4628,7 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
 
   it('stops the moment the agent’s first words arrive, and they play at once', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.agent.text('The build is green. ');
     await flushMicrotasks();
     const cut = p.speech.calls.indexOf('cancel superseded');
@@ -4644,7 +4647,7 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     p.scheduler.advance(1_000);
     p.agent.text('Sure. ');
     await flushMicrotasks();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     expect(p.acks()).toEqual([]);
     expect(p.logger.names()).not.toContain('ack_line');
   });
@@ -4653,13 +4656,13 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     const p = await said();
     p.agent.push({ type: 'tool.start', tool_call_id: 't', tool_name: 'search' });
     await flushMicrotasks();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     expect(p.acks()).toEqual([`append gen_1 ${ACK_LINES[0]}`]);
   });
 
   it('speaks once per turn, and the long-silence line still comes 12 s after it', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
     p.scheduler.advance(GENERIC_PROGRESS_LINE_AFTER_MS);
     expect(p.speech.calls).toContain(`append gen_2 ${GENERIC_PROGRESS_LINE}`);
@@ -4673,7 +4676,7 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     const p = await said();
     p.scheduler.advance(1_000);
     p.conversation.userSpeechStarted();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.userSpeechDiscarded();
     p.scheduler.advance(2_000);
     expect(p.acks()).toEqual([]);
@@ -4684,7 +4687,7 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     const p = ack();
     p.conversation.openingTurn('The owner answered; greet them.');
     await flushMicrotasks();
-    p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
     expect(p.acks()).toEqual([]);
   });
 
@@ -4692,7 +4695,7 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     const p = await said();
     p.agent.push({ type: 'tool.start', tool_call_id: 't', tool_name: 'search' });
     await flushMicrotasks();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
     p.conversation.userSpeechStarted();
     p.conversation.userTurn('and the tests');
@@ -4701,19 +4704,19 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     p.agent.done();
     await flushMicrotasks();
     expect(p.adapter.channels).toHaveLength(2);
-    p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
     expect(p.acks()).toHaveLength(1);
   });
 
   it('a turn that takes in an acknowledged one is not acknowledged again', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
     p.conversation.userSpeechStarted();
     p.conversation.userTurn('and the tests too');
     await flushMicrotasks();
     expect(p.logger.names()).toContain('turn_merged');
-    p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
     expect(p.acks()).toHaveLength(1);
   });
 
@@ -4724,21 +4727,23 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     p.conversation.userTurn('and the tests too');
     await flushMicrotasks();
     expect(p.logger.names()).toContain('turn_merged');
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     expect(p.acks()).toEqual([`append gen_1 ${ACK_LINES[0]}`]);
     expect(fields(p.logger, 'ack_line')).toEqual([expect.objectContaining({ turn_id: 'turn_2' })]);
   });
 
   it('varies the line from one turn to the next', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
+    // A slow answer: the next turn's wait is long enough for a line too.
+    p.scheduler.advance(ACK_EXPECTED_WAIT_MS);
     p.agent.text('Green. ');
     p.agent.done();
     await flushMicrotasks();
     finish(p, 'gen_2');
     const next = await said(p, 'and the tests');
-    next.scheduler.advance(ACK_LINE_AFTER_MS);
+    next.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     expect(next.acks()).toEqual([`append gen_1 ${ACK_LINES[0]}`, `append gen_3 ${ACK_LINES[1]}`]);
   });
 
@@ -4752,14 +4757,14 @@ describe('ConversationController instant acknowledgement (ADR-032)', () => {
     });
     await flushMicrotasks();
     finish(p, 'gen_1');
-    p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
     expect(p.acks()).toEqual([]);
   });
 
   it('is off unless switched on, and off with presence cues', async () => {
     for (const options of [{ acknowledge: false }, { presenceCues: false }]) {
       const p = await said(ack(options));
-      p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+      p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
       expect(p.acks(), JSON.stringify(options)).toEqual([]);
     }
   });
@@ -4824,20 +4829,20 @@ describe('ConversationController instant acknowledgement, review pass (ADR-032)'
 
   it('is timed from when it starts, not from the owner’s turn, so first-audio numbers stay the agent’s', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
-    expect(p.speech.startedAt).toEqual([10_000 + ACK_LINE_AFTER_MS]);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
+    expect(p.speech.startedAt).toEqual([10_000 + ACK_LINE_FIRST_AFTER_MS]);
     expect(fields(p.logger, 'ack_line')).toEqual([
       expect.objectContaining({ turn_id: 'turn_1', generation_id: 'gen_1' }),
     ]);
     p.agent.text('Green. ');
     await flushMicrotasks();
     // The agent's answer is still timed from the owner's turn.
-    expect(p.speech.startedAt).toEqual([10_000 + ACK_LINE_AFTER_MS, 10_000]);
+    expect(p.speech.startedAt).toEqual([10_000 + ACK_LINE_FIRST_AFTER_MS, 10_000]);
   });
 
   it('its echo a moment after it ends is dropped, not taken as the owner talking', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.conversation.speechState('gen_1', 'finished');
     p.scheduler.advance(ECHO_FINISHED_TAIL_MS + 300);
@@ -4860,7 +4865,7 @@ describe('ConversationController instant acknowledgement, review pass (ADR-032)'
 
   it('the owner talking over it stops it; the turn keeps working and still answers', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.conversation.userSpeechStarted();
     p.conversation.userPartial('and also the tests');
@@ -4879,7 +4884,7 @@ describe('ConversationController instant acknowledgement, review pass (ADR-032)'
 
   it('logs how much of a cut line was heard', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.played.set('gen_1', 420);
     p.agent.text('Green. ');
@@ -4891,7 +4896,7 @@ describe('ConversationController instant acknowledgement, review pass (ADR-032)'
 
   it('a quick follow-up after an acknowledged, unanswered turn is not acknowledged again', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.conversation.speechState('gen_1', 'finished');
     // The agent reported an activity, so the follow-up is not merged with the first request.
@@ -4903,7 +4908,7 @@ describe('ConversationController instant acknowledgement, review pass (ADR-032)'
     await flushMicrotasks();
     expect(p.logger.names()).toContain('turn_merge_skipped');
     expect(p.adapter.channels).toHaveLength(2);
-    p.scheduler.advance(ACK_LINE_AFTER_MS * 2);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS * 2);
     expect(p.acks()).toHaveLength(1);
   });
 });
@@ -4949,7 +4954,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('after "one moment", no "Still working on it" follows until a long silence', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
     p.scheduler.advance(PROGRESS_LINE_AFTER_MS);
     expect(p.lines()).toEqual(['append gen_1 Okay, one moment.']);
@@ -4963,7 +4968,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('a real activity is still said, 4 s after "one moment" ends', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
     p.agent.push({
       type: 'tool.start',
@@ -4981,9 +4986,9 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('an activity that starts after 4 s is said as soon as it starts', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     finish(p, 'gen_1');
-    p.scheduler.advance(6_000 - ACK_LINE_AFTER_MS);
+    p.scheduler.advance(4_500);
     expect(p.lines()).toHaveLength(1);
     p.agent.push({ type: 'activity', label: 'Reading the logs' });
     await flushMicrotasks();
@@ -4993,7 +4998,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('a line that is nearly done finishes, then the answer starts at once', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.totals.set('gen_1', 1_000);
     p.speech.played.set('gen_1', 1_000 - CUE_FINISH_GRACE_MS + 100);
@@ -5011,7 +5016,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('a line far from done is still cut by the answer', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.totals.set('gen_1', 1_000);
     p.speech.played.set('gen_1', 200);
@@ -5023,7 +5028,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('the answer never waits long: a line that does not report its end is cut', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.totals.set('gen_1', 1_000);
     p.speech.played.set('gen_1', 900);
@@ -5037,7 +5042,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('an agent that finishes while the line ends still gets its answer heard', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.totals.set('gen_1', 1_000);
     p.speech.played.set('gen_1', 800);
@@ -5053,7 +5058,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
 
   it('an approval question asked while the answer waits is heard in full, never cut', async () => {
     const p = await said();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.conversation.speechState('gen_1', 'playing');
     p.speech.totals.set('gen_1', 1_000);
     p.speech.played.set('gen_1', 800);
@@ -5083,7 +5088,7 @@ describe('ConversationController calmer lines (ADR-032 amendment, 2026-10-24)', 
       display_label: 'Running a command…',
     });
     await flushMicrotasks();
-    p.scheduler.advance(ACK_LINE_AFTER_MS);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     p.scheduler.advance(1_000);
     finish(p, 'gen_1'); // the line ends 2.5 s after the turn
     p.scheduler.advance(PROGRESS_LINE_AFTER_MS - 1);
@@ -5114,7 +5119,7 @@ describe('ConversationController in the owner’s language', () => {
     conversation.userSpeechStarted();
     conversation.userTurn('बिल्ड देखो');
     await flushMicrotasks();
-    scheduler.advance(ACK_LINE_AFTER_MS);
+    scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
     expect(speech.calls).toContain(`append gen_1 ${LINES.hi.ack[0]}`);
     adapter.channels[0]!.push({
       type: 'approval.required',
@@ -5127,5 +5132,212 @@ describe('ConversationController in the owner’s language', () => {
     conversation.userTurn('हाँ जी');
     expect(adapter.approvalDecisions).toEqual([{ id: 'apr_hi', decision: 'approve' }]);
     conversation.close();
+  });
+});
+
+describe('ConversationController acknowledgement only for a long wait (ADR-032 amendment, 2026-11-23)', () => {
+  const fields = (logger: ReturnType<typeof recordingLogger>, event: string) =>
+    logger.events.filter((e) => e.fields.event === event).map((e) => e.fields);
+
+  function call() {
+    const adapter = new ScriptedAdapter();
+    const speech = new RecordingSpeech();
+    const scheduler = new ManualScheduler();
+    const logger = recordingLogger();
+    const conversation = new ConversationController({
+      callId: CALL_ID,
+      adapter,
+      speech,
+      scheduler,
+      logger,
+      send: () => undefined,
+      wallClock: () => Date.UTC(2026, 10, 23, 12, 0, 0),
+      presenceCues: true,
+      acknowledge: true,
+      agentName: 'Hermes',
+    });
+    const acks = () =>
+      speech.calls.filter(
+        (c) => c.startsWith('append ') && ACK_LINES.some((line) => c.endsWith(` ${line}`)),
+      );
+    return { adapter, speech, scheduler, logger, conversation, acks };
+  }
+
+  /** Every generation begun so far plays to its end. */
+  function playAll(p: ReturnType<typeof call>): void {
+    for (const c of p.speech.calls) {
+      if (!c.startsWith('end ')) continue;
+      p.conversation.speechState(c.slice(4), 'playing');
+      p.conversation.speechState(c.slice(4), 'finished');
+    }
+  }
+
+  /** One owner turn the agent answers after `afterMs`; every line it caused plays to the end. */
+  async function turn(p: ReturnType<typeof call>, afterMs: number): Promise<void> {
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn(`question ${p.adapter.channels.length + 1}`);
+    await flushMicrotasks();
+    p.scheduler.advance(afterMs);
+    const agent = p.adapter.channels.at(-1)!;
+    agent.text('Here it is.');
+    agent.done();
+    await flushMicrotasks();
+    playAll(p);
+    p.scheduler.advance(10_000);
+  }
+
+  it('names its numbers, and the expected wait is the median', () => {
+    expect(ACK_LINE_FIRST_AFTER_MS).toBe(2_500);
+    expect(ACK_EXPECTED_WAIT_MS).toBe(4_000);
+    expect(expectedWaitMs([])).toBeUndefined();
+    expect(expectedWaitMs([6_000])).toBe(6_000);
+    expect(expectedWaitMs([1_000, 9_000])).toBe(5_000);
+    expect(expectedWaitMs([9_000, 1_000, 2_000])).toBe(2_000);
+  });
+
+  it('the first turn of a call is acknowledged at 2.5 s, not 1.5 s; the tone still comes first', async () => {
+    const p = call();
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('check the build');
+    await flushMicrotasks();
+    p.scheduler.advance(PRESENCE_TONE_AFTER_MS);
+    expect(p.logger.names()).toContain('presence_tone');
+    p.scheduler.advance(ACK_LINE_AFTER_MS - PRESENCE_TONE_AFTER_MS);
+    expect(p.acks()).toEqual([]);
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS - ACK_LINE_AFTER_MS - 1);
+    expect(p.acks()).toEqual([]);
+    p.scheduler.advance(1);
+    expect(p.acks()).toHaveLength(1);
+  });
+
+  it('after quick answers the next turn gets no line, says why, and still gets its tone', async () => {
+    const p = call();
+    await turn(p, 1_000);
+    await turn(p, 2_000);
+    const before = p.acks().length;
+    const tones = fields(p.logger, 'presence_tone').length;
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('and the tests');
+    await flushMicrotasks();
+    expect(fields(p.logger, 'ack_skipped')).toEqual([
+      expect.objectContaining({ turn_id: 'turn_2', expected_ms: 1_000 }),
+      expect.objectContaining({ turn_id: 'turn_3', expected_ms: 1_500 }),
+    ]);
+    p.scheduler.advance(30_000);
+    expect(p.acks()).toHaveLength(before);
+    expect(fields(p.logger, 'presence_tone')).toHaveLength(tones + 1);
+  });
+
+  it('after slow answers the next turn is acknowledged at 1.5 s', async () => {
+    const p = call();
+    await turn(p, 6_000);
+    const before = p.acks().length;
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('and the tests');
+    await flushMicrotasks();
+    p.scheduler.advance(ACK_LINE_AFTER_MS - 1);
+    expect(p.acks()).toHaveLength(before);
+    p.scheduler.advance(1);
+    expect(p.acks()).toHaveLength(before + 1);
+    expect(p.logger.names()).not.toContain('ack_skipped');
+  });
+
+  it('a turn that never gave text is not counted', async () => {
+    const p = call();
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('one');
+    await flushMicrotasks();
+    p.adapter.channels[0]!.fail(new Error('socket reset'));
+    await flushMicrotasks();
+    playAll(p);
+    p.scheduler.advance(10_000);
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('two');
+    await flushMicrotasks();
+    expect(p.logger.names()).not.toContain('ack_skipped');
+    const before = p.acks().length;
+    p.scheduler.advance(ACK_LINE_FIRST_AFTER_MS);
+    expect(p.acks()).toHaveLength(before + 1);
+  });
+});
+
+describe('ConversationController an answer that breaks off', () => {
+  const fields = (logger: ReturnType<typeof recordingLogger>, event: string) =>
+    logger.events.filter((e) => e.fields.event === event).map((e) => e.fields);
+
+  async function answering() {
+    const adapter = new ScriptedAdapter();
+    const speech = new RecordingSpeech();
+    const scheduler = new ManualScheduler();
+    const logger = recordingLogger();
+    const conversation = new ConversationController({
+      callId: CALL_ID,
+      adapter,
+      speech,
+      scheduler,
+      logger,
+      send: () => undefined,
+      wallClock: () => Date.UTC(2026, 10, 23, 12, 0, 0),
+      agentName: 'Hermes',
+    });
+    conversation.userSpeechStarted();
+    conversation.userTurn('tell me about the build');
+    await flushMicrotasks();
+    return { adapter, speech, scheduler, logger, conversation, agent: adapter.channels[0]! };
+  }
+
+  const broken = (speech: RecordingSpeech) =>
+    speech.calls.filter((c) => c.endsWith(` ${LINES.en.replyBroken}`));
+
+  it('says the rest was lost once the spoken part has played', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places. The first is ');
+    await flushMicrotasks();
+    p.agent.fail(new Error('socket reset'));
+    await flushMicrotasks();
+    expect(fields(p.logger, 'agent_reply_broken')).toEqual([
+      expect.objectContaining({ turn_id: 'turn_1' }),
+    ]);
+    // Not over the part still playing.
+    expect(broken(p.speech)).toEqual([]);
+    p.conversation.speechState('gen_1', 'playing');
+    p.conversation.speechState('gen_1', 'finished');
+    expect(broken(p.speech)).toEqual([`append gen_2 ${LINES.en.replyBroken}`]);
+    expect(p.speech.calls).toContain('end gen_2');
+    // Twring's own words: never sent to the agent.
+    expect(p.adapter.channels).toHaveLength(1);
+  });
+
+  it('has a line in every language, none of them a stop-talking phrase', () => {
+    for (const language of Object.keys(LINES) as (keyof typeof LINES)[]) {
+      const line = LINES[language].replyBroken;
+      expect(line.length, language).toBeGreaterThan(0);
+      for (const words of FLOOR_CONTROL_WORDS) {
+        expect(line.toLowerCase(), language).not.toContain(words);
+      }
+    }
+  });
+
+  it('nothing new when the agent failed before any answer', async () => {
+    const p = await answering();
+    p.agent.fail(new Error('socket reset'));
+    await flushMicrotasks();
+    p.scheduler.advance(10_000);
+    expect(broken(p.speech)).toEqual([]);
+    expect(p.logger.names()).not.toContain('agent_reply_broken');
+  });
+
+  it('not when the owner talked over the answer', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places. The first is ');
+    await flushMicrotasks();
+    p.conversation.speechState('gen_1', 'playing');
+    p.conversation.userSpeechStarted();
+    p.conversation.userPartial('wait what about the tests');
+    p.scheduler.advance(2_000);
+    p.agent.fail(new Error('socket reset'));
+    await flushMicrotasks();
+    p.scheduler.advance(10_000);
+    expect(broken(p.speech)).toEqual([]);
   });
 });

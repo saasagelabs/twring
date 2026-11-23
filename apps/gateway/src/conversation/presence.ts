@@ -28,6 +28,26 @@ export const OPENING_TURN_QUIET_MS = 2_000;
 
 /** An owner turn with no agent text this long gets one short spoken acknowledgement (ADR-032). */
 export const ACK_LINE_AFTER_MS = 1_500;
+/**
+ * The call's first owner turn, with no measured wait yet, gets its acknowledgement this late
+ * (ADR-032 amendment, 2026-11-23): most agents answer first within about 2.5 s.
+ */
+export const ACK_LINE_FIRST_AFTER_MS = 2_500;
+/**
+ * A turn is acknowledged only when the agent's recent first-text latency (median of the call's
+ * last few turns) is at least this long: a quick answer needs no "one moment" before it.
+ */
+export const ACK_EXPECTED_WAIT_MS = 4_000;
+/** How many of the call's latest first-text latencies set the expected wait. */
+export const ACK_LATENCY_SAMPLES = 3;
+
+/** The median of `samples` (the expected wait), or undefined with none yet. */
+export function expectedWaitMs(samples: readonly number[]): number | undefined {
+  if (samples.length === 0) return undefined;
+  const sorted = [...samples].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
 /** Twring's acknowledgements, in the agent's voice: they say "heard you", never anything about the work. */
 // None of them is a stop-talking phrase (FLOOR_CONTROL_WORDS): an echo of one must never read as
 // the owner asking to wait.
