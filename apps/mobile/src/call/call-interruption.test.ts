@@ -74,3 +74,36 @@ describe('CallInterruption', () => {
     expect(notified).toBe(2);
   });
 });
+
+describe('CallInterruption edge cases', () => {
+  it('an interruption that never ends keeps the notice and mute until reset', async () => {
+    const target = fakeTarget();
+    const interruption = new CallInterruption(target);
+    await interruption.handle('began');
+    expect(interruption.getState().paused).toBe(true);
+    interruption.reset();
+    await interruption.handle('ended');
+    expect(target.calls).toEqual(['mute']);
+  });
+
+  it('respects the caller unmuting during the interruption', async () => {
+    const target = fakeTarget();
+    const interruption = new CallInterruption(target);
+    await interruption.handle('began');
+    await target.setMuted(false);
+    await interruption.handle('ended');
+    expect(target.muted).toBe(false);
+    expect(target.calls).toEqual(['mute', 'unmute', 'route']);
+  });
+
+  it('a new interruption after reset reads the mute afresh', async () => {
+    const target = fakeTarget(true);
+    const interruption = new CallInterruption(target);
+    await interruption.handle('began');
+    interruption.reset();
+    target.muted = false;
+    await interruption.handle('began');
+    await interruption.handle('ended');
+    expect(target.muted).toBe(false);
+  });
+});

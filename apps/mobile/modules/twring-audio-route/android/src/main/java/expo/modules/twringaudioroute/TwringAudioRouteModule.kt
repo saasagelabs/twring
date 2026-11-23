@@ -53,9 +53,9 @@ class TwringAudioRouteModule : Module() {
       devices.mapNotNull { name(it.type) }.distinct()
     }
 
-    Function("setCommunicationDevice") { output: String ->
+    Function("setCommunicationDevice") { chosen: String ->
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@Function false
-      val device = audio.availableCommunicationDevices.firstOrNull { output(it.type) == output }
+      val device = audio.availableCommunicationDevices.firstOrNull { output(it.type) == chosen }
       device != null && audio.setCommunicationDevice(device)
     }
 

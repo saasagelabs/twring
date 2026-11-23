@@ -365,3 +365,27 @@ describe('AudioRoutes edge cases (milestone 8 verifier)', () => {
     expect(routes.getState().current).toBe('speaker');
   });
 });
+
+describe('AudioRoutes races', () => {
+  it('a route event during select does not undo the manual choice', async () => {
+    const platform = fakePlatform(['bluetooth', 'speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    const choosing = routes.choose('earpiece');
+    const refreshing = routes.refresh();
+    await Promise.all([choosing, refreshing]);
+    expect(routes.getState().current).toBe('earpiece');
+  });
+
+  it('restore after reset (hang-up) selects nothing', async () => {
+    const platform = fakePlatform(['speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    const before = platform.selected.length;
+    const restoring = routes.restore();
+    routes.reset();
+    await restoring;
+    expect(platform.selected.length).toBe(before);
+    expect(routes.getState().outputs).toEqual([]);
+  });
+});
