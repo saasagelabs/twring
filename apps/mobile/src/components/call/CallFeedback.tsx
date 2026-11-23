@@ -96,40 +96,39 @@ export function CallFeedback({ callId }: { callId: string }) {
           </Pressable>
         ))}
       </View>
-      {rating !== undefined && (
-        <View style={styles.container}>
-          <Text style={[type.bodyEmphasis, { color: palette.textPrimary }]}>What went wrong?</Text>
-          <View style={styles.chips}>
-            {issues.map((issue) => {
-              const checked = selected.includes(issue.value);
-              return (
-                <Pressable
-                  key={issue.value}
-                  accessibilityRole="checkbox"
-                  accessibilityLabel={issue.label}
-                  accessibilityState={{ checked }}
-                  onPress={() =>
-                    setSelected((current) =>
-                      checked
-                        ? current.filter((value) => value !== issue.value)
-                        : [...current, issue.value],
-                    )
-                  }
-                  style={[
-                    styles.chip,
-                    {
-                      borderColor: checked ? palette.accent : palette.border,
-                      backgroundColor: checked ? palette.surfaceRaised : palette.surface,
-                    },
-                  ]}
-                >
-                  <Text style={[type.body, { color: palette.textPrimary }]}>{issue.label}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
+      {/* Shown straight away so people see they can say what went wrong; a star is still needed. */}
+      <View style={styles.container}>
+        <Text style={[type.bodyEmphasis, { color: palette.textPrimary }]}>What went wrong?</Text>
+        <View style={styles.chips}>
+          {issues.map((issue) => {
+            const checked = selected.includes(issue.value);
+            return (
+              <Pressable
+                key={issue.value}
+                accessibilityRole="checkbox"
+                accessibilityLabel={issue.label}
+                accessibilityState={{ checked }}
+                onPress={() =>
+                  setSelected((current) =>
+                    checked
+                      ? current.filter((value) => value !== issue.value)
+                      : [...current, issue.value],
+                  )
+                }
+                style={[
+                  styles.chip,
+                  {
+                    borderColor: checked ? palette.accent : palette.border,
+                    backgroundColor: checked ? palette.surfaceRaised : palette.surface,
+                  },
+                ]}
+              >
+                <Text style={[type.body, { color: palette.textPrimary }]}>{issue.label}</Text>
+              </Pressable>
+            );
+          })}
         </View>
-      )}
+      </View>
       <Field
         label="Anything else? (optional)"
         value={note}
@@ -143,6 +142,14 @@ export function CallFeedback({ callId }: { callId: string }) {
         />
       )}
       <View style={styles.actions}>
+        {rating === undefined && selected.length > 0 && (
+          <Text
+            accessibilityLiveRegion="polite"
+            style={[type.caption, styles.hint, { color: palette.textSecondary }]}
+          >
+            Tap a star to send
+          </Text>
+        )}
         <PrimaryButton
           label="Send"
           disabled={rating === undefined || state === 'sending'}
@@ -173,4 +180,5 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   actions: { gap: space.xs },
+  hint: { textAlign: 'center' },
 });
