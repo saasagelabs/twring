@@ -47,6 +47,7 @@ import { ApprovalCard } from '@/components/ApprovalCard';
 import { Avatar } from '@/components/Avatar';
 import { CallControl } from '@/components/CallControl';
 import { CallFeedback } from '@/components/call/CallFeedback';
+import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
 import { ConnectionPill } from '@/components/ConnectionPill';
 import { GhostButton } from '@/components/GhostButton';
 import { Icon, type IconName } from '@/components/Icon';
@@ -551,10 +552,12 @@ function ActiveCall({
 function FinishedCall({
   view,
   title,
+  agent,
   retry,
 }: {
   view: CallView;
   title: string;
+  agent: Agent | undefined;
   retry: () => void;
 }) {
   const { call } = view;
@@ -614,6 +617,7 @@ function FinishedCall({
             </>
           )}
         </Animated.View>
+        <RingMeWhenDone call={call} connectedAt={view.connectedAt} agent={agent} />
         {(call.status === 'ENDED' || call.status === 'FAILED') &&
           call.callId !== undefined &&
           view.connectedAt !== undefined &&
@@ -703,7 +707,12 @@ export default function CallScreen() {
           </View>
         </>
       ) : (
-        <FinishedCall view={view} title={title} retry={retry} />
+        <FinishedCall
+          view={view}
+          title={title}
+          agent={agent?.id === agentId ? agent : undefined}
+          retry={retry}
+        />
       )}
     </SafeAreaView>
   );
