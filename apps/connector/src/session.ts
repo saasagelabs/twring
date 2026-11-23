@@ -65,6 +65,8 @@ interface ActiveTurn {
   worked?: boolean;
   /** When the call ended while this turn ran. */
   detachedAt?: number;
+  /** Every word of the answer, heard or not: sent in full when the link (not the call) dropped. */
+  fullText: string;
   backgroundTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -77,6 +79,8 @@ export class ChannelSession {
   private active: ActiveTurn | null = null;
   private readonly runExclusive: (fn: () => Promise<void>) => Promise<void>;
   private closed = false;
+  /** Closed because the link to Twring dropped: nothing streamed before may have arrived. */
+  private linkLost = false;
   /** A turn cancelled while it still waited for the previous one to wind down. */
   private cancelledEarly: string | null = null;
 
@@ -173,9 +177,14 @@ export class ChannelSession {
     }
   }
 
-  close(): void {
+  /**
+   * Ends this channel; a running turn continues and its result is delivered another way. `link`:
+   * the link to Twring dropped mid-call, so the whole answer is delivered, even a short one.
+   */
+  close(reason: 'hangup' | 'link' = 'hangup'): void {
     if (this.closed) return;
     this.closed = true;
+    this.linkLost = reason === 'link';
     const turn = this.active;
     if (turn !== null && !turn.controller.signal.aborted) {
       this.options.log?.(
@@ -206,7 +215,14 @@ export class ChannelSession {
     const adapter = this.options.adapter;
     if (adapter === undefined || this.closed || this.cancelledEarly === turnId) return;
     const controller = new AbortController();
-    const turn: ActiveTurn = { turnId, controller, started: Date.now(), text: '', surface };
+    const turn: ActiveTurn = {
+      turnId,
+      controller,
+      started: Date.now(),
+      text: '',
+      fullText: '',
+      surface,
+    };
     this.active = turn;
     let seq = firstSeq;
     const keepAliveMs = this.options.keepAliveMs ?? KEEP_ALIVE_MS;
@@ -301,6 +317,7 @@ export class ChannelSession {
           case 'text':
             // Only what the owner did not hear: the result, not the acknowledgement they heard.
             if (this.closed) turn.text += event.text;
+            turn.fullText += event.text;
             if (messageId === null) {
               messageId = `msg_${randomUUID()}`;
               emit({ type: 'text.start', message_id: messageId });
@@ -387,18 +404,20 @@ export class ChannelSession {
       closeText();
       emit({ type: 'done', status: controller.signal.aborted ? 'cancelled' : 'completed' });
       if (this.closed) {
+        const result = (this.linkLost ? turn.fullText : turn.text).trim();
         const talkOnly =
+          !this.linkLost &&
           surface === 'call' &&
           turn.worked !== true &&
           Date.now() - (turn.detachedAt ?? 0) <
             (this.options.backgroundTalkMs ?? BACKGROUND_TALK_MS);
-        if (!controller.signal.aborted && turn.text.trim() !== '' && talkOnly)
+        if (!controller.signal.aborted && result !== '' && talkOnly)
           this.options.log?.('background turn was only talk; not delivered');
-        else if (!controller.signal.aborted && turn.text.trim() !== '') {
+        else if (!controller.signal.aborted && result !== '') {
           this.options.log?.(
             `background ${surface === 'text' ? 'text ' : ''}turn done in ${Date.now() - turn.started} ms`,
           );
-          this.options.onBackgroundResult?.(turn.text.trim(), { turnId, surface });
+          this.options.onBackgroundResult?.(result, { turnId, surface });
         } else
           this.options.log?.(
             `background ${surface === 'text' ? 'text ' : ''}turn ended without a result`,

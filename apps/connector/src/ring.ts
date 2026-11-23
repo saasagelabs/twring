@@ -16,6 +16,7 @@ import {
 import type { LocalAgentConfig } from './agents';
 import { apiUrl, checkServerUrl, configDir, type ConnectorConfig } from './config';
 import { scopeOfSessionRef } from './pool';
+import type { OutboxSendResult } from './outbox';
 
 /**
  * `cord-connect ring` (ADR-024): the agent rings its owner's phone. Uses the saved connector token
@@ -47,7 +48,11 @@ export function firstSentence(text: string): string {
 
 const DELIVERY_RETRY_MS = [1_000, 5_000, 30_000, 120_000] as const;
 
-/** Delivers a detached turn through chats when supported, falling back to the original call ring. */
+/**
+ * Delivers a detached turn through chats when supported, falling back to the original call ring.
+ * Resolves `retry` when Twring could not be reached at all, so the caller can hold the result and
+ * send it again after the link is back (the turn id is the idempotency key).
+ */
 export async function deliverBackgroundResult(
   config: ConnectorConfig,
   agentId: string,
@@ -62,15 +67,15 @@ export async function deliverBackgroundResult(
     fetch?: FetchFn;
     signal?: AbortSignal;
   },
-): Promise<void> {
+): Promise<OutboxSendResult> {
   // Only a call in the same person's session holds the result back.
   if (deps.hasOpenChannel(agentId, turn.scope)) {
     deps.print('background result not delivered: channel open');
-    return;
+    return 'dropped';
   }
   if (deps.signal?.aborted) {
     deps.print('background result not delivered: connector stopped');
-    return;
+    return 'dropped';
   }
   if (deps.supports('messages')) {
     const server = checkServerUrl(config.server);
@@ -102,7 +107,7 @@ export async function deliverBackgroundResult(
       } catch {
         if (deps.signal?.aborted) {
           deps.print('background result not delivered: connector stopped');
-          return;
+          return 'dropped';
         }
       }
       if (response?.ok) {
@@ -114,28 +119,28 @@ export async function deliverBackgroundResult(
             ? `background result delivered (${parsed.data.delivery})`
             : 'background result not delivered: invalid response',
         );
-        return;
+        return parsed.success ? 'delivered' : 'dropped';
       }
       if (response?.status === 404) break;
       if (response !== undefined && response.status !== 429 && response.status < 500) {
         deps.print(`background result not delivered: HTTP ${response.status}`);
-        return;
+        return 'dropped';
       }
       const delay = DELIVERY_RETRY_MS[attempt];
       if (delay === undefined) {
-        deps.print('background result not delivered: retries exhausted');
-        return;
+        deps.print('background result not delivered yet: Twring unreachable');
+        return 'retry';
       }
       if (!(await waitForRetry(delay, deps.signal))) {
         deps.print('background result not delivered: connector stopped');
-        return;
+        return 'dropped';
       }
     }
   }
   // A ring would reach the computer's owner, not the person this result is for.
   if (turn.surface === 'text' || turn.scope !== undefined) {
     deps.print('background result not delivered: messages unavailable');
-    return;
+    return 'dropped';
   }
   try {
     const args = [
@@ -158,8 +163,10 @@ export async function deliverBackgroundResult(
         ? 'background result delivered (ring)'
         : `background result not delivered: ring ended with code ${code}`,
     );
+    return code === RING_EXIT.answered ? 'delivered' : 'dropped';
   } catch {
     deps.print('background result not delivered: ring failed');
+    return 'dropped';
   }
 }
 

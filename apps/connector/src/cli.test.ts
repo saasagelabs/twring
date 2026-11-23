@@ -326,8 +326,10 @@ describe('cord-connect', () => {
     const dir = await tempDir();
     const path = join(dir, 'config.json');
     await saveConfig(path, config(await gatewayClosingWith(RELAY_CLOSE.replaced), dir));
-    const { stdout } = await runCli(dir);
-    expect(stdout).toContain('another window');
+    const { code, stdout } = await runCli(dir);
+    expect(stdout).toContain('another window or computer');
+    // 79: a service is not started again, or the two copies would keep replacing each other.
+    expect(code).toBe(79);
     expect(await exists(path)).toBe(true);
   }, 30_000);
 

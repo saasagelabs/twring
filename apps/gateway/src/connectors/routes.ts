@@ -26,6 +26,8 @@ import {
   type PairingResponse,
   type PairingStatusResponse,
   type RelinkResponse,
+  RELAY_PAIRING_HEADER,
+  RELAY_PAIRING_REVOKED,
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { WebSocketServer } from 'ws';
@@ -620,8 +622,18 @@ const CONNECTOR_BEARER = /^Bearer +(cct_[A-Za-z0-9_-]{43})$/i;
 /** A link request's poll token: `clp_` + 43 base64url characters. */
 const LINK_BEARER = /^Bearer +(clp_[A-Za-z0-9_-]{43})$/i;
 
-export function rejectUpgrade(socket: Duplex, status: 401 | 404 | 429 | 503, text: string): void {
-  socket.end(`HTTP/1.1 ${status} ${text}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+export function rejectUpgrade(
+  socket: Duplex,
+  status: 401 | 404 | 429 | 503,
+  text: string,
+  headers: Readonly<Record<string, string>> = {},
+): void {
+  const extra = Object.entries(headers)
+    .map(([name, value]) => `${name}: ${value}\r\n`)
+    .join('');
+  socket.end(
+    `HTTP/1.1 ${status} ${text}\r\nConnection: close\r\n${extra}Content-Length: 0\r\n\r\n`,
+  );
 }
 
 const LOOPBACK = /^(127\.|::1$|::ffff:127\.)/;
@@ -710,7 +722,12 @@ export function registerConnectorSocket(
     stores.connectors.findByTokenHash(hashConnectorToken(token)).then(
       (record) => {
         if (record === undefined) {
-          rejectUpgrade(socket, 401, 'Unauthorized');
+          // The token is well formed but its pairing is gone (removed in the app): say so, so
+          // the connector forgets it. Older connectors read any 401 that way; newer ones retry a
+          // 401 without this word (a proxy or deploy can send one).
+          rejectUpgrade(socket, 401, 'Unauthorized', {
+            [RELAY_PAIRING_HEADER]: RELAY_PAIRING_REVOKED,
+          });
           return;
         }
         wss.handleUpgrade(request, socket, head, (ws) => {

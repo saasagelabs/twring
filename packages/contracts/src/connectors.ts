@@ -265,6 +265,13 @@ export const RELAY_CLOSE = {
   replaced: 4409,
 } as const;
 
+/**
+ * Sent with the 401 that refuses a socket upgrade when the token matches no pairing (the computer
+ * was removed). A 401 or 403 without it (a proxy, a deploy, a clock) is retried, never unpaired.
+ */
+export const RELAY_PAIRING_HEADER = 'x-twring-pairing';
+export const RELAY_PAIRING_REVOKED = 'revoked';
+
 // Computer-first linking (ADR-025): the computer asks, the phone approves.
 
 /** Agents one link request may offer (fewer than a connector's: the request is unauthenticated). */

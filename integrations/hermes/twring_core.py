@@ -34,8 +34,14 @@ MAX_FRAME_BYTES = 64 * 1024 + 4096
 MAX_APPROVAL_TITLE = 80
 MAX_APPROVAL_DESCRIPTION = 200
 
-#: Reconnect waits, as the Twring connector does it: 1, 2, 4, 8, 15, then 30 s, plus up to 25%.
-_BACKOFF_S = (1, 2, 4, 8, 15, 30)
+#: Reconnect waits, as the Twring connector does it: random up to 1, 2, 4, 8, then 15 s (full jitter).
+_BACKOFF_S = (1, 2, 4, 8, 15)
+#: Close codes of a server restart (going away, service restart): the server is back in a moment.
+RESTART_CLOSE_CODES = frozenset({1001, 1012})
+#: The first retry after a restart close: this, plus up to as much again.
+RESTART_RETRY_S = 0.5
+#: Twring sends this header (value ``revoked``) with the 401 that refuses a removed pairing.
+PAIRING_HEADER = "x-twring-pairing"
 
 
 def connector_hello(version: str) -> dict[str, Any]:
@@ -244,5 +250,19 @@ def approval_choice(decision: str) -> str:
 
 def backoff_delays() -> Iterator[float]:
     for step in range(10_000):
-        base = _BACKOFF_S[min(step, len(_BACKOFF_S) - 1)]
-        yield base * (1 + random.random() * 0.25)
+        ceiling = _BACKOFF_S[min(step, len(_BACKOFF_S) - 1)]
+        yield ceiling * random.random()
+
+
+def restart_delay() -> float:
+    return RESTART_RETRY_S * (1 + random.random())
+
+
+def pairing_revoked(status: int, headers: Any) -> bool:
+    """Only Twring's explicit word unpairs: a bare 401 or 403 (a proxy, a deploy) is retried."""
+    if status not in (401, 403) or headers is None:
+        return False
+    for name, value in headers.items():
+        if str(name).lower() == PAIRING_HEADER:
+            return str(value).strip().lower() == "revoked"
+    return False

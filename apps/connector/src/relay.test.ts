@@ -3,13 +3,24 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { RELAY_CLOSE, type AgentEvent } from '@twring/contracts';
+import {
+  RELAY_CLOSE,
+  RELAY_PAIRING_HEADER,
+  RELAY_PAIRING_REVOKED,
+  type AgentEvent,
+} from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer, type WebSocket } from 'ws';
 
 import { checkServerUrl, loadConfig, saveConfig, socketUrl, type ConnectorConfig } from './config';
 import { EventQueue, type LocalAgentAdapter, type LocalAgentEvent } from './events';
-import { RECONNECT_DELAYS_MS, RelayClient, type RelayStatus } from './relay';
+import {
+  RECONNECT_DELAYS_MS,
+  RelayClient,
+  RESTART_RETRY_MS,
+  SILENCE_TIMEOUT_MS,
+  type RelayStatus,
+} from './relay';
 import { AgentPool } from './pool';
 import { ChannelSession } from './session';
 
@@ -73,7 +84,7 @@ function client(
     onBackgroundResult: () => undefined,
     onStatus: (s) => statuses.push(s),
     delaysMs: [10, 20, 40],
-    random: () => 0,
+    random: () => 1,
     ...extra,
   });
   clients.push(c);
@@ -243,7 +254,7 @@ describe('relay client', () => {
     ]);
   });
 
-  it('stops for good when revoked, and on a refused token', async () => {
+  it('stops for good when revoked (4403), or when the gateway says the pairing is revoked', async () => {
     const url = await server((ws) => ws.close(RELAY_CLOSE.revoked, 'revoked'));
     const statuses: RelayStatus[] = [];
     const c = client(url, statuses);
@@ -254,7 +265,8 @@ describe('relay client', () => {
     const refused = new WebSocketServer({
       host: '127.0.0.1',
       port: 0,
-      verifyClient: (_i, done) => done(false, 401),
+      verifyClient: (_i, done) =>
+        done(false, 401, 'Unauthorized', { [RELAY_PAIRING_HEADER]: RELAY_PAIRING_REVOKED }),
     });
     servers.push(refused);
     await new Promise((resolve) => refused.once('listening', resolve));
@@ -265,26 +277,33 @@ describe('relay client', () => {
     expect(statuses2.at(-1)).toEqual({ kind: 'stopped', reason: 'unauthorized' });
   });
 
-  it('stops when another copy takes over (4409), and on 403', async () => {
+  it('keeps retrying on a bare 401 or 403 (a proxy, a deploy, a clock), never unpairs', async () => {
+    for (const status of [401, 403]) {
+      let attempts = 0;
+      const bare = new WebSocketServer({
+        host: '127.0.0.1',
+        port: 0,
+        verifyClient: (_i, done) => {
+          attempts += 1;
+          done(false, status);
+        },
+      });
+      servers.push(bare);
+      await new Promise((resolve) => bare.once('listening', resolve));
+      const s: RelayStatus[] = [];
+      client(`ws://127.0.0.1:${(bare.address() as AddressInfo).port}/`, s).start();
+      await waitFor(() => attempts >= 3);
+      expect(s.some((x) => x.kind === 'stopped')).toBe(false);
+    }
+  });
+
+  it('stops when another copy takes over (4409)', async () => {
     const url = await server((ws) => ws.close(RELAY_CLOSE.replaced, 'replaced'));
     const statuses: RelayStatus[] = [];
     const c = client(url, statuses);
     c.start();
     await c.done;
     expect(statuses.at(-1)).toEqual({ kind: 'stopped', reason: 'replaced' });
-
-    const forbidden = new WebSocketServer({
-      host: '127.0.0.1',
-      port: 0,
-      verifyClient: (_i, done) => done(false, 403),
-    });
-    servers.push(forbidden);
-    await new Promise((resolve) => forbidden.once('listening', resolve));
-    const statuses2: RelayStatus[] = [];
-    const c2 = client(`ws://127.0.0.1:${(forbidden.address() as AddressInfo).port}/`, statuses2);
-    c2.start();
-    await c2.done;
-    expect(statuses2.at(-1)).toEqual({ kind: 'stopped', reason: 'unauthorized' });
   });
 
   it('keeps retrying on a protocol error, a rate limit, or a server error', async () => {
@@ -317,24 +336,49 @@ describe('relay client', () => {
     }
   });
 
-  it('backs off to a ceiling, with jitter of at most 20% on top', async () => {
+  it('backs off to a ceiling with full jitter (0 up to the step)', async () => {
     let connections = 0;
     const url = await server((ws) => {
       connections += 1;
       ws.terminate();
     });
     const statuses: RelayStatus[] = [];
-    client(url, statuses, { delaysMs: [1, 2, 4], random: () => 1 }).start();
+    client(url, statuses, { delaysMs: [2, 4, 8], random: () => 0.5 }).start();
     await waitFor(() => connections >= 6);
     const waits = statuses.flatMap((s) => (s.kind === 'disconnected' ? [s.retryInMs] : []));
-    expect(waits.slice(0, 5)).toEqual([1, 2, 5, 5, 5]); // 4 ms + 20%, rounded
-    expect(Math.max(...waits)).toBeLessThanOrEqual(5);
+    expect(waits.slice(0, 5)).toEqual([1, 2, 4, 4, 4]);
   });
 
-  it('the default schedule never waits more than 36 s', () => {
-    const last = RECONNECT_DELAYS_MS.at(-1)!;
-    expect(last).toBe(30_000);
-    expect(Math.round(last * 1.2)).toBe(36_000);
+  it('the default schedule never waits more than 15 s', () => {
+    expect(Math.max(...RECONNECT_DELAYS_MS)).toBe(15_000);
+    expect(RECONNECT_DELAYS_MS[0]).toBe(1_000);
+  });
+
+  it.each([1001, 1012])('retries fast after a server restart (%i)', async (code) => {
+    let connections = 0;
+    const url = await server((ws) => {
+      connections += 1;
+      ws.once('message', () => {
+        ws.send(
+          JSON.stringify({
+            type: 'connector.ready',
+            protocol: 'cord-relay/1',
+            connector_id: `con_${'a'.repeat(20)}`,
+            name: 'L',
+          }),
+        );
+        if (connections === 1) setTimeout(() => ws.close(code, 'restart'), 5);
+      });
+    });
+    const statuses: RelayStatus[] = [];
+    client(url, statuses, { delaysMs: [60_000], random: () => 0 }).start();
+    await waitFor(() => connections >= 2);
+    const waits = statuses.flatMap((s) => (s.kind === 'disconnected' ? [s.retryInMs] : []));
+    expect(waits).toEqual([RESTART_RETRY_MS]);
+  });
+
+  it('notices a dead link within 45 s', () => {
+    expect(SILENCE_TIMEOUT_MS).toBeLessThanOrEqual(45_000);
   });
 
   it('detaches a running turn when the link drops, and never resends it', async () => {

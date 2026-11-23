@@ -156,7 +156,7 @@ describe('generated service text', () => {
     );
     expect(vbs).toContain('shell.CurrentDirectory = "C:\\Users\\Ana Lee"');
     expect(vbs).toContain('env("CORD_CONNECT_SERVICE") = "1"');
-    expect(vbs).toContain('If code = 78 Then Exit Do');
+    expect(vbs).toContain('If code = 78 Or code = 79 Then Exit Do');
     expect(vbs).toContain('WScript.Sleep 5000');
     expect(vbs).not.toContain('env("PATH")');
   });
