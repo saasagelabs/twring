@@ -102,4 +102,58 @@ describe('ring watch', () => {
     watch.stopAll();
     expect(watch.watching()).toEqual([]);
   });
+
+  it('starts nothing once stopped (a late first listing after sign-out or unmount)', async () => {
+    const { watch, state } = setup(['pending']);
+    watch.stopAll();
+    watch.watch('inv_a');
+    expect(watch.watching()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(state.calls).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not close a ring when stopped while a check is in flight', async () => {
+    let resolve: (status: InviteStatus) => void = () => undefined;
+    const over: string[] = [];
+    const watch = createRingWatch({
+      ringing: () => Promise.resolve(['inv_a']),
+      getStatus: () => new Promise((r) => (resolve = r)),
+      ringOver: (id) => over.push(id),
+      setInterval: (run, ms) => setInterval(run, ms),
+      clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+    });
+    watch.watch('inv_a');
+    await vi.advanceTimersByTimeAsync(3_000);
+    watch.stopAll();
+    resolve('cancelled');
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(over).toEqual([]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('never overlaps a slow check with the next tick', async () => {
+    let inFlight = 0;
+    let most = 0;
+    const watch = createRingWatch({
+      ringing: () => Promise.resolve(['inv_a']),
+      getStatus: () => {
+        inFlight += 1;
+        most = Math.max(most, inFlight);
+        return new Promise<InviteStatus>((r) =>
+          setTimeout(() => {
+            inFlight -= 1;
+            r('pending');
+          }, 7_000),
+        );
+      },
+      ringOver: () => undefined,
+      setInterval: (run, ms) => setInterval(run, ms),
+      clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+    });
+    watch.watch('inv_a');
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(most).toBe(1);
+    watch.stopAll();
+  });
 });

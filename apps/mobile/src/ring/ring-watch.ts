@@ -27,6 +27,7 @@ export function ringIsOver(status: InviteStatus): boolean {
 
 export interface RingWatch {
   watch(inviteId: string): void;
+  /** Stops every watch for good: later watch() calls do nothing. */
   stopAll(): void;
   watching(): string[];
 }
@@ -35,6 +36,9 @@ export function createRingWatch(deps: RingWatchDeps): RingWatch {
   const intervalMs = deps.intervalMs ?? RING_WATCH_INTERVAL_MS;
   const timeoutMs = deps.timeoutMs ?? RING_WATCH_TIMEOUT_MS;
   const watches = new Map<string, { handle: unknown; busy: boolean }>();
+  // stopAll is final: a late watch (the first listing resolving after sign-out or unmount)
+  // must not start a timer nobody will clear.
+  let closed = false;
 
   const stop = (inviteId: string) => {
     const entry = watches.get(inviteId);
@@ -68,11 +72,12 @@ export function createRingWatch(deps: RingWatchDeps): RingWatch {
 
   return {
     watch(inviteId) {
-      if (watches.has(inviteId)) return;
+      if (closed || watches.has(inviteId)) return;
       const handle = deps.setInterval(() => void check(inviteId), intervalMs);
       watches.set(inviteId, { handle, busy: false });
     },
     stopAll() {
+      closed = true;
       [...watches.keys()].forEach(stop);
     },
     watching: () => [...watches.keys()],
