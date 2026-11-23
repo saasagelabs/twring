@@ -41,6 +41,7 @@ vi.mock('@/servers/active', () => ({
 }));
 vi.mock('@/observability/sentry', () => ({ callBreadcrumb: () => undefined }));
 vi.mock('@/platform/audio-route', () => ({ audioRoutePlatform: {} }));
+vi.mock('@/platform/device-facts', () => ({ deviceFacts: () => ({}) }));
 vi.mock('@/platform/call-service', () => ({
   callBackgroundService: { stop: () => Promise.resolve() },
   onBackgroundEndPressed: () => h.offEnd,
@@ -49,7 +50,12 @@ vi.mock('@/platform/call-service', () => ({
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: () => undefined }));
 vi.mock('@/platform/microphone', () => ({ microphonePermission: {} }));
 vi.mock('./api', () => ({ createCallApi: () => ({}) }));
-vi.mock('./audio-routes', () => ({ AudioRoutes: class {} }));
+vi.mock('./audio-routes', () => ({
+  AudioRoutes: class {
+    subscribe = () => () => true;
+    getState = () => ({ outputs: [] });
+  },
+}));
 vi.mock('./feedback', () => ({ feedbackFor: () => undefined }));
 vi.mock('./livekit-transport', () => ({ LiveKitCallTransport: class {} }));
 vi.mock('./timers', () => ({ systemTimers: {} }));

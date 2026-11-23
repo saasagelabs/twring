@@ -3,12 +3,15 @@ import {
   GATEWAY_IDENTITY,
   GATEWAY_STATE_ATTRIBUTE,
   MAX_STATUS_MESSAGE_BYTES,
+  PHONE_TOPIC,
   STATUS_TOPIC,
+  type DeviceInfoMessage,
   gatewayEndReasonSchema,
   parseStatusMessage,
 } from '@twring/contracts';
 import { AndroidAudioTypePresets, AudioSession } from '@livekit/react-native';
 import {
+  ConnectionState,
   DisconnectReason,
   RemoteAudioTrack,
   Room,
@@ -240,6 +243,15 @@ export class LiveKitCallTransport implements CallTransport {
       remote = nextRemote;
       onEvent({ type: 'levels', levels: { local, remote } });
     }, LEVEL_INTERVAL_MS);
+  }
+
+  async sendDeviceInfo(info: DeviceInfoMessage): Promise<void> {
+    if (this.room.state !== ConnectionState.Connected) return;
+    await this.room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(info)), {
+      reliable: true,
+      topic: PHONE_TOPIC,
+      destinationIdentities: [GATEWAY_IDENTITY],
+    });
   }
 
   async setMicrophoneMuted(muted: boolean): Promise<void> {

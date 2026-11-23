@@ -2,6 +2,7 @@ import { isAdapterError, type TwringAgentAdapter } from '@twring/agent-adapter';
 import type { GatewayEnv } from '@twring/config/gateway';
 import type {
   CallUsage,
+  DeviceInfoMessage,
   GatewayEndReason,
   ListeningProvider,
   SpeechProvider,
@@ -175,6 +176,8 @@ export interface CallRuntimeOptions {
 const MAX_LIVE_BACKLOG_FRAMES = 50;
 /** Synthesized speech arrives faster than real time and is queued whole, up to a minute. */
 const MAX_SPEECH_BACKLOG_FRAMES = 3000;
+/** Device reports handled per call; a phone flapping routes cannot flood the logs. */
+const MAX_DEVICE_REPORTS = 50;
 /** Longest an answered ring's opening waits for the caller's audio to start flowing. */
 export const OPENING_AUDIO_WAIT_MS = 1_500;
 /**
@@ -214,6 +217,9 @@ export class CallRuntime {
   private callerPresent = false;
   private everJoined = false;
   private firstCallerFrameLogged = false;
+  private firstDevice: DeviceInfoMessage | undefined;
+  private lastRoute: string | undefined;
+  private deviceReports = 0;
   private windowFrames = 0;
   private windowPeak = SILENCE_DBFS;
   /** Since when no caller audio has arrived (after it first did), and whether that was logged. */
@@ -353,7 +359,7 @@ export class CallRuntime {
     this.log(failed ? 'call_failed' : 'call_ended', { reason, duration_ms: this.elapsed() });
     const usage = this.usage();
     // One line per call, counts and durations only (OBSERVABILITY_AND_SLOS §16): no transcript.
-    this.log('call_usage', { reason, ...usage });
+    this.log('call_usage', { reason, ...usage, ...this.diagnostics() });
     this.options.onEnded?.({ reason, failed, usage });
   }
 
@@ -396,6 +402,36 @@ export class CallRuntime {
     if (this.options.openingTurn === undefined || this.openingSent) return;
     this.openingAudioReady = true;
     this.maybeSendOpening();
+  }
+
+  /**
+   * The phone's device and audio route: logged when the route changes (repeats are skipped), the
+   * first report kept for the call's usage line. Metadata only, never words.
+   */
+  private onDeviceInfo(info: DeviceInfoMessage): void {
+    if (this.deviceReports >= MAX_DEVICE_REPORTS) return;
+    this.deviceReports += 1;
+    this.firstDevice ??= info;
+    if (info.route === this.lastRoute) return;
+    this.lastRoute = info.route;
+    this.log('call_route', {
+      route: info.route,
+      platform: info.platform,
+      os: info.os,
+      model: info.model,
+      app_build: info.app_build,
+    });
+  }
+
+  /** Diagnostics for the call's usage line (not part of billed usage). */
+  private diagnostics(): Record<string, unknown> {
+    return {
+      ...(this.firstDevice !== undefined && {
+        route: this.firstDevice.route,
+        app_build: this.firstDevice.app_build,
+      }),
+      ...this.voice?.speechAudio(),
+    };
   }
 
   /** What this call used, measured on the gateway side. */
@@ -509,6 +545,9 @@ export class CallRuntime {
       case 'disconnected':
         this.log('gateway_disconnected', { detail: event.reason });
         void this.end('gateway_disconnected');
+        return;
+      case 'device_info':
+        this.onDeviceInfo(event.info);
         return;
     }
   }

@@ -97,6 +97,55 @@ describe('call usage telemetry', () => {
     expect(usage.stt_audio_s).toBeGreaterThanOrEqual(1);
     expect(usage.stt_audio_s).toBeLessThan(3);
     expect(usage.estimated_cost_usd).toBeUndefined();
+    // An older phone sent no device info and the caller was silent: no diagnostics fields.
+    expect(lines[0]!.fields).not.toHaveProperty('route');
+    expect(lines[0]!.fields).not.toHaveProperty('hf_ratio');
+  });
+
+  it('logs call_route on each route change and adds the first route and caller audio to call_usage', async () => {
+    const { runtime, transport, logger } = await started();
+    const info = {
+      v: 1,
+      type: 'device_info',
+      platform: 'android',
+      os: '14',
+      model: 'Pixel 7',
+      app_build: '29',
+    } as const;
+    transport.emit({ type: 'device_info', info: { ...info, route: 'earpiece' } });
+    transport.emit({ type: 'device_info', info: { ...info, route: 'earpiece' } });
+    transport.emit({ type: 'device_info', info: { ...info, route: 'bluetooth' } });
+    const loud = new Int16Array(SAMPLES_PER_FRAME).map((_, i) =>
+      Math.round(8000 * Math.sin(i / 3)),
+    );
+    for (let i = 0; i < 25; i += 1) transport.frame(loud);
+    await runtime.end('hangup');
+
+    const routes = logger.events.filter((e) => e.fields.event === 'call_route');
+    expect(routes.map((e) => e.fields.route)).toEqual(['earpiece', 'bluetooth']);
+    expect(routes[0]!.fields).toMatchObject({
+      platform: 'android',
+      os: '14',
+      model: 'Pixel 7',
+      app_build: '29',
+    });
+    const usage = logger.events.find((e) => e.fields.event === 'call_usage')!.fields;
+    expect(usage).toMatchObject({ route: 'earpiece', app_build: '29' });
+    expect(typeof usage.speech_rms_dbfs).toBe('number');
+    expect(typeof usage.speech_peak_dbfs).toBe('number');
+    expect(typeof usage.hf_ratio).toBe('number');
+    expect(typeof usage.narrowband).toBe('boolean');
+  });
+
+  it('handles at most 50 device reports per call, so a flapping route cannot flood the logs', async () => {
+    const { runtime, transport, logger } = await started();
+    for (let i = 0; i < 200; i += 1)
+      transport.emit({
+        type: 'device_info',
+        info: { v: 1, type: 'device_info', route: i % 2 === 0 ? 'speaker' : 'earpiece' },
+      });
+    await runtime.end('hangup');
+    expect(logger.events.filter((e) => e.fields.event === 'call_route')).toHaveLength(50);
   });
 
   it('estimates cost only from rates that are set', async () => {

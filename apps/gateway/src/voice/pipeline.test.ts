@@ -963,6 +963,21 @@ describe('VoicePipeline turn timing (how long the owner spoke, how long Twring w
     ]);
   });
 
+  it('logs word confidence on the committed turn when the provider gave it', async () => {
+    const { stt, committed } = await withStt();
+    stt.send({
+      type: 'turn_ended',
+      turnIndex: 0,
+      text: 'call mum',
+      confidence: { mean: 0.6666, min: 0.333, lowWords: 1 },
+    });
+    stt.send({ type: 'turn_ended', turnIndex: 1, text: 'thanks' });
+    expect(committed()[0]).toEqual(
+      expect.objectContaining({ conf_mean: 0.67, conf_min: 0.33, low_conf_words: 1 }),
+    );
+    expect(committed()[1]).not.toHaveProperty('conf_mean');
+  });
+
   it('discarded speech leaves no timing behind for a later turn', async () => {
     const { stt, scheduler, committed } = await withStt();
     stt.send({ type: 'speech_started', turnIndex: 0 });

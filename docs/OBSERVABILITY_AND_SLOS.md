@@ -259,6 +259,8 @@ Cost rates come from config, in USD, and default to 0 (unknown, left out of the 
 - Reconnects: delays 250 ms, 1 s, 3 s, then the call fails. The budget is restored only after a reconnected session stays up 10 s (`RECONNECT_STABLE_MS`), so a provider that accepts and drops at once cannot reconnect-storm forever.
 - Per-call state is bounded: playout history (8 generations), echo-window generations (pruned after their tail), TTS started turns (8), per-turn timers, and the output queue (one minute of speech). A 60-minute soak test (`apps/gateway/src/calls/reliability.test.ts`) asserts this and that hang-up leaves no timers.
 
+Recognition diagnostics (numbers and short identifiers only, never words): `turn_committed` carries `conf_mean`, `conf_min` and `low_conf_words` (words under 0.5) from Flux per-word confidence, one summary per Flux turn. `call_usage` adds the caller's speech level and bandwidth over frames above the -35 dBFS speech gate (`speech_rms_dbfs`, `speech_peak_dbfs`, `hf_ratio` = energy above 4.5 kHz over total, `narrowband` = `hf_ratio` under 0.003, which marks 8 kHz Bluetooth or codec audio), plus the phone's first `route` and `app_build`. `call_route` logs `route`, `platform`, `os`, `model` and `app_build` when the audio route changes (at most 50 reports per call).
+
 ## 17. Privacy
 
 Observability is not transcript storage.

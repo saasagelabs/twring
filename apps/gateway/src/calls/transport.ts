@@ -1,4 +1,9 @@
-import type { GatewayEndReason, GatewayState, StatusMessage } from '@twring/contracts';
+import type {
+  DeviceInfoMessage,
+  GatewayEndReason,
+  GatewayState,
+  StatusMessage,
+} from '@twring/contracts';
 
 /**
  * What the call runtime needs from realtime media. The LiveKit implementation lives in
@@ -19,7 +24,9 @@ export type TransportEvent =
   /** Someone other than the caller joined the call room (e.g. an auto-dispatched agent). */
   | { type: 'unexpected_participant'; identity: string }
   /** The gateway left the room for good (room deleted, kicked, or unrecoverable). */
-  | { type: 'disconnected'; reason: string };
+  | { type: 'disconnected'; reason: string }
+  /** The caller's phone reported its device and audio route (validated; newer apps only). */
+  | { type: 'device_info'; info: DeviceInfoMessage };
 
 export interface TransportHandlers {
   onEvent(event: TransportEvent): void;

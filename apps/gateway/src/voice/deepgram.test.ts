@@ -158,6 +158,76 @@ describe('Deepgram Flux STT', () => {
     ]);
   });
 
+  it('summarises Flux word confidence on the committed turn', async () => {
+    const { socket, events } = await openStt();
+    socket.receive({
+      ...turn('EndOfTurn', 0, 'call mum now'),
+      audio_window_start: 0.1,
+      audio_window_end: 1.4,
+      words: [
+        { word: 'call', confidence: 0.9 },
+        { word: 'mum', confidence: 0.3 },
+        { word: 'now', confidence: 0.6 },
+      ],
+    });
+    expect(events).toHaveLength(1);
+    const ended = events[0] as Extract<SttEvent, { type: 'turn_ended' }>;
+    expect(ended.text).toBe('call mum now');
+    expect(ended.confidence?.mean).toBeCloseTo(0.6);
+    expect(ended.confidence?.min).toBeCloseTo(0.3);
+    expect(ended.confidence?.lowWords).toBe(1);
+  });
+
+  it('commits a turn without confidence when words are missing or malformed', async () => {
+    const { socket, events } = await openStt();
+    const bare: Record<string, unknown> = turn('EndOfTurn', 0, 'hello');
+    delete bare.words;
+    socket.receive(bare);
+    socket.receive({ ...turn('EndOfTurn', 1, 'there'), words: 'nonsense' });
+    socket.receive({ ...turn('EndOfTurn', 2, 'again'), words: [{ word: 'again' }] });
+    expect(events).toEqual([
+      { type: 'turn_ended', turnIndex: 0, text: 'hello' },
+      { type: 'turn_ended', turnIndex: 1, text: 'there' },
+      { type: 'turn_ended', turnIndex: 2, text: 'again' },
+    ]);
+  });
+
+  it('one odd word confidence drops only that word, not the turn summary', async () => {
+    const { socket, events } = await openStt();
+    socket.receive({
+      ...turn('EndOfTurn', 0, 'call mum'),
+      words: [
+        { word: 'call', confidence: '0.9' },
+        { word: 'mum', confidence: 0.4 },
+        { word: 'x', confidence: 7 },
+        { word: 'y', confidence: null },
+      ],
+    });
+    expect(events).toEqual([
+      {
+        type: 'turn_ended',
+        turnIndex: 0,
+        text: 'call mum',
+        confidence: { mean: 0.4, min: 0.4, lowWords: 1 },
+      },
+    ]);
+  });
+
+  it('commits a turn without confidence for an empty or oversized words list', async () => {
+    const { socket, events } = await openStt();
+    socket.receive({ ...turn('EndOfTurn', 0, 'hi'), words: [] });
+    socket.receive({
+      ...turn('EndOfTurn', 1, 'long'),
+      words: Array.from({ length: 5_001 }, () => ({ word: 'a', confidence: 0.9 })),
+    });
+    socket.receive({ ...turn('Update', 2, 'interim'), words: [{ word: 'a', confidence: 0.1 }] });
+    expect(events).toEqual([
+      { type: 'turn_ended', turnIndex: 0, text: 'hi' },
+      { type: 'turn_ended', turnIndex: 1, text: 'long' },
+      { type: 'partial', turnIndex: 2, text: 'interim' },
+    ]);
+  });
+
   it('never commits an empty turn; it reports the speech as discarded', async () => {
     const { socket, events } = await openStt();
     socket.receive(turn('EndOfTurn', 3, '  '));

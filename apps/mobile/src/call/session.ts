@@ -9,6 +9,7 @@ import { activeServerUrl, onActiveServerChanged, useActiveServer } from '@/serve
 import { profileStore } from '../servers/profiles';
 import { callBreadcrumb } from '@/observability/sentry';
 import { audioRoutePlatform } from '@/platform/audio-route';
+import { deviceFacts } from '@/platform/device-facts';
 import {
   callBackgroundService,
   onBackgroundEndPressed,
@@ -20,6 +21,7 @@ import { microphonePermission } from '@/platform/microphone';
 import { createCallApi } from './api';
 import { AudioRoutes, type AudioRouteState } from './audio-routes';
 import { CallController, type CallView } from './controller';
+import { DeviceReporter } from './device-report';
 import { feedbackFor } from './feedback';
 import { LiveKitCallTransport } from './livekit-transport';
 import { systemTimers } from './timers';
@@ -81,9 +83,16 @@ export function callController(): CallController | undefined {
     if (state === 'active') created.retryBackground();
   });
 
+  // Device and audio route go to the gateway when the call is live and on each route change.
+  const reporter = new DeviceReporter(deviceFacts(), (info) => created.reportDevice(info));
+  const report = () =>
+    reporter.update(created.getView().call.status, audioRoutes.getState().current);
+  const offReportRoute = audioRoutes.subscribe(report);
+
   let previous = created.getView().call;
   const offView = created.subscribe(() => {
     const next = created.getView().call;
+    report();
     if (next === previous) return;
     const feedback = feedbackFor(previous, next);
     if (feedback !== undefined) playCallFeedback(feedback);
@@ -96,6 +105,7 @@ export function callController(): CallController | undefined {
     offStartRefused();
     appState.remove();
     offView();
+    offReportRoute();
   };
   return created;
 }
