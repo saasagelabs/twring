@@ -1271,6 +1271,41 @@ describe('CallController background service (milestone 8)', () => {
     expect(background.log.some((entry) => entry.startsWith('start'))).toBe(false);
   });
 
+  it('stops when the gateway never gets ready, and starts only once', async () => {
+    const background = new FakeBackground();
+    const ctx = setup({ background });
+    void ctx.controller.start();
+    await settle();
+    ctx.create.resolve(SESSION);
+    await settle();
+    ctx.transport.connected.resolve();
+    await settle();
+    ctx.timers.advance(CALL_TIMEOUTS.gatewayReadyMs);
+    await settle();
+    await settle();
+    expect(ctx.controller.getView().call.status).toBe('FAILED');
+    expect(background.log.filter((entry) => entry.startsWith('start:'))).toHaveLength(1);
+    expect(background.log.at(-1)).toBe('stop');
+  });
+
+  it('retries a start refused while connecting once the app is visible', async () => {
+    const background = new FakeBackground();
+    const refused = Promise.reject(new Error('background'));
+    refused.catch(() => undefined);
+    background.startResult = refused;
+    const ctx = setup({ background });
+    void ctx.controller.start();
+    await settle();
+    ctx.create.resolve(SESSION);
+    await settle();
+    background.startResult = Promise.resolve();
+    ctx.controller.retryBackground();
+    await settle();
+    expect(background.log.filter((entry) => entry.startsWith('start:'))).toHaveLength(2);
+    await ctx.controller.hangUp();
+    expect(background.log.at(-1)).toBe('stop');
+  });
+
   it('never starts when session creation fails', async () => {
     const background = new FakeBackground();
     const ctx = setup({ background });
