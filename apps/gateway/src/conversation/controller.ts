@@ -1146,7 +1146,8 @@ export class ConversationController {
       const line = openingLine.trim();
       if (line !== '') {
         this.log('opening_line', { text_chars: line.length });
-        this.onText(turn, `${line} `);
+        // Twring speaks the ring's line at once: not a measure of how fast the agent answers.
+        this.onText(turn, `${line} `, false);
       }
     }
     void this.run(turn, {
@@ -1573,7 +1574,7 @@ export class ConversationController {
     });
   }
 
-  private onText(turn: Turn, raw: string): void {
+  private onText(turn: Turn, raw: string, measured = true): void {
     const stripped = stripHangupMarkers(turn.markerCarry + raw, false);
     turn.markerCarry = stripped.carry;
     if (stripped.found) turn.hangupRequested = true;
@@ -1583,8 +1584,10 @@ export class ConversationController {
       turn.firstTextLogged = true;
       const latency = this.since(turn);
       this.log('agent_first_text', { turn_id: turn.id, duration_ms: latency });
-      this.firstTextLatencies.push(latency);
-      if (this.firstTextLatencies.length > ACK_LATENCY_SAMPLES) this.firstTextLatencies.shift();
+      if (measured) {
+        this.firstTextLatencies.push(latency);
+        if (this.firstTextLatencies.length > ACK_LATENCY_SAMPLES) this.firstTextLatencies.shift();
+      }
     }
     turn.lastTextAt = this.options.scheduler.now();
     this.scheduleProgress(turn);
@@ -1700,8 +1703,9 @@ export class ConversationController {
     if (outcome === 'completed') this.counts.completed += 1;
     else this.counts.failed += 1;
     // Part of the answer was spoken (or is queued to be) and the rest will never come: once that
-    // part has played, Twring says the rest was lost. A failure before any answer stays as it was.
-    if (outcome === 'failed' && !turn.muted && !turn.yielded && turn.spoken.trim() !== '') {
+    // part has played, Twring says the rest was lost. A Twring timeout leaves the same silence, so
+    // it counts too. A failure before any answer stays as it was.
+    if (outcome !== 'completed' && !turn.muted && !turn.yielded && turn.spoken.trim() !== '') {
       turn.replyBroken = true;
       this.log('agent_reply_broken', { turn_id: turn.id });
     }

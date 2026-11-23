@@ -5242,6 +5242,22 @@ describe('ConversationController acknowledgement only for a long wait (ADR-032 a
     expect(p.logger.names()).not.toContain('ack_skipped');
   });
 
+  it('a ring opening line spoken by Twring is not counted as a 0 ms agent answer', async () => {
+    const p = call();
+    p.conversation.openingTurn('[The owner answered your call.]', 'The build failed.');
+    await flushMicrotasks();
+    p.adapter.channels[0]!.done();
+    await flushMicrotasks();
+    playAll(p);
+    p.scheduler.advance(10_000);
+    await turn(p, 6_000);
+    p.conversation.userSpeechStarted();
+    p.conversation.userTurn('and the tests');
+    await flushMicrotasks();
+    // Only the 6 s answer was measured: the next turn is acknowledged, not skipped.
+    expect(p.logger.names()).not.toContain('ack_skipped');
+  });
+
   it('a turn that never gave text is not counted', async () => {
     const p = call();
     p.conversation.userSpeechStarted();
@@ -5305,6 +5321,23 @@ describe('ConversationController an answer that breaks off', () => {
     expect(broken(p.speech)).toEqual([`append gen_2 ${LINES.en.replyBroken}`]);
     expect(p.speech.calls).toContain('end gen_2');
     // Twring's own words: never sent to the agent.
+    expect(p.adapter.channels).toHaveLength(1);
+  });
+
+  it('says it too when Twring times the agent out after part of an answer', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places. The first is ');
+    await flushMicrotasks();
+    p.conversation.speechState('gen_1', 'playing');
+    p.scheduler.advance(AGENT_TIMEOUTS.idleMs);
+    await flushMicrotasks();
+    expect(p.logger.names()).toContain('agent_timeout');
+    expect(fields(p.logger, 'agent_reply_broken')).toEqual([
+      expect.objectContaining({ turn_id: 'turn_1' }),
+    ]);
+    expect(broken(p.speech)).toEqual([]);
+    p.conversation.speechState('gen_1', 'finished');
+    expect(broken(p.speech)).toEqual([`append gen_2 ${LINES.en.replyBroken}`]);
     expect(p.adapter.channels).toHaveLength(1);
   });
 
