@@ -7,6 +7,7 @@ import {
   MAX_STT_KEYTERM_TOKENS,
   MAX_STT_KEYTERMS,
   agentSttKeyterms,
+  ownerNameKeyterms,
   ConfigError,
   estimateKeytermTokens,
   mergeSttKeyterms,
@@ -612,12 +613,13 @@ describe('loadGatewayEnv', () => {
       'CLI',
       'Bot',
     ]);
-    // The owner's terms win the budget: identity terms are dropped first.
-    const full = Array.from({ length: 45 }, (_, i) => `term${i}`);
+    // Identity terms have reserved room (ADR-042): a full agent list gives way to them.
+    const full = Array.from({ length: 50 }, (_, i) => `term${i}`);
     const merged = agentSttKeyterms(config, full, 'Hermes');
-    expect(merged.slice(0, 45)).toEqual(full);
     expect(merged).toHaveLength(MAX_STT_KEYTERMS);
-    expect(merged).not.toContain('Hermes');
+    expect(merged).toContain('Hermes');
+    expect(merged).toContain('Twring');
+    expect(merged.slice(0, 43)).toEqual(full.slice(0, 43));
     // Non-ASCII names count as tokens and still respect the budget.
     const tamilName = 'த'.repeat(40);
     const long = Array.from(
@@ -627,7 +629,7 @@ describe('loadGatewayEnv', () => {
     const budgeted = agentSttKeyterms(config, long, tamilName);
     const tokens = budgeted.reduce((sum, term) => sum + estimateKeytermTokens(term), 0);
     expect(tokens).toBeLessThanOrEqual(MAX_STT_KEYTERM_TOKENS);
-    expect(budgeted).not.toContain(tamilName);
+    expect(budgeted).toContain(tamilName);
     expect(budgeted).toContain('Twring');
     expect(identityKeyterms('Al Bo')).toEqual(['Twring', 'Al Bo']);
     expect(identityKeyterms('த்து AB')).toEqual(['Twring', 'த்து AB', 'த்து']);
@@ -657,7 +659,7 @@ describe('loadGatewayEnv', () => {
       'Chennai',
     ]);
     // Long Tamil and Hindi names (up to the 60-character name cap) against a full owner list:
-    // every owner term that fits is kept, the budget holds, and identity terms give way first.
+    // every owner term that fits is kept, the budget holds, and the name keeps its reserved room.
     const owner = Array.from({ length: 40 }, (_, i) => `ஊர்${i}${'அ'.repeat(8)}`);
     for (const name of [
       'முத்துக்கிருஷ்ணன் '.repeat(3).trim(),
@@ -671,8 +673,7 @@ describe('loadGatewayEnv', () => {
       const tokens = terms.reduce((sum, t) => sum + estimateKeytermTokens(t), 0);
       expect(tokens).toBeLessThanOrEqual(MAX_STT_KEYTERM_TOKENS);
       expect(terms.length).toBeLessThanOrEqual(MAX_STT_KEYTERMS);
-      // Nothing after the owner's list outranks an owner term that was dropped.
-      if (ownerKept.length < owner.length) expect(terms).not.toContain(name);
+      expect(terms).toEqual(expect.arrayContaining(identityKeyterms(name)));
     }
     // Without owner terms a long Hindi name fits, word by word too.
     const hindi = 'राजेश्वरी देवी';
@@ -684,6 +685,46 @@ describe('loadGatewayEnv', () => {
       'देवी',
       'Chennai',
     ]);
+  });
+
+  it('account words: owner name reserved, words from all agents after, deduped, capped', () => {
+    const config = deepgramConfig(
+      loadGatewayEnv(gatewayEnvFixture({ ...DEEPGRAM, DEEPGRAM_STT_KEYTERMS: 'Chennai' })),
+    )!;
+    expect(ownerNameKeyterms('  Gowri   Shankar ')).toEqual(['Gowri', 'Shankar']);
+    expect(ownerNameKeyterms(undefined)).toEqual([]);
+    expect(
+      agentSttKeyterms(config, ['Rishflips'], 'Claude', {
+        ownerName: 'Ada Lovelace',
+        words: ['SaaSage', 'rishflips', 'ada'],
+      }),
+    ).toEqual([
+      'Rishflips',
+      ...INTERRUPTION_KEYTERMS,
+      'Twring',
+      'Claude',
+      'Ada',
+      'Lovelace',
+      'SaaSage',
+      'Chennai',
+    ]);
+    // No display name: nothing added for it, the rest unchanged.
+    expect(agentSttKeyterms(config, [], 'Claude', { words: ['SaaSage'] })).toEqual([
+      ...INTERRUPTION_KEYTERMS,
+      'Twring',
+      'Claude',
+      'SaaSage',
+      'Chennai',
+    ]);
+    // A full agent list cannot push out the owner's name or the agent's; account words give way.
+    const full = Array.from({ length: 60 }, (_, i) => `term${i}`);
+    const terms = agentSttKeyterms(config, full, 'Claude', {
+      ownerName: 'Ada Lovelace',
+      words: ['SaaSage'],
+    });
+    expect(terms).toHaveLength(MAX_STT_KEYTERMS);
+    expect(terms).toEqual(expect.arrayContaining(['Twring', 'Claude', 'Ada', 'Lovelace']));
+    expect(terms).not.toContain('SaaSage');
   });
 
   it('BUG: an agent name over the 50-character keyterm cap is not sent as one keyterm', () => {

@@ -174,6 +174,7 @@ describe('call usage telemetry', () => {
       gateway_connected_s: 3,
       stt_reconnects: 0,
       tts_reconnects: 0,
+      stt_audio_dropped_ms: 250,
       estimated_cost_usd: 0.1,
     });
     const item = (day: string, agent: string, u?: CallUsage): CallHistoryItem => ({
@@ -200,6 +201,7 @@ describe('call usage telemetry', () => {
       agent_turns: 5,
       stt_audio_s: 3,
       barge_ins: 2,
+      stt_audio_dropped_ms: 500,
       estimated_cost_usd: 0.2,
     });
     expect(rows[0]!.duration_s).toBe(15);

@@ -1,4 +1,4 @@
-import type { GatewayEnv } from '@twring/config/gateway';
+import type { AccountKeyterms, GatewayEnv } from '@twring/config/gateway';
 import type {
   AgentProtocol,
   ConnectorEndpoint,
@@ -78,6 +78,7 @@ export interface CallRegistryOptions {
     keyterms: readonly string[],
     agentName?: string,
     speech?: ResolvedSpeech,
+    account?: AccountKeyterms,
   ) => SttProvider;
   /**
    * Self-hosted on the server's own xAI key: every call listens and speaks on xAI, so only an own
@@ -126,6 +127,8 @@ export interface SavedAgentCall {
   voiceId: string;
   /** The agent's words to recognise, for its STT session. */
   keyterms: readonly string[];
+  /** The owner's name and words from all their agents, heard on every call (ADR-042). */
+  account?: AccountKeyterms;
   createAgent: AgentFactory;
   /** Set for a `cord-connector` agent: the user's computer and the agent on it (ADR-023). */
   connector?: ConnectorEndpoint;
@@ -277,6 +280,25 @@ export class CallRegistry {
     if (answer === undefined || Date.parse(answer.expires_at) <= this.now().getTime())
       return undefined;
     return answer;
+  }
+
+  /**
+   * Words changed mid-call (add_words): each live call to one of `ownerId`'s agents gets its list
+   * rebuilt by `termsFor` and pushed to its STT. Returns how many calls took it at once; the rest
+   * (a provider that cannot update mid-stream) hear the words from their next call.
+   */
+  async refreshKeyterms(
+    ownerId: string,
+    termsFor: (agent: SavedAgentCall) => Promise<readonly string[]>,
+  ): Promise<number> {
+    let applied = 0;
+    for (const record of [...this.calls.values()]) {
+      const agent = record.agent;
+      if (agent === undefined || !isLive(record.status) || agentOwner(agent) !== ownerId) continue;
+      const terms = await termsFor(agent);
+      if (record.runtime?.updateKeyterms(terms) === true) applied += 1;
+    }
+    return applied;
   }
 
   hasLiveCallToAgent(userId: string, agentId: string): boolean {
@@ -577,7 +599,7 @@ export class CallRegistry {
     const voice = this.options.voice && {
       stt:
         agent && this.options.sttForKeyterms
-          ? this.options.sttForKeyterms(agent.keyterms, agent.agentName, speech)
+          ? this.options.sttForKeyterms(agent.keyterms, agent.agentName, speech, agent.account)
           : this.options.voice.stt,
       tts:
         agent && this.options.ttsForVoice

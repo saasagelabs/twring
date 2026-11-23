@@ -464,7 +464,7 @@ describe('MCP add_words', () => {
       arguments: { words: ['Lightsail', 'gowri'] },
     });
     expect(res.json().result.content[0].text).toBe(
-      'From the next call or voice note, Twring will listen for: Gowri, Lightsail.',
+      'From now on, Twring will listen for: Gowri, Lightsail.',
     );
     expect((await t.agents.get(USER, contact.id))?.keyterms).toEqual(['Gowri', 'Lightsail']);
   });

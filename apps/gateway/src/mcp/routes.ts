@@ -163,6 +163,8 @@ export interface McpRoutesOptions {
   files?: FileService;
   fileFetchEnv?: 'development' | 'staging' | 'production';
   fetchFile?: typeof fetchAgentFile;
+  /** Words were added: the owner's live calls pick them up (ADR-042). */
+  wordsAdded?: (ownerId: string) => void;
 }
 
 export function registerMcpRoutes(app: FastifyInstance, options: McpRoutesOptions): void {
@@ -444,12 +446,11 @@ export function registerMcpRoutes(app: FastifyInstance, options: McpRoutesOption
             { isError: true },
           );
         } else {
+          options.wordsAdded?.(identity.id);
           const full = added.notAdded.length
             ? ` The list is full (40 words); not added: ${added.notAdded.join(', ')}. The owner can remove words in the Twring app.`
             : '';
-          output = result(
-            `From the next call or voice note, Twring will listen for: ${added.words.join(', ')}.${full}`,
-          );
+          output = result(`From now on, Twring will listen for: ${added.words.join(', ')}.${full}`);
         }
       } else {
         logTool('unknown_tool');

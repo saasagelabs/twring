@@ -2,6 +2,7 @@
  * An agent teaches its calls words to hear right (names, projects, places): they go after the
  * owner's own on the Words page, once each (any case), up to the list's limit.
  */
+import type { AccountKeyterms } from '@twring/config/gateway';
 import { MAX_AGENT_KEYTERMS } from '@twring/contracts';
 
 import { revisionOf, type AgentRecord, type AgentRepository } from '../store/repositories';
@@ -26,6 +27,24 @@ export function callWords(agent: AgentRecord, personId: string): string[] {
     if (seen.has(word.toLowerCase())) continue;
     seen.add(word.toLowerCase());
     words.push(word);
+  }
+  return words;
+}
+
+/**
+ * Words an owner taught any of their agents, once each (any case), first-seen first: every call of
+ * theirs listens for them (ADR-042).
+ */
+export function accountWords(agents: readonly AgentRecord[]): string[] {
+  const words: string[] = [];
+  const seen = new Set<string>();
+  for (const agent of agents) {
+    for (const word of agent.keyterms ?? []) {
+      const key = word.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      words.push(word);
+    }
   }
   return words;
 }
@@ -74,4 +93,19 @@ export async function addAgentWords(
     if (updated !== undefined) return { ok: true, words: merged, notAdded };
   }
   return { ok: false, reason: 'busy' };
+}
+
+/**
+ * A live call's words rebuilt after add_words (ADR-042): the agent's list for this caller, plus
+ * the owner's account words only on a call that already had them (the owner's own). A team member
+ * on a shared agent never gets the owner's account words.
+ */
+export function liveCallWords(
+  all: readonly AgentRecord[],
+  call: { agentId: string; userId: string; keyterms: readonly string[]; account?: AccountKeyterms },
+): { agentTerms: readonly string[]; account?: AccountKeyterms } {
+  const record = all.find((agent) => agent.id === call.agentId);
+  const agentTerms = record === undefined ? call.keyterms : callWords(record, call.userId);
+  if (call.account === undefined) return { agentTerms };
+  return { agentTerms, account: { ...call.account, words: accountWords(all) } };
 }

@@ -58,8 +58,40 @@ function registry() {
   });
 }
 
+describe('account words on a call (ADR-042)', () => {
+  it('reach the STT builder, and a mid-call refresh rebuilds only the owner’s live calls', async () => {
+    const seen: unknown[] = [];
+    const r = new CallRegistry({
+      env: loadGatewayEnv(gatewayEnvFixture({})),
+      liveKitUrl: 'wss://cord-test.livekit.invalid',
+      rooms,
+      tokens: { caller: () => Promise.resolve('c'), gateway: () => Promise.resolve('g') },
+      transports: () => new FakeTransport(),
+      voice: { stt: new FakeSttProvider(), tts: new FakeTtsProvider() },
+      sttForKeyterms: (_terms, _name, _speech, account) => {
+        seen.push(account);
+        return new FakeSttProvider();
+      },
+      ttsForVoice: () => new FakeTtsProvider(),
+      scheduler: new ManualScheduler(),
+      logger: recordingLogger(),
+    });
+    const account = { ownerName: 'Ada Lovelace', words: ['SaaSage'] };
+    await r.create({ ...agentFor('asha'), account }, 'asha');
+    await r.create(agentFor('bob'), 'bob');
+    expect(seen).toEqual([account, undefined]);
+    const rebuilt: string[] = [];
+    await r.refreshKeyterms('asha', (agent) => {
+      rebuilt.push(agent.userId);
+      return Promise.resolve(['Twring']);
+    });
+    expect(rebuilt).toEqual(['asha']);
+  });
+});
+
 describe('the call runtime gets the language the person speaks', () => {
   it('Hindi reaches the runtime; English stays unset', async () => {
+    runtimeLanguages.length = 0;
     const r = registry();
     const dg = { apiKey: 'dg', source: 'twring' as const };
     await r.create(agentFor('asha'), 'asha', { speech: { deepgram: dg, language: 'hi' } });

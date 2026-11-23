@@ -72,6 +72,7 @@ const SUMMED_KEYS = [
   'gateway_connected_s',
   'stt_reconnects',
   'tts_reconnects',
+  'stt_audio_dropped_ms',
 ] as const satisfies readonly (keyof CallUsage)[];
 
 function emptyUsage(): CallUsage {
@@ -87,6 +88,7 @@ function emptyUsage(): CallUsage {
     gateway_connected_s: 0,
     stt_reconnects: 0,
     tts_reconnects: 0,
+    stt_audio_dropped_ms: 0,
   };
 }
 

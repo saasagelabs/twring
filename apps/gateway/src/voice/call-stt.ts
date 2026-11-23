@@ -1,4 +1,4 @@
-import type { DeepgramConfig } from '@twring/config/gateway';
+import type { AccountKeyterms, DeepgramConfig } from '@twring/config/gateway';
 
 import { createDeepgramStt, type DeepgramSttOptions } from './deepgram-stt';
 import type { ResolvedSpeech } from './speech-resolver';
@@ -13,7 +13,11 @@ export interface CallSttOptions {
   /** XAI_STT_* settings, used only when a person listens on their own xAI key. */
   xai: { endpointingMs: number; smartTurn?: number; smartTurnTimeoutMs?: number };
   /** Merges an agent's terms with the server's; both providers get the same list. */
-  keyterms: (agentTerms: readonly string[], agentName?: string) => string[];
+  keyterms: (
+    agentTerms: readonly string[],
+    agentName?: string,
+    account?: AccountKeyterms,
+  ) => string[];
   createDeepgram?: (options: DeepgramSttOptions) => SttProvider;
   createXai?: (options: XaiSttOptions) => SttProvider;
 }
@@ -24,11 +28,16 @@ export const MULTILINGUAL_STT_MODEL = 'flux-general-multi';
 /** A call's STT: the resolved listening provider, xAI only on the person's own xAI key. */
 export function createCallStt(
   options: CallSttOptions,
-): (agentTerms: readonly string[], agentName?: string, speech?: ResolvedSpeech) => SttProvider {
+): (
+  agentTerms: readonly string[],
+  agentName?: string,
+  speech?: ResolvedSpeech,
+  account?: AccountKeyterms,
+) => SttProvider {
   const deepgram = options.createDeepgram ?? createDeepgramStt;
   const xai = options.createXai ?? createXaiStt;
-  return (agentTerms, agentName, speech) => {
-    const keyterms = options.keyterms(agentTerms, agentName);
+  return (agentTerms, agentName, speech, account) => {
+    const keyterms = options.keyterms(agentTerms, agentName, account);
     const listening = speech?.xai === undefined ? 'deepgram' : (speech.listening ?? 'deepgram');
     switch (listening) {
       case 'xai':

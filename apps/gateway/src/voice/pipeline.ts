@@ -4,6 +4,7 @@ import { SpeechStats, type SpeechAudioSummary } from '../audio/speech-stats';
 import type { CallLogger } from '../calls/runtime';
 import type { Scheduler } from '../calls/scheduler';
 
+import { SttBacklog } from './stt-backlog';
 import { retryTtsId, retryable } from './tts-retry';
 import {
   VoiceProviderError,
@@ -96,6 +97,8 @@ export const STT_IDLE_KEEPALIVE_MS = 4_000;
 /** 100 ms of 16 kHz silence per keepalive. */
 const STT_KEEPALIVE_SAMPLES = 1600;
 const STT_SAMPLE_RATE = 16_000;
+/** Caller audio held while STT reconnects: the newest 2 s, sent first on the new session. */
+const STT_BACKLOG_SAMPLES = STT_SAMPLE_RATE * 2;
 /** TTS delivers 48 kHz mono linear16: 96 000 bytes per second. */
 const TTS_BYTES_PER_SECOND = 96_000;
 
@@ -106,6 +109,8 @@ export interface VoiceUsage {
   ttsChars: number;
   ttsAudioMs: number;
   sttReconnects: number;
+  /** Caller audio older than the reconnect backlog (STT_BACKLOG_SAMPLES) that never reached STT. */
+  sttAudioDroppedMs: number;
   ttsReconnects: number;
 }
 
@@ -171,6 +176,9 @@ export class VoicePipeline {
   private readonly speechStats = new SpeechStats(VOICE_ONSET_DBFS);
   private readonly assembler = new FrameAssembler();
   private stt: SttSession | undefined;
+  private readonly sttBacklog = new SttBacklog(STT_BACKLOG_SAMPLES);
+  /** Words pushed mid-call; re-sent to each new STT session so a reconnect keeps them. */
+  private keyterms: readonly string[] | undefined;
   private tts: TtsSession | undefined;
   private reconnecting = { stt: false, tts: false };
   private attempts = { stt: 0, tts: 0 };
@@ -326,12 +334,17 @@ export class VoicePipeline {
 
   /** One 20 ms, 48 kHz frame of caller audio. */
   pushCallerAudio(samples: Int16Array): void {
-    if (this.closed || this.stt === undefined) return;
+    if (this.closed) return;
+    // While the hearing socket reconnects the caller keeps talking: hold that audio (bounded) and
+    // send it first on the new session, instead of losing the words.
+    const holding = this.stt === undefined && this.reconnecting.stt;
+    if (this.stt === undefined && !holding) return;
     this.trackOnset(samples);
     const downsampled = this.downsampler.process(samples);
     this.speechStats.add(downsampled);
     this.options.capture?.write(downsampled);
-    this.sendStt(this.stt, downsampled);
+    if (this.stt === undefined) this.sttBacklog.push(downsampled);
+    else this.sendStt(this.stt, downsampled);
   }
 
   /** Caller speech level and bandwidth over the call; undefined if they never spoke. */
@@ -349,13 +362,32 @@ export class VoicePipeline {
       ttsChars: this.ttsChars,
       ttsAudioMs: (this.ttsBytes / TTS_BYTES_PER_SECOND) * 1000,
       sttReconnects: this.reconnects.stt,
+      sttAudioDroppedMs: (this.sttBacklog.droppedSamples / STT_SAMPLE_RATE) * 1000,
       ttsReconnects: this.reconnects.tts,
     };
   }
 
+  /**
+   * New words to listen for during the call. Returns whether the live session took them; when it
+   * cannot (or is reconnecting), they still go to the next session of this call.
+   */
+  updateKeyterms(keyterms: readonly string[]): boolean {
+    if (this.closed) return false;
+    this.keyterms = [...keyterms];
+    const applied = this.stt?.updateKeyterms !== undefined;
+    this.stt?.updateKeyterms?.(this.keyterms);
+    // Counts only: the words are the owner's.
+    this.log('stt_keyterms_updated', { keyterms_count: keyterms.length, applied });
+    return applied;
+  }
+
   /** Test/diagnostic view of per-call state that must stay bounded however long the call runs. */
-  retainedState(): { playout: number; timers: number } {
-    return { playout: this.playout.size, timers: this.cancelTimers.size };
+  retainedState(): { playout: number; timers: number; sttBacklog: number } {
+    return {
+      playout: this.playout.size,
+      timers: this.cancelTimers.size,
+      sttBacklog: this.sttBacklog.size,
+    };
   }
 
   private sendStt(session: SttSession, samples: Int16Array): void {
@@ -513,6 +545,7 @@ export class VoicePipeline {
     this.active = undefined;
     for (const cancel of this.cancelTimers) cancel();
     this.cancelTimers.clear();
+    this.sttBacklog.clear();
     const stt = this.stt;
     this.dropStt();
     await Promise.all([stt?.close(), this.tts?.close()]);
@@ -974,8 +1007,11 @@ export class VoicePipeline {
           await session.close();
           return;
         }
-        this.downsampler.reset();
+        // Caller audio kept flowing through the downsampler during the gap, so its state is
+        // continuous with the held backlog, which goes out before any new audio.
         this.setStt(session);
+        if (this.keyterms !== undefined) session.updateKeyterms?.(this.keyterms);
+        this.sttBacklog.drain((samples) => this.sendStt(session, samples));
       } else {
         const session = await this.openTts();
         if (this.closed) {

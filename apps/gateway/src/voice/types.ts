@@ -42,6 +42,11 @@ export type SttEvent =
 export interface SttSession {
   /** One chunk of 16 kHz mono 16-bit audio. Chunks may be any length. */
   sendAudio(samples: Int16Array): void;
+  /**
+   * Replaces the words recognition favours, mid-stream. Absent when the provider cannot: the new
+   * words then apply from the next session.
+   */
+  updateKeyterms?(keyterms: readonly string[]): void;
   /** Stops recognition and closes the connection. Idempotent. */
   close(): Promise<void>;
 }

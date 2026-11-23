@@ -296,6 +296,8 @@ export const callUsageSchema = z.object({
   gateway_connected_s: z.number().nonnegative(),
   stt_reconnects: z.number().int().nonnegative(),
   tts_reconnects: z.number().int().nonnegative(),
+  /** Caller audio lost while the hearing socket reconnected (beyond the 2 s held), ms. */
+  stt_audio_dropped_ms: z.number().nonnegative().default(0),
   estimated_cost_usd: z.number().nonnegative().optional(),
 });
 export type CallUsage = z.infer<typeof callUsageSchema>;
