@@ -1,4 +1,4 @@
-import { isActive, type Agent, type CallState } from '@twring/contracts';
+import { isActive, type Agent, type AgentProtocol, type CallState } from '@twring/contracts';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -50,6 +50,7 @@ import { CallFeedback } from '@/components/call/CallFeedback';
 import { ConnectionPill } from '@/components/ConnectionPill';
 import { GhostButton } from '@/components/GhostButton';
 import { Icon, type IconName } from '@/components/Icon';
+import { OfflineHelp } from '@/components/OfflineHelp';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Sheet } from '@/components/Sheet';
 import { Waveform } from '@/components/Waveform';
@@ -552,10 +553,13 @@ function FinishedCall({
   view,
   title,
   retry,
+  protocol,
 }: {
   view: CallView;
   title: string;
   retry: () => void;
+  /** How the called agent reaches Twring, once loaded: picks the offline help. */
+  protocol?: AgentProtocol;
 }) {
   const { call } = view;
   const duration =
@@ -611,6 +615,13 @@ function FinishedCall({
                 accessibilityLabel={`Reference code ${reference(failed)}`}
                 style={[type.caption, styles.outcomeCode]}
               >{`Reference: ${reference(failed)}`}</Text>
+              {failed.code === 'AGENT_OFFLINE' && (
+                <OfflineHelp
+                  protocol={protocol ?? 'cord-connector'}
+                  color={palette.textSecondary}
+                  align="center"
+                />
+              )}
             </>
           )}
         </Animated.View>
@@ -703,7 +714,12 @@ export default function CallScreen() {
           </View>
         </>
       ) : (
-        <FinishedCall view={view} title={title} retry={retry} />
+        <FinishedCall
+          view={view}
+          title={title}
+          retry={retry}
+          protocol={agent?.id === agentId ? agent?.protocol : undefined}
+        />
       )}
     </SafeAreaView>
   );

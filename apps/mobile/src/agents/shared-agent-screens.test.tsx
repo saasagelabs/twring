@@ -126,6 +126,7 @@ vi.mock('@/components/SettingsGroup', () => ({
   SettingsRow: 'SettingsRow',
 }));
 vi.mock('@/components/Screen', () => ({ Screen: 'Screen', goBack: () => undefined }));
+vi.mock('@/components/OfflineHelp', () => ({ OfflineHelp: 'OfflineHelp' }));
 
 import { SHARED_AGENT_NOTE, VIEW_ONLY_AGENT_NOTE } from './shared';
 
