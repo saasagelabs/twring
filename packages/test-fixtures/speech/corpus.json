@@ -1,0 +1,174 @@
+{
+  "version": 1,
+  "utterances": [
+    {
+      "id": "u01-twring-hello",
+      "text": "Hey, this is a Twring call. Can you hear me?",
+      "keyTerms": ["Twring"],
+      "quick": true
+    },
+    {
+      "id": "u02-saasage",
+      "text": "Send the SaaSage invoice to the finance team.",
+      "keyTerms": ["SaaSage", "invoice"]
+    },
+    {
+      "id": "u03-rishflips",
+      "text": "Open the Rishflips dashboard and check today's orders.",
+      "keyTerms": ["Rishflips", "dashboard"],
+      "quick": true
+    },
+    {
+      "id": "u04-hermes",
+      "text": "Ask Hermes to summarize my unread email.",
+      "keyTerms": ["Hermes", "unread email"]
+    },
+    {
+      "id": "u05-claude",
+      "text": "Claude, please review the pull request on the gateway.",
+      "keyTerms": ["Claude", "pull request", "gateway"],
+      "quick": true
+    },
+    {
+      "id": "u06-codex",
+      "text": "Tell Codex to run the tests again.",
+      "keyTerms": ["Codex", "tests"]
+    },
+    {
+      "id": "u07-claude-codex",
+      "text": "Compare what Claude and Codex said about the bug.",
+      "keyTerms": ["Claude", "Codex", "bug"]
+    },
+    {
+      "id": "u08-twring-saasage",
+      "text": "Twring is made by SaaSage Labs.",
+      "keyTerms": ["Twring", "SaaSage"]
+    },
+    {
+      "id": "u09-bye",
+      "text": "Okay, that's all. Bye for now.",
+      "keyTerms": ["bye for now"],
+      "quick": true
+    },
+    { "id": "u10-bye-thanks", "text": "Thanks a lot, bye for now.", "keyTerms": ["bye for now"] },
+    {
+      "id": "u11-number-small",
+      "text": "Set a timer for 15 minutes.",
+      "keyTerms": ["15 minutes"],
+      "quick": true
+    },
+    {
+      "id": "u12-number-large",
+      "text": "The budget is 2,500 dollars for the quarter.",
+      "keyTerms": ["2500 dollars"]
+    },
+    {
+      "id": "u13-date",
+      "text": "Schedule the meeting for December 3rd at 4 pm.",
+      "keyTerms": ["December 3", "4 pm"]
+    },
+    {
+      "id": "u14-date-weekday",
+      "text": "Move my dentist appointment to next Tuesday.",
+      "keyTerms": ["dentist", "Tuesday"]
+    },
+    { "id": "u15-digits", "text": "My code is 4 7 1 9.", "keyTerms": ["code"] },
+    {
+      "id": "u16-percent",
+      "text": "Sales went up 12 percent this week.",
+      "keyTerms": ["12 percent"]
+    },
+    {
+      "id": "u17-time",
+      "text": "Wake me up at 6:30 tomorrow.",
+      "keyTerms": ["6:30", "tomorrow"]
+    },
+    { "id": "u18-yes", "text": "Yes.", "keyTerms": ["yes"] },
+    { "id": "u19-no", "text": "No.", "keyTerms": ["no"] },
+    { "id": "u20-yes-please", "text": "Yes, please.", "keyTerms": ["yes"] },
+    { "id": "u21-no-thanks", "text": "No, thanks.", "keyTerms": ["no"] },
+    { "id": "u22-sure", "text": "Sure, go ahead.", "keyTerms": ["go ahead"] },
+    {
+      "id": "u23-stop",
+      "text": "Stop.",
+      "keyTerms": ["stop"],
+      "expectReply": false,
+      "quick": true
+    },
+    { "id": "u24-wait", "text": "Wait.", "keyTerms": ["wait"], "expectReply": false },
+    { "id": "u25-hold-on", "text": "Hold on.", "keyTerms": ["hold on"], "expectReply": false },
+    { "id": "u26-hang-on", "text": "Hang on.", "keyTerms": ["hang on"], "expectReply": false },
+    {
+      "id": "u27-one-second",
+      "text": "One second.",
+      "keyTerms": ["one second"],
+      "expectReply": false
+    },
+    {
+      "id": "u28-long-pause",
+      "text": "I was thinking about the launch plan, and I want you to check the calendar first, then draft a short note to the team about Friday.",
+      "parts": [
+        "I was thinking about the launch plan, and",
+        "I want you to check the calendar first, then draft a short note to the team about Friday."
+      ],
+      "pauseMs": 800,
+      "keyTerms": ["launch plan", "calendar", "Friday"]
+    },
+    {
+      "id": "u29-weather",
+      "text": "What's the weather like in Bangalore today?",
+      "keyTerms": ["weather", "Bangalore"]
+    },
+    {
+      "id": "u30-calendar",
+      "text": "What's on my calendar this afternoon?",
+      "keyTerms": ["calendar", "afternoon"]
+    },
+    {
+      "id": "u31-reminder",
+      "text": "Remind me to call my mother at 7.",
+      "keyTerms": ["remind", "mother"]
+    },
+    {
+      "id": "u32-deploy",
+      "text": "Deploy the gateway to staging, not production.",
+      "keyTerms": ["deploy", "staging", "production"]
+    },
+    {
+      "id": "u33-branch",
+      "text": "Create a new branch called call proof.",
+      "keyTerms": ["branch", "call proof"]
+    },
+    {
+      "id": "u34-read-back",
+      "text": "Can you read that last message back to me?",
+      "keyTerms": ["message"]
+    },
+    {
+      "id": "u35-say-again",
+      "text": "Sorry, could you say that again?",
+      "keyTerms": ["say that again"]
+    },
+    { "id": "u36-question", "text": "How long will the build take?", "keyTerms": ["build"] },
+    {
+      "id": "u37-email",
+      "text": "Reply to Priya and say I'll join the call at 3.",
+      "keyTerms": ["Priya"]
+    },
+    {
+      "id": "u38-money",
+      "text": "Transfer 40 dollars to the savings account.",
+      "keyTerms": ["40 dollars", "savings"]
+    },
+    {
+      "id": "u39-headset",
+      "text": "Twring sounds great on this headset.",
+      "keyTerms": ["Twring", "headset"]
+    },
+    {
+      "id": "u40-hermes-codex",
+      "text": "Let Hermes handle the email and Codex handle the code.",
+      "keyTerms": ["Hermes", "Codex"]
+    }
+  ]
+}
