@@ -102,15 +102,16 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     }
   }
 
-  /// The signed-in account (JS, at sign-in and sign-out). A ring for any other account, or with
-  /// nobody signed in, is reported and ended at once. A change of account closes rings still showing.
+  /// The signed-in account (JS, at sign-in and sign-out). A ring for any other account, or after
+  /// sign-out, is reported and ended at once. A change of account closes rings still showing.
   func setAccount(_ ref: String?) {
     let changed = lock.withLock { () -> Bool in
       let defaults = UserDefaults.standard
-      let changed = defaults.string(forKey: Self.accountKey) != ref
-      if let ref { defaults.set(ref, forKey: Self.accountKey) } else {
-        defaults.removeObject(forKey: Self.accountKey)
-      }
+      // Signed out is saved as an empty marker: no saved value at all means an install that has
+      // not run this code yet (a fresh update), whose rings still ring.
+      let value = ref ?? ""
+      let changed = defaults.string(forKey: Self.accountKey) != value
+      defaults.set(value, forKey: Self.accountKey)
       return changed
     }
     guard changed else { return }
