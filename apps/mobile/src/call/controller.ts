@@ -439,6 +439,10 @@ export class CallController {
     }
     this.dispatch({ type: 'SESSION_CREATED', callId: session.call_id });
     this.track('session_created');
+    // Start the microphone|phoneCall foreground service now, while the app is still visible:
+    // Android 14+ grants while-in-use mic access only to a service started in the foreground, so
+    // waiting for first listening loses the mic if the phone is locked while connecting.
+    this.startBackground();
     this.timer('gateway_ready', this.timeouts.gatewayReadyMs, () =>
       this.fail('GATEWAY_UNAVAILABLE'),
     );
@@ -656,14 +660,15 @@ export class CallController {
    * could not enter the foreground). The call keeps working while visible.
    */
   backgroundStartRefused(): void {
-    if (this.view.connectedAt === undefined || !isActive(this.view.call)) return;
+    if (this.callId === undefined || !isActive(this.view.call)) return;
     this.backgroundRefused = true;
     this.track('background_start_failed');
   }
 
   /** The app is visible again: retry a background start that was refused while backgrounded. */
   retryBackground(): void {
-    if (!this.backgroundRefused || !isConnected(this.view.call)) return;
+    if (!this.backgroundRefused || !isActive(this.view.call) || this.view.call.status === 'ENDING')
+      return;
     this.backgroundRefused = false;
     this.startBackground();
   }
@@ -862,7 +867,7 @@ export class CallController {
         if (this.view.connectedAt === undefined) {
           this.view = { ...this.view, connectedAt: now };
           this.track('call_connected', now - this.startedAt);
-          this.startBackground(true);
+          if (this.screenGeneration === this.backgroundGeneration) this.setCallScreen(true);
         }
         return;
       case 'RECONNECTING':
@@ -929,12 +934,11 @@ export class CallController {
     return this.cleanup;
   }
 
-  private startBackground(firstConnection = false): void {
+  private startBackground(): void {
     const background = this.deps.background;
     if (background === undefined) return;
     this.backgroundGeneration += 1;
     this.screenGeneration = this.backgroundGeneration;
-    if (firstConnection) this.setCallScreen(true);
     this.background = background.start({ agentName: this.agentName }).catch(() => {
       // The call still works while visible; it just may not survive the screen going off.
       this.backgroundRefused = true;

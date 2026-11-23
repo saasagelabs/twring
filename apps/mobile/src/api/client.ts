@@ -216,7 +216,14 @@ export interface TwringApi {
   getInvite(inviteId: string, signal?: AbortSignal): Promise<Invite>;
   pendingInvites(signal?: AbortSignal): Promise<Invite[]>;
   /** Same body as `POST /v1/calls`: the call to join. */
-  answerInvite(inviteId: string, signal?: AbortSignal): Promise<InviteAnswer>;
+  /**
+   * `deviceId` is this phone's ring registration id (PUT /v1/me/devices/:deviceId), so the server
+   * knows which phone answered. A lost response is retried once with the same body.
+   */
+  answerInvite(
+    inviteId: string,
+    options?: { deviceId?: string; signal?: AbortSignal },
+  ): Promise<InviteAnswer>;
   declineInvite(inviteId: string, request: DeclineRequest, signal?: AbortSignal): Promise<void>;
   decideApproval(
     callId: string,
@@ -872,11 +879,21 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         await request('GET', '/v1/invites?status=pending', { signal }),
       ).invites;
     },
-    async answerInvite(inviteId, signal) {
-      const session = parse(
-        ringAnswerResponseSchema,
-        await request('POST', `${invitePath(inviteId)}/answer`, { body: {}, signal }),
-      );
+    async answerInvite(inviteId, options = {}) {
+      const { deviceId, signal } = options;
+      const body = deviceId !== undefined ? { device_id: deviceId } : {};
+      const send = () => request('POST', `${invitePath(inviteId)}/answer`, { body, signal });
+      let raw;
+      try {
+        raw = await send();
+      } catch (error) {
+        // The answer may have reached the server; the same device_id makes the retry safe.
+        const lost =
+          error instanceof ApiError && (error.kind === 'network' || error.kind === 'timeout');
+        if (!lost || signal?.aborted === true) throw error;
+        raw = await send();
+      }
+      const session = parse(ringAnswerResponseSchema, raw);
       if (
         session.mode === 'call' &&
         requireSecureMedia &&

@@ -1186,7 +1186,7 @@ describe('CallController gateway end reasons, milestone 5 pass (verifier)', () =
 });
 
 describe('CallController background service (milestone 8)', () => {
-  it('asks for notification permission before connecting and starts only once connected', async () => {
+  it('asks for notification permission first and starts the service when the session is created', async () => {
     const background = new FakeBackground();
     const ctx = setup({ background });
     void ctx.controller.start({}, 'Ada');
@@ -1194,9 +1194,10 @@ describe('CallController background service (milestone 8)', () => {
     expect(background.log).toEqual(['prepare']);
     ctx.create.resolve(SESSION);
     await settle();
+    // Started before media connects, while the app is still visible (Android 14+ mic access).
+    expect(background.log).toEqual(['prepare', 'start:Ada', 'started']);
     ctx.transport.connected.resolve();
     await settle();
-    expect(background.log).toEqual(['prepare']);
     ctx.transport.emit({ type: 'gateway_ready' });
     await settle();
     expect(background.log).toEqual(['prepare', 'start:Ada', 'started']);
@@ -1234,7 +1235,7 @@ describe('CallController background service (milestone 8)', () => {
     expect(background.log.at(-1)).toBe('stop');
   });
 
-  it('never starts when hung up during connect, and still stops (idempotent)', async () => {
+  it('stops when hung up while connecting media', async () => {
     const background = new FakeBackground();
     const ctx = setup({ background });
     void ctx.controller.start();
@@ -1242,7 +1243,32 @@ describe('CallController background service (milestone 8)', () => {
     ctx.create.resolve(SESSION);
     await settle();
     await ctx.controller.hangUp();
-    expect(background.log).toEqual(['prepare', 'stop']);
+    expect(background.log).toEqual(['prepare', 'start:Twring test line', 'started', 'stop']);
+  });
+
+  it('stops when media fails to connect after the session was created', async () => {
+    const background = new FakeBackground();
+    const ctx = setup({ background });
+    void ctx.controller.start();
+    await settle();
+    ctx.create.resolve(SESSION);
+    await settle();
+    ctx.transport.connected.reject(new Error('no route'));
+    await settle();
+    await settle();
+    expect(ctx.controller.getView().call.status).toBe('FAILED');
+    expect(background.log.at(-1)).toBe('stop');
+  });
+
+  it('never starts when hung up before the session exists', async () => {
+    const background = new FakeBackground();
+    const ctx = setup({ background });
+    void ctx.controller.start();
+    await settle();
+    await ctx.controller.hangUp();
+    ctx.create.resolve(SESSION);
+    await settle();
+    expect(background.log.some((entry) => entry.startsWith('start'))).toBe(false);
   });
 
   it('never starts when session creation fails', async () => {

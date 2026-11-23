@@ -121,6 +121,63 @@ describe('cord api client', () => {
     await expect(bad.api.listConnectedApps()).rejects.toMatchObject({ kind: 'invalid_response' });
   });
 
+  describe('answering a ring', () => {
+    const INVITE = 'inv_abcdefghijklmnopqrstuvwxyz';
+    const DEVICE = 'android-0123456789abcdef0123456789abcdef';
+    const chatAnswer = { mode: 'chat', agent_id: AGENT.id };
+    const bodyOf = (init: RequestInit | undefined): unknown =>
+      JSON.parse(typeof init?.body === 'string' ? init.body : 'null');
+
+    it('sends this phone ring registration id and accepts 200 and 201', async () => {
+      for (const status of [200, 201]) {
+        const { api, calls } = client(() => Promise.resolve(json(status, chatAnswer)));
+        await expect(api.answerInvite(INVITE, { deviceId: DEVICE })).resolves.toEqual({
+          mode: 'chat',
+          agentId: AGENT.id,
+        });
+        expect(calls).toHaveLength(1);
+        expect(calls[0]?.init.method).toBe('POST');
+        expect(bodyOf(calls[0]?.init)).toEqual({ device_id: DEVICE });
+      }
+    });
+
+    it('retries once with the same device_id when the response is lost', async () => {
+      let n = 0;
+      const { api, calls } = client(() => {
+        n += 1;
+        return n === 1
+          ? Promise.reject(new TypeError('offline'))
+          : Promise.resolve(json(200, chatAnswer));
+      });
+      await expect(api.answerInvite(INVITE, { deviceId: DEVICE })).resolves.toMatchObject({
+        mode: 'chat',
+      });
+      expect(calls.map((call) => bodyOf(call.init))).toEqual([
+        { device_id: DEVICE },
+        { device_id: DEVICE },
+      ]);
+    });
+
+    it('gives up after one retry', async () => {
+      const { api, calls } = client(() => Promise.reject(new TypeError('offline')));
+      await expect(api.answerInvite(INVITE, { deviceId: DEVICE })).rejects.toMatchObject({
+        kind: 'network',
+      });
+      expect(calls).toHaveLength(2);
+    });
+
+    it('does not retry a 409 (answered elsewhere)', async () => {
+      const { api, calls } = client(() =>
+        Promise.resolve(json(409, { error: { code: 'invite_already_handled', message: 'x' } })),
+      );
+      await expect(api.answerInvite(INVITE, { deviceId: DEVICE })).rejects.toMatchObject({
+        kind: 'http',
+        status: 409,
+      });
+      expect(calls).toHaveLength(1);
+    });
+  });
+
   it('parses both ring answer modes and rejects insecure call media', async () => {
     const chat = client(() => Promise.resolve(json(200, { mode: 'chat', agent_id: AGENT.id })));
     await expect(chat.api.answerInvite('inv_abcdefghijklmnopqrstuvwxyz')).resolves.toEqual({

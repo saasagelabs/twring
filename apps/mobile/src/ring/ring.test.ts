@@ -306,6 +306,34 @@ describe('push registration', () => {
     expect(deps.register).toHaveBeenCalledTimes(2);
   });
 
+  it('registers a rotated FCM token with the same device id', async () => {
+    const { deps, registration } = setup();
+    await registration.signedIn('user-1');
+    await registration.tokenRefreshed('tok_2');
+    expect(deps.register).toHaveBeenLastCalledWith(
+      'dev_1',
+      expect.objectContaining({ fcm_token: 'tok_2' }),
+    );
+  });
+
+  it('a token rotated while offline (or with no app running) is sent on the next app start', async () => {
+    const { deps } = setup('tok_2');
+    deps.register.mockRejectedValue(new Error('offline'));
+    const first = new PushRegistration(deps);
+    await first.signedIn('user-1');
+    // The app is closed: its pending retry dies with it.
+    await first.signedOut();
+    deps.register.mockReset().mockResolvedValue(undefined);
+    // A fresh app start reads the current token from FCM and registers it.
+    const next = new PushRegistration(deps);
+    await next.signedIn('user-1');
+    expect(deps.register).toHaveBeenCalledWith(
+      'dev_1',
+      expect.objectContaining({ fcm_token: 'tok_2' }),
+    );
+    expect(next.registered).toBe('tok_2');
+  });
+
   it('a failed re-registration is retried on the next return, not 12 h later', async () => {
     let now = 1_000_000;
     const { deps } = setup();
