@@ -133,3 +133,66 @@ describe('SpeechTextFilter edge cases (verifier)', () => {
     expect(speak(['- first item\r\n- second item\r\nDone.']).text).toBe(lf);
   });
 });
+
+describe('SpeechTextFilter code-heavy answers', () => {
+  const note = "I've left the code on screen.";
+  function noted(deltas: string[]): string {
+    const filter = new SpeechTextFilter({ codeNote: note });
+    return deltas.map((delta) => filter.push(delta)).join('') + filter.end();
+  }
+
+  it('says the note once in place of the first code block, in any split', () => {
+    const source = 'Run this:\n```bash\nrm -rf build\n```\nThen\n```\npnpm i\n```\nretry.';
+    const expected = `Run this: ${note} Then. retry.`;
+    for (let size = 1; size <= 9; size += 1) expect(noted(chunks(source, size))).toBe(expected);
+  });
+
+  it('ends the sentence before the note', () => {
+    expect(noted(['Here it is\n```\nx\n```\n'])).toBe(`Here it is. ${note} `);
+  });
+
+  it('a reply of only code still says the note', () => {
+    expect(noted(['```ts\nconst a = 1;\n```']).trim()).toBe(note);
+  });
+
+  it('keeps short inline code and drops long inline code, in any split', () => {
+    const long = '`const handler = createHandler({ retries: 3, backoff: 250 })`';
+    const source = `Run \`npm test\` then ${long} again.`;
+    for (let size = 1; size <= 9; size += 1)
+      expect(speak(chunks(source, size)).text).toBe('Run npm test then again.');
+  });
+
+  it('reads a file path as its file name', () => {
+    expect(speak(['Open src/app/call.tsx now.']).text).toBe('Open call.tsx now.');
+    expect(speak(['See C:\\Users\\x\\notes.md please']).text).toBe('See notes.md please');
+    expect(speak(['Look in apps/gateway/ first']).text).toBe('Look in gateway first');
+    expect(speak(['and/or stays, 1/2/2024 stays']).text).toBe('and/or stays, 1/2/2024 stays');
+  });
+
+  it('drops hashes, git shas and UUIDs, but not numbers or words', () => {
+    expect(speak(['Commit 3f9a2b7c1d4e5f60718293a4b5c6d7e8f9012345 landed']).text).toBe(
+      'Commit landed',
+    );
+    expect(speak(['id 123e4567-e89b-12d3-a456-426614174000 ok']).text).toBe('id ok');
+    expect(speak(['call 1234567890123 or deadbeefcafe']).text).toBe(
+      'call 1234567890123 or deadbeefcafe',
+    );
+  });
+
+  it('stays fast on 100k characters of awkward input', () => {
+    const inputs = [
+      'a/'.repeat(50_000),
+      `${'a'.repeat(100_000)}/b`,
+      `${'0a'.repeat(50_000)}g`,
+      '`'.repeat(100_000),
+      `\`${'x '.repeat(50_000)}`,
+      'ab/cd '.repeat(20_000),
+    ];
+    for (const input of inputs) {
+      const started = performance.now();
+      noted(chunks(input, 997));
+      noted([input]);
+      expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+});

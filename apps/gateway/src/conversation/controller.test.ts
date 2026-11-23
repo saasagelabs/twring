@@ -391,13 +391,23 @@ describe('ConversationController', () => {
 
   it('a reply with nothing speakable completes without starting speech', async () => {
     const { adapter, speech, conversation, floors } = setup();
+    conversation.userTurn('markup please');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('<br>\n**\n');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    expect(speech.calls).toEqual([]);
+    expect(floors().at(-1)).toBe('listening');
+  });
+
+  it('a reply of only code says the code is on screen instead of going silent', async () => {
+    const { adapter, speech, conversation } = setup();
     conversation.userTurn('code please');
     await flushMicrotasks();
     adapter.channels[0]!.text('```\nls -la\n```\n');
     adapter.channels[0]!.done();
     await flushMicrotasks();
-    expect(speech.calls).toEqual([]);
-    expect(floors().at(-1)).toBe('listening');
+    expect(speech.calls.join('|')).toContain("I've left the code on screen.");
   });
 
   it('a new committed turn supersedes the old one: speech stops, agent cancelled', async () => {

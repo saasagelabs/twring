@@ -1279,3 +1279,122 @@ describe('resumeOffset', () => {
     expect(resumeOffset(text, 60_000)).toBe(text.indexOf('Third.'));
   });
 });
+
+describe('VoicePipeline retries a one-off generation error', () => {
+  const generic = { code: 'provider_error', recoverable: true } as const;
+  async function setup() {
+    const logger = recordingLogger();
+    const tts = new FakeTtsProvider();
+    const scheduler = new ManualScheduler();
+    const fatal: string[] = [];
+    const speech: string[] = [];
+    const played: string[] = [];
+    const pipeline = new VoicePipeline({
+      callId: 'call_aaaaaaaaaaaaaaaaaaaa',
+      stt: new FakeSttProvider(),
+      tts,
+      scheduler,
+      logger,
+      onUserSpeechStarted: () => undefined,
+      onUserSpeechDiscarded: () => undefined,
+      onUserTurn: () => undefined,
+      onCaption: () => undefined,
+      onSpeech: (event) => speech.push(event.state),
+      playFrames: () => played.push('frames'),
+      stopPlayback: () => 0,
+      onFatal: (error, which) => fatal.push(`${which} ${error.code}`),
+    });
+    await pipeline.start();
+    const retries = () =>
+      logger.events.filter((e) => e.fields.event === 'tts_retry').map((e) => e.fields);
+    const speaks = () => tts.calls.filter((c) => c.startsWith('speak'));
+    return { pipeline, tts, scheduler, fatal, speech, played, retries, speaks };
+  }
+
+  it('speaks the answer again under a fresh id, and it plays', async () => {
+    const { pipeline, tts, scheduler, speech, played, retries } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello ');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    pipeline.appendSpeech(id, 'there.');
+    pipeline.endSpeech(id);
+    expect(speech).toEqual([]);
+    scheduler.advance(249);
+    expect(tts.calls).toEqual([`speak ${id} Hello `]);
+    scheduler.advance(1);
+    expect(tts.calls.slice(1)).toEqual([`speak ${id}_retry Hello there.`, `flush ${id}_retry`]);
+    tts.send({ type: 'audio', generationId: `${id}_retry`, bytes: frameBytes() });
+    expect(played).toEqual(['frames']);
+    expect(retries()).toEqual([
+      expect.objectContaining({ event: 'tts_retry', generation_id: id, attempt: 1, ok: true }),
+    ]);
+    await pipeline.close();
+  });
+
+  it('a retry that fails too ends the answer as before', async () => {
+    const { pipeline, tts, scheduler, speech, fatal, retries, speaks } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    scheduler.advance(250);
+    tts.send({ type: 'generation_error', generationId: `${id}_retry`, error: generic });
+    expect(speech).toEqual(['failed']);
+    expect(retries()).toEqual([expect.objectContaining({ attempt: 1, ok: false })]);
+    expect(fatal).toEqual([]);
+    scheduler.advance(1000);
+    expect(speaks()).toHaveLength(2);
+    await pipeline.close();
+  });
+
+  it('never retries once audio of the answer arrived', async () => {
+    const { pipeline, tts, scheduler, speech, retries, speaks } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'audio', generationId: id, bytes: frameBytes() });
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    expect(speech).toEqual(['failed']);
+    scheduler.advance(1000);
+    expect(speaks()).toHaveLength(1);
+    expect(retries()).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('does not retry an answer cancelled during the wait', async () => {
+    const { pipeline, tts, scheduler, retries, speaks } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    pipeline.cancelSpeech('barge_in');
+    scheduler.advance(1000);
+    expect(speaks()).toHaveLength(1);
+    expect(retries()).toEqual([]);
+    await pipeline.close();
+  });
+
+  it('does not retry once the call closed during the wait', async () => {
+    const { pipeline, tts, scheduler, speaks } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({ type: 'generation_error', generationId: id, error: generic });
+    await pipeline.close();
+    scheduler.advance(1000);
+    expect(speaks()).toHaveLength(1);
+    expect(pipeline.retainedState().timers).toBe(0);
+  });
+
+  it.each([404, 429, 401])('does not retry a %i', async (status) => {
+    const { pipeline, tts, scheduler, speech, retries, speaks } = await setup();
+    const id = pipeline.beginSpeech(0);
+    pipeline.appendSpeech(id, 'Hello.');
+    tts.send({
+      type: 'generation_error',
+      generationId: id,
+      error: { ...generic, providerStatus: status },
+    });
+    expect(speech).toEqual(['failed']);
+    scheduler.advance(1000);
+    expect(speaks()).toHaveLength(1);
+    expect(retries()).toEqual([]);
+    await pipeline.close();
+  });
+});

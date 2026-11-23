@@ -2,6 +2,10 @@
 const MAX_HELD_CHARS = 300;
 /** An unclosed `[` or `<` is held at most this long, so a stray one can't cause long dead air. */
 const MAX_LINK_HOLD_CHARS = 120;
+/** An unclosed inline code span is held at most this long. */
+const MAX_CODE_HOLD_CHARS = 200;
+/** Inline code longer than this is dropped; shorter (like `npm test`) is read as words. */
+const MAX_SPOKEN_CODE_CHARS = 40;
 
 const AUTOLINK = /<https?:\/\/[^\s>]*>/gi;
 const LINK = /!?\[([^\]]*)\]\([^)]*\)/g;
@@ -11,6 +15,14 @@ const MARKS = /[*`~|]/g;
 const UNDERSCORE_MARK = /(?<!\w)_+|_+(?!\w)/g;
 const LINE_PREFIX = /^[ \t]{0,3}(?:#{1,6}[ \t]+|>[ \t]?|[-*+][ \t]+)/;
 const FENCE = /^[ \t]{0,3}(```|~~~)/;
+const INLINE_CODE = /`([^`\n]*)`/g;
+/**
+ * A token with two or more slashes or backslashes: a file path. Matches start only at a token's
+ * start (lookbehind), so a long run without spaces is scanned once, not once per character.
+ */
+const PATH = /(?<!\S)[^\s/\\]*(?:[/\\][^\s/\\]*){2,}/g;
+/** A UUID, or a run of 12+ hex digits (a hash, a git sha); whole tokens only, like PATH. */
+const HEX = /(?<![\w-])(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{12,})(?![\w-])/gi;
 /** A complete link, or complete brackets that aren't a link, at the start of the text. */
 const LINK_START = /^!?\[[^\]]*\]\([^)]*\)|^\[[^\]]*\](?=[^(])/;
 /** A complete HTML tag or autolink at the start of the text. */
@@ -27,11 +39,21 @@ const TAG_PREFIX = /^<\/?(?:[a-z][^>]*)?$/i;
  */
 export class SpeechTextFilter {
   private buffer = '';
+  /** Said once, in place of the first code block the reply leaves out. */
+  private codeNote: string | undefined;
   private atLineStart = true;
   private inFence = false;
   private lastSpoken = '';
   /** The previous delta ended in `\r`, so a `\n` opening this one completes that CRLF. */
   private pendingCR = false;
+
+  /**
+   * `codeNote` is said in place of the reply's first code block (once per reply), so the caller
+   * knows to look at the screen and a reply of only code is not silence.
+   */
+  constructor(options: { codeNote?: string } = {}) {
+    this.codeNote = options.codeNote;
+  }
 
   /** Adds agent text; returns what can be spoken now (possibly empty). */
   push(delta: string): string {
@@ -76,7 +98,25 @@ export class SpeechTextFilter {
         : TAG_PREFIX.test(tail) && tail.length <= MAX_LINK_HOLD_CHARS;
       if (hold) cut = Math.min(cut, lt);
     }
-    return cut;
+    return this.holdOpenCode(cut);
+  }
+
+  /** Holds back an inline code span still open on the last line before `cut` (bounded). */
+  private holdOpenCode(cut: number): number {
+    const buffer = this.buffer;
+    const lineStart = buffer.lastIndexOf('\n', cut - 1) + 1;
+    const line = buffer.slice(lineStart, cut);
+    if ((lineStart > 0 || this.atLineStart) && FENCE.test(line)) return cut;
+    let ticks = 0;
+    let open = -1;
+    for (let i = 0; i < line.length; i += 1) {
+      if (line[i] !== '`') continue;
+      ticks += 1;
+      open = i;
+    }
+    if (ticks % 2 === 0) return cut;
+    const at = lineStart + open;
+    return buffer.length - at <= MAX_CODE_HOLD_CHARS ? at : cut;
   }
 
   private convert(raw: string): string {
@@ -93,6 +133,10 @@ export class SpeechTextFilter {
         if (FENCE.test(line)) {
           this.inFence = !this.inFence;
           this.atLineStart = false;
+          if (this.inFence && this.codeNote !== undefined) {
+            out = this.withNote(out, this.codeNote);
+            this.codeNote = undefined;
+          }
           continue;
         }
         line = line.replace(LINE_PREFIX, '');
@@ -105,6 +149,11 @@ export class SpeechTextFilter {
         .replace(LINK, '$1')
         .replace(TAG, '')
         .replace(URL, 'link')
+        .replace(INLINE_CODE, (_, code: string) =>
+          code.length > MAX_SPOKEN_CODE_CHARS ? '' : code,
+        )
+        .replace(PATH, fileName)
+        .replace(HEX, hexToken)
         .replace(MARKS, '')
         .replace(UNDERSCORE_MARK, '');
     }
@@ -115,10 +164,38 @@ export class SpeechTextFilter {
     return out;
   }
 
+  /** `out` with `note` added as its own sentence. */
+  private withNote(out: string, note: string): string {
+    const before = (out.trim() === '' ? this.lastSpoken : out).trimEnd();
+    const stop = /[\p{L}\p{N}]$/u.test(before) ? '.' : '';
+    if (out.trim() !== '') return `${out.trimEnd()}${stop} ${note} `;
+    // Nothing yet in this chunk: what was already sent may need a full stop before the note.
+    return /\s$/.test(this.lastSpoken) || before === '' ? `${note} ` : `${stop} ${note} `;
+  }
+
   /** A line break becomes a pause: a period after a bare word (list items, headings), else a space. */
   private lineBreak(sofar: string): string {
     const before = (sofar === '' ? this.lastSpoken : sofar).trimEnd();
     if (before === '') return '';
     return /[\p{L}\p{N}]$/u.test(before) ? '. ' : ' ';
   }
+}
+
+/**
+ * A path is read as its file name ("src/app/call.tsx" says "call.tsx"): enough to tell which file,
+ * the way a person names one aloud. Slashes between numbers only (a date) are left alone.
+ */
+function fileName(token: string): string {
+  if (!/\p{L}/u.test(token)) return token;
+  return (
+    token
+      .split(/[/\\]/)
+      .filter((part) => part !== '')
+      .at(-1) ?? ''
+  );
+}
+
+/** A hash or id says nothing aloud; digits alone (a long number) are kept. */
+function hexToken(token: string): string {
+  return token.includes('-') || (/\d/.test(token) && /[a-f]/i.test(token)) ? '' : token;
 }

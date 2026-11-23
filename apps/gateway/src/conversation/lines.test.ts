@@ -24,6 +24,14 @@ describe('Twring lines per language', () => {
     expect(approvalPrompt('Hermes', 'run_command', language)).toContain('Hermes');
   });
 
+  it.each(LANGUAGES)('%s says the code is on screen in its own words', (language) => {
+    const line = LINES[language].codeOnScreen;
+    expect(line.trim()).toBe(line);
+    expect(line.length).toBeLessThan(60);
+    if (language !== 'en') expect(line).not.toBe(LINES.en.codeOnScreen);
+    expect(isFloorControl(echoWords(line), language)).toBe(false);
+  });
+
   it('keeps English byte-identical and uses the generic progress line elsewhere', () => {
     expect(ackLine(0)).toBe('Okay, one moment.');
     expect(approvalPrompt('Hermes', 'delete_files')).toBe(

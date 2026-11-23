@@ -3,6 +3,7 @@ import { Downsampler48To16, FrameAssembler } from '../audio/resample';
 import type { CallLogger } from '../calls/runtime';
 import type { Scheduler } from '../calls/scheduler';
 
+import { isKeyRefusal } from './key-refusal';
 import {
   VoiceProviderError,
   type SttEvent,
@@ -31,6 +32,12 @@ const SILENT_ANSWERS_FATAL = 2;
  */
 const MAX_SPEECH_RESUMES = 2;
 /**
+ * A one-off generation error on an answer that has not made a sound yet is retried once on the
+ * same voice after this wait (production 2026-11-23: a few generic errors per day). A missing voice
+ * (404), a refused key or used-up quota is never retried: it would fail the same way.
+ */
+const TTS_RETRY_DELAY_MS = 250;
+/**
  * The slowest reading rate any voice speaks at, in ms per character. Heard text is estimated with
  * it, so the estimate falls short of what was really heard: a pickup repeats a little rather than
  * skip words the caller never heard.
@@ -43,6 +50,13 @@ const SENTENCE_END = /(?:[.!?…]+["'”’)\]]*\s+|[。！？।॥]+["'”’)
  * Where to pick an answer up after its voice dropped: the start of the sentence the caller was
  * hearing, judged from how much audio played (`heardMs`). Nothing heard starts over.
  */
+/** A generation error worth one retry: not a missing voice, a refused key or used-up quota. */
+function retryable(error: VoiceError): boolean {
+  const status = error.providerStatus;
+  if (error.code === 'auth_failed' || status === 404 || status === 429) return false;
+  return !isKeyRefusal(status);
+}
+
 export function resumeOffset(text: string, heardMs: number): number {
   const heardChars = Math.floor(heardMs / SURELY_HEARD_MS_PER_CHAR);
   if (heardChars <= 0) return 0;
@@ -187,6 +201,12 @@ export class VoicePipeline {
         /** Audio this answer had played when the voice last (re)started, in ms. */
         resumedAtMs: number;
         resumes: number;
+        /** The id the voice knows this answer by; a retry speaks it under a fresh one. */
+        ttsId: string;
+        /** A failed generation was already retried once. */
+        retried: boolean;
+        /** The retry was sent and its outcome (audio, or another failure) is not known yet. */
+        retryPending: boolean;
       }
     | undefined;
   /** Per generation: frames played out, and frames in total once TTS delivered them all. */
@@ -372,6 +392,9 @@ export class VoicePipeline {
       resumeFrom: 0,
       resumedAtMs: 0,
       resumes: 0,
+      ttsId: id,
+      retried: false,
+      retryPending: false,
     };
     this.assembler.clear();
     this.playout.set(id, { playedFrames: 0 });
@@ -398,6 +421,7 @@ export class VoicePipeline {
     const active = this.active;
     if (active?.id !== id || active.ended || text === '') return;
     active.text += text;
+    if (active.suspended && this.tts !== undefined) return; // Waiting for a retry.
     if (this.tts === undefined) {
       // The voice is reconnecting: the words wait and are spoken once it is back.
       if (this.reconnecting.tts) {
@@ -407,7 +431,7 @@ export class VoicePipeline {
       this.failSpeech(active);
       return;
     }
-    this.tts.speak(id, text);
+    this.tts.speak(active.ttsId, text);
     this.ttsChars += text.length;
     if (!active.textSent) {
       active.textSent = true;
@@ -429,7 +453,7 @@ export class VoicePipeline {
       this.options.onSpeech({ generationId: id, state: 'finished' });
       return;
     }
-    this.tts?.flush(id);
+    if (!active.suspended) this.tts?.flush(active.ttsId);
   }
 
   /** Stops any speech in progress: generation cancelled, queued audio dropped. */
@@ -439,7 +463,7 @@ export class VoicePipeline {
     this.active = undefined;
     this.resetOnset();
     active.cancelled = true;
-    this.tts?.cancel(active.id);
+    this.tts?.cancel(active.ttsId);
     const partialSamples = this.assembler.pendingSamples;
     this.assembler.clear();
     const droppedFrames = this.options.stopPlayback();
@@ -591,9 +615,11 @@ export class VoicePipeline {
         this.ttsBytes += event.bytes.length;
         const active = this.active;
         // Late audio from a cancelled generation, or stray bytes after this one completed.
-        if (active === undefined || event.generationId !== active.id || active.providerDone) return;
+        if (active === undefined || event.generationId !== active.ttsId || active.providerDone)
+          return;
         if (!active.firstAudioLogged) {
           active.firstAudioLogged = true;
+          this.retryOutcome(active, true);
           this.silentFailures = 0;
           this.log('tts_first_audio', {
             generation_id: active.id,
@@ -606,7 +632,8 @@ export class VoicePipeline {
       }
       case 'done': {
         const active = this.active;
-        if (active === undefined || event.generationId !== active.id || active.providerDone) return;
+        if (active === undefined || event.generationId !== active.ttsId || active.providerDone)
+          return;
         // Stays active until its queued audio has played, so a new turn can still cut it off.
         active.providerDone = true;
         this.log('tts_done', { generation_id: active.id });
@@ -646,7 +673,12 @@ export class VoicePipeline {
           'voice provider generation error',
         );
         const active = this.active;
-        if (active !== undefined && event.generationId === active.id && !active.providerDone) {
+        if (active !== undefined && event.generationId === active.ttsId && !active.providerDone) {
+          this.retryOutcome(active, false);
+          if (retryable(event.error) && !active.retried && !active.firstAudioLogged) {
+            this.retrySpeech(active);
+            return;
+          }
           this.failSpeech(active);
           if (!active.firstAudioLogged) this.silentFailures += 1;
         }
@@ -719,7 +751,7 @@ export class VoicePipeline {
     active.resumedAtMs = this.playedMs(active.id);
     const rest = active.text.slice(active.resumeFrom);
     if (rest !== '') {
-      tts.speak(active.id, rest);
+      tts.speak(active.ttsId, rest);
       this.ttsChars += rest.length;
       if (!active.textSent) {
         active.textSent = true;
@@ -741,7 +773,32 @@ export class VoicePipeline {
       this.options.onSpeech({ generationId: active.id, state: 'finished' });
       return;
     }
-    tts.flush(active.id);
+    tts.flush(active.ttsId);
+  }
+
+  /**
+   * One generation error before any audio: the answer waits briefly, then is spoken again from the
+   * start under a fresh voice id (the failed one may be closed for good). Nothing was heard, so no
+   * word repeats. An answer cancelled or replaced meanwhile, or a closed call, is not retried.
+   */
+  private retrySpeech(active: NonNullable<VoicePipeline['active']>): void {
+    active.retried = true;
+    active.suspended = true;
+    const signal = this.controller.signal;
+    const cancel = this.options.scheduler.setTimeout(() => {
+      this.cancelTimers.delete(cancel);
+      if (signal.aborted || active.cancelled || this.active !== active || !active.suspended) return;
+      active.ttsId = `${active.id}_retry`;
+      active.retryPending = true;
+      this.resumeSpeech();
+    }, TTS_RETRY_DELAY_MS);
+    this.cancelTimers.add(cancel);
+  }
+
+  private retryOutcome(active: NonNullable<VoicePipeline['active']>, ok: boolean): void {
+    if (!active.retryPending) return;
+    active.retryPending = false;
+    this.log('tts_retry', { generation_id: active.id, attempt: 1, ok });
   }
 
   private failSpeech(active: NonNullable<VoicePipeline['active']>): void {

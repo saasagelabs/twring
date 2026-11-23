@@ -17,6 +17,8 @@ export interface Lines {
   stopped: string;
   /** After an answer that broke off: says only that the rest was lost, nothing about the work. */
   replyBroken: string;
+  /** Said once in place of the code a reply shows but does not read out (the call screen has it). */
+  codeOnScreen: string;
   approvalPrompt: (agentName: string, action: ApprovalAction) => string;
   approvalReask: string;
   approvalTimeout: string;
@@ -123,6 +125,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Still working on it.',
     stopped: 'Okay, stopped.',
     replyBroken: 'I lost the rest of that answer.',
+    codeOnScreen: "I've left the code on screen.",
     approvalPrompt: (agent, action) =>
       `${agent} wants to ${EN_PHRASES[action]}. Say yes or no, or tap on your phone.`,
     approvalReask: 'Please say yes or no, or tap on your phone.',
@@ -134,6 +137,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Sigo trabajando en ello.',
     stopped: 'De acuerdo, me detengo.',
     replyBroken: 'Lo siento, perdí el resto de esa respuesta.',
+    codeOnScreen: 'He dejado el código en la pantalla.',
     approvalPrompt: (agent, action) =>
       `${agent} quiere ${ES_PHRASES[action]}. Di sí o no, o toca en tu teléfono.`,
     approvalReask: 'Por favor, di sí o no, o toca en tu teléfono.',
@@ -145,6 +149,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'अभी भी इस पर काम चल रहा है।',
     stopped: 'ठीक है, रोक दिया।',
     replyBroken: 'माफ़ कीजिए, उस जवाब का बाकी हिस्सा खो गया।',
+    codeOnScreen: 'कोड स्क्रीन पर छोड़ दिया है।',
     approvalPrompt: (agent, action) =>
       `${agent} को ${HI_PHRASES[action]} की अनुमति चाहिए। हाँ या ना बोलिए, या फ़ोन पर टैप कीजिए।`,
     approvalReask: 'कृपया हाँ या ना बोलिए, या फ़ोन पर टैप कीजिए।',
@@ -156,6 +161,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Je suis encore dessus.',
     stopped: "D'accord, j'arrête.",
     replyBroken: "Désolé, j'ai perdu la fin de cette réponse.",
+    codeOnScreen: "J'ai laissé le code à l'écran.",
     approvalPrompt: (agent, action) =>
       `${agent} veut ${FR_PHRASES[action]}. Répondez sur votre téléphone.`,
     approvalReask: 'Merci de répondre sur votre téléphone.',
@@ -167,6 +173,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Ich arbeite noch daran.',
     stopped: 'Okay, gestoppt.',
     replyBroken: 'Entschuldigung, der Rest dieser Antwort ist verloren gegangen.',
+    codeOnScreen: 'Den Code habe ich auf dem Bildschirm gelassen.',
     approvalPrompt: (agent, action) =>
       `${agent} möchte ${DE_PHRASES[action]}. Bitte antworten Sie auf Ihrem Telefon.`,
     approvalReask: 'Bitte antworten Sie auf Ihrem Telefon.',
@@ -178,6 +185,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Всё ещё работаю над этим.',
     stopped: 'Хорошо, останавливаюсь.',
     replyBroken: 'Извините, остаток этого ответа потерялся.',
+    codeOnScreen: 'Код можно посмотреть на экране.',
     approvalPrompt: (agent, action) =>
       `${agent} хочет ${RU_PHRASES[action]}. Ответьте на телефоне.`,
     approvalReask: 'Пожалуйста, ответьте на телефоне.',
@@ -189,6 +197,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Ainda estou nisso.',
     stopped: 'Certo, parei.',
     replyBroken: 'Desculpe, perdi o resto dessa resposta.',
+    codeOnScreen: 'Deixei o código na tela.',
     approvalPrompt: (agent, action) =>
       `${agent} quer ${PT_PHRASES[action]}. Responda no seu telefone.`,
     approvalReask: 'Por favor, responda no seu telefone.',
@@ -200,6 +209,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'まだ作業中です。',
     stopped: 'はい、止めました。',
     replyBroken: 'すみません、その回答の続きが途切れました。',
+    codeOnScreen: 'コードは画面に表示しています。',
     approvalPrompt: (agent, action) =>
       `${agent}が${JA_PHRASES[action]}許可を求めています。スマートフォンで答えてください。`,
     approvalReask: 'スマートフォンで答えてください。',
@@ -211,6 +221,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Ci sto ancora lavorando.',
     stopped: 'Va bene, mi fermo.',
     replyBroken: 'Scusa, ho perso il resto di quella risposta.',
+    codeOnScreen: 'Ho lasciato il codice sullo schermo.',
     approvalPrompt: (agent, action) =>
       `${agent} vuole ${IT_PHRASES[action]}. Rispondi sul telefono.`,
     approvalReask: 'Per favore, rispondi sul telefono.',
@@ -222,6 +233,7 @@ export const LINES: Record<LineLanguage, Lines> = {
     progress: 'Ik ben er nog mee bezig.',
     stopped: 'Oké, gestopt.',
     replyBroken: 'Excuses, de rest van dat antwoord is verloren gegaan.',
+    codeOnScreen: 'De code staat op het scherm.',
     approvalPrompt: (agent, action) =>
       `${agent} wil ${NL_PHRASES[action]}. Antwoord op je telefoon.`,
     approvalReask: 'Antwoord alsjeblieft op je telefoon.',
