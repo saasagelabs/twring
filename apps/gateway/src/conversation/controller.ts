@@ -25,7 +25,10 @@ import {
   type EchoWindow,
 } from './echo';
 import {
+  ACK_EXPECTED_WAIT_MS,
+  ACK_LATENCY_SAMPLES,
   ACK_LINE_AFTER_MS,
+  ACK_LINE_FIRST_AFTER_MS,
   CUE_FINISH_GRACE_MS,
   GENERIC_PROGRESS_LINE_AFTER_MS,
   MAX_PROGRESS_LINES,
@@ -35,6 +38,7 @@ import {
   PROGRESS_LINE_RECHECK_MS,
   PROGRESS_LINE_REPEAT_MS,
   ackLine,
+  expectedWaitMs,
   progressLine,
   spokenActivityLabel,
 } from './presence';
@@ -439,6 +443,8 @@ interface Turn {
   genericProgressSaid: boolean;
   /** The owner heard an acknowledgement for this request, here or in a turn it took in (ADR-032). */
   acked: boolean;
+  /** The agent's stream failed after some of the answer was spoken: say so once it has played. */
+  replyBroken: boolean;
   totalBudgetRemaining: number;
   totalBudgetStartedAt: number;
   approval?: PendingApproval;
@@ -458,7 +464,7 @@ interface PendingApproval {
 /** A line Twring speaks itself in the agent's voice (ADR-028): never sent to the agent. */
 interface Cue {
   generationId: string;
-  kind: 'progress' | 'stopped' | 'approval' | 'ack';
+  kind: 'progress' | 'stopped' | 'approval' | 'ack' | 'reply_broken';
   /** The working turn a progress line is about. */
   turnId?: string;
 }
@@ -499,6 +505,8 @@ export class ConversationController {
    * can't be used at all (403, never reached) end the call instead of failing a turn.
    */
   private agentAnswered = false;
+  /** Committed turn to the agent's first text, for the call's latest turns (ADR-032 amendment). */
+  private firstTextLatencies: number[] = [];
   private readonly counts = { completed: 0, failed: 0, bargeIns: 0 };
   /** Cancels the lingering window after the agent's hang-up (ADR-024). */
   private cancelHangup: (() => void) | undefined;
@@ -1112,6 +1120,7 @@ export class ConversationController {
       // answered (merged or not) gets none.
       acked:
         (superseded !== undefined && !superseded.heard && superseded.acked) || carry !== undefined,
+      replyBroken: false,
       totalBudgetRemaining: this.timeouts.totalMs,
       totalBudgetStartedAt: this.options.scheduler.now(),
     };
@@ -1137,7 +1146,8 @@ export class ConversationController {
       const line = openingLine.trim();
       if (line !== '') {
         this.log('opening_line', { text_chars: line.length });
-        this.onText(turn, `${line} `);
+        // Twring speaks the ring's line at once: not a measure of how fast the agent answers.
+        this.onText(turn, `${line} `, false);
       }
     }
     void this.run(turn, {
@@ -1564,7 +1574,7 @@ export class ConversationController {
     });
   }
 
-  private onText(turn: Turn, raw: string): void {
+  private onText(turn: Turn, raw: string, measured = true): void {
     const stripped = stripHangupMarkers(turn.markerCarry + raw, false);
     turn.markerCarry = stripped.carry;
     if (stripped.found) turn.hangupRequested = true;
@@ -1572,7 +1582,12 @@ export class ConversationController {
     if (delta === '') return;
     if (!turn.firstTextLogged) {
       turn.firstTextLogged = true;
-      this.log('agent_first_text', { turn_id: turn.id, duration_ms: this.since(turn) });
+      const latency = this.since(turn);
+      this.log('agent_first_text', { turn_id: turn.id, duration_ms: latency });
+      if (measured) {
+        this.firstTextLatencies.push(latency);
+        if (this.firstTextLatencies.length > ACK_LATENCY_SAMPLES) this.firstTextLatencies.shift();
+      }
     }
     turn.lastTextAt = this.options.scheduler.now();
     this.scheduleProgress(turn);
@@ -1687,6 +1702,13 @@ export class ConversationController {
     turn.activity = undefined;
     if (outcome === 'completed') this.counts.completed += 1;
     else this.counts.failed += 1;
+    // Part of the answer was spoken (or is queued to be) and the rest will never come: once that
+    // part has played, Twring says the rest was lost. A Twring timeout leaves the same silence, so
+    // it counts too. A failure before any answer stays as it was.
+    if (outcome !== 'completed' && !turn.muted && !turn.yielded && turn.spoken.trim() !== '') {
+      turn.replyBroken = true;
+      this.log('agent_reply_broken', { turn_id: turn.id });
+    }
     this.clearTimers(turn);
     // Text held back as a possible marker start was not one after all.
     const rest = stripHangupMarkers(turn.markerCarry, true).text;
@@ -1784,6 +1806,9 @@ export class ConversationController {
       return;
     }
     this.updateFloor();
+    if (turn.replyBroken && !turn.muted && !turn.yielded && !this.closed && !this.userSpeaking) {
+      this.speakCue(LINES[this.language].replyBroken, 'reply_broken');
+    }
     // Hang up only after a reply the owner heard to the end; a barge-in means they want to talk.
     if (turn.hangupRequested && !turn.muted && !turn.yielded) this.scheduleHangup();
   }
@@ -1882,11 +1907,26 @@ export class ConversationController {
     if (this.options.presenceCues !== true) return;
     if (source === 'owner') {
       this.presenceTimer(turn, 'tone', PRESENCE_TONE_AFTER_MS, () => this.playTone(turn));
-      if (this.options.acknowledge === true && !turn.acked) {
-        this.presenceTimer(turn, 'ack', ACK_LINE_AFTER_MS, () => this.acknowledge(turn));
-      }
+      if (this.options.acknowledge === true && !turn.acked) this.scheduleAck(turn);
     }
     this.scheduleProgress(turn);
+  }
+
+  /**
+   * ADR-032 amendment: the acknowledgement only when the wait is likely long. With no measured
+   * wait yet it comes later; once the agent's recent answers came quickly, not at all.
+   */
+  private scheduleAck(turn: Turn): void {
+    const expected = expectedWaitMs(this.firstTextLatencies);
+    if (expected === undefined) {
+      this.presenceTimer(turn, 'ack', ACK_LINE_FIRST_AFTER_MS, () => this.acknowledge(turn));
+      return;
+    }
+    if (expected < ACK_EXPECTED_WAIT_MS) {
+      this.log('ack_skipped', { turn_id: turn.id, expected_ms: Math.round(expected) });
+      return;
+    }
+    this.presenceTimer(turn, 'ack', ACK_LINE_AFTER_MS, () => this.acknowledge(turn));
   }
 
   /**

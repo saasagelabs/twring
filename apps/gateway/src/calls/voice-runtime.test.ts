@@ -1116,7 +1116,7 @@ describe('CallRuntime spoken acknowledgement switch (ADR-032)', () => {
     stt.send({ type: 'speech_started', turnIndex: 0 });
     stt.send({ type: 'turn_ended', turnIndex: 0, text: 'check the build please' });
     await settleAll(20);
-    scheduler.advance(1_500);
+    scheduler.advance(2_500);
     await settleAll();
     return { runtime, tts };
   }
