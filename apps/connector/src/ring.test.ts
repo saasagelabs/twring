@@ -829,6 +829,15 @@ describe('hooks install/uninstall', () => {
     expect(CLAUDE_HOOK_MATCHER).toBe('permission_prompt|idle_prompt');
   });
 
+  it('claude: installing twice with the matcher changes nothing the second time', async () => {
+    const home = await tempHome();
+    await installClaudeHook(home, 'ring', TARGET);
+    const before = await readFile(claudeSettingsPath(home), 'utf8');
+    const lines = await installClaudeHook(home, 'ring', TARGET);
+    expect(lines.join('\n')).toMatch(/Nothing changed/);
+    expect(await readFile(claudeSettingsPath(home), 'utf8')).toBe(before);
+  });
+
   it('claude: an old empty-matcher Twring hook is replaced, other hooks kept', async () => {
     const home = await tempHome();
     const path = claudeSettingsPath(home);
