@@ -576,7 +576,8 @@ export class CallRuntime {
           final,
         });
       },
-      onSpeech: ({ generationId, state }) => conversation.speechState(generationId, state),
+      onSpeech: ({ generationId, state, cutOff }) =>
+        conversation.speechState(generationId, state, cutOff),
       playFrames: (frames, callbacks) => {
         this.enqueue(frames, { live: false, ...callbacks });
       },

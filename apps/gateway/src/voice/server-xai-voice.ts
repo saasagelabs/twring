@@ -121,6 +121,11 @@ export function serverXaiCallVoice(options: ServerXaiVoiceOptions): ServerCallVo
           { event: 'tts_failover', from: provider.name, to: backup.name, reason_code: reason },
           'voice provider failover',
         ),
+      onRestored: () =>
+        options.logger?.warn(
+          { event: 'tts_primary_restored', provider: provider.name },
+          'voice provider restored',
+        ),
     });
   };
   return {

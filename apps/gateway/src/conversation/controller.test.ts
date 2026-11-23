@@ -5383,4 +5383,38 @@ describe('ConversationController an answer that breaks off', () => {
     p.scheduler.advance(10_000);
     expect(broken(p.speech)).toEqual([]);
   });
+
+  it('says it when the voice lost the end of an answer the owner was hearing', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places. The first is the linker.');
+    p.agent.done();
+    await flushMicrotasks();
+    p.conversation.speechState('gen_1', 'playing');
+    expect(broken(p.speech)).toEqual([]);
+    p.conversation.speechState('gen_1', 'failed', true);
+    expect(broken(p.speech)).toEqual([`append gen_2 ${LINES.en.replyBroken}`]);
+    expect(p.adapter.channels).toHaveLength(1);
+  });
+
+  it('not for a voice failure before anything was heard', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places.');
+    p.agent.done();
+    await flushMicrotasks();
+    p.conversation.speechState('gen_1', 'failed');
+    p.scheduler.advance(10_000);
+    expect(broken(p.speech)).toEqual([]);
+  });
+
+  it('not for a voice failure while the owner is talking', async () => {
+    const p = await answering();
+    p.agent.text('The build failed in two places. The first is the linker.');
+    p.agent.done();
+    await flushMicrotasks();
+    p.conversation.speechState('gen_1', 'playing');
+    p.conversation.userSpeechStarted();
+    p.conversation.speechState('gen_1', 'failed', true);
+    p.scheduler.advance(10_000);
+    expect(broken(p.speech)).toEqual([]);
+  });
 });

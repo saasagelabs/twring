@@ -41,7 +41,11 @@ export class HandshakeRefusedError extends Error {
 }
 
 export const wsSocketFactory: SocketFactory = (url, headers) => {
-  const socket = new WebSocket(url, { headers, maxPayload: MAX_PAYLOAD_BYTES });
+  const socket = new WebSocket(url, {
+    headers,
+    maxPayload: MAX_PAYLOAD_BYTES,
+    handshakeTimeout: OPEN_TIMEOUT_MS,
+  });
   socket.on('unexpected-response', (_request, response) => {
     let body = '';
     let done = false;
@@ -85,7 +89,14 @@ export const wsSocketFactory: SocketFactory = (url, headers) => {
   };
 };
 
-/** Resolves once the socket opens; rejects on error, early close, or abort. */
+/**
+ * Longest wait for a provider handshake. One that never answers would otherwise leave the voice
+ * reconnecting forever with answers held (livekit/agents APIConnectOptions waits 10 s; a call
+ * cannot wait that long in silence). It fails as a lost connection, onto the reconnect schedule.
+ */
+export const OPEN_TIMEOUT_MS = 5_000;
+
+/** Resolves once the socket opens; rejects on error, early close, abort, or OPEN_TIMEOUT_MS. */
 export function waitForOpen(socket: ProviderSocket, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) {
@@ -97,9 +108,18 @@ export function waitForOpen(socket: ProviderSocket, signal: AbortSignal): Promis
     const settle = (fn: () => void) => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       signal.removeEventListener('abort', onAbort);
       fn();
     };
+    const timer = setTimeout(
+      () =>
+        settle(() => {
+          socket.close();
+          reject(new Error('handshake timed out'));
+        }),
+      OPEN_TIMEOUT_MS,
+    );
     const onAbort = () =>
       settle(() => {
         socket.close();

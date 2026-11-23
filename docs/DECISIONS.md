@@ -1141,6 +1141,23 @@ five calls in a row went silent while the phone said Twring's voice service was 
 - Some minutes of a person on their own keys may be spoken on Twring's account (only when they have
   no own key for the fallback provider). The failover is logged as `tts_failover` with `own_key`.
 
+### Amendment (2026-11-24): the voice changes only when the primary is unusable
+
+Following livekit/agents `tts/fallback_adapter.py` and pipecat `service_switcher.py`:
+
+- A dropped primary session (any recoverable error, including Deepgram's unconfirmed Interrupt after
+  a barge-in) is reopened on the primary for every caller, not only non-English ones. The call
+  moves to the backup for good only when the primary cannot be opened, an error no reconnect
+  cures, or a missing voice (404).
+- One answer the primary cannot speak and the pipeline will not retry (a 429, the failed one-shot
+  retry, or a retry that made no sound within 5 s of its last text) is spoken from its start on the
+  backup; the next answer is the primary's again (`tts_primary_restored` once it speaks). The call
+  ends as voice_failed only when the backup fails the answers too. An answer that made a sound is
+  never moved.
+- An answer whose voice fails after it began plays out what arrived, then Twring says the rest was
+  lost (the #85 line), unless the owner is talking.
+- Provider handshakes time out after 5 s, onto the reconnect schedule.
+
 ## ADR-038: An answer cut off by a voice drop goes on after the reconnect (2026-11-17)
 
 ### Context

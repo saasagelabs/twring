@@ -1162,7 +1162,11 @@ export class ConversationController {
   }
 
   /** Audio from the pipeline for a generation this controller started. */
-  speechState(generationId: string, state: 'playing' | 'finished' | 'failed'): void {
+  speechState(
+    generationId: string,
+    state: 'playing' | 'finished' | 'failed',
+    cutOff = false,
+  ): void {
     if (state === 'playing') {
       const generation = this.generations.find((g) => g.id === generationId);
       if (generation !== undefined) generation.played = true;
@@ -1222,6 +1226,21 @@ export class ConversationController {
       case 'failed': {
         this.log('speech_failed', { turn_id: turn.id });
         const inherited = turn.inherited;
+        // The voice lost the end of an answer the owner was hearing, with all of it already sent:
+        // once the turn is over, Twring says the rest was lost (as for an agent failure, #85).
+        // Not while the owner talks: they have taken the floor.
+        if (
+          cutOff &&
+          turn.agentDone &&
+          turn.heard &&
+          !turn.muted &&
+          !turn.yielded &&
+          !this.userSpeaking &&
+          !turn.replyBroken
+        ) {
+          turn.replyBroken = true;
+          this.log('voice_reply_broken', { turn_id: turn.id });
+        }
         this.clearGeneration(turn);
         // With the agent still answering, nothing is audible now, and its later text (with anything
         // held) starts a fresh generation once TTS is back. Text held behind the previous turn's
