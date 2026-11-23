@@ -138,7 +138,7 @@ describe('chat presentation', () => {
   });
   it('offers a call, never a chat, when the server has chats off', () => {
     expect(agentRowLine(false)).toBe('Ready to call');
-    expect(agentRowLine(true)).toBe('Offline · start it on your computer');
+    expect(agentRowLine(true)).toBe('Offline · check your computer is on');
   });
   it('sorts by thread activity, then agent update', () => {
     const a = { id: 'a', name: 'A', updated_at: '2026-10-10T00:00:00Z' } as Agent;

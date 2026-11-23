@@ -1,4 +1,4 @@
-import { isActive, type Agent, type CallState } from '@twring/contracts';
+import { isActive, type Agent, type AgentProtocol, type CallState } from '@twring/contracts';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -51,6 +51,7 @@ import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
 import { ConnectionPill } from '@/components/ConnectionPill';
 import { GhostButton } from '@/components/GhostButton';
 import { Icon, type IconName } from '@/components/Icon';
+import { OfflineHelp } from '@/components/OfflineHelp';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Sheet } from '@/components/Sheet';
 import { Waveform } from '@/components/Waveform';
@@ -554,11 +555,14 @@ function FinishedCall({
   title,
   agent,
   retry,
+  protocol,
 }: {
   view: CallView;
   title: string;
   agent: Agent | undefined;
   retry: () => void;
+  /** How the called agent reaches Twring, once loaded: picks the offline help. */
+  protocol?: AgentProtocol;
 }) {
   const { call } = view;
   const duration =
@@ -614,6 +618,13 @@ function FinishedCall({
                 accessibilityLabel={`Reference code ${reference(failed)}`}
                 style={[type.caption, styles.outcomeCode]}
               >{`Reference: ${reference(failed)}`}</Text>
+              {failed.code === 'AGENT_OFFLINE' && (
+                <OfflineHelp
+                  protocol={protocol ?? 'cord-connector'}
+                  color={palette.textSecondary}
+                  align="center"
+                />
+              )}
             </>
           )}
         </Animated.View>
@@ -717,6 +728,7 @@ export default function CallScreen() {
           title={title}
           agent={agent?.id === agentId ? agent : undefined}
           retry={retry}
+          protocol={agent?.id === agentId ? agent?.protocol : undefined}
         />
       )}
     </SafeAreaView>

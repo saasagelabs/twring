@@ -33,7 +33,7 @@ describe('homeRow', () => {
   it('says what a tap does when chats are off', () => {
     expect(homeRow(agent(), thread(), none, true, now).line).toBe('Ready to call');
     expect(homeRow(agent({ connector_online: false }), undefined, none, true, now).line).toBe(
-      'Offline · start it on your computer',
+      'Offline · check your computer is on',
     );
   });
 

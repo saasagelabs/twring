@@ -24,6 +24,7 @@ import { ErrorNotice } from '@/components/ErrorNotice';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
 import { Sheet } from '@/components/Sheet';
+import { OfflineHelp } from '@/components/OfflineHelp';
 import { goBack, Screen } from '@/components/Screen';
 import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { StatusLabel } from '@/components/StatusLabel';
@@ -167,6 +168,10 @@ export default function AgentDetailScreen() {
           />
         )}
       </View>
+
+      {agent.connector_online === false && agent.connector_removed !== true && (
+        <OfflineHelp protocol={agent.protocol} color={palette.textSecondary} />
+      )}
 
       {aiApp && (
         <View style={styles.reach}>
