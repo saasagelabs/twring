@@ -587,7 +587,9 @@ describe('daily limits: edge cases', () => {
   });
 
   it('two parallel replacements of a stuck last call leave one call, one count (verifier 2)', async () => {
-    const { createCall, daily, registry } = setup({ callSeconds: 0, calls: 1 }, undefined, { join: false });
+    const { createCall, daily, registry } = setup({ callSeconds: 0, calls: 1 }, undefined, {
+      join: false,
+    });
     expect((await createCall()).statusCode).toBe(201);
     await flushMicrotasks();
     const results = await Promise.all([createCall(), createCall()]);

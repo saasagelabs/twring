@@ -398,7 +398,7 @@ export class CallRegistry {
     await Promise.all(idle.map((record) => this.end(record.ids.callId, 'replaced')));
     // A start racing this one may have ended the same call: wait for its give-back too.
     const owned = [...this.calls.values()].filter((record) => record.ownerId === userId);
-    await Promise.all(owned.map((record) => record.refunding));
+    await Promise.all(owned.map((record) => record.refunding ?? Promise.resolve()));
   }
 
   /** Ends `owner`'s live calls that nobody is on, for the new call `newCallId`. */

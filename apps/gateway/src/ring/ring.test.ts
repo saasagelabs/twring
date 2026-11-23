@@ -868,7 +868,10 @@ describe('answering', () => {
       const { g, token, agentId } = await callingGateway();
       const { invite_id: id } = await ringOk(g, token);
       const first = createCallResponseSchema.parse((await answer(g, id, 'phone-aaaa-0001')).json());
-      const call = await g.send('POST', '/v1/calls', { user: 'alice', body: { agent_id: agentId } });
+      const call = await g.send('POST', '/v1/calls', {
+        user: 'alice',
+        body: { agent_id: agentId },
+      });
       expect(call.statusCode).toBe(201);
       await waitFor(() => g.calls!.registry.get(first.call_id)?.status === 'ended');
       const again = await answer(g, id, 'phone-aaaa-0001');
