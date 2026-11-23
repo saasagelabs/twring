@@ -42,7 +42,7 @@ const tools = [
   {
     name: 'add_words',
     description:
-      "Teach Twring words it mishears when your owner speaks to you (calls and voice notes): their name, people, projects, places or product names. Up to 40 words or short phrases (50 characters each) per agent; the owner can change them on the agent's Words page in the app. New words apply from the next call or voice note.",
+      "Teach Twring words it mishears when your owner speaks to you (calls and voice notes): their name, people, projects, places or product names. Up to 40 words or short phrases (50 characters each) per agent; the owner can change them on the agent's Words page in the app. New words apply right away, even on a live call, and to later calls and voice notes.",
     inputSchema: {
       type: 'object',
       properties: {

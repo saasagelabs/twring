@@ -64,7 +64,7 @@ describe('twring-connect words', () => {
       words: ['Gowri', 'Lightsail'],
     });
     expect(r.lines).toEqual([
-      'From the next call or voice note, Twring will listen for: Gowri, Lightsail.',
+      'Twring will listen for these right away, even on a live call: Gowri, Lightsail.',
     ]);
   });
 

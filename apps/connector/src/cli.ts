@@ -479,7 +479,9 @@ function run(config: ConnectorConfig): Promise<number> {
     dir,
     createAdapter: (id, resumeRef, scope) => {
       const agent = byId.get(id);
-      return agent === undefined ? undefined : createAdapter(agent, systemSpawn, resumeRef, scope);
+      return agent === undefined
+        ? undefined
+        : createAdapter(agent, systemSpawn, resumeRef, scope, log);
     },
     log,
   });
