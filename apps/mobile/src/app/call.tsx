@@ -47,6 +47,7 @@ import { ApprovalCard } from '@/components/ApprovalCard';
 import { Avatar } from '@/components/Avatar';
 import { CallControl } from '@/components/CallControl';
 import { CallFeedback } from '@/components/call/CallFeedback';
+import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
 import { ConnectionPill } from '@/components/ConnectionPill';
 import { GhostButton } from '@/components/GhostButton';
 import { Icon, type IconName } from '@/components/Icon';
@@ -552,11 +553,13 @@ function ActiveCall({
 function FinishedCall({
   view,
   title,
+  agent,
   retry,
   protocol,
 }: {
   view: CallView;
   title: string;
+  agent: Agent | undefined;
   retry: () => void;
   /** How the called agent reaches Twring, once loaded: picks the offline help. */
   protocol?: AgentProtocol;
@@ -625,6 +628,12 @@ function FinishedCall({
             </>
           )}
         </Animated.View>
+        <RingMeWhenDone
+          key={('callId' in call ? call.callId : undefined) ?? 'none'}
+          call={call}
+          connectedAt={view.connectedAt}
+          agent={agent}
+        />
         {(call.status === 'ENDED' || call.status === 'FAILED') &&
           call.callId !== undefined &&
           view.connectedAt !== undefined &&
@@ -717,6 +726,7 @@ export default function CallScreen() {
         <FinishedCall
           view={view}
           title={title}
+          agent={agent?.id === agentId ? agent : undefined}
           retry={retry}
           protocol={agent?.id === agentId ? agent?.protocol : undefined}
         />
