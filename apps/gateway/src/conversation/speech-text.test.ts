@@ -265,3 +265,12 @@ describe('SpeechTextFilter tables, emoji, separators and CJK', () => {
       expect(text).toBe('最初の文です。二番目！「引用？」 三番目です。');
   });
 });
+
+describe('SpeechTextFilter partial lines', () => {
+  it('keeps a line that only starts like a separator ("=== title", "--- Note")', () => {
+    for (const input of ['=== title', '--- Note: keep this']) {
+      expect(speak([input]).text).toBe(input);
+      expect(speak([...input]).text).toBe(input);
+    }
+  });
+});

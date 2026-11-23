@@ -81,14 +81,14 @@ export class SpeechTextFilter {
     if (cut === 0) return '';
     const ready = this.buffer.slice(0, cut);
     this.buffer = this.buffer.slice(cut);
-    return this.convert(ready);
+    return this.convert(ready, false);
   }
 
   /** The agent finished: returns whatever is left. */
   end(): string {
     const rest = this.buffer;
     this.buffer = '';
-    return this.convert(rest);
+    return this.convert(rest, true);
   }
 
   /** Index up to which the buffer can be released: after the last whitespace, before an open link or tag. */
@@ -147,9 +147,11 @@ export class SpeechTextFilter {
     return buffer.length - at <= MAX_CODE_HOLD_CHARS ? at : cut;
   }
 
-  private convert(raw: string): string {
+  /** `final` is true at end(): the last line is then complete even without a newline. */
+  private convert(raw: string, final: boolean): string {
     let out = '';
-    for (const piece of raw.split(/(\n)/)) {
+    const pieces = raw.split(/(\n)/);
+    for (const [index, piece] of pieces.entries()) {
       if (piece === '\n') {
         if (!this.inFence) {
           const pause = this.lineBreak(out);
@@ -171,7 +173,9 @@ export class SpeechTextFilter {
           }
           continue;
         }
-        if (!this.inFence && SEPARATOR.test(line)) {
+        // Only a whole line is a separator: "--- " released before "Note" arrives is not one.
+        const whole = final || index < pieces.length - 1;
+        if (!this.inFence && whole && SEPARATOR.test(line)) {
           this.atLineStart = false;
           continue;
         }
