@@ -29,6 +29,7 @@ import { secureStore } from '@/platform/secure-store';
 import { flushDeclines } from './declines';
 import { parsePush, type RegisterDeviceRequest, type RingPush } from './protocol';
 import { loadDeviceId } from './device-id';
+import { HandledRings } from './handled-rings';
 import { showsInAppRing } from './in-app-ring';
 import { answerSystemRing, type AnsweredRoute, type SystemAnswerDeps } from './system-answer';
 import { answeredRing, openedNotificationRoute } from './system-call';
@@ -47,6 +48,11 @@ function deviceId(): Promise<string> {
     },
   );
   return deviceIdPromise;
+}
+
+/** This phone's ring registration id for an answer; an unreadable keychain answers without it. */
+export function answerDeviceId(): Promise<string | undefined> {
+  return deviceId().catch(() => undefined);
 }
 
 function appVariant(): RegisterDeviceRequest['app_variant'] {
@@ -148,8 +154,15 @@ export function setShowingInvite(inviteId: string | undefined): void {
   showing = inviteId;
 }
 
+/** Invites already answered, declined or cancelled: a late or repeated push stays quiet. */
+const handledRings = new HandledRings();
+export function markRingHandled(inviteId: string): void {
+  handledRings.mark(inviteId);
+}
+
 /** Opens the incoming-call screen (app in the foreground, or opened from the ring). */
 export function showIncoming(push: Pick<RingPush, 'invite_id'> & Partial<RingPush>): void {
+  if (handledRings.has(push.invite_id)) return;
   const call = callController()?.getView().call;
   if (
     !showsInAppRing({
@@ -197,7 +210,8 @@ function systemAnswerDeps(): SystemAnswerDeps {
     return client;
   };
   return {
-    answerInvite: (inviteId) => api().answerInvite(inviteId),
+    answerInvite: async (inviteId) =>
+      api().answerInvite(inviteId, { deviceId: await answerDeviceId() }),
     latestAgentMessage: async (agentId) => {
       const page = await api().listMessages(agentId, { limit: 20 });
       return autoListenTarget(
@@ -354,6 +368,10 @@ export function useRingCoordinator(signedIn: boolean): void {
       ringPlatform.onRing((data) => {
         const push = parsePush(data);
         if (push?.type === 'cord.ring') showIncoming(push);
+      }),
+      ringPlatform.onRingCancel((data) => {
+        const push = parsePush({ type: 'cord.ring_cancel', ...(data as object) });
+        if (push?.type === 'cord.ring_cancel') markRingHandled(push.invite_id);
       }),
       ringPlatform.onRingDeclined(() => void sendQueuedDeclines()),
       ringPlatform.onPushToken((token) => void ringRegistration.current().tokenRefreshed(token)),

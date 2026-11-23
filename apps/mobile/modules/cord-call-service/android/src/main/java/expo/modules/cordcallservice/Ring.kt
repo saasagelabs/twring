@@ -419,7 +419,7 @@ object Ring {
   }
 
   @Synchronized
-  private fun markHandled(context: Context, inviteId: String) {
+  fun markHandled(context: Context, inviteId: String) {
     val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val handled = prunedRings(prefs.getString(KEY_HANDLED, null))
     handled.put(inviteId, JSONObject().put("at", System.currentTimeMillis()))

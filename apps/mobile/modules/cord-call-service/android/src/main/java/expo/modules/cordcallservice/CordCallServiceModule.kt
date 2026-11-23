@@ -168,6 +168,8 @@ class CordCallServiceModule : Module() {
     /** Stops the ring for an invite handled in the app. */
     Function("clearRing") { inviteId: String ->
       Ring.clear(context, inviteId)
+      // Answered, declined or ended in the app: a late duplicate push must not ring it again.
+      Ring.markHandled(context, inviteId)
     }
 
     /** Clears the missed-call notifications once the owner has seen them in the app. */

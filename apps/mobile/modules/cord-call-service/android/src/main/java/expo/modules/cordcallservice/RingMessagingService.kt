@@ -18,11 +18,6 @@ class RingMessagingService : FirebaseMessagingService() {
         Log.d("CordRing", "sealed push dropped")
         return
       }
-      val inviteId = inner["invite_id"]
-      if (inner["type"] == "cord.ring" && inviteId != null && Ring.isRepeat(applicationContext, inviteId)) {
-        Log.d("CordRing", "repeated sealed ring dropped")
-        return
-      }
       dispatch(inner)
       return
     }
@@ -32,6 +27,13 @@ class RingMessagingService : FirebaseMessagingService() {
   private fun dispatch(data: Map<String, String>) {
     when (data["type"]) {
       "cord.ring" -> {
+        // FCM can deliver a ring twice, or late after its cancel: a repeat of an invite that
+        // already rang, was answered or was cancelled must not ring again (hosted and sealed).
+        val inviteId = data["invite_id"]
+        if (inviteId != null && Ring.isRepeat(applicationContext, inviteId)) {
+          Log.d("CordRing", "repeated ring dropped")
+          return
+        }
         if (RingGate.shouldShow(Ring.account(applicationContext), data["user_ref"])) {
           Ring.show(applicationContext, data)
         } else {

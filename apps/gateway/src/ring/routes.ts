@@ -646,6 +646,9 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           request.log.info({ event: 'ring_answer_repeated', invite_id: claim.invite.id });
           return { ...answer, mode: 'call' };
         }
+        case 'repeat_chat':
+          request.log.info({ event: 'ring_answer_repeated', invite_id: claim.invite.id });
+          return { mode: 'chat', agent_id: claim.invite.agent_id };
         case 'claimed':
           break;
       }
@@ -666,7 +669,12 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           answered = true;
           return { mode: 'chat', agent_id: invite.agent_id };
         } finally {
-          await claim.release(answered);
+          // Recording the phone lets it repeat a lost answer and get the same chat response.
+          await claim.release(
+            answered,
+            undefined,
+            deviceId === undefined ? undefined : { deviceId },
+          );
         }
       }
       if (options.startCall === undefined)

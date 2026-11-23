@@ -46,7 +46,7 @@ import {
   type IncomingInvite,
 } from '@/ring/invite-state';
 import { DECLINE_NOTE_MAX, parsePush } from '@/ring/protocol';
-import { setShowingInvite } from '@/ring/service';
+import { answerDeviceId, markRingHandled, setShowingInvite } from '@/ring/service';
 import { chatAnswerRoute } from '@/ring/answer-route';
 import { font } from '@/theme/fonts';
 import { callPalette as palette, radius, space, type } from '@/theme/tokens';
@@ -238,7 +238,9 @@ export default function IncomingCallScreen() {
   // The ring is over: stop the notification, say why, then leave.
   const ended = state.phase === 'ended';
   useEffect(() => {
-    if (ended) ringPlatform.clearRing(inviteId);
+    if (!ended) return;
+    ringPlatform.clearRing(inviteId);
+    markRingHandled(inviteId);
   }, [ended, inviteId]);
   // Leaves only while this screen is in front: going back with the call screen on top would close
   // the call screen instead and leave this one stuck.
@@ -266,12 +268,13 @@ export default function IncomingCallScreen() {
     dispatch({ type: 'ANSWER' });
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => undefined);
     ringPlatform.clearRing(inviteId);
+    markRingHandled(inviteId);
     // Ask for the microphone before the server starts the call, so the agent never talks to a
     // call nobody can join. A denial still goes ahead: the call screen explains how to fix it.
     // An AI app's ring opens its chat instead, where the reply can be a voice note.
     await microphonePermission.request();
     try {
-      const answer = await api.answerInvite(inviteId);
+      const answer = await api.answerInvite(inviteId, { deviceId: await answerDeviceId() });
       const chatRoute = chatAnswerRoute(answer);
       if (chatRoute) {
         // An AI app's ring opens its chat, not a call: close the iOS system call screen.
@@ -301,6 +304,7 @@ export default function IncomingCallScreen() {
     dispatch({ type: 'DECLINE' });
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     ringPlatform.clearRing(inviteId);
+    markRingHandled(inviteId);
     if (api !== undefined) {
       const outcome = await sendDecline(
         (id, request) => api.declineInvite(id, request),
