@@ -59,6 +59,12 @@ export interface RingPlatform {
   /** A tapped notification's data, once. */
   takeOpenedNotification?(): unknown;
   onNotificationOpened?(listener: () => void): () => void;
+  /** A ring started showing on the system call screen. */
+  onRingShown?(listener: (inviteId: string) => void): () => void;
+  /** Rings showing on the system call screen and not yet answered. */
+  ringingInvites?(): Promise<string[]>;
+  /** The server says this ring is over: close its system call screen with the matching reason. */
+  ringOver?(inviteId: string, status: string): void;
 }
 
 const off = () => () => undefined;

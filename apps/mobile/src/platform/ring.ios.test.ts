@@ -72,4 +72,29 @@ describe('iOS ring platform', () => {
     off();
     expect(listener).not.toHaveBeenCalled();
   });
+
+  it('hands the signed-in account and ring checks to native, and survives an old module', async () => {
+    const seen: unknown[] = [];
+    native.module = {
+      setRingAccount: (ref: string | null) => seen.push(['account', ref]),
+      ringingInvites: () => Promise.resolve(['inv_1']),
+      ringOver: (id: string, status: string) => seen.push(['over', id, status]),
+    };
+    const { ringPlatform } = await import('./ring.ios');
+    ringPlatform.setRingAccount('ref_1');
+    ringPlatform.setRingAccount(null);
+    ringPlatform.ringOver?.('inv_1', 'answered');
+    expect(await ringPlatform.ringingInvites?.()).toEqual(['inv_1']);
+    expect(seen).toEqual([
+      ['account', 'ref_1'],
+      ['account', null],
+      ['over', 'inv_1', 'answered'],
+    ]);
+
+    native.module = {};
+    vi.resetModules();
+    const old = (await import('./ring.ios')).ringPlatform;
+    expect(() => old.setRingAccount('ref_1')).not.toThrow();
+    expect(await old.ringingInvites?.()).toEqual([]);
+  });
 });

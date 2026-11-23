@@ -23,6 +23,8 @@ import {
 
 import { reportClientError } from '@/observability/sentry';
 
+import { systemCallOwnsAudio } from '@/platform/system-call-audio';
+
 import { cancelPendingStop, stopAudioSessionWithRetry } from './audio-session';
 import { downlinkWindow, type ReceiverSample } from './downlink';
 import { LEVEL_INTERVAL_MS } from './levels';
@@ -171,8 +173,11 @@ export class LiveKitCallTransport implements CallTransport {
       });
       // A retry still ending the previous call's session must not switch this one off.
       cancelPendingStop();
-      await AudioSession.startAudioSession();
-      this.audioSessionStarted = true;
+      // An iOS ring answered on the system call screen: CallKit activates the session itself.
+      if (!(await systemCallOwnsAudio())) {
+        await AudioSession.startAudioSession();
+        this.audioSessionStarted = true;
+      }
       // An abort while the session was starting ran disconnect() before there was a session to stop.
       if (signal.aborted) {
         await this.stopAudioSession();
