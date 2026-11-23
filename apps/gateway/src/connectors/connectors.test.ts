@@ -277,6 +277,21 @@ describe('pairing', () => {
 });
 
 describe('relay socket', () => {
+  // Production restarts hung 45 s and were killed: closing the socket server waited for every
+  // computer to answer its close, and one on a stalled network never does (ws waits 30 s).
+  it('shutting down does not wait for a computer that never answers the close', async () => {
+    const g = await startConnectorGateway();
+    const { token } = await g.pair('alice');
+    const connector = startFakeConnector({ url: g.socketUrl, token });
+    await connector.ready;
+    // A stalled network: the computer stops reading, so it never answers the close frame.
+    (connector.ws as unknown as { _socket: { pause(): void } })._socket.pause();
+    const started = Date.now();
+    await g.app.close();
+    expect(Date.now() - started).toBeLessThan(3_000);
+    connector.terminate();
+  }, 40_000);
+
   it('refuses an upgrade without a valid connector token', async () => {
     const g = await gateway();
     expect(await upgradeStatus(g.socketUrl, {})).toBe(401);

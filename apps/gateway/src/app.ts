@@ -285,7 +285,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         }));
   if (phoneHub) {
     registerUpgrade(PHONE_SOCKET_PATH, phoneHub.upgrade);
-    app.addHook('onClose', (_instance, done) => {
+    // Before the HTTP server closes, which waits for every upgraded socket: phones still connected
+    // would hold a restart until their ping gave up. The app reconnects on its own.
+    app.addHook('preClose', (done) => {
       phoneHub.closeAll();
       done();
     });
