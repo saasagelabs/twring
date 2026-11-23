@@ -78,6 +78,30 @@
     },
     {
      "@type": "Question",
+     "name": "Does my phone need a phone number for this?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. The ring reaches the Twring app over the internet, so there is no phone number or telephony account involved."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Which AI apps can use the Twring connector?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok and Cursor. They all use the same address, https://api.twring.com/mcp."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Why didn't my phone ring?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Most often the connector was signed in with a different account than your phone, or Do Not Disturb or quiet hours are on in Twring. Rings go to the account, not the device."
+     }
+    },
+    {
+     "@type": "Question",
      "name": "How do I remove it?",
      "acceptedAnswer": {
       "@type": "Answer",
@@ -124,32 +148,67 @@
   <div class="wrap">
     <h1>Let your AI ring your phone.</h1>
     <p class="lead">Add Twring to Claude, ChatGPT or another AI app that lets you add a custom connector in its settings. When it needs you, it can ring your phone or send you a message in Twring, and read your reply.</p>
-
     <div class="addr"><span id="url">https://api.twring.com/mcp</span><button class="btn btn-primary" type="button" id="copy">Copy</button></div>
     <p class="form-note" id="copied" aria-live="polite"></p>
-
     <div class="prose prose-tight">
       <h2>What it can do</h2>
       <ul>
-        <li>Ring your phone with a short reason when it needs you.</li>
-        <li>Send messages and files to your Twring chat.</li>
-        <li>Read the replies you send it in that chat.</li>
+        <li><strong>Ring your phone</strong> with a short reason (at most 140 characters) when it needs you. The ring is full screen, even on a locked phone. When you answer, Twring reads the reason aloud, then opens that AI's chat so you can reply by voice or text.</li>
+        <li><strong>Send you a message</strong>, with up to five files by link, without ringing. Good for results and anything that can wait.</li>
+        <li><strong>Read your replies</strong> in that chat the next time it checks.</li>
+        <li><strong>Check whether a ring can get through</strong> right now, for example if you have Do Not Disturb or quiet hours on.</li>
       </ul>
-      <p>It can't read your other chats, your agents, or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.</p>
+      <p>The ring goes over the internet to the Twring app, so no phone number or telephony account is involved.</p>
 
       <h2>Add it</h2>
+      <p>First, <a href="/beta/">get an invite</a>, install Twring on your iPhone or Android phone, and sign in. Then:</p>
       <ol>
         <li><strong>Claude.</strong> Settings, Connectors, Add custom connector. Paste the address above, then sign in and allow.</li>
         <li><strong>ChatGPT.</strong> Settings, Apps and Connectors (or Developer mode, Create). Paste the address above, then sign in and allow.</li>
         <li><strong>Grok, Cursor and other apps.</strong> Look for Connectors in the app's settings, add a custom connector with the address above, then sign in and allow.</li>
       </ol>
-      <p><strong>Need Twring first?</strong> Twring is an iPhone and Android app for calling and texting your AI agents. <a href="/beta/">Get an invite</a>, then sign in here the same way you sign in to the app: Google, or Apple.</p>
+      <p>Sign in the same way you sign in to the Twring app (Google, or Apple), with the same account. Rings go to the account, not to whichever phone is in your hand, so if the connector uses a different account than your phone, the ring has nowhere to go.</p>
 
+      <h2>Asking it to ring you</h2>
+      <p>Once connected, say what you want in plain words. For example:</p>
+      <ul>
+        <li>"Research these three suppliers, and ring me when you have a recommendation."</li>
+        <li>"Draft the reply, send it to my Twring chat, and only ring me if you need a decision."</li>
+        <li>"If anything in this report looks wrong, ring me."</li>
+      </ul>
+      <p>The AI reads your answer the next time it checks for replies, so it may not react the very second you answer. A good habit for it is to message by default and ring only when you must know or decide now. If it rings too often, tell it so in the chat.</p>
+
+      <h2>What it can and can't see</h2>
+      <p>A connected AI app gets only what you write or say in its own Twring chat. It can't read your other chats, your agents or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.</p>
+
+      <h2>What it doesn't do</h2>
+      <p>You can't place a live voice call <em>to</em> Claude or ChatGPT from Twring: chat apps don't take incoming calls. The connector is for the AI reaching you, and for you replying in its chat. For live two-way calls, connect an agent you run yourself, such as <a href="/claude-code/">Claude Code</a>, <a href="/codex/">Codex</a>, <a href="/gemini-cli/">Gemini CLI</a> or <a href="/hermes/">Hermes</a>. Those can ring you too, and you can call them back: <a href="/agent-calls-you/">how each agent rings you</a>.</p>
+
+      <h2>What's a connector?</h2>
+      <p>A connector is how you add tools to an AI app. Most use MCP, the standard way AI apps add tools. Twring's connector is an MCP server at one address, <code>https://api.twring.com/mcp</code>, and it's listed in the official MCP Registry.</p>
+
+      <h2>Other ways to get a ring or a ping</h2>
+      <ul>
+        <li><strong>A real phone call over the phone network.</strong> Telephony companies offer their own MCP servers. As of November 2026, <a href="https://www.plivo.com/docs/mcp/overview">Plivo's MCP docs</a> describe one for its voice and messaging services. That route uses a telephony account and phone numbers, which makes sense if you need to call ordinary phone numbers.</li>
+        <li><strong>A push notification.</strong> If a buzz is enough and you never need to talk back, a simple notification service may be all you need.</li>
+      </ul>
+      <p>Twring fits when you want a ring you can't miss, a reply channel in the same place, and no phone number or carrier setup.</p>
+
+      <h2>When it doesn't ring</h2>
+      <ul>
+        <li><strong>Check the account.</strong> The connector and the phone app must be signed in to the same Twring account.</li>
+        <li><strong>Check Twring's settings.</strong> Do Not Disturb and quiet hours in Twring stop rings. Notifications must be on for Twring.</li>
+        <li><strong>Check it's still connected.</strong> Look in Settings, Connected AI apps. If it isn't listed, add the connector again.</li>
+      </ul>
+      <p>Still stuck? See <a href="/support/">support</a>.</p>
       <h2>Questions</h2>
     </div>
     <div class="faq faq-tight">
       <details><summary>Can I call Claude from Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Not the Claude or ChatGPT app itself: AI chat apps don't take incoming calls. Your connected AI can ring you, and you can reply in its Twring chat. For live calls, connect an agent you run, such as Claude Code, Codex or Hermes.</p></div></details>
       <details><summary>What do I hear when it rings?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Twring reads the reason it gave, then opens its chat so you can answer by voice or text. It reads your answer the next time it checks.</p></div></details>
+      <details><summary>Does my phone need a phone number for this?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. The ring reaches the Twring app over the internet, so there is no phone number or telephony account involved.</p></div></details>
+      <details><summary>Which AI apps can use the Twring connector?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok and Cursor. They all use the same address, https://api.twring.com/mcp.</p></div></details>
+      <details><summary>Why didn't my phone ring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Most often the connector was signed in with a different account than your phone, or Do Not Disturb or quiet hours are on in Twring. Rings go to the account, not the device.</p></div></details>
       <details><summary>How do I remove it?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>In Twring: Settings, Connected AI apps, Remove. It can't reach you again unless you allow it.</p></div></details>
       <details><summary>What data does it get?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Only what you write or say in its own Twring chat. Not your other chats, agents or calls. See the <a href="/privacy">privacy notice</a>.</p></div></details>
     </div>
