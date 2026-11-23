@@ -45,7 +45,7 @@ describe('offline help', () => {
       expect(steps.length).toBeLessThanOrEqual(3);
       for (const step of [OFFLINE_HELP_TITLE, ...steps]) {
         expect(step).not.toMatch(JARGON);
-        expect(step).not.toContain('—');
+        expect(step).not.toContain(String.fromCharCode(0x2014));
       }
     }
   });

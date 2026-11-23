@@ -94,7 +94,7 @@ One list, titled Agents, with one row per agent, newest activity first:
 
 - Avatar with an online dot (none for AI apps), name, time of the last activity.
 - Second line: the chat preview. With chats off it says what a tap does: "Ready to call" or
-  "Offline · start it on your computer".
+  "Offline · check your computer is on".
 - An unseen missed ring turns that agent's line into "Missed call" in red until the owner taps
   the row, calls it, or opens Recents. Nothing is inserted above the list.
 - Unread badge from the chat.
