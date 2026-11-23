@@ -89,7 +89,7 @@
      "name": "Is Twring free?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK."
+      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. Pricing has the details."
      }
     }
    ]
@@ -146,7 +146,16 @@ hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <
 <p>When Hermes needs your OK for a risky command, the request appears on your phone. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.</p>
 
 <h2>It rings you</h2>
-<p>Deliver any Hermes scheduled job to <code>twring</code>. Its result lands in your Twring chat, and your phone rings with its first sentence.</p>
+<p>Deliver any Hermes scheduled job to <code>twring</code>. Its result lands in your Twring chat, and your phone rings with its first sentence. Set <code>TWRING_RING_ON_DELIVERY=false</code> to get a notification instead of a ring.</p>
+<p>Hang up while Hermes is still working, and the rest of its answer reaches your chat, with a ring if your Twring settings allow. <a href="/agent-calls-you/">How rings work</a> covers quiet hours, limits and declining with a reply.</p>
+<h2>Handy commands</h2>
+<ul>
+  <li><code>hermes twring status</code> shows whether this computer is linked.</li>
+  <li><code>hermes twring unlink</code> forgets the link on this computer. Then delete Hermes in the app too.</li>
+  <li><code>hermes twring link --server https://your-twring-server</code> links to <a href="/self-hosting/">your own Twring server</a> instead.</li>
+</ul>
+<p>Already run Hermes through Twring's computer program, <code>twring-connect.mjs</code>? Stop it before linking the plugin. Otherwise the app shows two "Hermes" agents.</p>
+<p>The <a href="/blog/hermes-agent-phone-call/">Hermes guide</a> walks through setup and scheduled jobs in more detail, and the <a href="https://github.com/saasagelabs/twring/tree/main/integrations/hermes">plugin's README</a> lists exactly what it sends to Twring.</p>
 <p>Twring also works with <a href="/claude-code/">Claude Code</a>, <a href="/codex/">Codex</a> and <a href="/gemini-cli/">Gemini CLI</a>, and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can <a href="/connector/">ring and message you</a> too.</p>
 
       <h2>Questions</h2>
@@ -155,7 +164,7 @@ hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <
       <details><summary>Does Twring replace Hermes's model?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions.</p></div></details>
       <details><summary>Can Twring approve commands for me?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no.</p></div></details>
       <details><summary>Are my calls recorded?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
-      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK.</p></div></details>
+      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. <a href="/pricing/">Pricing</a> has the details.</p></div></details>
     </div>
   </div>
 </main>

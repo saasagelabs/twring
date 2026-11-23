@@ -78,6 +78,30 @@
     },
     {
      "@type": "Question",
+     "name": "Can I talk to the same session I have open in my terminal?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Not directly. Twring starts Claude Code in the folder you connected and keeps one ongoing Twring conversation across your calls and chats. To drive the exact session open in your terminal, use Anthropic's Remote Control."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does Claude Code's own /voice command work from my phone?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Voice dictation in Claude Code needs a microphone on the computer running it, and it turns your speech into text only. Twring is a phone call with spoken answers."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I use it while driving?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "A Twring call works like any other call on your phone, with Bluetooth if you like. Follow your local rules about phones while driving, and keep Claude Code read-only if you can't check its work."
+     }
+    },
+    {
+     "@type": "Question",
      "name": "Are my calls recorded?",
      "acceptedAnswer": {
       "@type": "Answer",
@@ -89,7 +113,7 @@
      "name": "Is Twring free?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK."
+      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. Pricing has the details."
      }
     }
    ]
@@ -123,38 +147,77 @@
 <main id="main" class="page">
   <div class="wrap">
     <h1>Talk to Claude Code from your phone.</h1>
-    <p class="lead">Twring calls the Claude Code you already run on your computer. Press Call, say what you need, and hear its answer as it comes. When a job is done or it needs your OK, it can ring your phone.</p>
+    <p class="lead">Twring calls the Claude Code you already run on your computer. Press Call, say what you need, and hear its answer as it streams in. When a job is done or it needs your OK, it can ring your phone.</p>
     <p class="hero-ctas"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
-
     <div class="prose prose-tight">
+<h2>Which way of talking do you want?</h2>
+<p>People mean three different things by "talk to Claude Code", and each has a different answer.</p>
+<ul>
+  <li><strong>Speak instead of typing, at your desk.</strong> Claude Code has built-in voice dictation. Run <code>/voice</code>, hold the space bar and talk, and your words appear in the prompt. It needs a Claude.ai account and a microphone on the computer, and it turns speech into text only: Claude's answers stay on screen. (<a href="https://code.claude.com/docs/en/voice-dictation">Anthropic's docs</a>, as of November 2026.)</li>
+  <li><strong>Type to it from your phone.</strong> Remote Control connects the Claude app on iOS or Android to a Claude Code session on your computer. You start it with <code>claude remote-control</code> or <code>/remote-control</code>, then pick the session in the app's Code tab. Your computer has to stay on, and Claude can send push notifications when a task finishes or needs a decision. (<a href="https://code.claude.com/docs/en/mobile">Anthropic's docs</a>, as of November 2026.)</li>
+  <li><strong>Have a spoken conversation from your phone.</strong> This is what Twring does: a live call, where you talk and Claude Code talks back, with your hands and eyes free.</li>
+</ul>
+<p>If typing on your phone is fine, Remote Control is official, free with your plan, and lets you drive the exact session open in your terminal. Twring is for when you'd rather talk: walking, driving, cooking, or just thinking out loud.</p>
+
 <h2>Set it up</h2>
 <ol>
-  <li><a href="/beta/">Get an invite</a> and install Twring on your iPhone or Android phone.</li>
-  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>. Then either:<ul><li>paste the short message it gives you into Claude Code, and approve the command Claude Code runs to connect itself, or</li><li>tap <strong>Scan a code on my computer</strong>, run the command it shows in your project folder, and scan the code it prints.</li></ul>Both download the Twring connector from twring.com. It needs Node.js 20 or newer.</li>
+  <li><a href="/beta/">Get an invite</a> and install Twring. On iPhone it comes through TestFlight, Apple's app for early releases. On Android it's an APK from twring.com, not from Google Play.</li>
+  <li>Sign in with Google, or Apple on iPhone, using the email your invite went to.</li>
+  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>. Then either:<ul><li>paste the short message it gives you into Claude Code, and approve the command Claude Code runs to connect itself, or</li><li>tap <strong>Scan a code on my computer</strong>, run the command it shows in your project folder, and scan the code it prints.</li></ul>Both download the Twring connector from twring.com. It needs <a href="https://nodejs.org/">Node.js</a> 20 or newer, the free program that runs it.</li>
   <li>Claude Code appears in the app. Press <strong>Call</strong>.</li>
 </ol>
+<p>Connect in the folder you want Claude Code to work in. Each call starts Claude Code there, as you, with your project's instructions.</p>
 
-<h2>What happens on a call</h2>
+<h2>What a call is like</h2>
 <ul>
   <li>Your words reach Claude Code as a message, in that folder, with its own model, memory, project instructions and tools.</li>
-  <li>Twring speaks the answer as it streams in. Talk over it at any time and it stops speaking.</li>
-  <li>Calls and typed chats with Claude Code sit side by side in the app.</li>
+  <li>Twring speaks the answer as it streams in. Talk over it at any time and it stops speaking. Say "stop" and Twring cancels the current turn.</li>
+  <li>Calls and typed chats with Claude Code sit side by side in the app, so you can switch to typing when you're somewhere quiet.</li>
+  <li>The usage counts on your own Claude plan, as if you had typed. Twring doesn't swap in another model.</li>
 </ul>
 
 <h2>It reads, unless you let it edit</h2>
-<p>On a call, Claude Code can read and search your files but not change them. To let it edit, add <code>--claude-allow-edits</code> to the command.</p>
+<p>On a call, Claude Code can read and search your files and the web, but not change anything. That's a safe default for a phone call, where you can't see a diff before it lands. To let it edit, add <code>--claude-allow-edits</code> to the connect command. Only do that in a folder where you're comfortable reviewing changes later, ideally one tracked by git.</p>
+<p>Twring never runs Claude Code's tools itself. It only carries your words in and Claude Code's answer out.</p>
 
 <h2>Let it ring you</h2>
 <p>In a Twring call or chat, Claude Code is told how to ring your phone. Ask it to call you when a long job is done, and it rings you with a short reason. If you hang up while it's still working, it keeps going, and its answer lands in your Twring chat.</p>
-<p>Twring also works with <a href="/codex/">Codex</a>, <a href="/gemini-cli/">Gemini CLI</a> and <a href="/hermes/">Hermes</a>, and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can <a href="/connector/">ring and message you</a> too.</p>
+<p>To have Claude Code ring you by itself when it needs permission or is waiting for you, add the Twring hook: <a href="/blog/claude-code-call-me-when-done/">make Claude Code ring your phone when it needs you</a>. <a href="/agent-calls-you/">How rings work</a> covers quiet hours, limits and declining with a reply.</p>
 
+<h2>Speak like it's a call, not a prompt</h2>
+<ul>
+  <li><strong>Ask for the short version.</strong> Long answers with code are hard to listen to. Ask "what's the gist?" and read the details in the chat later.</li>
+  <li><strong>Give it real work.</strong> "Find why the login test fails and tell me" works well by voice. Claude Code goes away, reads, and comes back with an answer.</li>
+  <li><strong>Hang up if it's slow.</strong> It keeps going, and its answer lands in your Twring chat.</li>
+  <li><strong>Teach it names.</strong> If Twring keeps mishearing a project or a person, the agent can add them to a word list for later calls.</li>
+</ul>
+
+<h2>What you need</h2>
+<ul>
+  <li><strong>An invite.</strong> Twring lets people in in waves. It's <a href="/pricing/">free while it launches</a>.</li>
+  <li><strong>Your computer on and awake</strong>, with the Twring connector running. If the computer sleeps, Claude Code shows as offline in the app. The connector can be set up to run in the background and start with the computer.</li>
+  <li><strong>Node.js 20 or newer</strong> on that computer, and Claude Code already signed in.</li>
+  <li><strong>An internet connection on both ends.</strong> No phone number or phone plan is involved: it's an internet call.</li>
+</ul>
+
+<h2>If it doesn't work</h2>
+<ul>
+  <li><strong>Claude Code doesn't answer:</strong> check that the computer is awake and the connector is running. If it stays offline, tap Connect another agent, On my computer or server, and link again.</li>
+  <li><strong>It can't hear you:</strong> allow the microphone for Twring in your phone's settings, and try the speaker button to switch between phone, speaker and Bluetooth.</li>
+  <li><strong>It says it can't change a file:</strong> that's the read-only default. Reconnect with <code>--claude-allow-edits</code> if you want edits.</li>
+</ul>
+<p>The <a href="/support/">support page</a> covers more, and a person reads every email to support@twring.com.</p>
+<p>Twring also works with <a href="/codex/">Codex</a>, <a href="/gemini-cli/">Gemini CLI</a> and <a href="/hermes/">Hermes</a>, and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can <a href="/connector/">ring and message you</a> too.</p>
       <h2>Questions</h2>
     </div>
     <div class="faq faq-tight">
       <details><summary>Does Twring replace Claude Code's model?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring only handles the voice: it turns your speech into text for Claude Code, and its reply into speech for you. Claude Code does the thinking with its own model, memory and tools. Twring never runs its tools.</p></div></details>
       <details><summary>Does it use my own Claude plan?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring runs the Claude Code that is signed in on your computer, so its usage counts on your own Claude plan, as if you had typed.</p></div></details>
+      <details><summary>Can I talk to the same session I have open in my terminal?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Not directly. Twring starts Claude Code in the folder you connected and keeps one ongoing Twring conversation across your calls and chats. To drive the exact session open in your terminal, use Anthropic's <a href="https://code.claude.com/docs/en/remote-control">Remote Control</a>.</p></div></details>
+      <details><summary>Does Claude Code's own /voice command work from my phone?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Voice dictation in Claude Code needs a microphone on the computer running it, and it turns your speech into text only. Twring is a phone call with spoken answers.</p></div></details>
+      <details><summary>Can I use it while driving?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>A Twring call works like any other call on your phone, with Bluetooth if you like. Follow your local rules about phones while driving, and keep Claude Code read-only if you can't check its work.</p></div></details>
       <details><summary>Are my calls recorded?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
-      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK.</p></div></details>
+      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. <a href="/pricing/">Pricing</a> has the details.</p></div></details>
     </div>
   </div>
 </main>
