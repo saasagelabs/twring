@@ -342,7 +342,7 @@ export default function ChatScreen() {
               {aiApp
                 ? 'AI app'
                 : agent.data?.connector_online === false
-                  ? 'Offline · start it on your computer'
+                  ? 'Offline · check your computer is on'
                   : agent.data
                     ? agentStatusFor(agent.data).label
                     : ''}

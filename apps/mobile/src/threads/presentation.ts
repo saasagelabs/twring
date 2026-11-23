@@ -71,7 +71,7 @@ export function rowSecondLine(message: ThreadMessage | null | undefined): string
 
 /** A Home row's second line when the server has chats off: what a tap will do. */
 export function agentRowLine(offline: boolean): string {
-  return offline ? 'Offline · start it on your computer' : 'Ready to call';
+  return offline ? 'Offline · check your computer is on' : 'Ready to call';
 }
 
 export function sortChatAgents(agents: Agent[], threads: ThreadSummary[]): Agent[] {
