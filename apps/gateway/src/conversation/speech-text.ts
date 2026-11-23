@@ -23,6 +23,20 @@ const INLINE_CODE = /`([^`\n]*)`/g;
 const PATH = /(?<!\S)[^\s/\\]*(?:[/\\][^\s/\\]*){2,}/g;
 /** A UUID, or a run of 12+ hex digits (a hash, a git sha); whole tokens only, like PATH. */
 const HEX = /(?<![\w-])(?:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}|[0-9a-f]{12,})(?![\w-])/gi;
+/**
+ * Emoji and pictographs, with the parts that build them: skin tones, flag letters and tag
+ * characters, keycap marks, joiners and variation selectors (after livekit/agents `filter_emoji`).
+ */
+const EMOJI =
+  /[\p{Extended_Pictographic}\p{Emoji_Modifier}\p{Regional_Indicator}\u{E0020}-\u{E007F}]|\u200D|\uFE0E|\uFE0F|\u20E3/gu;
+/** A CJK sentence end with any closing quotes: speech is released after it, as after a space. */
+const CJK_END = /[。！？．][」』）”]*/g;
+/** A thematic break (---, ***, ___), a setext underline (===) or a table's |---|:--:| row. */
+const SEPARATOR = /^[ \t]*(?:([-*_=])(?:[ \t]*\1){2,}|(?=[^|]*\|)(?=[^-]*-)[|:\- \t]+)[ \t]*$/;
+/** A markdown table row: read as its cells ("Free, 0"), without pipes. */
+const TABLE_ROW = /^[ \t]{0,3}\|/;
+/** An unfinished line that could still be a table row or a separator: held until it ends. */
+const HELD_LINE = /^[ \t]{0,3}(?:\||[-*_=][-*_= \t]*$)/;
 /** A complete link, or complete brackets that aren't a link, at the start of the text. */
 const LINK_START = /^!?\[[^\]]*\]\([^)]*\)|^\[[^\]]*\](?=[^(])/;
 /** A complete HTML tag or autolink at the start of the text. */
@@ -33,8 +47,10 @@ const TAG_PREFIX = /^<\/?(?:[a-z][^>]*)?$/i;
 /**
  * Turns streamed agent text into text fit to speak (VOICE_ARCHITECTURE §9). Flux TTS takes a turn's
  * text as a stream and chooses its own synthesis boundaries (ADR-013/014), so this doesn't split
- * sentences. It releases whole words only, holds back a link or tag until it is complete, and drops
- * what shouldn't be read aloud: markdown syntax, code blocks, raw URLs, and HTML tags. The visible
+ * sentences. It releases whole words only (or up to a CJK sentence end, since those languages use
+ * no spaces), holds back a link, tag, table row or separator line until it is complete, and drops
+ * what shouldn't be read aloud: markdown syntax, code blocks, raw URLs, HTML tags, emoji and
+ * separator lines. A table is read row by row as plain cells ("Free, 0"). The visible
  * transcript keeps the agent's original text.
  */
 export class SpeechTextFilter {
@@ -65,14 +81,14 @@ export class SpeechTextFilter {
     if (cut === 0) return '';
     const ready = this.buffer.slice(0, cut);
     this.buffer = this.buffer.slice(cut);
-    return this.convert(ready);
+    return this.convert(ready, false);
   }
 
   /** The agent finished: returns whatever is left. */
   end(): string {
     const rest = this.buffer;
     this.buffer = '';
-    return this.convert(rest);
+    return this.convert(rest, true);
   }
 
   /** Index up to which the buffer can be released: after the last whitespace, before an open link or tag. */
@@ -80,6 +96,8 @@ export class SpeechTextFilter {
     const buffer = this.buffer;
     let cut =
       Math.max(buffer.lastIndexOf(' '), buffer.lastIndexOf('\n'), buffer.lastIndexOf('\t')) + 1;
+    // Japanese and Chinese have no spaces: a sentence end is the place to release.
+    for (const end of buffer.matchAll(CJK_END)) cut = Math.max(cut, end.index + end[0].length);
     if (cut === 0 && buffer.length > MAX_HELD_CHARS) return buffer.length;
     const open = buffer.lastIndexOf('[', cut - 1);
     if (open >= 0) {
@@ -98,7 +116,17 @@ export class SpeechTextFilter {
         : TAG_PREFIX.test(tail) && tail.length <= MAX_LINK_HOLD_CHARS;
       if (hold) cut = Math.min(cut, lt);
     }
-    return this.holdOpenCode(cut);
+    return this.holdOpenLine(this.holdOpenCode(cut));
+  }
+
+  /** Holds back an unfinished last line that may be a table row or separator (bounded). */
+  private holdOpenLine(cut: number): number {
+    const buffer = this.buffer;
+    const lineStart = buffer.lastIndexOf('\n') + 1;
+    if (lineStart === 0 && !this.atLineStart) return cut;
+    const line = buffer.slice(lineStart);
+    if (line.length > MAX_HELD_CHARS || !HELD_LINE.test(line)) return cut;
+    return Math.min(cut, lineStart);
   }
 
   /** Holds back an inline code span still open on the last line before `cut` (bounded). */
@@ -119,11 +147,17 @@ export class SpeechTextFilter {
     return buffer.length - at <= MAX_CODE_HOLD_CHARS ? at : cut;
   }
 
-  private convert(raw: string): string {
+  /** `final` is true at end(): the last line is then complete even without a newline. */
+  private convert(raw: string, final: boolean): string {
     let out = '';
-    for (const piece of raw.split(/(\n)/)) {
+    const pieces = raw.split(/(\n)/);
+    for (const [index, piece] of pieces.entries()) {
       if (piece === '\n') {
-        if (!this.inFence) out += this.lineBreak(out);
+        if (!this.inFence) {
+          const pause = this.lineBreak(out);
+          // A dropped emoji or trailing space must not leave "word ." before the pause.
+          out = pause === '. ' ? out.trimEnd() + pause : out + pause;
+        }
         this.atLineStart = true;
         continue;
       }
@@ -139,6 +173,18 @@ export class SpeechTextFilter {
           }
           continue;
         }
+        // Only a whole line is a separator: "--- " released before "Note" arrives is not one.
+        const whole = final || index < pieces.length - 1;
+        if (!this.inFence && whole && SEPARATOR.test(line)) {
+          this.atLineStart = false;
+          continue;
+        }
+        if (!this.inFence && TABLE_ROW.test(line))
+          line = line
+            .split('|')
+            .map((cell) => cell.trim())
+            .filter((cell) => cell !== '')
+            .join(', ');
         line = line.replace(LINE_PREFIX, '');
       }
       this.atLineStart = false;
@@ -154,6 +200,7 @@ export class SpeechTextFilter {
         )
         .replace(PATH, fileName)
         .replace(HEX, hexToken)
+        .replace(EMOJI, '')
         .replace(MARKS, '')
         .replace(UNDERSCORE_MARK, '');
     }

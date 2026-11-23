@@ -111,7 +111,7 @@ describe('SpeechTextFilter edge cases (verifier)', () => {
         /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/,
       );
     }
-    expect(pieces.join('')).toBe('Cheers 🎉🎉 done café naïve ');
+    expect(pieces.join('')).toBe('Cheers done café naïve ');
   });
 
   it('a raw HTML link with a URL keeps its text and drops the tag', () => {
@@ -193,6 +193,84 @@ describe('SpeechTextFilter code-heavy answers', () => {
       noted(chunks(input, 997));
       noted([input]);
       expect(performance.now() - started).toBeLessThan(1000);
+    }
+  });
+});
+
+describe('SpeechTextFilter tables, emoji, separators and CJK', () => {
+  const every = (source: string, max = 9): string[] => {
+    const out: string[] = [];
+    for (let size = 1; size <= max; size += 1) out.push(speak(chunks(source, size)).text);
+    return out;
+  };
+
+  it('reads a table row by row as plain cells, without pipes or dashes, in any split', () => {
+    const source =
+      'Prices:\n| Plan | Cost |\n|------|:----:|\n| Free | 0 |\n| Pro | 10 |\nThat is all.';
+    for (const text of every(source, 12))
+      expect(text).toBe('Prices: Plan, Cost. Free, 0. Pro, 10. That is all.');
+  });
+
+  it('holds a table row split mid-cell until the row ends', () => {
+    const filter = new SpeechTextFilter();
+    expect(filter.push('| Name | Ag')).toBe('');
+    expect(filter.push('e |\n|--')).toBe('Name, Age. ');
+    expect(filter.push('-|---|\n')).toBe('');
+  });
+
+  it('drops separator lines', () => {
+    for (const sep of ['---', '***', '===', '___', '- - -', '* * *'])
+      for (const text of every(`One\n${sep}\nTwo`)) expect(text).toBe('One. Two');
+  });
+
+  it('removes emoji, ZWJ families, flags, skin tones and keycaps, keeping text and CJK', () => {
+    expect(speak(['Done ✅ ready 🚀!']).text).toBe('Done ready !');
+    expect(speak(['Family 👨‍👩‍👧‍👦 here']).text).toBe('Family here');
+    expect(speak(['From 🇯🇵 and 🏴󠁧󠁢󠁳󠁣󠁴󠁿 ok']).text).toBe('From and ok');
+    expect(speak(['Wave 👋🏽 hi ❤️ 1️⃣']).text).toBe('Wave hi 1');
+    expect(speak(['日本語 😀 テキスト']).text).toBe('日本語 テキスト');
+  });
+
+  it('never leaks part of an emoji split across deltas', () => {
+    const source = 'Hi 👨‍👩‍👧 and 👋🏽 bye';
+    for (let size = 1; size <= 6; size += 1) {
+      const deltas = Array.from(
+        source.matchAll(new RegExp(`[\\s\\S]{1,${size}}`, 'g')),
+        (m) => m[0],
+      );
+      const { pieces, text } = speak(deltas);
+      expect(text).toBe('Hi and bye');
+      for (const piece of pieces) expect(piece).not.toMatch(/[\uD800-\uDFFF]|\u200D|\uFE0F/);
+    }
+  });
+
+  it('strips mixed markdown in one reply', () => {
+    expect(speak(['# Result 🎉\nnext']).text).toBe('Result. next');
+    const source = '# 🎉 Result\n\n**Bold** and *it*\n---\n- item one\n| a | b |\n|---|---|\nend';
+    for (const text of every(source)) expect(text).toBe('Result. Bold and it. item one. a, b. end');
+  });
+
+  it('releases Japanese sentence by sentence as it streams', () => {
+    const filter = new SpeechTextFilter();
+    expect(filter.push('こんにちは。今日は')).toBe('こんにちは。');
+    expect(filter.push('いい天気ですね！明日')).toBe('今日はいい天気ですね！');
+    expect(filter.push('は？「はい。」そ')).toBe('明日は？「はい。」');
+    expect(filter.push('うです．次')).toBe('そうです．');
+    expect(filter.end()).toBe('次');
+  });
+
+  it('keeps Japanese text whole in any split', () => {
+    const source = '最初の文です。二番目！「引用？」\n三番目です。';
+    for (const text of every(source))
+      expect(text).toBe('最初の文です。二番目！「引用？」 三番目です。');
+  });
+});
+
+describe('SpeechTextFilter partial lines', () => {
+  it('keeps a line that only starts like a separator ("=== title", "--- Note")', () => {
+    for (const input of ['=== title', '--- Note: keep this']) {
+      expect(speak([input]).text).toBe(input);
+      expect(speak([...input]).text).toBe(input);
     }
   });
 });
