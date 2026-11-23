@@ -2,8 +2,8 @@
 const MAX_HELD_CHARS = 300;
 /** An unclosed `[` or `<` is held at most this long, so a stray one can't cause long dead air. */
 const MAX_LINK_HOLD_CHARS = 120;
-/** An unclosed inline code span is held at most this long. */
-const MAX_CODE_HOLD_CHARS = 200;
+/** An unclosed inline code span is held at most this long (as for links: no long dead air). */
+const MAX_CODE_HOLD_CHARS = MAX_LINK_HOLD_CHARS;
 /** Inline code longer than this is dropped; shorter (like `npm test`) is read as words. */
 const MAX_SPOKEN_CODE_CHARS = 40;
 
