@@ -2,7 +2,7 @@
  * Call proof: does the gateway hear what callers say, on real phone-like audio?
  *
  *   pnpm --filter @twring/gateway call:proof [--quick] [--estimate] [--conditions clean,quiet]
- *     [--settings F|-] [--thresholds F] [--update-baseline] [--port 8098]
+ *     [--settings F|-] [--thresholds F] [--update-baseline] [--no-hints] [--port 8098]
  *
  * Builds on the load test's harness (lib/harness.ts): a simulated phone joins a call through
  * LiveKit and speaks known lines in real time, each followed by silence as a caller would
@@ -15,6 +15,12 @@
  * Gateway: the built dist/main.js started here on the test line, or CALL_PROOF_GATEWAY_URL (a
  * staging server running AUTH_MODE=dev and GATEWAY_AUDIO_TEST_MODE=repeat; its log is not read,
  * so gateway-side timings are left out). Never production. Exits 1 on a regression.
+ *
+ * Keyterms: a real call to a saved agent gives Deepgram the agent's own words, the interruption
+ * words, Twring and the agent's name (agentSttKeyterms). The test line has no saved agent, so the
+ * corpus's `hints` (or CALL_PROOF_KEYTERMS, comma-separated) go in as DEEPGRAM_STT_KEYTERMS, ahead
+ * of the interruption words and Twring, as an agent's words would. `--no-hints` gives only the
+ * defaults. A remote gateway keeps its own settings, so its hints are unknown.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,6 +41,7 @@ import { SAMPLE_RATE, SAMPLES_PER_FRAME, peakDbfs } from '../src/audio/pcm';
 import {
   loadClips,
   loadCorpus,
+  loadCorpusHints,
   readRecordings,
   estimateSeconds,
   type Clip,
@@ -42,6 +49,8 @@ import {
 import { CONDITIONS, applyCondition, type ConditionName } from './lib/call-proof/dsp';
 import {
   DEFAULT_THRESHOLDS,
+  bargeDecision,
+  hypothesisOf,
   formatTable,
   judge,
   scoreCondition,
@@ -100,12 +109,32 @@ const baseEnv: Record<string, string | undefined> = {
   ...process.env,
   ...(envFile !== undefined && readEnvFile(envFile)),
 };
-const remote = baseEnv.CALL_PROOF_GATEWAY_URL;
+// An unset workflow variable arrives as an empty string: that means the local test line.
+const remote = baseEnv.CALL_PROOF_GATEWAY_URL?.trim() || undefined;
 if (isProduction(baseEnv) || (remote ?? '').includes('api.twring.com')) {
   console.error('Refusing to run the call proof against production. Use staging or local.');
   process.exit(2);
 }
+/** The agent keyterms this run gives the recognizer; undefined when it cannot set them (remote). */
+const hints: string[] | undefined =
+  remote !== undefined
+    ? undefined
+    : flag('no-hints')
+      ? []
+      : baseEnv.CALL_PROOF_KEYTERMS !== undefined
+        ? baseEnv.CALL_PROOF_KEYTERMS.split(',')
+            .map((t) => t.trim())
+            .filter((t) => t !== '')
+        : loadCorpusHints(corpusPath);
 const childEnv = testLineEnv(baseEnv, port, 'repeat');
+if (hints !== undefined) {
+  const deployment = (baseEnv.DEEPGRAM_STT_KEYTERMS ?? '')
+    .split(',')
+    .filter((t) => t.trim() !== '');
+  const terms = [...hints, ...deployment];
+  if (terms.length > 0) childEnv.DEEPGRAM_STT_KEYTERMS = terms.join(',');
+  else delete childEnv.DEEPGRAM_STT_KEYTERMS;
+}
 const deepgram = deepgramConfig(loadGatewayEnv(childEnv));
 if (deepgram === undefined) {
   console.error('DEEPGRAM_API_KEY is needed to voice the callers and to hear them.');
@@ -145,7 +174,7 @@ interface Caption {
 interface CallRun {
   results: UtteranceResult[];
   callId: string;
-  bargeIn?: BargeIn & { quietAtEpochMs?: number };
+  bargeIn?: BargeIn & { onsetEpochMs?: number; quietAtEpochMs?: number };
 }
 
 async function runCondition(
@@ -251,6 +280,7 @@ async function runCondition(
       }
       await sleep(AFTER_SPEECH_MS);
       const mine = finals.slice(firstFinal);
+      const heard = hypothesisOf(mine);
       const committedAt = mine[0]?.at;
       results.push({
         id: clip.utterance.id,
@@ -258,8 +288,8 @@ async function runCondition(
         voice: clip.voice,
         reference: clip.utterance.text,
         keyTerms: clip.utterance.keyTerms,
-        hypothesis: mine.map((c) => c.text).join(' '),
-        commits: mine.length,
+        hypothesis: heard.text,
+        commits: heard.turns,
         ...(committedAt !== undefined && { commitMs: Math.max(0, committedAt - endAt) }),
         expectReply,
         replyHeard: audibleAt.some((t) => t > endAt),
@@ -295,9 +325,12 @@ async function runCondition(
     if (quietSince(onset) < 500) return { stopMs: null };
     const last = audibleAt.filter((t) => t >= onset).at(-1) ?? onset;
     await sleep(2000);
+    // Epoch times from Date.now(), the gateway log's clock (performance.timeOrigin can drift).
+    const toEpoch = (t: number) => Date.now() - (now() - t);
     return {
       stopMs: Math.round(last - onset),
-      quietAtEpochMs: performance.timeOrigin + last,
+      onsetEpochMs: toEpoch(onset),
+      quietAtEpochMs: toEpoch(last),
     };
   }
 }
@@ -313,23 +346,6 @@ function textToAudio(callId: string): number[] {
     if (typeof entry.after_text_ms === 'number') times.push(entry.after_text_ms);
   }
   return times;
-}
-
-/**
- * The gateway's barge-in decision (epoch ms) for the barge-in test: the last `barge_in` in the
- * call before the reply went quiet (earlier clips can barge in too).
- */
-function bargeDecidedAt(callId: string, quietAt: number): number | undefined {
-  if (remote !== undefined) return undefined;
-  const times = (readGatewayLog(gatewayLog) as Record<string, unknown>[]).flatMap((e) =>
-    e.call_id === callId &&
-    e.event === 'barge_in' &&
-    typeof e.time === 'number' &&
-    e.time <= quietAt
-      ? [e.time]
-      : [],
-  );
-  return times.at(-1);
 }
 
 async function main(): Promise<number> {
@@ -365,7 +381,8 @@ async function main(): Promise<number> {
       `${recorded > 0 ? ` (${recorded} recordings)` : ''} x ${conditions.length} conditions` +
       `\n  estimated Deepgram use: ~${Math.round(sttSeconds / 60)} min STT, ~${Math.round(ttsSeconds / 60)} min TTS` +
       ` (${uncached.length} lines to voice; the rest cached)` +
-      `\n  gateway: ${remote ?? 'local test line (repeat agent)'}`,
+      `\n  gateway: ${remote ?? 'local test line (repeat agent)'}` +
+      `\n  agent keyterms: ${hints === undefined ? 'set by the remote gateway' : hints.length === 0 ? 'none (defaults only)' : hints.join(', ')}`,
   );
   if (flag('estimate')) return 0;
 
@@ -400,7 +417,11 @@ async function main(): Promise<number> {
   });
   try {
     await waitReady(base);
-    const report: ProofReport = { mode: quick ? 'quick' : 'full', conditions: [] };
+    const report: ProofReport = {
+      mode: quick ? 'quick' : 'full',
+      ...(hints !== undefined && { hints }),
+      conditions: [],
+    };
     const all: UtteranceResult[] = [];
     for (const condition of conditions) {
       const barge =
@@ -413,9 +434,16 @@ async function main(): Promise<number> {
       report.conditions.push(scoreCondition(condition, run.results, textToAudio(run.callId)));
       all.push(...run.results);
       if (run.bargeIn !== undefined) {
-        const { quietAtEpochMs, ...bargeIn } = run.bargeIn;
+        const { onsetEpochMs, quietAtEpochMs, ...bargeIn } = run.bargeIn;
         const decided =
-          quietAtEpochMs === undefined ? undefined : bargeDecidedAt(run.callId, quietAtEpochMs);
+          remote !== undefined || onsetEpochMs === undefined || quietAtEpochMs === undefined
+            ? undefined
+            : bargeDecision(
+                readGatewayLog(gatewayLog) as Record<string, unknown>[],
+                run.callId,
+                onsetEpochMs,
+                quietAtEpochMs,
+              );
         report.bargeIn =
           decided !== undefined && quietAtEpochMs !== undefined
             ? { ...bargeIn, detectedToStopMs: Math.max(0, Math.round(quietAtEpochMs - decided)) }
@@ -439,7 +467,8 @@ async function main(): Promise<number> {
       if (c.keyTermsMissed.length > 0)
         console.error(`${c.condition} missed: ${c.keyTermsMissed.join('; ')}`);
     }
-    if (baseline === undefined || flag('update-baseline')) {
+    // A first run becomes the baseline only when it passes; a failing one needs --update-baseline.
+    if ((baseline === undefined && reasons.length === 0) || flag('update-baseline')) {
       writeFileSync(baselinePath, JSON.stringify(report, null, 2));
       console.error(`baseline written: ${baselinePath}`);
     }

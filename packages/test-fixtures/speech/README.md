@@ -26,6 +26,16 @@ caller.
 - Files directly in the folder are voice `owner`. To add other speakers, put their files in a
   subfolder each: `CALL_PROOF_AUDIO_DIR/ana/u01-twring-hello.wav` is voice `ana`.
 
+## Keyterms
+
+A real call to a saved agent gives the recognizer that agent's words (added in the app or with
+`add_words`), the interruption words, Twring and the agent's name. The test line has no saved agent,
+so the proof passes `hints` from `corpus.json` (the names and brands in the lines) the same way,
+ahead of the defaults. `CALL_PROOF_KEYTERMS=a,b,c` replaces the list; `--no-hints` gives only the
+defaults (interruption words and Twring), which shows what a caller gets from an agent with no words
+saved. The report and table name the hints, and a run is compared only with a baseline taken with
+the same hints. Against a remote gateway the hints are whatever that server is set up with.
+
 ## Running
 
 ```sh
@@ -39,11 +49,11 @@ It needs `DEEPGRAM_API_KEY` and LiveKit settings in `apps/gateway/.env` (or `--s
 refuses production settings. `CALL_PROOF_GATEWAY_URL` points it at a staging server running
 `AUTH_MODE=dev` and `GATEWAY_AUDIO_TEST_MODE=repeat` instead of a local one.
 
-The first run writes the baseline (`apps/gateway/.call-proof/baseline-full.json` or
+The first passing run writes the baseline (`apps/gateway/.call-proof/baseline-full.json` or
 `baseline-quick.json`); later runs fail (exit 1) when below the fixed limits (key-term recall 95%
 clean, 85% narrowband; WER 8% clean, 15% narrowband; barge-in stop within 400 ms) or more than 3
 points worse than the baseline. `--thresholds FILE` overrides limits, `--update-baseline` rewrites
-the baseline. Every run's full results go to `apps/gateway/.call-proof/report-*.json`.
+the baseline (also from a failing run). Every run's full results go to `apps/gateway/.call-proof/report-*.json`.
 
 It never runs in pull-request CI: it needs provider keys and this repository is public. The
 `Call proof` workflow (`.github/workflows/call-proof.yml`) is manual only.

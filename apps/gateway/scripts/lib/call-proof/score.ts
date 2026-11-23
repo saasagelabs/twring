@@ -78,6 +78,7 @@ export function normalizeWords(text: string): string[] {
     .replace(/(\d),(?=\d{3}\b)/g, '$1') // 1,000 → 1000
     .replace(/\$(\d+(?:\.\d+)?)/g, '$1 dollars')
     .replace(/(\d)\s*([ap])\.?\s?m\b\.?/g, '$1 $2m') // 4 p.m. → 4 pm
+    .replace(/\b([ap])\.\s?m\b\.?/g, '$1m') // four p.m. → four pm
     .replace(/(\d):(\d)/g, '$1 $2') // 6:30 → 6 30
     .replace(/(\d+)\.(\d+)/g, '$1 point $2')
     .replace(/(\d+)(st|nd|rd|th)\b/g, '$1')
@@ -113,10 +114,64 @@ export function wer(reference: string, hypothesis: string): number {
   return ref.length === 0 ? (edits === 0 ? 0 : 1) : edits / ref.length;
 }
 
-/** Whether the term's normalized words appear, in order and together, in the hypothesis. */
+/** Possessive "'s" dropped, so "Twring's" holds the term "Twring". */
+const dropPossessive = (text: string) => text.replace(/['’]s\b/gi, '');
+
+/**
+ * Whether the term's normalized words appear, in order and together, in the hypothesis. Case and
+ * a possessive are ignored, and a hyphenated spelling matches either way ("Rish-flips" holds
+ * "Rishflips", "pull-request" holds "pull request"); a word split by a space ("rish flips") does
+ * not, as the agent would get the wrong word.
+ */
 export function hasTerm(term: string, hypothesis: string): boolean {
-  const needle = normalizeWords(term).join(' ');
-  return ` ${normalizeWords(hypothesis).join(' ')} `.includes(` ${needle} `);
+  const spaced = (text: string) => ` ${normalizeWords(dropPossessive(text)).join(' ')} `;
+  const joined = (text: string) => spaced(text.replace(/(\w)-(?=\w)/g, '$1'));
+  const needles = new Set([spaced(term).trim(), joined(term).trim()]);
+  const heard = [spaced(hypothesis), joined(hypothesis)];
+  return [...needles].some((n) => heard.some((h) => h.includes(` ${n} `)));
+}
+
+/** A final caption as the phone received it. */
+export interface FinalCaption {
+  turnIndex: number;
+  text: string;
+}
+
+/**
+ * What the gateway heard for one clip: its final captions joined in turn order (a line committed
+ * as two turns is scored on all its words), each turn once.
+ */
+export function hypothesisOf(finals: readonly FinalCaption[]): { text: string; turns: number } {
+  const byTurn = new Map<number, string>();
+  for (const f of finals) byTurn.set(f.turnIndex, f.text);
+  const turns = [...byTurn.entries()].sort((a, b) => a[0] - b[0]);
+  return { text: turns.map(([, text]) => text).join(' '), turns: turns.length };
+}
+
+/** Clock slack between the harness and the gateway log (same machine, two clocks). */
+const BARGE_SKEW_MS = 100;
+
+/**
+ * The gateway's barge-in decision (epoch ms) for the barge-in test: the first `barge_in` of the
+ * call at or after the caller started talking over the reply and before it went quiet (with a
+ * little slack for clock skew). Earlier clips' barge-ins are never picked.
+ */
+export function bargeDecision(
+  events: readonly Record<string, unknown>[],
+  callId: string,
+  onsetEpochMs: number,
+  quietEpochMs: number,
+): number | undefined {
+  const times = events.flatMap((e) =>
+    e.call_id === callId &&
+    e.event === 'barge_in' &&
+    typeof e.time === 'number' &&
+    e.time >= onsetEpochMs - BARGE_SKEW_MS &&
+    e.time <= quietEpochMs + BARGE_SKEW_MS
+      ? [e.time]
+      : [],
+  );
+  return times.length === 0 ? undefined : Math.min(...times);
 }
 
 export function percentile(values: readonly number[], p: number): number | null {
@@ -222,6 +277,8 @@ export interface BargeIn {
 
 export interface ProofReport {
   mode: 'full' | 'quick';
+  /** Keyterms the gateway's STT was given besides its defaults; absent when unknown (remote). */
+  hints?: readonly string[];
   conditions: ConditionScore[];
   bargeIn?: BargeIn;
 }
@@ -266,8 +323,11 @@ export function judge(
     if (maxWer !== undefined && score.wer > maxWer) {
       reasons.push(`${c}: WER ${pct(score.wer)} > ${pct(maxWer)}`);
     }
+    const comparable =
+      baseline?.mode === report.mode &&
+      JSON.stringify(baseline.hints ?? null) === JSON.stringify(report.hints ?? null);
     const before =
-      baseline?.mode === report.mode
+      comparable && baseline !== undefined
         ? baseline.conditions.find((b) => b.condition === c)
         : undefined;
     if (before === undefined) continue;
@@ -327,6 +387,9 @@ export function formatTable(report: ProofReport): string {
   const widths = header.map((h, i) => Math.max(h.length, ...rows.map((r) => r[i]!.length)));
   const line = (cells: string[]) => cells.map((cell, i) => cell.padEnd(widths[i]!)).join('  ');
   const out = [line(header), ...rows.map(line)];
+  if (report.hints !== undefined) {
+    out.push(`keyterm hints: ${report.hints.length === 0 ? 'none' : report.hints.join(', ')}`);
+  }
   if (report.bargeIn !== undefined) {
     const detected = report.bargeIn.detectedToStopMs;
     out.push(

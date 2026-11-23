@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import {
   DEFAULT_THRESHOLDS,
+  bargeDecision,
   formatTable,
   hasTerm,
+  hypothesisOf,
   judge,
   normalizeWords,
   numberToWords,
@@ -197,5 +199,105 @@ describe('formatTable', () => {
     expect(text).toContain('clean');
     expect(text).toContain('3.0%');
     expect(text).toContain('barge-in: reply stopped 350 ms after the caller started');
+  });
+});
+
+describe('key-term matching edge cases', () => {
+  it('ignores case and a possessive on the heard word', () => {
+    expect(hasTerm('Twring', "TWRING's dashboard")).toBe(true);
+    expect(hasTerm('Twring', 'Twring’s dashboard')).toBe(true);
+    expect(hasTerm("Twring's", 'the Twring app')).toBe(true);
+    expect(hasTerm('SaaSage', 'saasage labs')).toBe(true);
+  });
+
+  it('matches a hyphenated spelling either way, but not a word split by a space', () => {
+    expect(hasTerm('Rishflips', 'open the Rish-flips dashboard')).toBe(true);
+    expect(hasTerm('pull request', 'review the pull-request')).toBe(true);
+    expect(hasTerm('Rishflips', 'open the rish flips dashboard')).toBe(false);
+  });
+
+  it('matches numbers in digits or words', () => {
+    expect(hasTerm('2500 dollars', 'the budget is $2,500 for')).toBe(true);
+    expect(hasTerm('December 3', 'on December third at')).toBe(true);
+    expect(hasTerm('4 pm', 'at four p.m.')).toBe(true);
+    expect(hasTerm('6:30', 'at six thirty tomorrow')).toBe(true);
+  });
+
+  it('keeps WER unchanged by possessives and case', () => {
+    expect(wer("Check today's orders.", 'check todays orders')).toBe(0);
+    expect(wer('Twring is great', "twring's great")).toBeGreaterThan(0);
+  });
+});
+
+describe('hypothesisOf', () => {
+  it('joins a line committed as two turns in turn order, once per turn', () => {
+    expect(
+      hypothesisOf([
+        { turnIndex: 4, text: 'check the calendar first.' },
+        { turnIndex: 3, text: 'I was thinking about the launch plan, and' },
+        { turnIndex: 4, text: 'check the calendar first.' },
+      ]),
+    ).toEqual({
+      text: 'I was thinking about the launch plan, and check the calendar first.',
+      turns: 2,
+    });
+    expect(hypothesisOf([])).toEqual({ text: '', turns: 0 });
+  });
+
+  it('scores a split line on its joined words', () => {
+    const joined = hypothesisOf([
+      { turnIndex: 1, text: 'Open the Rishflips' },
+      { turnIndex: 2, text: 'dashboard.' },
+    ]);
+    expect(hasTerm('Rishflips dashboard', joined.text)).toBe(true);
+    expect(wer('Open the Rishflips dashboard.', joined.text)).toBe(0);
+  });
+});
+
+describe('bargeDecision', () => {
+  const ev = (time: number, event = 'barge_in', call_id = 'c1') => ({ time, event, call_id });
+  it('takes the first barge-in of this call at or after the caller started, before the quiet', () => {
+    const events = [
+      ev(900),
+      ev(1800),
+      ev(2100),
+      ev(2150),
+      ev(2120, 'barge_in', 'other'),
+      ev(2050, 'tts_first_audio'),
+    ];
+    expect(bargeDecision(events, 'c1', 2000, 2400)).toBe(2100);
+  });
+
+  it('allows a little clock skew around the caller onset and the quiet', () => {
+    expect(bargeDecision([ev(1990)], 'c1', 2000, 2400)).toBe(1990);
+    expect(bargeDecision([ev(2450)], 'c1', 2000, 2400)).toBe(2450);
+  });
+
+  it('never picks an earlier clip barge-in', () => {
+    expect(bargeDecision([ev(500), ev(1500)], 'c1', 2000, 2400)).toBeUndefined();
+  });
+});
+
+describe('baseline and hints', () => {
+  it('compares only with a baseline taken with the same hints', () => {
+    const baseline = report([condition({ keyTermRecall: 1 })], { hints: [] });
+    const run = report([condition({ keyTermRecall: 0.96 })], { hints: ['Claude'] });
+    expect(
+      judge(
+        { ...run, conditions: [condition({ condition: 'quiet', keyTermRecall: 0.5 })] },
+        DEFAULT_THRESHOLDS,
+        {
+          ...baseline,
+          conditions: [condition({ condition: 'quiet', keyTermRecall: 1 })],
+        },
+      ),
+    ).toEqual([]);
+  });
+
+  it('prints the hints under the table', () => {
+    expect(formatTable(report([condition({})], { hints: ['Claude', 'Twring'] }))).toContain(
+      'keyterm hints: Claude, Twring',
+    );
+    expect(formatTable(report([condition({})], { hints: [] }))).toContain('keyterm hints: none');
   });
 });

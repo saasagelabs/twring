@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "hints": ["Twring", "SaaSage", "Rishflips", "Hermes", "Claude", "Codex", "Priya"],
   "utterances": [
     {
       "id": "u01-twring-hello",

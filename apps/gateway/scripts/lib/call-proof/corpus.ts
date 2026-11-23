@@ -25,7 +25,20 @@ const utteranceSchema = z.object({
 });
 export type Utterance = z.infer<typeof utteranceSchema>;
 
-const corpusSchema = z.object({ version: z.literal(1), utterances: z.array(utteranceSchema) });
+const corpusSchema = z.object({
+  version: z.literal(1),
+  /**
+   * Words a real owner would give their agent (names and brands in the lines): passed to the
+   * recognizer as the agent's keyterms, as a call to a saved agent would.
+   */
+  hints: z.array(z.string().min(1).max(50)).max(100).optional(),
+  utterances: z.array(utteranceSchema),
+});
+
+/** The corpus's agent keyterm hints (empty when it has none). */
+export function loadCorpusHints(path: string): string[] {
+  return corpusSchema.parse(JSON.parse(readFileSync(path, 'utf8'))).hints ?? [];
+}
 
 export function loadCorpus(path: string): Utterance[] {
   const corpus = corpusSchema.parse(JSON.parse(readFileSync(path, 'utf8')));

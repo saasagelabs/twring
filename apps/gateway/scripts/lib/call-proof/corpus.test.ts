@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { loadClips, loadCorpus, readRecordings, trimSilence } from './corpus';
+import { loadClips, loadCorpus, loadCorpusHints, readRecordings, trimSilence } from './corpus';
 import { readWav, writeWav } from './wav';
 
 const corpusPath = join(
@@ -36,6 +36,15 @@ describe('corpus.json', () => {
     for (const word of ['bye for now', 'wait', 'stop', 'hold on', 'hang on', 'one second']) {
       expect(terms).toContain(word);
     }
+  });
+
+  it('hints the names and brands a real agent would list, each one a key term of some line', () => {
+    const hints = loadCorpusHints(corpusPath);
+    const terms = new Set(corpus.flatMap((u) => u.keyTerms));
+    for (const name of ['Twring', 'Rishflips', 'Claude', 'SaaSage', 'Codex', 'Hermes']) {
+      expect(hints).toContain(name);
+    }
+    for (const hint of hints) expect(terms).toContain(hint);
   });
 });
 
