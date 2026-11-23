@@ -262,6 +262,7 @@ function AiAppStep() {
   const auth = useAuth();
   const email = auth.status === 'signed_in' ? auth.email : undefined;
   const [connected, setConnected] = useState<string>();
+  const [linkError, setLinkError] = useState<ErrorCopy>();
 
   useEffect(() => {
     const api = twringApi();
@@ -314,7 +315,12 @@ function AiAppStep() {
       footer={
         <PrimaryButton
           label="See how"
-          onPress={() => void Linking.openURL('https://twring.com/connector').catch(() => {})}
+          onPress={() => {
+            setLinkError(undefined);
+            void Linking.openURL('https://twring.com/connector').catch((reason: unknown) =>
+              setLinkError(apiErrorCopy(reason)),
+            );
+          }}
         />
       }
     >
@@ -325,6 +331,7 @@ function AiAppStep() {
           accessibilityLabel="Waiting for your AI app"
           color={palette.textSecondary}
         />
+        {linkError !== undefined && <ErrorNotice error={linkError} />}
       </View>
     </Screen>
   );
