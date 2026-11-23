@@ -14,6 +14,8 @@ Pod::Spec.new do |s|
   s.static_framework = true
 
   s.dependency 'ExpoModulesCore'
+  # WebRTC's audio session (LKRTCAudioSession): the build livekit-react-native-webrtc pins.
+  s.dependency 'LiveKitWebRTC'
   s.frameworks = 'CallKit', 'PushKit', 'UserNotifications', 'AVFoundation'
 
   s.source_files = "**/*.{h,m,swift}"

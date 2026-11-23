@@ -28,6 +28,7 @@ import { secureStore } from '@/platform/secure-store';
 
 import { flushDeclines } from './declines';
 import { parsePush, type RegisterDeviceRequest, type RingPush } from './protocol';
+import { createRingWatch } from './ring-watch';
 import { loadDeviceId } from './device-id';
 import { HandledRings } from './handled-rings';
 import { showsInAppRing } from './in-app-ring';
@@ -287,6 +288,33 @@ function syncSystemCall(): () => void {
   };
 }
 
+/** iOS: a ring on the system call screen closes when the server says it is over. */
+function watchSystemRings(): () => void {
+  if (ringPlatform.ringingInvites === undefined || ringPlatform.ringOver === undefined) {
+    return () => undefined;
+  }
+  const listInvites = () => ringPlatform.ringingInvites?.() ?? Promise.resolve([]);
+  const ringOver = (inviteId: string, status: string) => ringPlatform.ringOver?.(inviteId, status);
+  const watch = createRingWatch({
+    ringing: () => listInvites(),
+    getStatus: async (inviteId, signal) => {
+      const api = twringApi();
+      if (api === undefined) throw new Error('signed out');
+      return (await api.getInvite(inviteId, signal)).status;
+    },
+    ringOver: (inviteId, status) => ringOver(inviteId, status),
+    setInterval: (run, ms) => setInterval(run, ms),
+    clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+  });
+  // Rings that showed before JS was listening (a push that woke the app).
+  void listInvites().then((ids) => ids.forEach((id) => watch.watch(id)));
+  const shown = ringPlatform.onRingShown?.((inviteId) => watch.watch(inviteId));
+  return () => {
+    shown?.();
+    watch.stopAll();
+  };
+}
+
 /** A ring the push never delivered (or that came while the app was closed) still gets answered. */
 async function showPendingInvite(): Promise<void> {
   const invites = await twringApi()
@@ -379,6 +407,7 @@ export function useRingCoordinator(signedIn: boolean): void {
       ringPlatform.onRingAnswered?.(takeAnsweredRing),
       ringPlatform.onNotificationOpened?.(takeOpenedNotification),
       syncSystemCall(),
+      watchSystemRings(),
     ];
     const appState = AppState.addEventListener('change', (state) => {
       if (state === 'active') refresh();

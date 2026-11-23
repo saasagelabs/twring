@@ -36,6 +36,11 @@ vi.mock('@/observability/sentry', () => ({
   reportClientError: (stage: string, error: unknown) => reported.push({ stage, error }),
 }));
 
+const systemAudio = vi.hoisted(() => ({ owned: false }));
+vi.mock('@/platform/system-call-audio', () => ({
+  prepareSystemCallAudio: () => Promise.resolve(systemAudio.owned),
+}));
+
 vi.mock('@livekit/react-native', () => ({
   AndroidAudioTypePresets: { communication: {} },
   AudioSession: {
@@ -103,6 +108,7 @@ beforeEach(() => {
   audio.startGate = Promise.resolve();
   audio.stopError = undefined;
   reported.length = 0;
+  systemAudio.owned = false;
 });
 afterEach(() => {
   cancelPendingStop();
@@ -187,6 +193,15 @@ describe('LiveKitCallTransport audio session', () => {
     await expect(connecting).rejects.toThrow(/aborted/);
     expect(audio.started).toBe(1);
     expect(audio.stopped).toBe(1);
+  });
+
+  it('leaves the audio session to the iOS system call screen when it owns it', async () => {
+    systemAudio.owned = true;
+    const transport = new LiveKitCallTransport();
+    await transport.connect(PARAMS, () => undefined, new AbortController().signal);
+    await transport.disconnect();
+    expect(audio.started).toBe(0);
+    expect(audio.stopped).toBe(0);
   });
 
   it('stops the audio session exactly once on a normal hang-up', async () => {

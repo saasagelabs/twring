@@ -13,7 +13,8 @@ type IosRingEvent =
   | 'onRingDeclined'
   | 'onCallEnded'
   | 'onCallMuted'
-  | 'onNotificationOpened';
+  | 'onNotificationOpened'
+  | 'onRingShown';
 
 /** modules/cord-call-service/ios: CordRing.swift (PushKit, CallKit, notifications). */
 interface CordRingModule {
@@ -33,6 +34,9 @@ interface CordRingModule {
   notify(title: string, body: string): void;
   clearMissedCalls(): void;
   clearMessages(agentId: string): void;
+  setRingAccount?(ref: string | null): void;
+  ringingInvites?(): Promise<string[]>;
+  ringOver?(inviteId: string, status: string): void;
   addListener(event: IosRingEvent, listener: (data: Record<string, unknown>) => void): Subscription;
 }
 
@@ -65,7 +69,8 @@ export const ringPlatform: RingPlatform = {
   },
   // The VoIP token belongs to the install; signing out removes the server registration instead.
   deletePushToken: () => Promise.resolve(),
-  setRingAccount: () => undefined,
+  // Native rings only for this account: a push for another one (or nobody) ends at once.
+  setRingAccount: (ref) => safely(() => native?.setRingAccount?.(ref), undefined),
   permissions(): RingPermissions {
     const notifications = safely(() => native?.alertsAllowed() ?? false, false);
     return { notifications, fullScreen: true, channel: true };
@@ -108,4 +113,12 @@ export const ringPlatform: RingPlatform = {
   notify: (title, body) => safely(() => native?.notify(title, body), undefined),
   takeOpenedNotification: () => safely(() => native?.takeOpenedNotification() ?? null, null),
   onNotificationOpened: (listener) => listen('onNotificationOpened', () => listener()),
+  onRingShown: (listener) =>
+    listen('onRingShown', (data) => {
+      if (typeof data.invite_id === 'string') listener(data.invite_id);
+    }),
+  async ringingInvites() {
+    return (await native?.ringingInvites?.().catch(() => [])) ?? [];
+  },
+  ringOver: (inviteId, status) => safely(() => native?.ringOver?.(inviteId, status), undefined),
 };

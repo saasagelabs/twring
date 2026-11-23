@@ -1,6 +1,7 @@
 import AVFoundation
 import CallKit
 import Foundation
+import LiveKitWebRTC
 import PushKit
 import UIKit
 import UserNotifications
@@ -24,6 +25,8 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
   }
 
   private static let declinesKey = "cord.ring.pending_declines"
+  /// The signed-in account's ref (userRef), written by JS at sign-in and removed at sign-out.
+  private static let accountKey = "cord.ring.account"
   private static let missedThread = "missed-calls"
 
   private let provider: CXProvider
@@ -96,6 +99,63 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     lock.withLock {
       defer { opened = nil }
       return opened
+    }
+  }
+
+  /// The signed-in account (JS, at sign-in and sign-out). A ring for any other account, or after
+  /// sign-out, is reported and ended at once. A change of account closes rings still showing.
+  func setAccount(_ ref: String?) {
+    let changed = lock.withLock { () -> Bool in
+      let defaults = UserDefaults.standard
+      // Signed out is saved as an empty marker: no saved value at all means an install that has
+      // not run this code yet (a fresh update), whose rings still ring.
+      let value = ref ?? ""
+      let changed = defaults.string(forKey: Self.accountKey) != value
+      defaults.set(value, forKey: Self.accountKey)
+      return changed
+    }
+    guard changed else { return }
+    DispatchQueue.main.async {
+      for (uuid, ring) in self.rings where !ring.answered {
+        self.rings[uuid] = nil
+        self.timers.removeValue(forKey: uuid)?.invalidate()
+        self.provider.reportCall(with: uuid, endedAt: nil, reason: .remoteEnded)
+      }
+    }
+  }
+
+  private var account: String? {
+    lock.withLock { UserDefaults.standard.string(forKey: Self.accountKey) }
+  }
+
+  /// Rings showing on the system call screen and not yet answered (JS checks these on the server).
+  /// Main thread only (the bridge runs it there).
+  func ringingInvites() -> [String] {
+    rings.values.filter { !$0.answered }.map { $0.inviteId }
+  }
+
+  /// An answered system call owns the audio session (CallKit activates it, not the app), and
+  /// whether CallKit has activated it yet. Main thread only (the bridge runs it there).
+  func callAudioState() -> [String: Bool] {
+    ["owned": rings.values.contains { $0.answered }, "active": audioActive]
+  }
+
+  /// The server says this ring is over (JS checks it while the ring shows): close its call screen
+  /// with the reason the system shows in its call log. An answered call is left alone.
+  func ringOver(inviteId: String, status: String) {
+    let reason: CXCallEndedReason
+    switch status {
+    case "answered": reason = .answeredElsewhere
+    case "declined": reason = .declinedElsewhere
+    case "missed": reason = .unanswered
+    default: reason = .remoteEnded
+    }
+    DispatchQueue.main.async {
+      for (uuid, ring) in self.rings where ring.inviteId == inviteId && !ring.answered {
+        self.rings[uuid] = nil
+        self.timers.removeValue(forKey: uuid)?.invalidate()
+        self.provider.reportCall(with: uuid, endedAt: nil, reason: reason)
+      }
     }
   }
 
@@ -392,6 +452,8 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
       rings.values.contains { $0.inviteId == inviteId }
       || (!inviteId.isEmpty && CordRingDedupe.isHandled(inviteId))
     let busy = rings.values.contains { $0.answered }
+    let otherAccount = !CordRingGate.shouldShow(
+      stored: account, pushRef: payload["user_ref"] as? String)
     let uuid = UUID()
     let update = CXCallUpdate()
     update.remoteHandle = CXHandle(type: .generic, value: name)
@@ -406,12 +468,14 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     provider.reportNewIncomingCall(with: uuid, update: update) { [weak self] error in
       defer { completion() }
       guard let self, error == nil else { return }
-      if sealedFailed || inviteId.isEmpty || duplicate || busy {
+      if sealedFailed || inviteId.isEmpty || duplicate || busy || otherAccount {
+        if otherAccount { NSLog("CordRing: ring for another account ended") }
         self.provider.reportCall(with: uuid, endedAt: nil, reason: .failed)
         return
       }
       CordRingDedupe.markHandled(inviteId)
       self.rings[uuid] = Ring(inviteId: inviteId, payload: payload, answered: false)
+      self.emit("onRingShown", ["invite_id": inviteId])
       self.timers[uuid] = Timer.scheduledTimer(
         withTimeInterval: Self.ringSeconds(payload), repeats: false
       ) { [weak self] _ in
@@ -444,6 +508,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     timers.values.forEach { $0.invalidate() }
     timers.removeAll()
     rings.removeAll()
+    if hadCall { emit("onCallAudioReleased") }
     if hadCall { emit("onCallEnded") }
   }
 
@@ -455,7 +520,8 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     ring.answered = true
     rings[action.callUUID] = ring
     timers.removeValue(forKey: action.callUUID)?.invalidate()
-    // Apple's order: set the audio up here, start it once the system activates the session.
+    // Apple's order: set the audio up here, start it once the system activates the session
+    // (didActivate). JS holds WebRTC's audio engine off until then (system-call-audio.ios.ts).
     try? AVAudioSession.sharedInstance().setCategory(.playAndRecord, mode: .voiceChat)
     lock.withLock { answered = ring.payload }
     emit("onRingAnswered", ["invite_id": ring.inviteId])
@@ -467,6 +533,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     stopSpeech()
     if let ring = rings.removeValue(forKey: action.callUUID) {
       if ring.answered {
+        if !rings.values.contains(where: { $0.answered }) { emit("onCallAudioReleased") }
         emit("onCallEnded")
       } else {
         queueDecline(ring.inviteId)
@@ -483,6 +550,12 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
 
   func provider(_ provider: CXProvider, didActivate audioSession: AVAudioSession) {
     audioActive = true
+    // LiveKit's documented CallKit hook (node_modules/@livekit/react-native/README.md, "it is
+    // important to call RTCAudioSession.audioSessionDidActivate/Deactivate"; example
+    // client-sdk-react-native example/src/callservice/CallService.ios.ts). JS then lets the
+    // engine start (onCallAudioActivated).
+    LKRTCAudioSession.sharedInstance().audioSessionDidActivate(audioSession)
+    emit("onCallAudioActivated")
     if let player = pendingSpeech {
       pendingSpeech = nil
       play(player)
@@ -491,6 +564,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
 
   func provider(_ provider: CXProvider, didDeactivate audioSession: AVAudioSession) {
     audioActive = false
+    LKRTCAudioSession.sharedInstance().audioSessionDidDeactivate(audioSession)
   }
 
   // MARK: Notifications
