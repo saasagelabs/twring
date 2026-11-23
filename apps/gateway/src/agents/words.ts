@@ -2,6 +2,7 @@
  * An agent teaches its calls words to hear right (names, projects, places): they go after the
  * owner's own on the Words page, once each (any case), up to the list's limit.
  */
+import type { AccountKeyterms } from '@twring/config/gateway';
 import { MAX_AGENT_KEYTERMS } from '@twring/contracts';
 
 import { revisionOf, type AgentRecord, type AgentRepository } from '../store/repositories';
@@ -92,4 +93,19 @@ export async function addAgentWords(
     if (updated !== undefined) return { ok: true, words: merged, notAdded };
   }
   return { ok: false, reason: 'busy' };
+}
+
+/**
+ * A live call's words rebuilt after add_words (ADR-042): the agent's list for this caller, plus
+ * the owner's account words only on a call that already had them (the owner's own). A team member
+ * on a shared agent never gets the owner's account words.
+ */
+export function liveCallWords(
+  all: readonly AgentRecord[],
+  call: { agentId: string; userId: string; keyterms: readonly string[]; account?: AccountKeyterms },
+): { agentTerms: readonly string[]; account?: AccountKeyterms } {
+  const record = all.find((agent) => agent.id === call.agentId);
+  const agentTerms = record === undefined ? call.keyterms : callWords(record, call.userId);
+  if (call.account === undefined) return { agentTerms };
+  return { agentTerms, account: { ...call.account, words: accountWords(all) } };
 }

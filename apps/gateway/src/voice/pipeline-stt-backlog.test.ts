@@ -127,3 +127,34 @@ describe('words pushed during a call', () => {
     expect(pipeline.updateKeyterms(['x'])).toBe(false);
   });
 });
+
+describe('reconnect edge cases (verify)', () => {
+  it('a hang-up while the new session opens sends it no held audio', async () => {
+    const { stt, scheduler, pipeline, frames } = await started();
+    stt.send({ type: 'error', error: lost });
+    frames(20);
+    const before = stt.samplesReceived;
+    scheduler.advance(250);
+    void pipeline.close();
+    await flushMicrotasks();
+    expect(stt.samplesReceived).toBe(before);
+    expect(pipeline.retainedState().sttBacklog).toBe(0);
+  });
+
+  it('a failed reopen keeps holding, and the next success sends it once', async () => {
+    const { stt, scheduler, pipeline, frames } = await started();
+    const before = stt.samplesReceived;
+    stt.failNextOpen = lost;
+    stt.send({ type: 'error', error: lost });
+    frames(10);
+    scheduler.advance(250);
+    await flushMicrotasks();
+    frames(10);
+    scheduler.advance(5_000);
+    await flushMicrotasks();
+    expect(stt.opens).toBe(3);
+    expect(stt.samplesReceived - before).toBe(20 * SAMPLES_16K_PER_FRAME);
+    expect(pipeline.retainedState().sttBacklog).toBe(0);
+    await pipeline.close();
+  });
+});

@@ -273,6 +273,24 @@ describe('Deepgram Flux STT', () => {
     expect(events).toEqual([]);
   });
 
+  it('a ConfigureFailure on a live session is not an error, and audio keeps flowing', async () => {
+    const { session, socket, events } = await openStt();
+    session.updateKeyterms?.(['Twring']);
+    socket.receive(JSON.stringify({ type: 'ConfigureFailure', code: 'x', description: 'y' }));
+    socket.receive(JSON.stringify({ type: 'ConfigureSuccess', keyterms: ['Twring'] }));
+    expect(events).toEqual([]);
+    session.sendAudio(new Int16Array(16_000));
+    expect(socket.sent.some((frame) => typeof frame !== 'string')).toBe(true);
+    await session.close();
+  });
+
+  it('an update on a socket the server already closed sends nothing and does not throw', async () => {
+    const { session, socket } = await openStt();
+    socket.close(1006);
+    expect(() => session.updateKeyterms?.(['Twring'])).not.toThrow();
+    expect(socket.jsonSent()).toEqual([]);
+  });
+
   it('closes with CloseStream and reports nothing afterwards', async () => {
     const { session, socket, events } = await openStt();
     await session.close();

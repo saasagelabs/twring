@@ -51,7 +51,7 @@ import {
 } from './voice/server-xai-voice';
 import { createSpeechResolver, type ResolvedSpeech } from './voice/speech-resolver';
 import { LanguageRepository, languageRecordSchema } from './language/store';
-import { accountWords, callWords } from './agents/words';
+import { liveCallWords } from './agents/words';
 import { toSafeError } from './redact';
 import { AppleSignInRevoker } from './apple-signin';
 import { RefusalCounter, refusalRowSchema } from './calls/refusal-counter';
@@ -745,14 +745,8 @@ const wordsAdded =
         if (registry === undefined) return;
         void registry
           .refreshKeyterms(ownerId, async (agent) => {
-            const all = await stores.agents.list(ownerId);
-            const record = all.find((a) => a.id === agent.agentId);
-            return agentSttKeyterms(
-              sttSettings,
-              record === undefined ? agent.keyterms : callWords(record, agent.userId),
-              agent.agentName,
-              { ...agent.account, words: accountWords(all) },
-            );
+            const { agentTerms, account } = liveCallWords(await stores.agents.list(ownerId), agent);
+            return agentSttKeyterms(sttSettings, agentTerms, agent.agentName, account);
           })
           .catch((error: unknown) =>
             callsLogger.warn({ event: 'stt_keyterms_refresh_failed', err: toSafeError(error) }),
