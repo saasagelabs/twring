@@ -152,3 +152,71 @@ describe('reconnect grace', () => {
     expect(scheduler.pending).toBe(0);
   });
 });
+
+describe('reconnect grace: allowance, users and leaks', () => {
+  it('a call whose computer never returns gives its daily call back', async () => {
+    const scheduler = new ManualScheduler();
+    scheduler.advance(GRACE.windowMs + 1);
+    const g = await startConnectorGateway({
+      calls: { allowance: { callSeconds: 0, calls: 1 } },
+      reconnectGrace: GRACE,
+      hubScheduler: scheduler,
+    });
+    gateways.push(g);
+    const { connectorId, connector, token } = await g.connect('alice');
+    const agentId = await g.createAgent('alice', connectorId);
+    connector.terminate();
+    await waitFor(() => !g.hub.isOnline('alice', connectorId));
+    const first = createCallResponseSchema.parse((await startCall(g, agentId)).json());
+    const transport = g.calls!.transports[0]!;
+    await waitFor(() => scheduler.pending === 1);
+    scheduler.advance(GRACE.waitMs);
+    await waitFor(() => transport.endReasons.includes('agent_offline'));
+    await waitFor(() => {
+      g.calls!.scheduler.advance(1_000);
+      return /ended|failed/.test(g.calls!.registry.get(first.call_id)?.status ?? '');
+    });
+    const back = reconnect(g, token);
+    await back.ready;
+    await sleep(50);
+    const again = await startCall(g, agentId);
+    expect(again.statusCode).toBe(201);
+  });
+
+  it("another user's call to a paired computer id is refused, even in the boot window", async () => {
+    const scheduler = new ManualScheduler();
+    const g = await gateway(scheduler);
+    const { connectorId } = await g.pair('alice');
+    expect(g.hub.reconnecting(connectorId)).toBe(true);
+    const signal = new AbortController().signal;
+    const waiting = g.hub.waitForComputer('bob', connectorId, signal);
+    scheduler.advance(GRACE.waitMs);
+    expect(await waiting).toBe(false);
+    expect(scheduler.pending).toBe(0);
+  });
+
+  it('many waiters for one computer all end on abort or timeout, leaving nothing behind', async () => {
+    const scheduler = new ManualScheduler();
+    const g = await gateway(scheduler);
+    const controllers = Array.from({ length: 20 }, () => new AbortController());
+    const waits = controllers.map((c) => g.hub.waitForComputer('alice', 'cn_x', c.signal));
+    expect(scheduler.pending).toBe(20);
+    for (const c of controllers.slice(0, 10)) c.abort(new Error('hang up'));
+    scheduler.advance(GRACE.waitMs);
+    expect(await Promise.all(waits)).toEqual(Array.from({ length: 20 }, () => false));
+    expect(scheduler.pending).toBe(0);
+    const waiters = (g.hub as unknown as { helloWaiters: Map<string, unknown> }).helloWaiters;
+    expect(waiters.size).toBe(0);
+  });
+
+  it('a computer that never connected fails at once after the boot window', async () => {
+    const scheduler = new ManualScheduler();
+    const g = await gateway(scheduler);
+    const { connectorId } = await g.pair('alice');
+    const agentId = await g.createAgent('alice', connectorId);
+    scheduler.advance(GRACE.windowMs);
+    const res = await startCall(g, agentId);
+    expect(res.statusCode).toBe(409);
+    expect(scheduler.pending).toBe(0);
+  });
+});
