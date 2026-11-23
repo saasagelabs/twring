@@ -72,7 +72,13 @@ export default function SignInScreen() {
           <TwringLockup size={24} />
         </View>
         <View style={styles.wave}>
-          <Waveform width={300} height={120} color={palette.accent} intensity={0.3} />
+          <Waveform
+            width={300}
+            height={120}
+            color={palette.accent}
+            intensity={0.3}
+            animated={false}
+          />
         </View>
         <Text accessibilityRole="header" style={[type.display, { color: palette.textPrimary }]}>
           Sign in to Twring
