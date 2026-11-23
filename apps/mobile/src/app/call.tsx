@@ -40,7 +40,15 @@ import {
   noticeText,
   statusLabel,
 } from '@/call/labels';
-import { audioRoutes, callController, useAudioRoutes, useCallView } from '@/call/session';
+import {
+  audioRoutes,
+  audioRoutesWatched,
+  callController,
+  useAudioRoutes,
+  useCallInterruption,
+  useCallView,
+} from '@/call/session';
+import { INTERRUPTION_NOTICE } from '@/call/call-interruption';
 import { activeWave, hearingLabel, ringKey } from '@/call/portrait';
 import { callLook, waveIntensity } from '@/call/wave';
 import { ApprovalCard } from '@/components/ApprovalCard';
@@ -258,8 +266,13 @@ function ActiveCall({
   const ringColor = palette[ringKey(look)];
   const wave = activeWave(look);
   const live = look.orb !== 'connecting' && look.orb !== 'reconnecting';
+  const { paused } = useCallInterruption();
   const showMuted = view.muted && status !== 'RECONNECTING';
-  const statusText = showMuted ? 'You are muted' : statusLabel(view.call, view.connectedAt);
+  const statusText = paused
+    ? INTERRUPTION_NOTICE
+    : showMuted
+      ? 'You are muted'
+      : statusLabel(view.call, view.connectedAt);
   const statusColor = showMuted
     ? palette.textSecondary
     : look.orb === 'idle' || look.orb === 'connecting'
@@ -271,6 +284,8 @@ function ActiveCall({
     let poll: ReturnType<typeof setInterval> | undefined;
     const resume = () => {
       void audioRoutes.refresh();
+      // Route events arrive natively (screen off too); polling is only the fallback.
+      if (audioRoutesWatched) return;
       poll ??= setInterval(() => void audioRoutes.refresh(), ROUTE_POLL_MS);
     };
     const pause = () => {

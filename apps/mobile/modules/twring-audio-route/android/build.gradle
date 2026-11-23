@@ -1,0 +1,20 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.twring.app'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.twringaudioroute"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
+
+dependencies {
+  // bundleOf; the same version expo-modules-core already brings.
+  implementation 'androidx.core:core-ktx:1.17.0'
+}
