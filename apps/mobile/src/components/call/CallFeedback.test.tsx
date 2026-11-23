@@ -88,12 +88,23 @@ beforeEach(() => {
 });
 
 describe('CallFeedback', () => {
-  it('reveals the issue chips once any rating is picked, five stars included', () => {
-    expect(byLabel(render(), 'Cut me off')).toBeUndefined();
-    byLabel(render(), '5 stars')?.props.onPress?.();
-    expect(byLabel(render(), 'Cut me off')).toBeDefined();
-    byLabel(render(), '2 stars')?.props.onPress?.();
-    expect(byLabel(render(), 'Misheard me')).toBeDefined();
+  it('shows the issue chips before any star is tapped, with Send disabled', () => {
+    const tree = render();
+    expect(byLabel(tree, 'Cut me off')).toBeDefined();
+    expect(byLabel(tree, 'Misheard me')).toBeDefined();
+    expect(byLabel(tree, 'Send')?.props.disabled).toBe(true);
+    expect(find(tree, (props) => props.children === 'Tap a star to send')).toBeUndefined();
+  });
+
+  it('asks for a star when a reason is picked first, and drops the hint once rated', () => {
+    byLabel(render(), 'Cut me off')?.props.onPress?.();
+    const tree = render();
+    expect(find(tree, (props) => props.children === 'Tap a star to send')).toBeDefined();
+    expect(byLabel(tree, 'Send')?.props.disabled).toBe(true);
+    byLabel(render(), '3 stars')?.props.onPress?.();
+    const rated = render();
+    expect(find(rated, (props) => props.children === 'Tap a star to send')).toBeUndefined();
+    expect(byLabel(rated, 'Send')?.props.disabled).toBe(false);
   });
 
   it('sends the selected rating and issues; skip sends nothing', async () => {

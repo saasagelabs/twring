@@ -54,6 +54,7 @@ import { callLook, waveIntensity } from '@/call/wave';
 import { ApprovalCard } from '@/components/ApprovalCard';
 import { Avatar } from '@/components/Avatar';
 import { CallControl } from '@/components/CallControl';
+import { CallBackButton } from '@/components/call/CallBackButton';
 import { CallFeedback } from '@/components/call/CallFeedback';
 import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
 import { ConnectionPill } from '@/components/ConnectionPill';
@@ -324,21 +325,15 @@ function ActiveCall({
   return (
     <>
       <View style={styles.topBar}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Minimize call"
-          accessibilityHint="The call keeps going"
-          onPress={minimize}
-          style={styles.minimize}
-        >
-          <Icon name="chevDown" size={22} color={palette.textPrimary} />
-        </Pressable>
+        <View style={styles.topSide}>
+          <CallBackButton onPress={minimize} hint="The call keeps going" showLabel />
+        </View>
         {connectionPill(status) ? (
           <ConnectionPill {...connectionPill(status)!} />
         ) : (
           <View style={styles.connectionSlot} />
         )}
-        <View style={styles.topSlot} />
+        <View style={styles.topSide} />
       </View>
 
       <View style={styles.body}>
@@ -595,6 +590,9 @@ function FinishedCall({
   return (
     // The rating note opens the keyboard: keep Send and Done above it, as the chat screen does.
     <KeyboardAvoidingView behavior="padding" style={styles.outcomeKeyboard}>
+      <View style={styles.topBar}>
+        <CallBackButton onPress={close} />
+      </View>
       <ScrollView
         contentContainerStyle={styles.outcomeScrollContent}
         style={styles.outcomeScroll}
@@ -762,8 +760,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  topSlot: { width: 36, height: 36 },
-  minimize: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  // Equal sides keep the connection pill centred whatever width "Back" takes at large text.
+  topSide: { flex: 1, minWidth: 48, alignItems: 'flex-start' },
   connectionSlot: { height: 32 },
   body: { flex: 1, minHeight: 0, justifyContent: 'space-evenly' },
   portrait: { alignItems: 'center', gap: 6 },
