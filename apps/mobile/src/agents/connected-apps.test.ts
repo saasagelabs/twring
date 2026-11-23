@@ -83,4 +83,10 @@ describe('a newly connected app', () => {
     expect(newlyConnectedApp([], [{ ...claude, blocked: true }])).toBeUndefined();
     expect(newlyConnectedApp([{ ...claude, blocked: true }], [claude])).toBeUndefined();
   });
+
+  it('gives an app with a blank name a plain fallback, never an empty heading', () => {
+    expect(newlyConnectedApp([], [{ client_id: 'c9', name: '  ', blocked: false }])).toBe(
+      'Your AI app',
+    );
+  });
 });

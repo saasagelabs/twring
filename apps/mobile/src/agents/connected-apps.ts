@@ -68,5 +68,7 @@ export function newlyConnectedApp(
   now: readonly ConnectedApp[],
 ): string | undefined {
   const known = new Set(before.map((app) => app.client_id));
-  return now.find((app) => !app.blocked && !known.has(app.client_id))?.name.trim();
+  const app = now.find((candidate) => !candidate.blocked && !known.has(candidate.client_id));
+  if (app === undefined) return undefined;
+  return app.name.trim() || 'Your AI app';
 }
