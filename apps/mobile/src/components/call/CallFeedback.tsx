@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import type { CallFeedbackRequest } from '@twring/contracts';
 
@@ -29,6 +29,13 @@ export function CallFeedback({ callId }: { callId: string }) {
   const [error, setError] = useState<unknown>();
   const attempt = useRef<AbortController | null>(null);
   useEffect(() => () => attempt.current?.abort(), []);
+  const needsStar = rating === undefined && selected.length > 0;
+  // accessibilityLiveRegion only works on Android; VoiceOver needs an explicit announcement.
+  useEffect(() => {
+    if (needsStar && Platform.OS === 'ios') {
+      AccessibilityInfo.announceForAccessibility('Tap a star to send');
+    }
+  }, [needsStar]);
 
   const send = async () => {
     const api = twringApi();
@@ -142,7 +149,7 @@ export function CallFeedback({ callId }: { callId: string }) {
         />
       )}
       <View style={styles.actions}>
-        {rating === undefined && selected.length > 0 && (
+        {needsStar && (
           <Text
             accessibilityLiveRegion="polite"
             style={[type.caption, styles.hint, { color: palette.textSecondary }]}
