@@ -61,7 +61,7 @@ const STATE_FOLDER = 'chat-state';
 const OUTBOX_FOLDER = 'outbox';
 
 /** `<document>/chat-state/<kind>-<scope>.json`. */
-export function fileStore(kind: 'outbox' | 'drafts', scope: string): JsonStore {
+export function fileStore(kind: 'outbox' | 'drafts' | 'private', scope: string): JsonStore {
   const file = async () => {
     const { Directory, File, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.document, STATE_FOLDER);
