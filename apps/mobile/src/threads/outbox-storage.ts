@@ -60,27 +60,49 @@ export function storageScope(
 const STATE_FOLDER = 'chat-state';
 const OUTBOX_FOLDER = 'outbox';
 
-/** `<document>/chat-state/<kind>-<scope>.json`. */
+/**
+ * `<document>/chat-state/<kind>-<scope>.json`. A save writes `<name>.json.tmp` first and then
+ * moves it over the saved file, so an app killed mid-write never leaves a half-written file.
+ */
 export function fileStore(kind: 'outbox' | 'drafts' | 'private', scope: string): JsonStore {
-  const file = async () => {
+  const files = async () => {
     const { Directory, File, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.document, STATE_FOLDER);
-    return { folder, file: new File(folder, `${kind}-${scope}.json`) };
+    const name = `${kind}-${scope}.json`;
+    return { folder, target: new File(folder, name), tmp: new File(folder, `${name}.tmp`) };
   };
   return {
     async load() {
-      const { file: target } = await file();
-      if (!target.exists) return undefined;
-      return JSON.parse(await target.text()) as unknown;
+      const { target, tmp } = await files();
+      let failure: Error | undefined;
+      if (target.exists) {
+        try {
+          return JSON.parse(await target.text()) as unknown;
+        } catch (error) {
+          failure = error instanceof Error ? error : new Error('Unreadable saved file');
+        }
+      }
+      // A save cut short may have left only the new value in the temporary file.
+      if (tmp.exists) {
+        try {
+          return JSON.parse(await tmp.text()) as unknown;
+        } catch {
+          /* Fall through to the saved file's outcome. */
+        }
+      }
+      if (failure !== undefined) throw failure;
+      return undefined;
     },
     async save(value) {
-      const { folder, file: target } = await file();
+      const { folder, target, tmp } = await files();
       if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
-      target.write(JSON.stringify(value));
+      tmp.write(JSON.stringify(value));
+      await tmp.move(target, { overwrite: true });
     },
     async remove() {
-      const { file: target } = await file();
+      const { target, tmp } = await files();
       if (target.exists) target.delete();
+      if (tmp.exists) tmp.delete();
     },
   };
 }
