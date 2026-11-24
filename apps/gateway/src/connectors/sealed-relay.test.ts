@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  MAX_RELAY_MESSAGE_BYTES,
   MAX_SEALED_AGENT_BODY_CHARS,
   MAX_SEALED_BODY_CHARS,
   messagePageResponseSchema,
@@ -128,6 +129,20 @@ describe('sealed relay', () => {
       turn_id: frame.message_id,
     });
     expect(JSON.stringify(messages)).not.toContain('"text"');
+  });
+
+  it('closes the socket on a sealed reply over the relay frame cap and stores nothing', async () => {
+    const t = await privateThread();
+    const posted = await t.post({ client_id: randomUUID(), sealed: envelope() });
+    t.connector.send({
+      type: 'sealed.reply',
+      agent: t.localAgent,
+      turn_id: posted.json.message.id,
+      sealed: envelope({ sender_device: COMPUTER, body: 'A'.repeat(MAX_RELAY_MESSAGE_BYTES) }),
+      final: true,
+    });
+    expect(await t.connector.closed).toBe(1009);
+    expect(await t.list()).toHaveLength(1);
   });
 
   it('ignores a reply after the final one', async () => {

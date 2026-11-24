@@ -88,4 +88,33 @@ describe('E2eDeviceStore', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('keeps an offer and its claim across a restart, still single use', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'twring-e2e-'));
+    try {
+      const path = join(dir, 'e2e.db');
+      const a = new E2eDeviceStore(path);
+      const offer = a.createOffer('u1', {
+        connectorId: 'con_1',
+        connectorDeviceId: dev(2).id,
+        connectorPublicKey: key(2),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      const claim = {
+        phone_device_id: dev(3).id,
+        phone_public_key: key(3),
+        phone_name: 'P',
+        mac: 'm',
+      };
+      expect(a.claimOffer('u1', offer.id, claim)).toBe('claimed');
+      a.close();
+      const b = new E2eDeviceStore(path);
+      expect(b.offer('u1', offer.id)?.claim).toEqual(claim);
+      expect(b.claimOffer('u1', offer.id, claim)).toBe('already_claimed');
+      expect(b.claimOffer('u2', offer.id, claim)).toBe('missing');
+      b.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
