@@ -53,6 +53,9 @@ import { systemSpawn } from './process';
 import { AgentPool } from './pool';
 import { ResultOutbox } from './outbox';
 import { RelayClient } from './relay';
+import { ensureDeviceKey } from './e2e/keys';
+import { pairPhone } from './e2e/pair';
+import { updateE2e } from './e2e/store';
 import {
   cancelLastRing,
   deliverBackgroundResult,
@@ -152,6 +155,9 @@ Let Claude Code or Codex ring you by themselves:
   node ${CONNECTOR_CLI_NAME}.mjs hooks install codex --on-turn-complete   (after every Codex turn)
   node ${CONNECTOR_CLI_NAME}.mjs hooks install codex --on-turn-complete --message
   node ${CONNECTOR_CLI_NAME}.mjs hooks uninstall claude|codex
+
+Private chats (only your phone and this computer can read them):
+  node ${CONNECTOR_CLI_NAME}.mjs private pair    Pair your phone with this computer.
 `;
 
 function print(line: string): void {
@@ -1120,6 +1126,7 @@ async function main(): Promise<void> {
   if (command === 'hooks') return exitWhenDrained(await hooksCommand(commandValues, rest));
   if (command === 'setup') return exitWhenDrained(await setupCommand(commandValues));
   if (command === 'uninstall') return exitWhenDrained(await uninstallCommand(commandValues));
+  if (command === 'private') return exitWhenDrained(await privateCommand(rest));
   if (command !== undefined) fail(`Unknown command "${command}".\n\n${HELP}`);
   if (values.forget === true) {
     await deleteConfig(configPath());
@@ -1168,6 +1175,83 @@ async function main(): Promise<void> {
     values.code !== undefined ? await pair(commandValues) : (saved ?? (await link(commandValues)));
   if (config === undefined) return exitWhenDrained(1);
   process.exit(await run(config));
+}
+
+/** `private pair`: pairs the phone for private chats (ADR-044). */
+async function privateCommand(rest: string[]): Promise<number> {
+  if (rest[0] !== 'pair' || rest.length > 1) fail(`Unknown command.\n\n${HELP}`);
+  const path = configPath();
+  const saved = await loadConfig(path);
+  if (saved === undefined) {
+    print(`Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
+    return 1;
+  }
+  const { config, created } = ensureDeviceKey(saved);
+  // Kept before the server hears of it, so the phone never trusts something this computer lost.
+  if (created) await saveConfig(path, config);
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  process.once('SIGINT', stop);
+  try {
+    const outcome = await pairPhone({
+      config,
+      fetch,
+      print,
+      signal: controller.signal,
+      confirm: async () => {
+        if (!process.stdin.isTTY) return false;
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        try {
+          return /^y(es)?$/i.test((await rl.question('Same number? (y/n) ')).trim());
+        } finally {
+          rl.close();
+        }
+      },
+      // The running copy may have sealed messages meanwhile: keep its seq and replay record.
+      save: async (next) => {
+        const added = next.e2e!.devices.filter(
+          (device) => !config.e2e!.devices.some((old) => old.id === device.id),
+        );
+        const kept = await updateE2e(path, (current) => {
+          if (current.public_key !== config.e2e!.public_key) throw new Error('changed');
+          return {
+            ...current,
+            devices: [
+              ...current.devices.filter(
+                (old) => !added.some((d) => d.id === old.id || d.public_key === old.public_key),
+              ),
+              ...added,
+            ],
+          };
+        }).catch(() => undefined);
+        if (kept === undefined)
+          throw new Error(
+            'This computer was set up again while pairing. Run this again to pair your phone.',
+          );
+      },
+    });
+    switch (outcome) {
+      case 'paired':
+        print('Your phone is paired with this computer.');
+        print('Chats you make private in the app can be read only on your phone and here.');
+        return 0;
+      case 'expired':
+        print('The code ran out. Run this again for a new one.');
+        return 1;
+      case 'cap':
+        print(
+          'Your account already has 5 phones and computers for private chats. Remove one in the app, then try again.',
+        );
+        return 1;
+      case 'mismatch':
+        return 1;
+      case 'cancelled':
+        print('Stopped. Nothing was paired.');
+        return 1;
+    }
+  } finally {
+    process.off('SIGINT', stop);
+  }
 }
 
 /**
