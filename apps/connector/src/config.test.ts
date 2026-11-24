@@ -1,10 +1,55 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { configDir, forgetLastRing, readLastRing, saveLastRing } from './config';
+import {
+  configDir,
+  forgetLastRing,
+  loadConfig,
+  readLastRing,
+  saveConfig,
+  saveLastRing,
+} from './config';
+import { ensureDeviceKey } from './e2e/keys';
+import { baseConfig } from './e2e/test-fixtures';
+
+describe('private chats in the saved config', () => {
+  it('keeps the device key through a save and load', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cord-e2e-config-'));
+    try {
+      const path = join(dir, 'config.json');
+      const config = ensureDeviceKey(baseConfig).config;
+      await saveConfig(path, config);
+      expect(await loadConfig(path)).toEqual(config);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('keeps the file readable by this user only', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cord-e2e-config-'));
+    try {
+      const path = join(dir, 'config.json');
+      await saveConfig(path, ensureDeviceKey(baseConfig).config);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('loads a config saved before private chats', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cord-e2e-config-'));
+    try {
+      const path = join(dir, 'config.json');
+      await saveConfig(path, baseConfig);
+      expect((await loadConfig(path))?.e2e).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('configDir', () => {
   it('keeps the existing directory under XDG_CONFIG_HOME', () => {

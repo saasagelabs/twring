@@ -6,6 +6,7 @@ import { connectorIdSchema, inviteIdSchema } from '@twring/contracts';
 import { z } from 'zod';
 
 import { localAgentConfigSchema } from './agents';
+import { e2eConfigSchema } from './e2e/keys';
 
 // Internal directory name, kept for existing installs; it is not the public CLI name.
 const CONFIG_DIR_NAME = 'cord-connect';
@@ -21,6 +22,8 @@ export const connectorConfigSchema = z.object({
   token: z.string().regex(/^cct_[A-Za-z0-9_-]{43}$/),
   name: z.string().min(1).max(60),
   agents: z.array(localAgentConfigSchema).min(1),
+  /** Private chats (ADR-044): this computer's device key and the phones it verified. */
+  e2e: e2eConfigSchema.optional(),
 });
 export type ConnectorConfig = z.infer<typeof connectorConfigSchema>;
 
