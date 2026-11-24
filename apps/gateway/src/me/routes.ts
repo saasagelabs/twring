@@ -31,6 +31,8 @@ export interface MeRoutesOptions {
   connectors?: { revokeAllForUser(userId: string): Promise<number> };
   connectedApps?: { deleteAllForUser(userId: string): Promise<void> };
   threads?: { deleteAllForUser(userId: string): Promise<number>; closeUser(userId: string): void };
+  /** Private chat device keys and pairing offers (ADR-044). */
+  e2eDevices?: { deleteAllForUser(userId: string): number };
   /** Agent photos, encrypted on disk. */
   avatars?: { deleteAllForUser(userId: string): Promise<void> };
   /** Rings (ADR-024): invites, push-registered phones, and ring settings go too. */
@@ -204,6 +206,7 @@ export function createUserDataDeleter(
     await options.connectedApps?.deleteAllForUser(userId);
     const messages = await options.threads?.deleteAllForUser(userId);
     options.threads?.closeUser(userId);
+    options.e2eDevices?.deleteAllForUser(userId);
     // Rings before history: a ring missed now would otherwise leave a voicemail entry behind.
     const ring = await options.ring?.deleteAllForUser(userId);
     // Credentials before agents, as for a single delete: never a secret without its agent.

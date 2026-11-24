@@ -6,6 +6,7 @@ import {
   type LocalAgent,
   type NativeClientMessage,
   type NativeSessionReady,
+  type RelayGatewayMessage,
 } from '@twring/contracts';
 import WebSocket from 'ws';
 
@@ -59,6 +60,10 @@ export interface FakeConnector {
   closedByGateway: string[];
   /** The close code once the socket closed. */
   closed: Promise<number>;
+  /** Every `sealed.message` frame (private chats, ADR-044) exactly as the gateway sent it. */
+  sealed: Extract<RelayGatewayMessage, { type: 'sealed.message' }>[];
+  /** Sends any frame on the relay socket as this computer (e.g. `sealed.reply`). */
+  send(frame: Record<string, unknown>): void;
   terminate(): void;
 }
 
@@ -101,6 +106,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
   const opened: FakeConnector['opened'] = [];
   const rawOpens: FakeConnector['rawOpens'] = [];
   const closedByGateway: string[] = [];
+  const sealed: FakeConnector['sealed'] = [];
   const channels = new Map<string, { agent: string; turns: Map<string, AbortController> }>();
   const script = options.script ?? answerScript;
 
@@ -162,6 +168,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
         abortChannel(frame.channel);
         return;
       case 'sealed.message':
+        sealed.push(frame);
         return;
       case 'channel.message': {
         const state = channels.get(frame.channel);
@@ -227,6 +234,8 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
     rawOpens,
     closedByGateway,
     closed,
+    sealed,
+    send: sendFrame,
     terminate: () => ws.terminate(),
   };
 }

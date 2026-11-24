@@ -19,6 +19,13 @@ export const SEALED_FORMAT_VERSION = 1;
 export const MAX_SEALED_BODY_CHARS =
   Math.ceil(((4 * 4000 + 4 * 280 + 10 * 120 + 512) * 4) / 3) + 24;
 
+/**
+ * Most ciphertext characters one sealed agent reply may hold: a 20,000-character reply at 4 UTF-8
+ * bytes per character plus room for JSON and the tag. One relay frame (MAX_RELAY_MESSAGE_BYTES)
+ * still bounds what a single `sealed.reply` can carry.
+ */
+export const MAX_SEALED_AGENT_BODY_CHARS = Math.ceil(((4 * 20_000 + 1024) * 4) / 3) + 24;
+
 const MAX_WRAPPED_KEY_CHARS = 128;
 
 /**
@@ -47,21 +54,27 @@ export const wrappedKeySchema = z
   .strict();
 export type WrappedKey = z.infer<typeof wrappedKeySchema>;
 
-export const sealedEnvelopeV1Schema = z
-  .object({
-    v: z.literal(SEALED_FORMAT_VERSION),
-    sender_device: e2eDeviceIdSchema,
-    sender_seq: z.number().int().positive(),
-    nonce: base64urlSchema.min(1).max(64),
-    body: base64urlSchema.min(1).max(MAX_SEALED_BODY_CHARS),
-    keys: z.array(wrappedKeySchema).min(1).max(MAX_PAIRED_DEVICES),
-    /** Streamed agent replies: chunks share one message key; the index is bound into the AAD. */
-    chunk: z
-      .object({ index: z.number().int().nonnegative(), final: z.boolean() })
-      .strict()
-      .optional(),
-  })
-  .strict();
+const sealedEnvelopeWithBody = (maxBodyChars: number) =>
+  z
+    .object({
+      v: z.literal(SEALED_FORMAT_VERSION),
+      sender_device: e2eDeviceIdSchema,
+      sender_seq: z.number().int().positive(),
+      nonce: base64urlSchema.min(1).max(64),
+      body: base64urlSchema.min(1).max(maxBodyChars),
+      keys: z.array(wrappedKeySchema).min(1).max(MAX_PAIRED_DEVICES),
+      /** Streamed agent replies: chunks share one message key; the index is bound into the AAD. */
+      chunk: z
+        .object({ index: z.number().int().nonnegative(), final: z.boolean() })
+        .strict()
+        .optional(),
+    })
+    .strict();
+
+/** A sealed message from a person's phone (or any sender at the person's message cap). */
+export const sealedEnvelopeV1Schema = sealedEnvelopeWithBody(MAX_SEALED_BODY_CHARS);
+/** A sealed agent reply: the same envelope, with room for the longer agent text. */
+export const sealedAgentEnvelopeV1Schema = sealedEnvelopeWithBody(MAX_SEALED_AGENT_BODY_CHARS);
 export type SealedEnvelopeV1 = z.infer<typeof sealedEnvelopeV1Schema>;
 
 export const e2eDeviceSchema = z

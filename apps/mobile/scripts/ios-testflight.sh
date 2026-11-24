@@ -5,9 +5,11 @@
 set -euo pipefail
 
 SECRETS=(ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD
-  IOS_APPSTORE_PROFILE_BASE64 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID EXPO_PUBLIC_SENTRY_DSN)
+  IOS_APPSTORE_PROFILE_BASE64 IOS_APPSTORE_NSE_PROFILE_BASE64 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID EXPO_PUBLIC_SENTRY_DSN)
 APP_ID=6824735840
 BUNDLE_ID=com.twring.app
+# The Notification Service Extension (plugins/withNotificationService.ts), signed with its own profile.
+NSE_BUNDLE_ID=com.twring.app.NotificationService
 WORK="${RUNNER_TEMP:-/tmp}/ios-signing"
 
 check_env() {
@@ -24,6 +26,7 @@ setup_signing() {
   mkdir -p "$WORK" && chmod 700 "$WORK"
   printf %s "$IOS_DIST_CERT_P12_BASE64" | base64 --decode >"$WORK/dist.p12"
   printf %s "$IOS_APPSTORE_PROFILE_BASE64" | base64 --decode >"$WORK/appstore.mobileprovision"
+  printf %s "$IOS_APPSTORE_NSE_PROFILE_BASE64" | base64 --decode >"$WORK/nse.mobileprovision"
   printf %s "$ASC_KEY_P8_BASE64" | base64 --decode >"$WORK/AuthKey.p8"
   local keychain="$WORK/build.keychain-db" pass
   pass="$(openssl rand -hex 24)"
@@ -36,21 +39,27 @@ setup_signing() {
   # shellcheck disable=SC2046
   security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
   security cms -D -i "$WORK/appstore.mobileprovision" >"$WORK/profile.plist"
-  local uuid name team
+  security cms -D -i "$WORK/nse.mobileprovision" >"$WORK/nse-profile.plist"
+  local uuid name team nse_uuid nse_name
   uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$WORK/profile.plist")
   name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$WORK/profile.plist")
   team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$WORK/profile.plist")
+  nse_uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$WORK/nse-profile.plist")
+  nse_name=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$WORK/nse-profile.plist")
   for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
     mkdir -p "$dir" && cp "$WORK/appstore.mobileprovision" "$dir/$uuid.mobileprovision"
+    cp "$WORK/nse.mobileprovision" "$dir/$nse_uuid.mobileprovision"
   done
   {
     echo "IOS_TEAM_ID=$team"
     echo "IOS_PROFILE_UUID=$uuid"
     echo "IOS_PROFILE_NAME=$name"
+    echo "IOS_NSE_PROFILE_UUID=$nse_uuid"
+    echo "IOS_NSE_PROFILE_NAME=$nse_name"
     echo "IOS_KEYCHAIN=$keychain"
     echo "ASC_KEY_P8_PATH=$WORK/AuthKey.p8"
   } >>"${GITHUB_ENV:?}"
-  echo "Signing ready: team $team, profile \"$name\"."
+  echo "Signing ready: team $team, profiles \"$name\" and \"$nse_name\"."
 }
 
 build_number() {
@@ -74,24 +83,30 @@ archive() {
   }
   local workspace="${workspaces[0]}" scheme
   scheme="$(basename "$workspace" .xcworkspace)"
-  # Manual signing on the app target only (Pods targets stay unsigned).
-  IOS_PROJECT="${projects[0]}" ruby -rxcodeproj -e '
+  # Manual signing on the app target and the notification extension (Pods targets stay unsigned).
+  IOS_PROJECT="${projects[0]}" NSE_BUNDLE_ID="$NSE_BUNDLE_ID" ruby -rxcodeproj -e '
     project = Xcodeproj::Project.open(ENV.fetch("IOS_PROJECT"))
+    ids = ->(t) { t.build_configurations.map { |c| c.build_settings["PRODUCT_BUNDLE_IDENTIFIER"].to_s.delete("\"") }.uniq }
     extensions = project.targets.select { |t| t.product_type.to_s.include?("app-extension") }
-    unless extensions.empty?
-      abort("This build signs only the app target. Add an App Store profile for: " +
-        extensions.map(&:name).join(", "))
+    nse, others = extensions.partition { |t| ids.(t) == [ENV.fetch("NSE_BUNDLE_ID")] }
+    unless others.empty?
+      abort("This build signs only the app and its notification extension. Add an App Store profile for: " +
+        others.map(&:name).join(", "))
     end
-    project.targets.select { |t| t.product_type == "com.apple.product-type.application" }.each do |t|
+    sign = lambda do |t, profile|
       t.build_configurations.each do |c|
         s = c.build_settings
         s["CODE_SIGN_STYLE"] = "Manual"
         s["DEVELOPMENT_TEAM"] = ENV.fetch("IOS_TEAM_ID")
         s["CODE_SIGN_IDENTITY"] = "Apple Distribution"
         s["CODE_SIGN_IDENTITY[sdk=iphoneos*]"] = "Apple Distribution"
-        s["PROVISIONING_PROFILE_SPECIFIER"] = ENV.fetch("IOS_PROFILE_NAME")
+        s["PROVISIONING_PROFILE_SPECIFIER"] = profile
       end
     end
+    project.targets.select { |t| t.product_type == "com.apple.product-type.application" }.each do |t|
+      sign.(t, ENV.fetch("IOS_PROFILE_NAME"))
+    end
+    nse.each { |t| sign.(t, ENV.fetch("IOS_NSE_PROFILE_NAME")) }
     project.save'
   xcodebuild -workspace "$workspace" -scheme "$scheme" -configuration Release -sdk iphoneos \
     -destination 'generic/platform=iOS' -archivePath "$RUNNER_TEMP/Twring.xcarchive" \
@@ -105,7 +120,10 @@ archive() {
   <key>teamID</key><string>${IOS_TEAM_ID}</string>
   <key>signingStyle</key><string>manual</string>
   <key>signingCertificate</key><string>Apple Distribution</string>
-  <key>provisioningProfiles</key><dict><key>${BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string></dict>
+  <key>provisioningProfiles</key><dict>
+    <key>${BUNDLE_ID}</key><string>${IOS_PROFILE_NAME}</string>
+    <key>${NSE_BUNDLE_ID}</key><string>${IOS_NSE_PROFILE_NAME}</string>
+  </dict>
 </dict></plist>
 PLIST
   xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/Twring.xcarchive" \
@@ -132,7 +150,9 @@ cleanup() {
   if [ -n "${IOS_KEYCHAIN:-}" ]; then security delete-keychain "$IOS_KEYCHAIN" 2>/dev/null || true; fi
   rm -rf "$WORK" "$HOME/.appstoreconnect/private_keys" \
     "$HOME/Library/MobileDevice/Provisioning Profiles/${IOS_PROFILE_UUID:-none}.mobileprovision" \
-    "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/${IOS_PROFILE_UUID:-none}.mobileprovision"
+    "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/${IOS_PROFILE_UUID:-none}.mobileprovision" \
+    "$HOME/Library/MobileDevice/Provisioning Profiles/${IOS_NSE_PROFILE_UUID:-none}.mobileprovision" \
+    "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/${IOS_NSE_PROFILE_UUID:-none}.mobileprovision"
   echo "Signing material removed."
 }
 

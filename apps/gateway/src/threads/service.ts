@@ -5,9 +5,11 @@ import {
   APPROVAL_HOLD_MS,
   MAX_ACTIVITY_LABEL_CHARS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
+  parseConnectorEndpoint,
   sanitizeRingText,
   truncateRingText,
   userRef,
+  type SealedEnvelopeV1,
   type ThreadMessage,
   type ThreadSocketFrame,
   type UserMessageStatus,
@@ -23,6 +25,7 @@ import type { FileService } from '../files/service';
 import { fetchAgentFile, FetchAgentFileError } from '../files/fetch-agent-file';
 import { sniffFile } from '../files/sniff';
 import { withQuote } from './quote';
+import { PRIVATE_PUSH_TEXT, PRIVATE_RING_REASON } from '../e2e/guard';
 
 export interface ThreadTurnTimeouts {
   connectMs: number;
@@ -55,6 +58,16 @@ export interface ThreadServiceOptions {
   };
   timeouts?: Partial<ThreadTurnTimeouts>;
   sweepIntervalMs?: number;
+  /**
+   * Private chats (ADR-044). Absent: no chat can become private, and sealed messages are refused.
+   * `computerSupports` is true only when the agent's computer is connected and said `sealed_chat`.
+   */
+  privateChats?: {
+    allowed(userId: string): boolean;
+    computerSupports(record: AgentRecord): boolean;
+    /** Sends a sealed message unchanged to the agent's computer; false when it cannot. */
+    deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
+  };
 }
 export class ThreadServiceError extends Error {
   constructor(
@@ -65,7 +78,11 @@ export class ThreadServiceError extends Error {
       | 'approval_conflict'
       | 'approval_not_found'
       | 'reply_to_not_found'
-      | 'message_in_progress',
+      | 'message_in_progress'
+      | 'private_chats_off'
+      | 'private_unsupported'
+      | 'private_thread'
+      | 'not_private',
     readonly current?: ThreadMessage,
   ) {
     super(code);
@@ -126,6 +143,8 @@ const fileSize = (bytes: number) =>
       : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 export class ThreadService {
+  /** Sealed replies dropped as not this account's, not private, or not a known turn (ADR-044). */
+  sealedRepliesRejected = 0;
   private readonly running = new Map<string, Running>();
   private readonly newSessionNotices = new Map<string, number>();
   private readonly sendLocks = new Map<string, Promise<void>>();
@@ -195,6 +214,8 @@ export class ThreadService {
     let delivery: 'ring' | 'push' | 'none' = 'none';
     if (!this.options.hasLiveCallToAgent(userId, agentId) && this.options.ring) {
       const settings = await this.options.ring.settings(userId);
+      // A private chat's ring and push carry fixed words, never the agent's text (ADR-044).
+      const sealedChat = await this.options.store.isPrivate(userId, agentId);
       if (
         input.origin === 'call_turn' &&
         input.text.trim() !== '' &&
@@ -206,10 +227,9 @@ export class ThreadService {
           .replace(/\s+([.!?])/gu, '$1')
           .trim();
         const end = /[.!?](?= |$)/u.exec(clean);
-        const reason = truncateRingText(
-          sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean),
-          140,
-        );
+        const reason = sealedChat
+          ? PRIVATE_RING_REASON
+          : truncateRingText(sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean), 140);
         const result = await this.options.ring.ring({
           userId,
           agentId,
@@ -229,7 +249,9 @@ export class ThreadService {
           agent_id: agentId,
           agent_name: input.target.agentName,
           message_id: messageId,
-          preview: truncateRingText(sanitizeRingText(input.text.split('\n')[0] ?? ''), 120),
+          preview: sealedChat
+            ? PRIVATE_PUSH_TEXT
+            : truncateRingText(sanitizeRingText(input.text.split('\n')[0] ?? ''), 120),
           silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
         });
         if (attempted > 0) delivery = 'push';
@@ -257,10 +279,11 @@ export class ThreadService {
     status: 'answered' | 'declined' | 'missed' | 'cancelled';
     note?: string;
   }): Promise<void> {
+    const sealedChat = await this.options.store.isPrivate(invite.user_id, invite.agent_id);
     const message = await this.options.store.appendMessage(invite.user_id, invite.agent_id, {
       kind: 'ring',
       invite_id: invite.id,
-      reason: invite.reason,
+      reason: sealedChat ? PRIVATE_RING_REASON : invite.reason,
       outcome: invite.status,
       note: invite.note,
     });
@@ -316,7 +339,9 @@ export class ThreadService {
       agent_id: invite.agent_id,
       agent_name: invite.agent_name,
       message_id: invite.message_id,
-      preview: truncateRingText(sanitizeRingText(result.text.split('\n')[0] ?? ''), 120),
+      preview: (await this.options.store.isPrivate(invite.user_id, invite.agent_id))
+        ? PRIVATE_PUSH_TEXT
+        : truncateRingText(sanitizeRingText(result.text.split('\n')[0] ?? ''), 120),
       silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
     });
   }
@@ -481,6 +506,8 @@ export class ThreadService {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      /** A consented voice note in a private chat (ADR-044). */
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const key = keyOf(userId, agentId);
@@ -508,10 +535,21 @@ export class ThreadService {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const record = await this.options.agents.get(userId, agentId);
     if (!record) throw new ThreadServiceError('agent_not_found');
+    // Nothing goes into a private chat in plain text, so it never silently downgrades.
+    if (input.serverReadable !== true && (await this.options.store.isPrivate(userId, agentId))) {
+      const prior = await this.options.store.findUserMessageByClientId(
+        userId,
+        agentId,
+        input.clientId,
+      );
+      if (prior) return { message: prior, created: false };
+      throw new ThreadServiceError('private_thread');
+    }
     if (input.attachmentIds) {
       if (!this.options.files) throw new ThreadServiceError('bad_attachment');
       const prior = await this.options.store.findUserMessageByClientId(
@@ -562,6 +600,184 @@ export class ThreadService {
     return result;
   }
 
+  /**
+   * Makes the chat private (ADR-044): only for this person's own computer agent, when private
+   * chats are on for them, the computer is connected and supports them, and so does the app.
+   */
+  async setPrivate(userId: string, agentId: string, appSupports: boolean): Promise<void> {
+    const privateChats = this.options.privateChats;
+    if (!privateChats?.allowed(userId)) throw new ThreadServiceError('private_chats_off');
+    const record = await this.options.agents.get(userId, agentId);
+    if (!record) throw new ThreadServiceError('agent_not_found');
+    if (
+      !appSupports ||
+      record.user_id !== userId ||
+      record.protocol !== 'cord-connector' ||
+      parseConnectorEndpoint(record.endpoint_url) === undefined ||
+      !privateChats.computerSupports(record)
+    )
+      throw new ThreadServiceError('private_unsupported');
+    if (await this.options.store.isPrivate(userId, agentId)) return;
+    await this.options.store.setPrivate(userId, agentId);
+    this.options.log?.info(
+      { event: 'thread_made_private', agent_id: agentId },
+      'thread_made_private',
+    );
+  }
+
+  /** A sealed message from the phone into a private chat. Deduped by client id. */
+  async sendSealed(
+    userId: string,
+    agentId: string,
+    input: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+  ): Promise<{ message: ThreadMessage; created: boolean }> {
+    const key = keyOf(userId, agentId);
+    const prior = this.sendLocks.get(key);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.sendLocks.set(key, current);
+    await prior;
+    try {
+      const record = await this.options.agents.get(userId, agentId);
+      if (!record) throw new ThreadServiceError('agent_not_found');
+      if (!(await this.options.store.isPrivate(userId, agentId)))
+        throw new ThreadServiceError('not_private');
+      // In order: a message goes straight out only when nothing of this chat is still waiting.
+      const waiting = (await this.options.store.queuedSealed()).some(
+        (entry) => entry.userId === userId && entry.agentId === agentId,
+      );
+      const ready = !waiting && this.options.privateChats?.computerSupports(record) === true;
+      let result: { message: ThreadMessage; created: boolean };
+      try {
+        result = await this.options.store.appendSealedMessage(userId, agentId, {
+          author: 'user',
+          sealed: input.sealed,
+          clientId: input.clientId,
+          status: ready ? 'sent' : 'queued',
+          ...(input.replyTo !== undefined && { replyTo: input.replyTo }),
+        });
+      } catch (error) {
+        if (error instanceof ThreadStoreError && error.code === 'queue_full')
+          throw new ThreadServiceError('queue_full');
+        if (error instanceof ThreadStoreError && error.code === 'reply_to_not_found')
+          throw new ThreadServiceError('reply_to_not_found');
+        throw error;
+      }
+      if (!result.created) return result;
+      if (ready && !this.options.privateChats?.deliver(record, result.message.id, input.sealed)) {
+        // The computer went away between the check and the send: it waits for the next sweep.
+        const queued = await this.options.store.updateUserMessage(userId, result.message.id, {
+          status: 'queued',
+        });
+        if (queued) result = { message: queued, created: true };
+      }
+      this.upsert(userId, result.message);
+      this.options.log?.info(
+        {
+          event: 'thread_sealed_received',
+          agent_id: agentId,
+          message_id: result.message.id,
+          keys: input.sealed.keys.length,
+          length: input.sealed.body.length,
+          status: result.message.kind === 'sealed' ? result.message.status : undefined,
+        },
+        'thread_sealed_received',
+      );
+      return result;
+    } finally {
+      if (this.sendLocks.get(key) === current) this.sendLocks.delete(key);
+      release();
+    }
+  }
+
+  /**
+   * A computer's sealed reply (ADR-044). Kept only when `turn_id` names a sealed message of the
+   * computer's own account, in a private chat with an agent on that same computer; anything else
+   * is dropped and counted. The user message moves sent, working, answered as for text.
+   */
+  async receiveSealedReply(
+    from: { connectorId: string; userId: string },
+    frame: { agent: string; turn_id: string; sealed: SealedEnvelopeV1; final: boolean },
+  ): Promise<void> {
+    const reject = (reason: string) => {
+      this.sealedRepliesRejected++;
+      this.options.log?.warn(
+        { event: 'e2e_reply_rejected', connector_id: from.connectorId, reason },
+        'e2e_reply_rejected',
+      );
+    };
+    if (!/^msg_[a-z2-7]{20}$/.test(frame.turn_id)) return reject('bad_turn');
+    const found = await this.options.store.findMessageForUser(from.userId, frame.turn_id);
+    if (found?.message.kind !== 'sealed' || found.message.author !== 'user')
+      return reject('unknown_turn');
+    const { agentId } = found;
+    const record = await this.options.agents.get(from.userId, agentId);
+    const endpoint =
+      record?.protocol === 'cord-connector'
+        ? parseConnectorEndpoint(record.endpoint_url)
+        : undefined;
+    if (
+      !record ||
+      record.user_id !== from.userId ||
+      endpoint?.connectorId !== from.connectorId ||
+      endpoint.localAgent !== frame.agent
+    )
+      return reject('wrong_computer');
+    if (!(await this.options.store.isPrivate(from.userId, agentId))) return reject('not_private');
+    const saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
+      turnId: frame.turn_id,
+      sealed: frame.sealed,
+      final: frame.final,
+    });
+    if (saved === 'ignored') return reject('after_final');
+    this.upsert(from.userId, saved.message);
+    const status = frame.final ? 'answered' : 'working';
+    const current = found.message.status;
+    if (current !== status && current !== 'answered' && current !== 'stopped') {
+      const changed = await this.options.store.updateUserMessage(from.userId, frame.turn_id, {
+        status,
+      });
+      if (changed) this.upsert(from.userId, changed);
+    }
+    this.options.log?.info(
+      {
+        event: 'thread_sealed_reply',
+        agent_id: agentId,
+        message_id: saved.message.id,
+        final: frame.final,
+        length: frame.sealed.body.length,
+      },
+      'thread_sealed_reply',
+    );
+    if (frame.final) void this.notifySealedReply(from.userId, agentId, record.name, saved.message);
+  }
+
+  /** Sends sealed messages that waited for their computer, oldest first, in order per chat. */
+  private async deliverQueuedSealed(): Promise<void> {
+    const privateChats = this.options.privateChats;
+    if (!privateChats) return;
+    const blocked = new Set<string>();
+    for (const { userId, agentId, message } of await this.options.store.queuedSealed()) {
+      const key = keyOf(userId, agentId);
+      if (blocked.has(key) || message.kind !== 'sealed') continue;
+      const record = await this.options.agents.get(userId, agentId);
+      if (
+        !record ||
+        !privateChats.computerSupports(record) ||
+        !privateChats.deliver(record, message.id, message.sealed)
+      ) {
+        blocked.add(key);
+        continue;
+      }
+      const sent = await this.options.store.updateUserMessage(userId, message.id, {
+        status: 'sent',
+      });
+      if (sent) this.upsert(userId, sent);
+    }
+  }
+
   async sweep(): Promise<void> {
     if (this.sweeping) return;
     this.sweeping = true;
@@ -585,6 +801,8 @@ export class ThreadService {
       for (const { userId, agentId } of queued)
         for (const message of await this.options.store.queuedMessages(userId, agentId))
           owners.set(message.id, userId);
+      for (const { userId, message } of await this.options.store.queuedSealed())
+        owners.set(message.id, userId);
       for (const message of await this.options.store.expireQueued()) {
         const owner = owners.get(message.id);
         if (owner) this.upsert(owner, message);
@@ -604,6 +822,7 @@ export class ThreadService {
           // One agent's failure must not starve the others; it is retried on the next sweep.
         }
       }
+      await this.deliverQueuedSealed();
     }
   }
 
@@ -1110,7 +1329,9 @@ export class ThreadService {
         agent_id: agentId,
         agent_name: agentName,
         message_id: message.id,
-        preview: truncateRingText(sanitizeRingText(`Needs your OK: ${message.title}`), 120),
+        preview: (await this.options.store.isPrivate(userId, agentId))
+          ? PRIVATE_PUSH_TEXT
+          : truncateRingText(sanitizeRingText(`Needs your OK: ${message.title}`), 120),
         silent: ownerUnavailable(settings, ring.nowDate()) ? '1' : '0',
       });
     } catch {
@@ -1135,7 +1356,37 @@ export class ThreadService {
         agent_id: agentId,
         agent_name: agentName,
         message_id: message.id,
-        preview: truncateRingText(sanitizeRingText(message.text.split('\n')[0] ?? ''), 120),
+        preview: (await this.options.store.isPrivate(userId, agentId))
+          ? PRIVATE_PUSH_TEXT
+          : truncateRingText(sanitizeRingText(message.text.split('\n')[0] ?? ''), 120),
+        silent: ownerUnavailable(settings, ring.nowDate()) ? '1' : '0',
+      });
+    } catch {
+      // A notification is a convenience: the reply is already saved in the chat.
+    }
+  }
+
+  /**
+   * A message notification for a private chat's reply: the fixed text only, since the server
+   * cannot read the reply and must not hint at it (ADR-044). Never throws.
+   */
+  private async notifySealedReply(
+    userId: string,
+    agentId: string,
+    agentName: string,
+    message: ThreadMessage,
+  ): Promise<void> {
+    const ring = this.options.ring;
+    if (!ring || message.kind !== 'sealed' || this.options.isFocused?.(userId, agentId)) return;
+    try {
+      const settings = await ring.settings(userId);
+      await ring.pushMessage(userId, {
+        type: 'cord.message',
+        user_ref: userRef(userId),
+        agent_id: agentId,
+        agent_name: agentName,
+        message_id: message.id,
+        preview: PRIVATE_PUSH_TEXT,
         silent: ownerUnavailable(settings, ring.nowDate()) ? '1' : '0',
       });
     } catch {

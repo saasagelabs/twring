@@ -51,12 +51,11 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 
 - [Blog](https://twring.com/blog/): all guides
 - [Every way to reach your coding agent from your phone, compared](https://twring.com/blog/reach-your-coding-agent-from-your-phone/): Type, dictate, talk live or get rung: the ways to reach Claude Code, Codex and other coding agents from your phone as of November 2026, and which to pick.
-- [Make Claude Code ring your phone when it needs you](https://twring.com/blog/claude-code-call-me-when-done/): A Claude Code notification hook that rings your phone, full screen even when it's locked, when Claude Code needs permission or is waiting for you. Setup, what rings, and limits.
-- [How to talk to Codex by voice from your phone](https://twring.com/blog/codex-voice-from-your-phone/): Talk to Codex by voice from your phone with ChatGPT Voice in the ChatGPT app, or call the Codex CLI on your own computer with Twring. Here is how each works.
-- [Call your Hermes agent from your phone, and let its scheduled jobs ring you](https://twring.com/blog/hermes-agent-phone-call/): Install the Twring plugin in Hermes to talk to your own Hermes agent in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.
+- [Make Claude Code ring your phone when it needs you](https://twring.com/blog/claude-code-call-me-when-done/): A Claude Code notification hook that rings your phone, full screen even when it's locked, when Claude Code needs permission or is waiting for you.
+- [Call your Hermes agent from your phone, and let its scheduled jobs ring you](https://twring.com/blog/hermes-agent-phone-call/): Install the Twring plugin in Hermes to talk to it in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.
 - [Approving your agent's risky actions by voice, away from your desk](https://twring.com/blog/approve-agent-actions-by-voice/): How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code and Codex run with safe limits you set in advance.
 - [How a live voice call with your AI agent works](https://twring.com/blog/how-a-voice-call-with-your-agent-works/): A Twring call turns your speech into text, sends it to the agent you already run, and speaks its answer as it streams, so you can talk and interrupt naturally.
-- [Run your own Twring server: a voice for your agents, on your machine](https://twring.com/blog/self-host-voice-for-your-agents/): One command installs Twring on the Linux machine where your agents run, with your own speech key. Chats, files and agents stay on your server; rings use Twring's ring service.
+- [Run your own Twring server: a voice for your agents, on your machine](https://twring.com/blog/self-host-voice-for-your-agents/): One command installs Twring on the Linux machine where your agents run. Chats, files and agents stay on your server; rings use Twring's ring service.
 
 ## Optional
 

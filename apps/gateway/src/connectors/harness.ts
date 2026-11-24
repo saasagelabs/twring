@@ -46,6 +46,8 @@ import { FileService } from '../files/service';
 import { ThreadService } from '../threads/service';
 import { SqliteThreadStore } from '../threads/store';
 import { FakeSttProvider, FakeTtsProvider } from '../voice/testing';
+import { E2eDeviceStore } from '../e2e/devices-store';
+import { privateChatAccess } from '../e2e/flag';
 
 import { ConnectorHub, type HubLogger } from './hub';
 import type { LinkBook } from './link-requests';
@@ -83,6 +85,8 @@ export interface ConnectorGateway {
     pushes: { token: string; data: PushPayload }[];
   };
   threads?: { service: ThreadService; store: SqliteThreadStore };
+  /** Private chat device keys (routes mounted only with `PRIVATE_CHATS_ENABLED` in `env`). */
+  e2e: E2eDeviceStore;
   /** With `selfhost`: paired-phone stores, the admin listener (not listening), and pairing. */
   selfhost?: {
     stores: SelfhostStores;
@@ -151,6 +155,10 @@ export interface ConnectorGatewayOptions {
   logger?: FastifyServerOptions['logger'];
   /** Self-hosted mode: pairing routes, and requests without `x-user` use a device token. */
   selfhost?: boolean;
+  /** Extra gateway environment, e.g. `PRIVATE_CHATS_ENABLED`. */
+  env?: Record<string, string>;
+  /** Private chat pairing claims per account per minute. */
+  e2eClaimRatePerMinute?: number;
 }
 
 const fileDirs: string[] = [];
@@ -192,6 +200,7 @@ export async function startConnectorGateway(
     gatewayEnvFixture({
       GATEWAY_AUDIO_TEST_MODE: 'echo',
       ...(options.threads?.files === true && { THREADS_ENABLED: 'true', FILES_ENABLED: 'true' }),
+      ...options.env,
     }),
   );
   const policy = { env: 'development' as const, connectors: hub };
@@ -288,13 +297,21 @@ export async function startConnectorGateway(
         calls?.registry.hasLiveCallToAgent(userId, agentId) ?? false,
       ...(ring && { ring: ring.service }),
       notify: () => undefined,
+      privateChats: privateChatAccess(env, hub),
       sweepIntervalMs: options.threads.sweepIntervalMs ?? 20,
     });
     await service.start();
+    hub.setSealedReplyListener((from, frame) => void service.receiveSealedReply(from, frame));
     threads = { service, store };
   }
+  const e2e = new E2eDeviceStore(':memory:');
   const app = buildApp({
     env,
+    e2e: {
+      devices: e2e,
+      writeRatePerMinute: 1000,
+      claimRatePerMinute: options.e2eClaimRatePerMinute ?? 1000,
+    },
     ...(ring !== undefined && {
       ring: {
         stores: ring.stores,
@@ -430,6 +447,7 @@ export async function startConnectorGateway(
     hub,
     pairings,
     socketUrl,
+    e2e,
     ...(calls !== undefined && { calls }),
     ...(ring !== undefined && { ring }),
     ...(threads !== undefined && { threads }),
@@ -466,6 +484,7 @@ export async function startConnectorGateway(
       await admin?.close();
       threads?.service.stop();
       await threads?.store.close();
+      e2e.close();
       for (const dir of fileDirs.splice(0)) await rm(dir, { recursive: true, force: true });
     },
   };

@@ -1,6 +1,7 @@
 import type { ConfigContext, ExpoConfig } from 'expo/config';
 
 import withIncomingCalls from './plugins/withIncomingCalls.ts';
+import withNotificationService from './plugins/withNotificationService.ts';
 import withReleaseSigning from './plugins/withReleaseSigning.ts';
 
 /**
@@ -245,7 +246,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       appVariant: variant,
     },
   };
-  const withRing = withIncomingCalls(expoConfig, { scheme });
+  // iPhone: opens sealed message pushes so notifications show the agent's name and first line.
+  const withRing = withNotificationService(withIncomingCalls(expoConfig, { scheme }));
   // Upload-key signing for production releases only; fails closed without the key.
   return variant === 'production' ? withReleaseSigning(withRing) : withRing;
 };

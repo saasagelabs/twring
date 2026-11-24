@@ -9,17 +9,20 @@ import {
   messagePageResponseSchema,
   readMarkerRequestSchema,
   sendMessageRequestSchema,
+  sendSealedMessageRequestSchema,
+  setPrivateRequestSchema,
+  CLIENT_FEATURES_HEADER,
+  SEALED_CHAT_FEATURE,
   threadListResponseSchema,
   threadMessageIdSchema,
   threadMessageSchema,
   voiceNoteQuerySchema,
-  type ErrorCode,
-  type ErrorResponse,
   type ThreadMessage,
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
+import type { GatewayErrorCode } from '../e2e/guard';
 import { devUserResolver, type UserResolver } from '../auth';
 import { FixedWindowLimiter } from '../rate-limit';
 import { toSafeError } from '../redact';
@@ -109,10 +112,10 @@ const pageQuery = z
 function error(
   reply: FastifyReply,
   status: number,
-  code: ErrorCode,
+  code: GatewayErrorCode,
   message: string,
 ): FastifyReply {
-  const body: ErrorResponse = { error: { code, message, request_id: reply.request.id } };
+  const body = { error: { code, message, request_id: reply.request.id } };
   return reply.code(status).send(body);
 }
 
@@ -167,6 +170,24 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
           'reply_to_not_found',
           'The message you replied to is gone. Send it without the reply.',
         );
+      if (cause.code === 'private_thread')
+        return error(
+          reply,
+          409,
+          'private_thread',
+          'This chat is private. Update Twring to send messages in it.',
+        );
+      if (cause.code === 'not_private')
+        return error(reply, 409, 'not_private', 'This chat is not private.');
+      if (cause.code === 'private_chats_off')
+        return error(reply, 404, 'private_chats_off', 'Private chats are not available yet.');
+      if (cause.code === 'private_unsupported')
+        return error(
+          reply,
+          409,
+          'private_unsupported',
+          'This chat cannot be private yet. Update Twring on your phone and your computer.',
+        );
     }
     const refusal = speechKeyRefusal(cause);
     if (refusal) return error(reply, refusal.status, refusal.code, refusal.message);
@@ -181,6 +202,81 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
           );
     throw cause;
   };
+
+  /** Daily and per-minute counting shared by every way of sending; undefined when limited. */
+  const countSend = (userId: string): { release(): void } | undefined => {
+    const day = new Date().toISOString().slice(0, 10);
+    const usage = daily.get(userId);
+    const count = usage?.day === day ? usage.count : 0;
+    if (count >= options.messagesPerDay || !writes.tryAcquire(userId)) return undefined;
+    daily.set(userId, { day, count: count + 1 });
+    return {
+      release: () => {
+        const current = daily.get(userId);
+        if (current?.day === day) current.count--;
+      },
+    };
+  };
+
+  const sendSealed = async (
+    userId: string,
+    agentId: string,
+    raw: object,
+    reply: FastifyReply,
+  ): Promise<FastifyReply> => {
+    const body = sendSealedMessageRequestSchema.safeParse(raw);
+    if (!body.success) return error(reply, 400, 'bad_request', 'Invalid message.');
+    const counted = countSend(userId);
+    if (!counted) return limited(reply);
+    try {
+      const result = await options.service.sendSealed(userId, agentId, {
+        clientId: body.data.client_id,
+        sealed: body.data.sealed,
+        ...(body.data.reply_to !== undefined && { replyTo: body.data.reply_to }),
+      });
+      if (!result.created) counted.release();
+      return reply
+        .code(result.created ? 201 : 200)
+        .send({ message: threadMessageSchema.parse(result.message) });
+    } catch (cause) {
+      counted.release();
+      return sendFailure(reply, cause);
+    }
+  };
+
+  // Makes a chat private (ADR-044). The app says it can seal; the server checks the computer.
+  app.put<{ Params: { agentId: string } }>(
+    '/v1/agents/:agentId/private',
+    { bodyLimit: 1024 },
+    async (request, reply) => {
+      const userId = userFor(request);
+      if (!(await writable(userId, request.params.agentId, reply))) return reply;
+      const body = setPrivateRequestSchema.safeParse(request.body);
+      if (!body.success) return error(reply, 400, 'bad_request', 'Invalid request.');
+      if (!writes.tryAcquire(userId)) return limited(reply);
+      if (!body.data.on)
+        return error(
+          reply,
+          409,
+          'private_is_one_way',
+          'A private chat stays private. Start a new chat instead.',
+        );
+      const header = request.headers[CLIENT_FEATURES_HEADER];
+      const appSupports =
+        typeof header === 'string' &&
+        header.length <= 256 &&
+        header
+          .split(',')
+          .map((feature) => feature.trim())
+          .includes(SEALED_CHAT_FEATURE);
+      try {
+        await options.service.setPrivate(userId, request.params.agentId, appSupports);
+      } catch (cause) {
+        return sendFailure(reply, cause);
+      }
+      return { private: true };
+    },
+  );
 
   app.get('/v1/threads', async (request, reply) => {
     const userId = userFor(request);
@@ -217,10 +313,16 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
 
   app.post<{ Params: { agentId: string } }>(
     '/v1/agents/:agentId/messages',
-    { bodyLimit: 16 * 1024 },
+    // Room for a sealed body (ADR-044); a plain text message keeps its 16 KB limit below.
+    { bodyLimit: SEALED_BODY_LIMIT },
     async (request, reply) => {
       const userId = userFor(request);
       if (!(await writable(userId, request.params.agentId, reply))) return reply;
+      const raw = request.body;
+      if (typeof raw === 'object' && raw !== null && 'sealed' in raw)
+        return sendSealed(userId, request.params.agentId, raw, reply);
+      if (Number(request.headers['content-length'] ?? 0) > TEXT_BODY_LIMIT)
+        return error(reply, 413, 'bad_request', 'Message too large.');
       const body = sendMessageRequestSchema.safeParse(request.body);
       if (!body.success) return error(reply, 400, 'bad_request', 'Invalid message.');
       if (body.data.attachment_ids && !options.filesEnabled)
@@ -294,13 +396,24 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         const query = voiceNoteQuerySchema.safeParse(request.query);
         if (!query.success || query.data.duration_ms < 1_000 || query.data.duration_ms > 120_500)
           return error(reply, 400, 'bad_request', 'Invalid voice note duration.');
-        const { client_id: clientId, duration_ms: durationMs, reply_to: replyTo } = query.data;
+        const {
+          client_id: clientId,
+          duration_ms: durationMs,
+          reply_to: replyTo,
+          server_readable: consent,
+        } = query.data;
         const prior = await options.store.findUserMessageByClientId(userId, agentId, clientId);
         if (prior) return reply.code(200).send({ message: threadMessageSchema.parse(prior) });
+        // A private chat hears a voice note only with the person's consent (ADR-044), checked
+        // before any audio leaves for transcription.
+        const privateChat = await options.store.isPrivate(userId, agentId);
+        if (privateChat && consent !== '1')
+          return sendFailure(reply, new ThreadServiceError('private_thread'));
+        const serverReadable = privateChat ? (true as const) : undefined;
         // Checked before transcription is paid for; the store checks again when it saves.
         if (replyTo !== undefined) {
           const answered = await options.store.findMessageById(userId, agentId, replyTo);
-          if (!answered || !quoteOf(answered))
+          if (!answered || (!quoteOf(answered) && answered.kind !== 'sealed'))
             return sendFailure(reply, new ThreadServiceError('reply_to_not_found'));
         }
         if (!Buffer.isBuffer(request.body) || request.body.length === 0)
@@ -424,6 +537,7 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
             text,
             voice: { duration_s: Math.min(120, Math.round(durationMs / 1_000)) },
             ...(replyTo !== undefined && { replyTo }),
+            ...(serverReadable && { serverReadable }),
           });
         })();
         sends.set(sendKey, work);
@@ -595,6 +709,9 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
     },
   );
 }
+
+const TEXT_BODY_LIMIT = 16 * 1024;
+const SEALED_BODY_LIMIT = 32 * 1024;
 
 const VOICE_NOTE_TYPES = new Set(['audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac']);
 

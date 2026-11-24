@@ -33,6 +33,17 @@ describe('ios-testflight.yml', () => {
     }
   });
 
+  it('gives the extension profile to the secrets check and the signing step only', () => {
+    const steps = text.slice(text.indexOf('    steps:\n')).split(/\n {6}- /);
+    const withNse = steps.filter((step) =>
+      step.includes('secrets.IOS_APPSTORE_NSE_PROFILE_BASE64'),
+    );
+    expect(withNse.map((step) => step.split('\n')[0])).toEqual([
+      'name: Check secrets',
+      'name: Signing keychain and profile',
+    ]);
+  });
+
   // Crash reports from the app are unreadable without source maps and debug symbols.
   it('uploads source maps and symbols to Sentry, with the token only where the build runs', () => {
     expect(text).not.toMatch(/SENTRY_DISABLE_AUTO_UPLOAD/);

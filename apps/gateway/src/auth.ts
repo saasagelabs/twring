@@ -304,6 +304,10 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   '/v1/connectors/ring/:inviteId',
   // A connector adds words its calls listen for, with its own token, checked by the route.
   '/v1/connectors/words',
+  // Private chats (ADR-044): a connector offers a pairing and lists devices with its own token.
+  '/v1/e2e/pairings',
+  '/v1/e2e/pairings/:offerId',
+  '/v1/e2e/computer/devices',
 ]);
 
 /** Self-hosted only: the server's identity and pairing, which a phone reaches before it has a token. */
