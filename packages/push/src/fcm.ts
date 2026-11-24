@@ -28,6 +28,25 @@ export const serviceAccountSchema = z.object({
 export type ServiceAccount = z.infer<typeof serviceAccountSchema>;
 
 export type PushPayload = RingPush | RingCancelPush | MessagePush;
+/** The only text a hosted message push carries. */
+export const MESSAGE_PUSH_TEXT = 'New message';
+
+/**
+ * A message push as it leaves through Google's or Apple's push service: no agent name and no
+ * message text, only what the app needs to route a tap and collapse duplicates. Self-hosted
+ * pushes go sealed through the relay instead and keep their preview.
+ */
+export function redactMessagePush(data: MessagePush): MessagePush {
+  return {
+    type: data.type,
+    user_ref: data.user_ref,
+    agent_id: data.agent_id,
+    message_id: data.message_id,
+    preview: MESSAGE_PUSH_TEXT,
+    silent: data.silent,
+  };
+}
+
 export interface PushOptions {
   priority: 'high' | 'normal';
   ttlSeconds: number;
@@ -130,7 +149,8 @@ export class FcmPushSender implements PushSender {
     data: PushPayload,
     options: PushOptions = { priority: 'high', ttlSeconds: 30 },
   ): Promise<PushOutcome> {
-    return this.sendData(target.token, { ...data }, options);
+    const sent = data.type === 'cord.message' ? redactMessagePush(data) : data;
+    return this.sendData(target.token, { ...sent }, options);
   }
 
   /** Sends string `data` as-is to one FCM token (the relay's sealed pushes use this). */

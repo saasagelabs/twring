@@ -71,8 +71,20 @@ describe('FCM push', () => {
       },
       { priority: 'normal', ttlSeconds: 86400 },
     );
-    const body = JSON.parse(f.calls[1]!.init.body as string) as { message: { android: unknown } };
+    const body = JSON.parse(f.calls[1]!.init.body as string) as {
+      message: { android: unknown; data: Record<string, string> };
+    };
     expect(body.message.android).toEqual({ priority: 'NORMAL', ttl: '86400s' });
+    // Google never sees who wrote or what: only ids and a fixed line.
+    expect(body.message.data).toEqual({
+      type: 'cord.message',
+      user_ref: 'a'.repeat(16),
+      agent_id: RING.agent_id,
+      message_id: `msg_${'a'.repeat(20)}`,
+      preview: 'New message',
+      silent: '0',
+    });
+    expect(f.calls[1]!.init.body as string).not.toContain(RING.agent_name);
   });
   it('sends a data-only HIGH message with a 30 s TTL, authenticated by a signed JWT', async () => {
     const f = fcm();
