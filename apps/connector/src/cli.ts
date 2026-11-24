@@ -56,6 +56,8 @@ import { RelayClient } from './relay';
 import { ensureDeviceKey } from './e2e/keys';
 import { pairPhone } from './e2e/pair';
 import { updateE2e } from './e2e/store';
+import type { E2eConfig } from './e2e/keys';
+import { helloFeatures, PrivateChats } from './e2e/turn';
 import {
   cancelLastRing,
   deliverBackgroundResult,
@@ -491,8 +493,31 @@ function run(config: ConnectorConfig): Promise<number> {
     },
     log,
   });
+  // Private chats (ADR-044): off until a phone was paired with `private pair`.
+  let e2e = config.e2e;
+  const persistE2e = async (change: (current: E2eConfig) => E2eConfig) => {
+    const saved = await updateE2e(configPath(), change).catch(() => undefined);
+    if (saved !== undefined) e2e = saved;
+    return saved;
+  };
+  const privateChats = new PrivateChats({
+    connectorId: config.connector_id,
+    e2e: () => e2e,
+    persist: persistE2e,
+    pool: {
+      acquire: (id) => pool.acquire(id),
+      release: (id) => pool.release(id),
+      runExclusive: (id, fn) => pool.runExclusive(id, fn),
+    },
+    send: (frame) => client.sendFrame(frame),
+    outbox,
+    log,
+  });
   const client = new RelayClient({
     url: socketUrl(checkServerUrl(config.server)),
+    features: () => helloFeatures(e2e),
+    onSealedMessage: (frame) =>
+      void privateChats.receive(frame).catch(() => log('a private message could not be answered')),
     server: checkServerUrl(config.server).toString(),
     token: config.token,
     agents: config.agents.map(publicAgent),

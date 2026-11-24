@@ -227,6 +227,60 @@ describe('relay client', () => {
     expect(c.hasOpenChannel('echo')).toBe(false);
   });
 
+  it('says sealed_chat only when told, hands sealed messages over, and sends sealed replies', async () => {
+    const frames: Record<string, unknown>[] = [];
+    let features = ['scoped_sessions'];
+    const sealed: unknown[] = [];
+    const url = await server((ws) => {
+      ws.on('message', (data: Buffer) => {
+        const frame = JSON.parse(data.toString()) as Record<string, unknown>;
+        frames.push(frame);
+        if (frame.type !== 'connector.hello' || frames.length > 1) return;
+        ws.send(
+          JSON.stringify({
+            type: 'connector.ready',
+            protocol: 'cord-relay/1',
+            connector_id: `con_${'a'.repeat(20)}`,
+            name: 'Laptop',
+          }),
+        );
+        ws.send(JSON.stringify({ type: 'sealed.message', agent: 'echo', message_id: 'bad' }));
+        ws.send(
+          JSON.stringify({
+            type: 'sealed.message',
+            agent: 'echo',
+            message_id: `msg_${'a'.repeat(20)}`,
+            sealed: {
+              v: 1,
+              sender_device: `dev_${'a'.repeat(20)}`,
+              sender_seq: 1,
+              nonce: 'n',
+              body: 'b',
+              keys: [{ device: `dev_${'b'.repeat(20)}`, wrapped: 'w' }],
+            },
+          }),
+        );
+      });
+    });
+    const statuses: RelayStatus[] = [];
+    const c = client(url, statuses, {
+      features: () => features,
+      onSealedMessage: (frame) => sealed.push(frame),
+    });
+    expect(c.sendFrame({ type: 'connector.hello' } as never)).toBe(false);
+    c.start();
+    await waitFor(() => sealed.length === 1);
+    expect(frames[0]).toMatchObject({ features: ['scoped_sessions'] });
+    features = ['scoped_sessions', 'sealed_chat'];
+    c.rehello();
+    await waitFor(() => frames.length === 2);
+    expect(frames[1]).toMatchObject({
+      type: 'connector.hello',
+      features: ['scoped_sessions', 'sealed_chat'],
+    });
+    expect(sealed[0]).toMatchObject({ message_id: `msg_${'a'.repeat(20)}` });
+  });
+
   it('reconnects with backoff after a drop', async () => {
     let connections = 0;
     const url = await server((ws) => {

@@ -9,6 +9,7 @@ import {
   SCOPED_SESSIONS_FEATURE,
   type LocalAgent,
   type RelayConnectorMessage,
+  type RelayGatewayMessage,
 } from '@twring/contracts';
 import WebSocket from 'ws';
 
@@ -55,6 +56,10 @@ export interface RelayClientOptions {
     turn: { turnId: string; surface: 'call' | 'text'; scope?: string },
   ): void;
   onStatus?(status: RelayStatus): void;
+  /** What this computer says it supports, read at each hello (default: scoped sessions). */
+  features?: () => string[];
+  /** A private chat message (ADR-044); none set means they are ignored. */
+  onSealedMessage?(frame: Extract<RelayGatewayMessage, { type: 'sealed.message' }>): void;
   log?: (line: string) => void;
   delaysMs?: readonly number[];
   silenceTimeoutMs?: number;
@@ -153,14 +158,7 @@ export class RelayClient {
     ws.on('error', () => undefined);
     ws.on('open', () => {
       this.touch(ws);
-      this.send(ws, {
-        type: 'connector.hello',
-        protocol: RELAY_PROTOCOL,
-        agent_protocol: NATIVE_PROTOCOL,
-        agents: this.options.agents,
-        ...(this.options.version !== undefined && { version: this.options.version }),
-        features: [SCOPED_SESSIONS_FEATURE],
-      });
+      this.hello(ws);
     });
     ws.on('ping', () => this.touch(ws));
     ws.on('message', (data: WebSocket.RawData, isBinary: boolean) => {
@@ -256,18 +254,41 @@ export class RelayClient {
         if (this.closeChannel(frame.channel)) this.options.log?.('call ended');
         return;
       case 'sealed.message':
-        // Private chats (ADR-044) are not handled by this connector yet; ignore.
+        // Private chats (ADR-044): opened and answered by `PrivateChats` (e2e/turn.ts).
+        this.options.onSealedMessage?.(frame);
         return;
     }
   }
 
-  private send(ws: WebSocket, frame: RelayConnectorMessage): void {
-    if (ws.readyState !== WebSocket.OPEN || this.ws !== ws) return;
+  private hello(ws: WebSocket): void {
+    this.send(ws, {
+      type: 'connector.hello',
+      protocol: RELAY_PROTOCOL,
+      agent_protocol: NATIVE_PROTOCOL,
+      agents: this.options.agents,
+      ...(this.options.version !== undefined && { version: this.options.version }),
+      features: this.options.features?.() ?? [SCOPED_SESSIONS_FEATURE],
+    });
+  }
+
+  /** Says hello again on the open link, e.g. once private chats were turned on here. */
+  rehello(): void {
+    if (this.ws !== null && this.ws.readyState === WebSocket.OPEN) this.hello(this.ws);
+  }
+
+  /** Sends a frame now; false when the link is down or the frame was too big to send. */
+  sendFrame(frame: RelayConnectorMessage): boolean {
+    return this.ws !== null && this.send(this.ws, frame);
+  }
+
+  private send(ws: WebSocket, frame: RelayConnectorMessage): boolean {
+    if (ws.readyState !== WebSocket.OPEN || this.ws !== ws) return false;
     const text = JSON.stringify(frame);
     // An agent frame too big for the relay is dropped here; the gateway's own limit would
     // otherwise close the whole socket.
-    if (Buffer.byteLength(text, 'utf8') > MAX_RELAY_MESSAGE_BYTES) return;
+    if (Buffer.byteLength(text, 'utf8') > MAX_RELAY_MESSAGE_BYTES) return false;
     ws.send(text);
+    return true;
   }
 
   private touch(ws: WebSocket): void {

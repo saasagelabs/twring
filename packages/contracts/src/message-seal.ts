@@ -134,7 +134,12 @@ export const sealedPayloadSchema = z
   .object({
     text: z.string().max(MAX_STORED_AGENT_MESSAGE_CHARS),
     quote: z
-      .object({ message_id: threadMessageIdSchema, text: z.string().max(MAX_QUOTE_CHARS + 1) })
+      .object({
+        message_id: threadMessageIdSchema,
+        text: z.string().max(MAX_QUOTE_CHARS + 1),
+        /** Whose message is quoted; the agent reads "your" or "my" earlier message. */
+        from: z.enum(['agent', 'owner']).optional(),
+      })
       .strict()
       .optional(),
     files: z
@@ -152,6 +157,8 @@ export const sealedPayloadSchema = z
       .max(10)
       .optional(),
     voice: z.literal(false).optional(),
+    /** Not a message: the sender could not open the message this answers (`text` is empty). */
+    notice: z.literal('couldnt_open').optional(),
   })
   .strict();
 export type SealedPayload = z.infer<typeof sealedPayloadSchema>;
