@@ -266,15 +266,41 @@ describe('verifier edge cases', () => {
     expect(openMessages(ctx, list).map((m) => m.state)).toEqual(['ok', 'ok', 'ok']);
   });
 
-  // KNOWN BUG (verifier): seeding the window with seenToSave() marks every earlier seq as seen,
-  // and the message-id map is not saved, so after a restart the whole earlier history is dropped
-  // as replays, silently. Nothing calls seenToSave yet (P3b will). `it.fails` until fixed.
-  it.fails('after a restart with the saved seq, the earlier history still opens', () => {
+  // P3b ruling 1: the saved state carries the message id that first opened each (sender, seq).
+  it('after a restart with the saved seq, the earlier history still opens', () => {
     const first = phoneCtx();
     const list = [1, 2, 3].map((s) => sealedMsg(sealFromComputer({ text: `m${s}` }, s)));
     openMessages(first, list);
     const after = createPhoneContext({ ...first, seen: seenToSave(first) });
     expect(openMessages(after, list).map((m) => m.state)).toEqual(['ok', 'ok', 'ok']);
+  });
+
+  it('after a restart, a replay of an old seq under another id is still dropped', () => {
+    const first = phoneCtx();
+    const m = sealedMsg(sealFromComputer({ text: 'a' }, 1));
+    openMessages(first, [m]);
+    const after = createPhoneContext({ ...first, seen: seenToSave(first) });
+    expect(openMessages(after, [{ ...m, id: 'msg_copy' }])).toEqual([]);
+    expect(openMessages(after, [sealedMsg(sealFromComputer({ text: 'b' }, 2))])).toHaveLength(1);
+  });
+
+  it('after a restart, a growing reply keeps opening under its saved id', () => {
+    const first = phoneCtx();
+    const c0 = sealFromComputer({ text: 'Hel' }, 4, { index: 0, final: false });
+    const real = sealedMsg([c0]);
+    openMessages(first, [real]);
+    const after = createPhoneContext({ ...first, seen: seenToSave(first) });
+    const c1 = sealFromComputer({ text: 'lo' }, 4, { index: 1, final: true });
+    expect(openMessage(after, { ...real, sealed: [c0, c1] })).toMatchObject({ text: 'Hello' });
+  });
+
+  it('keeps at most 2,000 saved message ids', () => {
+    const ctx = phoneCtx();
+    const list = Array.from({ length: 2005 }, (_, i) =>
+      sealedMsg(sealFromComputer({ text: `m${i}` }, i + 1, { index: 0, final: true })),
+    );
+    openMessages(ctx, list);
+    expect(Object.keys(seenToSave(ctx).ids)).toHaveLength(2000);
   });
 
   it('refuses a final chunk in the middle', () => {

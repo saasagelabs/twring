@@ -30,6 +30,19 @@ describe('phone device key', () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain(base64urlEncode(key.privateKey));
   });
 
+  it('a replaced key clears the trusted computers: they sealed to a phone that is gone', async () => {
+    const s = memoryStore();
+    s.m.set('twring.e2e.device.v1', '{bad');
+    s.m.set('twring.e2e.trusted.v1', '[]');
+    await loadOrCreateDeviceKey(s);
+    expect(s.m.has('twring.e2e.trusted.v1')).toBe(false);
+    // A first key on a fresh phone touches nothing else.
+    const fresh = memoryStore();
+    fresh.m.set('twring.e2e.trusted.v1', '[]');
+    await loadOrCreateDeviceKey(fresh);
+    expect(fresh.m.has('twring.e2e.trusted.v1')).toBe(true);
+  });
+
   it('forgets on sign-out', async () => {
     const s = memoryStore();
     await loadOrCreateDeviceKey(s);

@@ -292,6 +292,24 @@ export function apiErrorCopy(
       });
     case 'invite_expired':
       return withDetail({ message: 'This call already stopped ringing.', retryable: false });
+    case 'private_unsupported':
+      return withDetail({
+        message: 'Update Twring on your computer first, then try again.',
+        retryable: false,
+      });
+    case 'private_thread':
+      return withDetail({
+        message: 'This chat is private. Update Twring on this phone to send messages in it.',
+        retryable: false,
+      });
+    case 'private_chats_off':
+      return withDetail({ message: 'Private chats are not available yet.', retryable: false });
+    case 'not_private':
+    case 'private_is_one_way':
+      return withDetail({
+        message: 'A private chat stays private. Start a new chat instead.',
+        retryable: false,
+      });
     case 'invite_already_handled':
       return withDetail({
         message: 'This call was already answered or declined.',

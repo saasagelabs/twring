@@ -16,6 +16,8 @@ import type { SecureKeyValue } from '../auth/storage';
  */
 export const DEVICE_KEY_NAME = 'twring.e2e.device.v1';
 export const SEQ_KEY_NAME = 'twring.e2e.seq.v1';
+/** The computers this phone verified (`pairing.ts`); cleared here when the key is replaced. */
+export const TRUSTED_KEY_NAME = 'twring.e2e.trusted.v1';
 
 const storedSchema = z
   .object({ v: z.literal(1), public_key: publicKeySchema, private_key: publicKeySchema })
@@ -49,7 +51,13 @@ export async function loadOrCreateDeviceKey(
   const raw = await store.getItemAsync(DEVICE_KEY_NAME);
   const found = read(raw);
   if (found !== undefined) return { ...found, created: false };
-  if (raw !== null) log?.('e2e_device_key_reset');
+  if (raw !== null) {
+    // A damaged key gets a new key and so a new device id: every paired computer would seal to a
+    // phone that no longer exists, so they are forgotten and the chat asks to pair again
+    // (P3b ruling 3). Cleared before the new key is saved, so a crash between cannot keep them.
+    log?.('e2e_device_key_reset');
+    await store.deleteItemAsync(TRUSTED_KEY_NAME);
+  }
   const pair = generateSealKeyPair();
   await store.setItemAsync(
     DEVICE_KEY_NAME,

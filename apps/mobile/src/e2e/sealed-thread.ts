@@ -61,8 +61,22 @@ export interface PhoneSealOptions {
   trusted: TrustedDevice[];
   /** The next seq, saved before it is handed out (`device-key.ts` `nextSeq`). */
   nextSeq: () => number;
-  /** Highest seq per sender saved before a restart. */
-  seen?: Record<string, number>;
+  /** Replay state saved before a restart (`seenToSave`). */
+  seen?: SavedReplay;
+}
+
+/** At most this many (sender, seq) to message id entries are saved per thread: one per message. */
+export const MAX_SAVED_IDS = 2000;
+
+/**
+ * What a thread saves so a restart neither reopens replays nor drops its own history (P3b ruling
+ * 1): the highest seq per sender, and the message id that first opened each (sender, seq). At or
+ * under the floor, a (sender, seq) opens only under its saved id.
+ */
+export interface SavedReplay {
+  floor: Record<string, number>;
+  /** `<sender>:<seq>` to message id. */
+  ids: Record<string, string>;
 }
 
 export interface PhoneSealContext extends PhoneSealOptions {
@@ -71,6 +85,8 @@ export interface PhoneSealContext extends PhoneSealOptions {
   owners: Map<string, string>;
   /** Highest seq shown per other sender, to mark gaps. */
   shown: Map<string, number>;
+  /** `<sender>:<seq>` to message id, saved before a restart. */
+  savedIds: Map<string, string>;
 }
 
 export function createPhoneContext(options: PhoneSealOptions): PhoneSealContext {
@@ -80,9 +96,10 @@ export function createPhoneContext(options: PhoneSealOptions): PhoneSealContext 
     me: options.me,
     trusted: options.trusted,
     nextSeq: options.nextSeq,
-    window: new ReplayWindow(options.seen ?? {}),
+    window: new ReplayWindow(options.seen?.floor ?? {}),
     owners: new Map(),
-    shown: new Map(Object.entries(options.seen ?? {})),
+    shown: new Map(Object.entries(options.seen?.floor ?? {})),
+    savedIds: new Map(Object.entries(options.seen?.ids ?? {})),
   };
 }
 
@@ -134,8 +151,9 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   if (!chunked && envelopes.length !== 1) return { ok: false, replay: false };
   const theirKey = senderKey(ctx, sender);
   if (theirKey === undefined) return { ok: false, replay: false };
+  const saved = ctx.savedIds.get(`${sender}:${seq}`);
   for (const e of envelopes) {
-    const owner = ctx.owners.get(replayKey(sender, seq, e.chunk?.index));
+    const owner = ctx.owners.get(replayKey(sender, seq, e.chunk?.index)) ?? saved;
     if (owner !== undefined ? owner !== m.id : !ctx.window.fresh(sender, seq, e.chunk?.index))
       return { ok: false, replay: true };
   }
@@ -239,7 +257,17 @@ export function sealOutgoing(ctx: PhoneSealContext, payload: SealedPayload): Sea
   };
 }
 
-/** Highest seq opened per sender, to save so a restart does not reopen old replays. */
-export function seenToSave(ctx: PhoneSealContext): Record<string, number> {
-  return ctx.window.highest();
+/** The replay state to save, so a restart neither reopens replays nor drops the history. */
+export function seenToSave(ctx: PhoneSealContext): SavedReplay {
+  const ids = new Map(ctx.savedIds);
+  for (const [key, id] of ctx.owners) {
+    const k = key.slice(0, key.lastIndexOf(':'));
+    // Re-inserted so the newest stay when the list is cut.
+    ids.delete(k);
+    ids.set(k, id);
+  }
+  return {
+    floor: ctx.window.highest(),
+    ids: Object.fromEntries([...ids].slice(-MAX_SAVED_IDS)),
+  };
 }
