@@ -68,6 +68,10 @@ function fromComputer(phoneId: string, phoneKey: Uint8Array, text: string, seq: 
 
 /** The computer opening what the phone sent. */
 function openAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array): string {
+  return openPayloadAsComputer(env, phoneKey).text;
+}
+
+function openPayloadAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array) {
   const aad = messageAad({
     accountId: ACCOUNT,
     agentId: LOCAL,
@@ -76,7 +80,7 @@ function openAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array): string {
   });
   const mine = env.keys.find((k) => k.device === COMPUTER_ID)!;
   const key = unwrapKey(mine.wrapped, computer.privateKey, phoneKey, aad);
-  return openBody(key, env.nonce, env.body, aad).text;
+  return openBody(key, env.nonce, env.body, aad);
 }
 
 let ids = 0;
@@ -312,5 +316,41 @@ describe('private chats in the chat data layer', () => {
     expect(new Set(all.map((p) => JSON.stringify(p.sealed))).size).toBe(1);
     expect(new Set(all.map((p) => p.clientId))).toEqual(new Set([clientId]));
     expect(t.store.m.get(SEQ_KEY_NAME)).toBe('1');
+  });
+
+  it('builds a 280-character reply quote inside the sealed payload', async () => {
+    const t = await setup();
+    const long = sealedMsg(
+      fromComputer(t.me.deviceId, t.me.publicKey, 'x'.repeat(400), 2),
+      'agent',
+    );
+    t.api.listMessages.mockResolvedValue({ messages: [long], hasMore: false });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)?.length).toBe(1));
+    t.controller.send(privateAgent, 'ok', long.id);
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalled());
+    const post = t.posts[0] as { sealed: SealedEnvelopeV1; replyTo?: string };
+    const payload = openPayloadAsComputer(post.sealed, t.me.publicKey);
+    expect(payload.quote).toMatchObject({ message_id: long.id, from: 'agent' });
+    expect(payload.quote!.text).toHaveLength(281);
+    expect(post.replyTo).toBe(long.id);
+    expect(post).not.toHaveProperty('reply_to_text');
+    expect(JSON.stringify(post)).not.toContain('xxxx');
+  });
+
+  it('a reply to a message that could not be opened has no quote', async () => {
+    const t = await setup();
+    const env = fromComputer(t.me.deviceId, t.me.publicKey, 'secret', 2);
+    const body = (env.body.startsWith('A') ? 'B' : 'A') + env.body.slice(1);
+    const broken = sealedMsg({ ...env, body }, 'agent');
+    t.api.listMessages.mockResolvedValue({ messages: [broken], hasMore: false });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() =>
+      expect(t.controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'couldnt_open' }),
+    );
+    t.controller.send(privateAgent, 'what was that?', broken.id);
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalled());
+    const post = t.posts[0] as { sealed: SealedEnvelopeV1 };
+    expect(openPayloadAsComputer(post.sealed, t.me.publicKey).quote).toBeUndefined();
   });
 });

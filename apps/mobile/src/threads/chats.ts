@@ -12,6 +12,7 @@ import { STATUS_POLL_MS } from '@/hooks/useResource';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
+import { phoneQuote } from '../e2e/private-quote';
 import { noKeychain, scopedKeychain } from '../e2e/scoped-keychain';
 import type { SecureKeyValue } from '../auth/storage';
 import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
@@ -122,10 +123,15 @@ export class ChatController {
         if (this.availability === undefined) await this.refreshList();
         return this.isPrivate(agentId);
       },
-      seal: (agentId, text) => {
+      seal: (agentId, text, replyTo) => {
         if (!this.privacy)
           return Promise.reject(Object.assign(new Error(), { code: 'seal_failed' }));
-        return this.privacy.seal(agentId, text);
+        // The quote is built here from the opened text; the server never sees it (Task 22).
+        const target =
+          replyTo === undefined
+            ? undefined
+            : this.getOpened(agentId)?.find((message) => message.id === replyTo);
+        return this.privacy.seal(agentId, text, phoneQuote(target));
       },
       openOwn: (agentId, sealed) =>
         this.privacy?.openOwn(agentId, sealed) ?? Promise.resolve(undefined),
