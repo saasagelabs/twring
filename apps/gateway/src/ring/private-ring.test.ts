@@ -14,12 +14,13 @@ afterEach(async () => {
   await Promise.all(gateways.splice(0).map((g) => g.close()));
 });
 
-async function setup(isPrivate: boolean) {
+async function setup(isPrivate: boolean | (() => Promise<boolean>)) {
   const g = await startConnectorGateway({ ring: { push: false } });
   gateways.push(g);
   const pushes: PushPayload[] = [];
   const missed: unknown[] = [];
   const scheduler = new ManualScheduler();
+  const logger = recordingLogger();
   const service = new RingService({
     stores: g.ring!.stores,
     phones: () =>
@@ -42,13 +43,13 @@ async function setup(isPrivate: boolean) {
       deleteAllForUser: () => Promise.resolve(0),
       usageRollup: () => Promise.resolve([]),
     },
-    privateChat: () => Promise.resolve(isPrivate),
+    privateChat: typeof isPrivate === 'function' ? isPrivate : () => Promise.resolve(isPrivate),
     inCall: () => false,
     scheduler,
-    logger: recordingLogger(),
+    logger,
     now: () => new Date('2026-10-01T09:00:00.000Z'),
   });
-  return { service, pushes, missed, scheduler };
+  return { service, pushes, missed, scheduler, logger };
 }
 
 const target = {
@@ -85,6 +86,19 @@ describe('ring for a private chat', () => {
     await service.idle();
     expect(placed.invite.reason).toBe(target.reason);
     expect(JSON.stringify(pushes)).toContain('tax return');
+    service.close();
+  });
+  it('still rings, with fixed words, when the private check fails', async () => {
+    const { service, pushes, logger } = await setup(() =>
+      Promise.reject(new Error('threads database is locked')),
+    );
+    const placed = await service.ring(target);
+    if (!('invite' in placed)) throw new Error('ring refused');
+    await service.idle();
+    expect(placed.invite.reason).toBe(PRIVATE_RING_REASON);
+    expect(pushes).toHaveLength(1);
+    expect(JSON.stringify(pushes)).not.toContain('tax return');
+    expect(logger.names()).toContain('ring_private_check_failed');
     service.close();
   });
 });
