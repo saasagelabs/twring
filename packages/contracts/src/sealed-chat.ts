@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { base64urlDecode } from './seal-core';
-
 /**
  * Private chats with computer agents (ADR-044): what travels between the phone, the Twring
  * server and the connector when a chat is sealed end to end. The server stores and relays these
@@ -23,15 +21,11 @@ export const MAX_SEALED_BODY_CHARS =
 
 const MAX_WRAPPED_KEY_CHARS = 128;
 
-function decodesTo(bytes: number) {
-  return (s: string): boolean => {
-    try {
-      return base64urlDecode(s).length === bytes;
-    } catch {
-      return false;
-    }
-  };
-}
+/**
+ * Unpadded base64url of exactly 32 bytes: 43 characters, the last one carrying 4 data bits.
+ * Checked by pattern, not by decoding, so this file imports nothing that imports connectors.ts.
+ */
+const BYTES32_B64URL = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 
 const base64urlSchema = z.string().regex(/^[A-Za-z0-9_-]*$/);
 
@@ -42,7 +36,7 @@ export const e2eDeviceKindSchema = z.enum(['phone', 'computer']);
 export type E2eDeviceKind = z.infer<typeof e2eDeviceKindSchema>;
 
 /** An X25519 public key: base64url that decodes to exactly 32 bytes. */
-export const publicKeySchema = z.string().max(64).refine(decodesTo(32));
+export const publicKeySchema = z.string().regex(BYTES32_B64URL);
 
 /** A message key wrapped for one device (sender-authenticated, see message-seal.ts). */
 export const wrappedKeySchema = z
@@ -90,7 +84,7 @@ export const pairOfferSchema = z
   .object({
     offer_id: pairOfferIdSchema,
     connector_public_key: publicKeySchema,
-    secret: z.string().max(64).refine(decodesTo(32)),
+    secret: z.string().regex(BYTES32_B64URL),
   })
   .strict();
 export type PairOffer = z.infer<typeof pairOfferSchema>;

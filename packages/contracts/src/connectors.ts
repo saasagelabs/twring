@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { MAX_NATIVE_MESSAGE_BYTES } from './native-protocol';
+import { sealedEnvelopeV1Schema } from './sealed-chat';
 
 /**
  * The local agent connector (ADR-023): a small program on the user's computer that dials OUT to
@@ -221,10 +222,32 @@ export const relayChannelCloseSchema = z.object({
   channel: channelId,
 });
 
+/** Same pattern as `threadMessageIdSchema` (threads.ts imports modules that import this file). */
+const sealedMessageIdSchema = z.string().regex(/^msg_[a-z2-7]{20}$/);
+
+/** Gateway to connector: a private chat message for one local agent (ADR-044), relayed unchanged. */
+export const relaySealedMessageSchema = z.object({
+  type: z.literal('sealed.message'),
+  agent: localAgentIdSchema,
+  message_id: sealedMessageIdSchema,
+  sealed: sealedEnvelopeV1Schema,
+});
+
+/** Connector to gateway: a sealed agent reply; streamed chunks first, then `final: true`. */
+export const relaySealedReplySchema = z.object({
+  type: z.literal('sealed.reply'),
+  agent: localAgentIdSchema,
+  turn_id: z.string().min(1).max(128),
+  message_id: sealedMessageIdSchema.optional(),
+  sealed: sealedEnvelopeV1Schema,
+  final: z.boolean(),
+});
+
 export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayHelloSchema,
   relayChannelMessageSchema,
   relayChannelCloseSchema,
+  relaySealedReplySchema,
 ]);
 export type RelayConnectorMessage = z.infer<typeof relayConnectorMessageSchema>;
 
@@ -250,6 +273,7 @@ export const relayGatewayMessageSchema = z.discriminatedUnion('type', [
   }),
   relayChannelMessageSchema,
   relayChannelCloseSchema,
+  relaySealedMessageSchema,
 ]);
 export type RelayGatewayMessage = z.infer<typeof relayGatewayMessageSchema>;
 

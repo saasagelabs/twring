@@ -50,7 +50,12 @@ describe('message seal', () => {
     const a = generateSealKeyPair();
     const b = generateSealKeyPair();
     expect(() =>
-      unwrapKey(wrapKey(newMessageKey(), s.privateKey, a.publicKey, aad), b.privateKey, s.publicKey, aad),
+      unwrapKey(
+        wrapKey(newMessageKey(), s.privateKey, a.publicKey, aad),
+        b.privateKey,
+        s.publicKey,
+        aad,
+      ),
     ).toThrow();
   });
   it('refuses a forged sender: a stranger wraps to me claiming to be my trusted computer', () => {
