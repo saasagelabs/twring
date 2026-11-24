@@ -1302,3 +1302,30 @@ Separately, caller audio arriving while the Flux socket reconnected was dropped,
 - Keyterms help recall but do not guarantee it: "Rishflips" was still heard as "Rishfit" with the
   hint. Deepgram advises proper-noun capitalisation and a focused list of 20 to 50 terms.
 - A reconnect can deliver up to 2 s of speech late; a turn spoken over a longer gap loses its start.
+
+## ADR-043: Hosted message pushes carry no agent name or text (2026-11-24)
+
+**Status:** Accepted (Phase A of chat plan item C3 #10)
+
+### Context
+
+Hosted chat-message pushes went through Google FCM and Apple APNs with the agent's name and the
+first 120 characters of the message, so both push services could read them. Self-hosted servers
+already send message pushes sealed to the phone through Twring's relay.
+
+### Decision
+
+- `FcmPushSender` and `apnsRequestFor` pass every `cord.message` through one helper,
+  `redactMessagePush` (`packages/push`): no `agent_name`, `preview` is the fixed text "New
+  message", and only `type`, `user_ref`, `agent_id`, `message_id` and `silent` are kept (the app
+  needs them to route a tap and collapse duplicates). The iPhone alert is the fixed body "New
+  message" with no title; `collapseId` stays the message id.
+- Sealed relay pushes (self-hosted) are unchanged and keep their preview and agent name.
+- Ring and ring-end pushes are unchanged: a ring still names the agent calling.
+
+### Consequences
+
+- This is not end-to-end encryption. The Twring server still stores messages (encrypted at rest),
+  and Google and Apple still see that a push happened, when, and its ids.
+- Installed apps keep working: Android shows "Your agent" and "New message"; iPhone shows "New
+  message". Previews come back in Phase B, sealed to the phone end to end, with its own spec.

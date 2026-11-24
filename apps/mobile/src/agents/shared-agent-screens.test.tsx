@@ -202,6 +202,7 @@ describe('agent detail screen', () => {
         'Voice',
         'Words to recognise',
         'Connection details',
+        'Photos and files',
         'Delete agent',
       ]),
     );
@@ -246,6 +247,8 @@ describe('agent detail screen', () => {
       expect(out).not.toContain(gone);
     }
     expect(out).toContain('Call Home agent');
+    // Read only, so a shared agent keeps it.
+    expect(out).toContain('Photos and files');
     expect(everything(tree)).toContain(SHARED_AGENT_NOTE);
   });
 

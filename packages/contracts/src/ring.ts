@@ -400,7 +400,8 @@ export const messagePushSchema = z
     type: z.literal('cord.message'),
     user_ref: z.string().regex(/^[0-9a-f]{16}$/),
     agent_id: agentIdSchema,
-    agent_name: z.string(),
+    /** Absent from hosted pushes (Google and Apple never see it); kept for sealed relay pushes. */
+    agent_name: z.string().optional(),
     message_id: threadMessageIdSchema,
     preview: z.string().max(120),
     silent: z.enum(['0', '1']),

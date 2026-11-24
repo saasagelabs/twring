@@ -4,7 +4,15 @@ import { connect, constants, type ClientHttp2Session } from 'node:http2';
 import { importPKCS8, SignJWT } from 'jose';
 import { z } from 'zod';
 
-import type { PushOptions, PushOutcome, PushPayload, PushSender, PushTarget } from './fcm';
+import {
+  MESSAGE_PUSH_TEXT,
+  redactMessagePush,
+  type PushOptions,
+  type PushOutcome,
+  type PushPayload,
+  type PushSender,
+  type PushTarget,
+} from './fcm';
 
 /**
  * APNs straight from the gateway. A ring is a PushKit VoIP push, which
@@ -105,11 +113,11 @@ export function apnsRequestFor(
       collapseId: data.message_id,
       body: {
         aps: {
-          alert: { title: data.agent_name, body: data.preview },
+          alert: { body: MESSAGE_PUSH_TEXT },
           'thread-id': data.agent_id,
           ...(silent ? { 'interruption-level': 'passive' } : { sound: 'default' }),
         },
-        ...data,
+        ...redactMessagePush(data),
       },
     };
   }

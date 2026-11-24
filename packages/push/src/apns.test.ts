@@ -43,6 +43,20 @@ const message: MessagePush = {
 describe('what an iPhone gets', () => {
   const ios = { token: VOIP, platform: 'ios' as const, apnsToken: ALERT };
 
+  it('sends a message alert with no agent name and no message text', () => {
+    const request = apnsRequestFor(ios, message, BUNDLE);
+    expect(request).toMatchObject({ pushType: 'alert', collapseId: message.message_id });
+    const sent = JSON.stringify(request?.body);
+    expect(sent).not.toContain('Hermes');
+    expect(sent).not.toContain('All tests pass');
+    expect(request?.body).toMatchObject({
+      aps: { alert: { body: 'New message' } },
+      message_id: message.message_id,
+      agent_id: message.agent_id,
+    });
+    expect(request?.body).not.toHaveProperty('agent_name');
+  });
+
   it('rings with a VoIP push to the VoIP token, and nothing else is VoIP', () => {
     expect(apnsRequestFor(ios, ring, BUNDLE)).toMatchObject({
       token: VOIP,
@@ -66,7 +80,7 @@ describe('what an iPhone gets', () => {
       collapseId: message.message_id,
       body: {
         aps: {
-          alert: { title: 'Hermes', body: 'Done. All tests pass.' },
+          alert: { body: 'New message' },
           sound: 'default',
           'thread-id': message.agent_id,
         },
