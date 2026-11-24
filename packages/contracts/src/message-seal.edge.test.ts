@@ -191,7 +191,7 @@ describe('sealed chat schema edge cases', () => {
       ...common,
       kind: 'sealed',
       author: 'user',
-      sealed: env(),
+      sealed: [env()],
       text: 'leak',
     });
     if (parsed.success) expect('text' in parsed.data).toBe(false);
