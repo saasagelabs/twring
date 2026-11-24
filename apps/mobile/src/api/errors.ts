@@ -73,6 +73,16 @@ export function apiErrorCopy(
         message: 'Only agents on your computer can start a new conversation.',
         retryable: false,
       });
+    case 'reply_to_not_found':
+      return withDetail({
+        message: 'The message you replied to is gone. Send yours without the reply.',
+        retryable: false,
+      });
+    case 'message_in_progress':
+      return withDetail({
+        message: 'Your agent is still answering this message. Stop it first, then delete it.',
+        retryable: true,
+      });
     case 'thread_queue_full':
       return withDetail({
         message: 'Your agent already has 5 messages waiting. Wait for them to go through.',

@@ -2,7 +2,10 @@ import {
   type SpeakerLanguage,
   approvalDecisionRequestSchema,
   agentIdSchema,
+  fileIdSchema,
   MAX_USER_MESSAGE_CHARS,
+  mediaPageResponseSchema,
+  mediaQuerySchema,
   messagePageResponseSchema,
   readMarkerRequestSchema,
   sendMessageRequestSchema,
@@ -23,6 +26,7 @@ import { toSafeError } from '../redact';
 import type { AgentRecord, AgentRepository } from '../store/repositories';
 import { ThreadServiceError, type ThreadService } from './service';
 import type { SqliteThreadStore } from './store';
+import { quoteOf } from './quote';
 import { StoreCorruptError } from '../store/collection';
 import { isKeyRefusal, PrerecordedTranscriptionError } from '../voice/deepgram-prerecorded';
 import {
@@ -77,6 +81,20 @@ export interface ThreadRoutesOptions {
   wordsFor?: (userId: string, agentId: string) => Promise<readonly string[]>;
   filesEnabled?: boolean;
 }
+
+/** Media list cursor: the oldest item seen, as opaque base64url of `created_at|file id`. */
+const mediaCursor = {
+  encode: (createdAt: string, id: string) =>
+    Buffer.from(`${createdAt}|${id}`, 'utf8').toString('base64url'),
+  decode: (cursor: string): { createdAt: string; id: string } | undefined => {
+    const [createdAt, id, ...rest] = Buffer.from(cursor, 'base64url').toString('utf8').split('|');
+    return rest.length === 0 &&
+      z.iso.datetime().safeParse(createdAt).success &&
+      fileIdSchema.safeParse(id).success
+      ? { createdAt: createdAt!, id: id! }
+      : undefined;
+  },
+};
 
 const queryInteger = z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().safe());
 const pageQuery = z
@@ -142,6 +160,13 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
       if (cause.code === 'agent_not_found') return error(reply, 404, 'not_found', 'No such agent.');
       if (cause.code === 'bad_attachment')
         return error(reply, 400, 'bad_request', "A file can't be found. Send it again.");
+      if (cause.code === 'reply_to_not_found')
+        return error(
+          reply,
+          400,
+          'reply_to_not_found',
+          'The message you replied to is gone. Send it without the reply.',
+        );
     }
     const refusal = speechKeyRefusal(cause);
     if (refusal) return error(reply, refusal.status, refusal.code, refusal.message);
@@ -229,6 +254,7 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         clientId: body.data.client_id,
         text: body.data.text,
         attachmentIds: body.data.attachment_ids,
+        ...(body.data.reply_to !== undefined && { replyTo: body.data.reply_to }),
       });
       sends.set(sendKey, work);
       try {
@@ -268,9 +294,15 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         const query = voiceNoteQuerySchema.safeParse(request.query);
         if (!query.success || query.data.duration_ms < 1_000 || query.data.duration_ms > 120_500)
           return error(reply, 400, 'bad_request', 'Invalid voice note duration.');
-        const { client_id: clientId, duration_ms: durationMs } = query.data;
+        const { client_id: clientId, duration_ms: durationMs, reply_to: replyTo } = query.data;
         const prior = await options.store.findUserMessageByClientId(userId, agentId, clientId);
         if (prior) return reply.code(200).send({ message: threadMessageSchema.parse(prior) });
+        // Checked before transcription is paid for; the store checks again when it saves.
+        if (replyTo !== undefined) {
+          const answered = await options.store.findMessageById(userId, agentId, replyTo);
+          if (!answered || !quoteOf(answered))
+            return sendFailure(reply, new ThreadServiceError('reply_to_not_found'));
+        }
         if (!Buffer.isBuffer(request.body) || request.body.length === 0)
           return error(reply, 400, 'bad_request', 'Invalid voice note.');
         const contentType = voiceNoteType(request.headers['content-type'], request.body);
@@ -391,6 +423,7 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
             clientId,
             text,
             voice: { duration_s: Math.min(120, Math.round(durationMs / 1_000)) },
+            ...(replyTo !== undefined && { replyTo }),
           });
         })();
         sends.set(sendKey, work);
@@ -476,6 +509,67 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         }
         throw cause;
       }
+    },
+  );
+
+  // Deletes one message from Twring (never from the agent's own memory). Idempotent: an id that is
+  // already gone, or was never in this person's thread, answers 204 like a fresh delete.
+  app.delete<{ Params: { agentId: string; messageId: string } }>(
+    '/v1/agents/:agentId/messages/:messageId',
+    async (request, reply) => {
+      const userId = userFor(request);
+      if (!(await agentFor(userId, request.params.agentId)))
+        return error(reply, 404, 'not_found', 'No such agent.');
+      if (!threadMessageIdSchema.safeParse(request.params.messageId).success)
+        return error(reply, 404, 'not_found', 'No such message.');
+      if (!writes.tryAcquire(userId)) return limited(reply);
+      try {
+        await options.service.deleteMessage(
+          userId,
+          request.params.agentId,
+          request.params.messageId,
+        );
+      } catch (cause) {
+        if (cause instanceof ThreadServiceError && cause.code === 'message_in_progress')
+          return error(
+            reply,
+            409,
+            'message_in_progress',
+            'Your agent is still answering this message. Stop it first, then delete it.',
+          );
+        throw cause;
+      }
+      return reply.code(204).send();
+    },
+  );
+
+  app.get<{ Params: { agentId: string }; Querystring: Record<string, unknown> }>(
+    '/v1/agents/:agentId/media',
+    async (request, reply) => {
+      const userId = userFor(request);
+      if (!(await agentFor(userId, request.params.agentId)))
+        return error(reply, 404, 'not_found', 'No such agent.');
+      const query = mediaQuerySchema.safeParse(request.query);
+      const before =
+        query.success && query.data.cursor !== undefined
+          ? mediaCursor.decode(query.data.cursor)
+          : undefined;
+      if (!query.success || (query.data.cursor !== undefined && !before))
+        return error(reply, 400, 'bad_request', 'Invalid media query.');
+      if (!reads.tryAcquire(userId)) return limited(reply);
+      const page = await options.store.listMedia(userId, request.params.agentId, {
+        limit: query.data.limit,
+        ...(before && { before }),
+      });
+      const last = page.items.at(-1);
+      return mediaPageResponseSchema.parse({
+        items: page.items.map(({ messageId, createdAt, ...item }) => ({
+          ...item,
+          message_id: messageId,
+          created_at: createdAt,
+        })),
+        next_cursor: page.hasMore && last ? mediaCursor.encode(last.createdAt, last.id) : null,
+      });
     },
   );
 

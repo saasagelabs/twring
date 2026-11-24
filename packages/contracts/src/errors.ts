@@ -75,6 +75,10 @@ export const errorCodeSchema = z.enum([
   'ring_rate_limited',
   /** A thread already has five messages waiting for its agent. */
   'thread_queue_full',
+  /** A reply named a message that is not in this chat (deleted, or never there) (400). */
+  'reply_to_not_found',
+  /** A message cannot be deleted while its agent is still answering it; stop it first (409). */
+  'message_in_progress',
   /** The invite stopped ringing before it was answered (410). */
   'invite_expired',
   /** The invite was already answered, declined, missed, or cancelled (409). */
