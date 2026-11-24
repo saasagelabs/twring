@@ -108,36 +108,43 @@ export class E2eDeviceStore {
    * active under another id, or an id reused with another key (or after revoke) is refused.
    */
   add(userId: string, device: NewDevice): E2eDevice {
-    return this.transaction(() => {
-      const existing = this.db
-        .prepare('SELECT * FROM e2e_devices WHERE user_id=? AND id=?')
-        .get(userId, device.id) as DeviceRow | undefined;
-      if (existing) {
-        if (existing.revoked_at === null && existing.public_key === device.public_key)
-          return this.device(existing);
-        throw new E2eDeviceError('device_conflict');
-      }
-      const active = this.db
-        .prepare('SELECT public_key FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
-        .all(userId) as { public_key: string }[];
-      if (active.some((row) => row.public_key === device.public_key))
-        throw new E2eDeviceError('duplicate_key');
-      if (active.length >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
-      this.db
-        .prepare(
-          'INSERT INTO e2e_devices(user_id,id,kind,name,public_key,connector_id,added_at) VALUES(?,?,?,?,?,?,?)',
-        )
-        .run(
-          userId,
-          device.id,
-          device.kind,
-          device.name,
-          device.public_key,
-          device.connector_id ?? null,
-          this.now().toISOString(),
-        );
-      return this.get(userId, device.id)!;
-    });
+    return this.transaction(() => this.insertDevice(userId, device));
+  }
+
+  /** Adds several devices together: all of them, or none when one is refused. */
+  addAll(userId: string, list: NewDevice[]): E2eDevice[] {
+    return this.transaction(() => list.map((device) => this.insertDevice(userId, device)));
+  }
+
+  private insertDevice(userId: string, device: NewDevice): E2eDevice {
+    const existing = this.db
+      .prepare('SELECT * FROM e2e_devices WHERE user_id=? AND id=?')
+      .get(userId, device.id) as DeviceRow | undefined;
+    if (existing) {
+      if (existing.revoked_at === null && existing.public_key === device.public_key)
+        return this.device(existing);
+      throw new E2eDeviceError('device_conflict');
+    }
+    const active = this.db
+      .prepare('SELECT public_key FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
+      .all(userId) as { public_key: string }[];
+    if (active.some((row) => row.public_key === device.public_key))
+      throw new E2eDeviceError('duplicate_key');
+    if (active.length >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
+    this.db
+      .prepare(
+        'INSERT INTO e2e_devices(user_id,id,kind,name,public_key,connector_id,added_at) VALUES(?,?,?,?,?,?,?)',
+      )
+      .run(
+        userId,
+        device.id,
+        device.kind,
+        device.name,
+        device.public_key,
+        device.connector_id ?? null,
+        this.now().toISOString(),
+      );
+    return this.get(userId, device.id)!;
   }
 
   /** Active devices only, oldest first. */

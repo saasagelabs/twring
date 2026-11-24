@@ -27,6 +27,7 @@ import { buildSelfhost, ringPushWiring } from './selfhost/wiring';
 import { createBetaMembers } from './beta/members';
 import { createInviteService, redemptionRecordSchema } from './beta/invites';
 import { ConnectorHub } from './connectors/hub';
+import { E2eDeviceStore } from './e2e/devices-store';
 import { PairingBook } from './connectors/pairing';
 import { connectorCallStatus } from './connectors/routes';
 import { agentFactoryFor } from './calls/agents';
@@ -506,6 +507,12 @@ const threadStore =
   env.THREADS_ENABLED && keys && stores
     ? new SqliteThreadStore(threadDbPath, new CredentialCipher(messageKeys(keys)))
     : undefined;
+// Private chats (ADR-044): device keys and pairing offers. Only with the flag, so no file appears
+// on a server that has not turned them on.
+const e2eDevices =
+  env.PRIVATE_CHATS_ENABLED && threadStore
+    ? new E2eDeviceStore(join(env.CORD_DATA_DIR, 'e2e.db'))
+    : undefined;
 const fileService =
   env.FILES_ENABLED && threadStore && keys
     ? new FileService(
@@ -884,6 +891,9 @@ const app = buildApp({
     ...(env.CORD_OPERATOR_URL !== undefined && { operatorUrl: env.CORD_OPERATOR_URL }),
     supportEmail: env.CORD_SUPPORT_EMAIL,
   },
+  ...(e2eDevices && {
+    e2e: { devices: e2eDevices, writeRatePerMinute: env.THREAD_WRITE_RATE_PER_MINUTE },
+  }),
   connectors: {
     hub: connectorHub,
     pairings,
@@ -961,6 +971,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
         threadService?.stop();
         if (fileSweepTimer) clearInterval(fileSweepTimer);
         await threadStore?.close();
+        e2eDevices?.close();
         ringService.close();
         if (adminServer) await adminServer.close();
         await flushSentry();
