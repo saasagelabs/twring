@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { agentIdSchema } from './agents';
 import { MAX_ACTIVITY_LABEL_CHARS } from './agent';
 import { attachmentSchema, fileIdSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './files';
+import { sealedEnvelopeV1Schema } from './sealed-chat';
 
 export const MAX_USER_MESSAGE_CHARS = 4_000;
 export const MAX_STORED_AGENT_MESSAGE_CHARS = 20_000;
@@ -105,6 +106,19 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
     expires_at: z.iso.datetime(),
   }),
   z.object({ ...common, kind: z.literal('notice'), code: z.literal('new_session') }),
+  /**
+   * A private chat message (ADR-044): only the paired phone and computer can open `sealed`.
+   * There is no text field, so nothing readable can leak through the server.
+   */
+  z.object({
+    ...common,
+    kind: z.literal('sealed'),
+    author: z.enum(['user', 'agent']),
+    client_id: z.uuid().optional(),
+    sealed: sealedEnvelopeV1Schema,
+    status: userMessageStatusSchema.optional(),
+    turn_id: z.string().max(128).optional(),
+  }),
 ]);
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 

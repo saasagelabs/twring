@@ -117,6 +117,8 @@ function body(message: ThreadMessage): string {
       return `_Asked to approve: ${escapeInline(message.title)} (${message.status})_`;
     case 'notice':
       return '_New conversation started_';
+    case 'sealed':
+      return '_Private message (not exported)_';
   }
 }
 

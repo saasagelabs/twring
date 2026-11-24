@@ -1329,3 +1329,52 @@ already send message pushes sealed to the phone through Twring's relay.
   and Google and Apple still see that a push happened, when, and its ids.
 - Installed apps keep working: Android shows "Your agent" and "New message"; iPhone shows "New
   message". Previews come back in Phase B, sealed to the phone end to end, with its own spec.
+
+## ADR-044: End-to-end encrypted chat with computer agents (2026-11-24)
+
+**Status:** Accepted. Feature flag `PRIVATE_CHATS_ENABLED` and allowlist `PRIVATE_CHATS_USERS`.
+
+### Context
+
+Chat text is readable by the Twring server (encrypted at rest with a server key). Users with
+agents on their own computers want the server out of the reading path.
+
+Happy (github.com/slopus/happy) solves a similar problem and its privacy notes are public. Two
+ideas we follow: the pairing QR shown by the computer carries the computer's public key, so the
+server never chooses the key the phone trusts; and the server keeps only routing metadata (ids,
+timestamps, device ids) in the clear. We deliberately differ by adding a safety code shown on
+both screens, by wrapping each message key per device with sender authentication, and by keeping
+voice outside the private label. No Happy code is used.
+
+### Decision
+
+Phone and connector each hold an X25519 device key, paired by QR with a safety code. Each
+message is sealed on the sending device with a fresh key wrapped to every paired device; the
+gateway stores and relays ciphertext. Optional recovery key backs up the phone key. Same
+primitives as seal-core (noble X25519 + XChaCha20-Poly1305), with an AAD. No forward secrecy in v1. Calls, voice-note
+transcription, Listen and AI apps connected online are never labelled end-to-end. The label
+"Private: only your phone and your computer can read this" shows only when true.
+
+- Device trust is local: each device keeps the list of devices it verified itself (pairing with
+  safety code or approval by a device it already trusts). The server's device list is a delivery
+  hint; a key on the server list that the device has not verified is never wrapped to.
+- Every message key is wrapped with static X25519 (the sender's device key with the recipient's
+  device key), not an ephemeral key, so each recipient knows which trusted device sealed it.
+  Without this the server, which knows every public key, could forge a message from the user's
+  phone to their computer agent. Trust notes (approve or remove a device) ride the same
+  authenticated path, which is why no separate signing key is needed in v1.
+- The server's message id is not bound into the AAD; account, agent, sender device and
+  per-sender seq are. The gateway keeps assigning message ids.
+- Agent replies stream as sealed chunks with the same message key and a chunk index in the AAD;
+  the final message carries the whole text.
+- Approval requests in a private chat are sealed like any message.
+- A voice note in a private chat is a server-readable message, marked on the bubble; the header
+  label is replaced by "Private, except messages marked as sent through Twring" while such a
+  message exists in the chat.
+- Message sealing calls @noble directly with an AAD; `seal-core.ts` (push sealing) is unchanged.
+
+### Consequences
+
+Server-side quotes, export, transcription, MCP reads and ring text do not work for private
+chats; the phone does quotes, export and search. Lost keys without a recovery key lose history.
+Connector and app must both ship before the feature turns on.
