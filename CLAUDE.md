@@ -182,6 +182,9 @@ When delegating/subagenting, keep the parent responsible for integration. Do not
 - **`livekit-client` is patched** (`patches/livekit-client@<version>.patch`, tested by
   `apps/mobile/scripts/livekit-patch.test.mjs`). Metro bundles only its ESM build, so patch only
   that file. Upgrading livekit-client means checking upstream for each fix and remaking the patch.
+- **`react-native-reanimated` is patched** (upstream #10435, until we are on 4.8 or newer; tested by
+  `apps/mobile/scripts/reanimated-patch.test.mjs`). An upgrade means checking upstream and
+  remaking or dropping the patch.
 
 ## Completion checklist
 

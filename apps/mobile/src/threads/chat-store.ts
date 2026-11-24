@@ -74,3 +74,33 @@ export function applyFrame(state: ChatState, agentId: string, frame: ThreadSocke
     },
   };
 }
+
+/**
+ * Applies a fresh newest page: messages it no longer holds were deleted (a delete does not bump
+ * rev, so catch-up cannot report it). Only the range the page covers is pruned, never a message
+ * newer than both the page and `knownSeq` (the newest seq when the request went out).
+ */
+export function replaceLatest(
+  state: ChatState,
+  page: { messages: readonly ThreadMessage[]; hasMore: boolean },
+  knownSeq: number,
+): ChatState {
+  const ids = new Set(page.messages.map((message) => message.id));
+  const seqs = page.messages.map((message) => message.seq);
+  if (page.hasMore && !seqs.length) return state;
+  const floor = page.hasMore ? Math.min(...seqs) : -Infinity;
+  const ceiling = Math.max(knownSeq, ...seqs);
+  const kept = state.messages.filter(
+    (message) => message.seq < floor || message.seq > ceiling || ids.has(message.id),
+  );
+  const progressId = state.progress?.messageId;
+  const progressGone =
+    state.messages.some((message) => message.id === progressId) &&
+    !kept.some((message) => message.id === progressId);
+  const progress = progressGone ? undefined : state.progress;
+  const pruned =
+    kept.length === state.messages.length && progress === state.progress
+      ? state
+      : { ...state, messages: kept, progress };
+  return upsert(pruned, page.messages);
+}
