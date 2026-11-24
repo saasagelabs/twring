@@ -318,6 +318,9 @@ export function registerMessageSpeechRoute(
       const agent = await options.agents.get(userId, agentId);
       if (!agent) return error(reply, 404, 'not_found');
       const message = await options.store.findMessageById(userId, agentId, messageId);
+      // A private chat's message is sealed: the server has nothing it could speak (ADR-044).
+      if (message?.kind === 'sealed')
+        return error(reply, 409, 'private_thread', 'This chat is private. Listen is off in it.');
       if (message?.kind !== 'agent_text') return error(reply, 404, 'not_found');
       const text = spokenText(message.text);
       if (!text) return error(reply, 404, 'not_found');

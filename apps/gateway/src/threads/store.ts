@@ -500,6 +500,7 @@ export class SqliteThreadStore {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     return this.transaction(() => {
@@ -524,7 +525,8 @@ export class SqliteThreadStore {
           .get(input.replyTo, thread.id, userId) as Row | undefined;
         const decoded = answered && this.tryDecode(answered, agentId);
         quote = decoded ? quoteOf(decoded) : undefined;
-        if (!quote) throw new ThreadStoreError('reply_to_not_found');
+        // A sealed message can be answered, but the server has no text to quote (ADR-044).
+        if (!quote && decoded?.kind !== 'sealed') throw new ThreadStoreError('reply_to_not_found');
       }
       const message = this.insert(userId, thread, 'user_text', {
         text: input.text,
@@ -532,6 +534,7 @@ export class SqliteThreadStore {
         clientId: input.clientId,
         meta: {
           ...(input.voice && { voice: input.voice }),
+          ...(input.serverReadable && { server_readable: true }),
           ...(input.attachmentIds && { attachment_ids: input.attachmentIds }),
           ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
         },
@@ -813,7 +816,8 @@ export class SqliteThreadStore {
     limit = 20,
   ): Promise<Extract<ThreadMessage, { kind: 'user_text' }>[]> {
     const thread = this.thread(userId, agentId);
-    if (!thread) return [];
+    // A private chat is never read out to an agent through the server (ADR-044).
+    if (!thread || thread.private === 1) return [];
     const rows =
       since === undefined
         ? (this.db
@@ -833,7 +837,7 @@ export class SqliteThreadStore {
 
   async ownerReplyCount(userId: string, agentId: string, since?: string): Promise<number> {
     const thread = this.thread(userId, agentId);
-    if (!thread) return 0;
+    if (!thread || thread.private === 1) return 0;
     const row = this.db
       .prepare(
         "SELECT COUNT(*) AS count FROM messages WHERE thread_id=? AND user_id=? AND kind='user_text' AND created_at>?",

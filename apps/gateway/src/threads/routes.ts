@@ -397,13 +397,24 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         const query = voiceNoteQuerySchema.safeParse(request.query);
         if (!query.success || query.data.duration_ms < 1_000 || query.data.duration_ms > 120_500)
           return error(reply, 400, 'bad_request', 'Invalid voice note duration.');
-        const { client_id: clientId, duration_ms: durationMs, reply_to: replyTo } = query.data;
+        const {
+          client_id: clientId,
+          duration_ms: durationMs,
+          reply_to: replyTo,
+          server_readable: consent,
+        } = query.data;
         const prior = await options.store.findUserMessageByClientId(userId, agentId, clientId);
         if (prior) return reply.code(200).send({ message: threadMessageSchema.parse(prior) });
+        // A private chat hears a voice note only with the person's consent (ADR-044), checked
+        // before any audio leaves for transcription.
+        const privateChat = await options.store.isPrivate(userId, agentId);
+        if (privateChat && consent !== '1')
+          return sendFailure(reply, new ThreadServiceError('private_thread'));
+        const serverReadable = privateChat ? (true as const) : undefined;
         // Checked before transcription is paid for; the store checks again when it saves.
         if (replyTo !== undefined) {
           const answered = await options.store.findMessageById(userId, agentId, replyTo);
-          if (!answered || !quoteOf(answered))
+          if (!answered || (!quoteOf(answered) && answered.kind !== 'sealed'))
             return sendFailure(reply, new ThreadServiceError('reply_to_not_found'));
         }
         if (!Buffer.isBuffer(request.body) || request.body.length === 0)
@@ -527,6 +538,7 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
             text,
             voice: { duration_s: Math.min(120, Math.round(durationMs / 1_000)) },
             ...(replyTo !== undefined && { replyTo }),
+            ...(serverReadable && { serverReadable }),
           });
         })();
         sends.set(sendKey, work);

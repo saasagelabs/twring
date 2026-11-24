@@ -492,6 +492,7 @@ describe('voice notes with a person’s own Deepgram key', () => {
       service: { send } as unknown as ThreadService,
       store: {
         findUserMessageByClientId: () => Promise.resolve(undefined),
+        isPrivate: () => Promise.resolve(false),
       } as unknown as SqliteThreadStore,
       agents: { get: () => Promise.resolve({ id: agentId } as never) },
       writeRatePerMinute: 100,
@@ -776,6 +777,7 @@ describe('voice notes: one send per client id with a slow key lookup', () => {
       service: { send } as unknown as ThreadService,
       store: {
         findUserMessageByClientId: () => Promise.resolve(undefined),
+        isPrivate: () => Promise.resolve(false),
       } as unknown as SqliteThreadStore,
       agents: { get: () => Promise.resolve({ id: agentId } as never) },
       writeRatePerMinute: 100,

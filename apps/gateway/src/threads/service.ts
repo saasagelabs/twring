@@ -25,6 +25,7 @@ import type { FileService } from '../files/service';
 import { fetchAgentFile, FetchAgentFileError } from '../files/fetch-agent-file';
 import { sniffFile } from '../files/sniff';
 import { withQuote } from './quote';
+import { PRIVATE_PUSH_TEXT, PRIVATE_RING_REASON } from '../e2e/guard';
 
 export interface ThreadTurnTimeouts {
   connectMs: number;
@@ -209,6 +210,8 @@ export class ThreadService {
     let delivery: 'ring' | 'push' | 'none' = 'none';
     if (!this.options.hasLiveCallToAgent(userId, agentId) && this.options.ring) {
       const settings = await this.options.ring.settings(userId);
+      // A private chat's ring and push carry fixed words, never the agent's text (ADR-044).
+      const sealedChat = await this.options.store.isPrivate(userId, agentId);
       if (
         input.origin === 'call_turn' &&
         input.text.trim() !== '' &&
@@ -220,10 +223,9 @@ export class ThreadService {
           .replace(/\s+([.!?])/gu, '$1')
           .trim();
         const end = /[.!?](?= |$)/u.exec(clean);
-        const reason = truncateRingText(
-          sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean),
-          140,
-        );
+        const reason = sealedChat
+          ? PRIVATE_RING_REASON
+          : truncateRingText(sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean), 140);
         const result = await this.options.ring.ring({
           userId,
           agentId,
@@ -243,7 +245,9 @@ export class ThreadService {
           agent_id: agentId,
           agent_name: input.target.agentName,
           message_id: messageId,
-          preview: truncateRingText(sanitizeRingText(input.text.split('\n')[0] ?? ''), 120),
+          preview: sealedChat
+            ? PRIVATE_PUSH_TEXT
+            : truncateRingText(sanitizeRingText(input.text.split('\n')[0] ?? ''), 120),
           silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
         });
         if (attempted > 0) delivery = 'push';
@@ -271,10 +275,11 @@ export class ThreadService {
     status: 'answered' | 'declined' | 'missed' | 'cancelled';
     note?: string;
   }): Promise<void> {
+    const sealedChat = await this.options.store.isPrivate(invite.user_id, invite.agent_id);
     const message = await this.options.store.appendMessage(invite.user_id, invite.agent_id, {
       kind: 'ring',
       invite_id: invite.id,
-      reason: invite.reason,
+      reason: sealedChat ? PRIVATE_RING_REASON : invite.reason,
       outcome: invite.status,
       note: invite.note,
     });
@@ -330,7 +335,9 @@ export class ThreadService {
       agent_id: invite.agent_id,
       agent_name: invite.agent_name,
       message_id: invite.message_id,
-      preview: truncateRingText(sanitizeRingText(result.text.split('\n')[0] ?? ''), 120),
+      preview: (await this.options.store.isPrivate(invite.user_id, invite.agent_id))
+        ? PRIVATE_PUSH_TEXT
+        : truncateRingText(sanitizeRingText(result.text.split('\n')[0] ?? ''), 120),
       silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
     });
   }
@@ -495,6 +502,8 @@ export class ThreadService {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      /** A consented voice note in a private chat (ADR-044). */
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const key = keyOf(userId, agentId);
@@ -522,12 +531,13 @@ export class ThreadService {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const record = await this.options.agents.get(userId, agentId);
     if (!record) throw new ThreadServiceError('agent_not_found');
     // Nothing goes into a private chat in plain text, so it never silently downgrades.
-    if (await this.options.store.isPrivate(userId, agentId)) {
+    if (input.serverReadable !== true && (await this.options.store.isPrivate(userId, agentId))) {
       const prior = await this.options.store.findUserMessageByClientId(
         userId,
         agentId,
@@ -1213,7 +1223,9 @@ export class ThreadService {
         agent_id: agentId,
         agent_name: agentName,
         message_id: message.id,
-        preview: truncateRingText(sanitizeRingText(`Needs your OK: ${message.title}`), 120),
+        preview: (await this.options.store.isPrivate(userId, agentId))
+          ? PRIVATE_PUSH_TEXT
+          : truncateRingText(sanitizeRingText(`Needs your OK: ${message.title}`), 120),
         silent: ownerUnavailable(settings, ring.nowDate()) ? '1' : '0',
       });
     } catch {
@@ -1238,7 +1250,9 @@ export class ThreadService {
         agent_id: agentId,
         agent_name: agentName,
         message_id: message.id,
-        preview: truncateRingText(sanitizeRingText(message.text.split('\n')[0] ?? ''), 120),
+        preview: (await this.options.store.isPrivate(userId, agentId))
+          ? PRIVATE_PUSH_TEXT
+          : truncateRingText(sanitizeRingText(message.text.split('\n')[0] ?? ''), 120),
         silent: ownerUnavailable(settings, ring.nowDate()) ? '1' : '0',
       });
     } catch {

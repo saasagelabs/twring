@@ -51,6 +51,11 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       status: userMessageStatusSchema,
       client_id: z.uuid(),
       voice: z.object({ duration_s: z.number().int().min(1).max(120) }).optional(),
+      /**
+       * A voice note in a private chat (ADR-044): the person agreed the server hears and reads
+       * it, so it is stored as text. Absent everywhere else.
+       */
+      server_readable: z.literal(true).optional(),
       attachments,
       turn_id: z.string().max(128).optional(),
       error_code: z.string().max(64).optional(),
@@ -210,6 +215,8 @@ export const voiceNoteQuerySchema = z
     client_id: z.uuid(),
     duration_ms: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().safe()),
     reply_to: threadMessageIdSchema.optional(),
+    /** `1`: the person agreed this note is heard and read by the server in a private chat. */
+    server_readable: z.literal('1').optional(),
   })
   .strict();
 export const approvalDecisionRequestSchema = z

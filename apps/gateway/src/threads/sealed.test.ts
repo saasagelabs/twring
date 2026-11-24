@@ -6,7 +6,7 @@ import {
   type SealedEnvelopeV1,
   type ThreadMessage,
 } from '@twring/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { startConnectorGateway, type ConnectorGateway } from '../connectors/harness';
 
@@ -47,7 +47,7 @@ interface Thread {
 async function thread(
   options: { connectorFeatures?: string[]; env?: Record<string, string> } = {},
 ): Promise<Thread> {
-  const g = await startConnectorGateway({ threads: {}, env: options.env ?? FLAG_ON });
+  const g = await startConnectorGateway({ threads: {}, ring: {}, env: options.env ?? FLAG_ON });
   gateway = g;
   const { connectorId } = await g.connect('u1', {
     features: options.connectorFeatures ?? [SEALED_CHAT_FEATURE],
@@ -184,5 +184,105 @@ describe('private threads', () => {
     };
     const rows = store.db.prepare('SELECT body, meta FROM messages').all();
     expect(JSON.stringify(rows)).not.toContain('UExBSU5NQVJLRVI');
+  });
+});
+
+describe('server features that read text skip private chats', () => {
+  it('a reply to a sealed message gets no server quote', async () => {
+    const t = await privateThread();
+    const m = await t.postMessage({ client_id: randomUUID(), sealed: envelope() });
+    const r = await t.postMessage({
+      client_id: randomUUID(),
+      sealed: envelope(),
+      reply_to: m.json.message.id,
+    });
+    expect(r.status).toBe(201);
+    expect(r.json.message.reply_to).toBe(m.json.message.id);
+    expect(r.json.message.quote).toBeUndefined();
+  });
+
+  it('a reply to a message outside the thread is refused', async () => {
+    const t = await privateThread();
+    const r = await t.postMessage({
+      client_id: randomUUID(),
+      sealed: envelope(),
+      reply_to: `msg_${'q'.repeat(20)}`,
+    });
+    expect(r.status).toBe(400);
+    expect(r.json.error.code).toBe('reply_to_not_found');
+  });
+
+  it('a message push from a private chat carries only the fixed text', async () => {
+    const t = await privateThread();
+    const push = vi.spyOn(t.g.ring!.service, 'pushMessage');
+    await t.g.threads!.service.deliverResult('u1', t.agentId, {
+      text: 'The secret plan is ready',
+      origin: 'agent',
+      idempotencyKey: 'k1',
+      target: { agentName: 'Laptop Claude' },
+    });
+    expect(push).toHaveBeenCalledTimes(1);
+    const payload = push.mock.calls[0]![1];
+    expect(payload.preview).toBe('New message');
+    expect(JSON.stringify(payload)).not.toContain('secret');
+  });
+
+  it('a ring from a private chat says only that the agent wants to talk', async () => {
+    const t = await privateThread();
+    const ring = vi
+      .spyOn(t.g.ring!.service, 'ring')
+      .mockResolvedValue({ refused: 'no_ring_phone' } as never);
+    await t.g.threads!.service.deliverResult('u1', t.agentId, {
+      text: 'The secret plan is ready. More below.',
+      origin: 'call_turn',
+      idempotencyKey: 'k2',
+      target: { agentName: 'Laptop Claude' },
+    });
+    expect(ring).toHaveBeenCalledTimes(1);
+    expect(ring.mock.calls[0]![0].reason).toBe('Wants to talk');
+  });
+
+  it('a ring recorded in a private chat keeps no reason text', async () => {
+    const t = await privateThread();
+    await t.g.threads!.service.recordRing({
+      user_id: 'u1',
+      agent_id: t.agentId,
+      id: `inv_${'a'.repeat(26)}`,
+      reason: 'The secret plan is ready',
+      status: 'missed',
+    });
+    const ring = (await t.list()).messages.find((m) => m.kind === 'ring');
+    expect(ring).toMatchObject({ reason: 'Wants to talk' });
+  });
+
+  it('a settled ring pushes the fixed text for a private chat', async () => {
+    const t = await privateThread();
+    const saved = await t.g.threads!.service.deliverResult('u1', t.agentId, {
+      text: 'The secret plan is ready',
+      origin: 'text_turn',
+      idempotencyKey: 'k3',
+      target: { agentName: 'Laptop Claude' },
+    });
+    const push = vi.spyOn(t.g.ring!.service, 'pushMessage');
+    await t.g.threads!.service.pushSettledResult({
+      user_id: 'u1',
+      agent_id: t.agentId,
+      agent_name: 'Laptop Claude',
+      status: 'missed',
+      message_id: saved.messageId,
+    });
+    expect(push.mock.calls.at(-1)![1].preview).toBe('New message');
+  });
+
+  it('a chat that is not private keeps its preview', async () => {
+    const t = await thread();
+    const push = vi.spyOn(t.g.ring!.service, 'pushMessage');
+    await t.g.threads!.service.deliverResult('u1', t.agentId, {
+      text: 'Plain result',
+      origin: 'agent',
+      idempotencyKey: 'k4',
+      target: { agentName: 'Laptop Claude' },
+    });
+    expect(push.mock.calls[0]![1].preview).toBe('Plain result');
   });
 });
