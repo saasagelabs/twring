@@ -42,7 +42,8 @@ import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
-import { PAIR_AGAIN } from '@/e2e/private-state';
+import { labelFor, PAIR_AGAIN, sealedBubble, SERVER_READABLE_MARK } from '@/e2e/private-state';
+import { PrivateBanner, VoiceNoteWarning } from '@/components/chat/PrivateChat';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
 import { Skeleton } from '@/components/Skeleton';
@@ -153,6 +154,8 @@ export default function ChatScreen() {
   const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const [removed, setRemoved] = useState(false);
+  /** A recorded voice note waiting for "Send anyway" in a private chat. */
+  const [heldVoice, setHeldVoice] = useState<{ uri: string; durationMs: number }>();
   const load = useCallback(
     async (signal: AbortSignal) => {
       try {
@@ -189,6 +192,12 @@ export default function ChatScreen() {
         : [...(messagePage.data?.messages ?? [])].sort((a, b) => a.seq - b.seq),
     [chat.state.messages, messagePage.data?.messages],
   );
+  // Private chats (ADR-044): opened on this phone only, and the label only while it is true.
+  const openedById = useMemo(
+    () => (chat.opened ? new Map(chat.opened.map((entry) => [entry.id, entry])) : undefined),
+    [chat.opened],
+  );
+  const privateLabel = labelFor({ private: chat.private, messages });
   // The read marker as the chat opened: later reads move it, but the divider stays put.
   const [openedReadSeq] = useState(
     () =>
@@ -449,6 +458,28 @@ export default function ChatScreen() {
       );
     if (message.kind === 'notice' && message.code === 'new_session')
       return <Notice text={`New conversation: ${name} won't remember earlier messages.`} />;
+    if (message.kind === 'sealed') {
+      const bubble = sealedBubble(message, openedById, name);
+      if (bubble === undefined) return null;
+      const sealedTarget: ActionTarget = {
+        id: message.id,
+        text: bubble.opened ? bubble.text : '',
+        from: bubble.own ? 'yourself' : name,
+        actions: bubble.actions,
+      };
+      return (
+        <Bubble
+          {...actionProps(sealedTarget, message.id)}
+          quote={bubble.quote}
+          text={bubble.text}
+          muted={!bubble.opened}
+          time={timeOf(message.created_at)}
+          sender={bubble.own ? 'You' : name}
+          own={bubble.own}
+          onLink={setUrl}
+        />
+      );
+    }
     if (message.kind !== 'agent_text' && message.kind !== 'user_text') return null;
     const own = message.kind === 'user_text';
     const target: ActionTarget = {
@@ -472,13 +503,14 @@ export default function ChatScreen() {
           agentId={id}
           attachments={message.attachments}
           caption={
-            !own
-              ? message.partial
-                ? 'Cut off'
-                : message.cut
-                  ? 'The full reply is longer.'
+            !own && message.partial
+              ? 'Cut off'
+              : !own && message.cut
+                ? 'The full reply is longer.'
+                : // In a private chat, a message the server could read is marked (Task 24).
+                  chat.private
+                  ? SERVER_READABLE_MARK
                   : undefined
-              : undefined
           }
         />
         {message.kind === 'agent_text' && !!message.text && (
@@ -544,6 +576,7 @@ export default function ChatScreen() {
           )
         )}
       </View>
+      {privateLabel && <PrivateBanner label={privateLabel.text} />}
       <KeyboardAvoidingView behavior="padding" style={styles.body}>
         <View style={styles.body}>
           {(agent.loading || messagePage.loading) && (
@@ -635,6 +668,23 @@ export default function ChatScreen() {
         </View>
         {!removed && (
           <View>
+            {heldVoice && (
+              <VoiceNoteWarning
+                onSend={() => {
+                  chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id);
+                  setReplyTo(undefined);
+                  setHeldVoice(undefined);
+                }}
+                onCancel={() => {
+                  try {
+                    new File(heldVoice.uri).delete();
+                  } catch {
+                    /* cache may already be gone */
+                  }
+                  setHeldVoice(undefined);
+                }}
+              />
+            )}
             {replyTo && (
               <ReplyBar
                 from={replyTo.from}
@@ -670,6 +720,11 @@ export default function ChatScreen() {
                 })
               }
               onVoiceSend={(uri, durationMs) => {
+                // A voice note is turned into text on the server: ask first in a private chat.
+                if (chat.private) {
+                  setHeldVoice({ uri, durationMs });
+                  return;
+                }
                 chat.sendVoice(uri, durationMs, replyTo?.id);
                 setReplyTo(undefined);
               }}

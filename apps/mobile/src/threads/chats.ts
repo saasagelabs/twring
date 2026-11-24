@@ -696,6 +696,7 @@ export function useChat(agentId: string) {
       active?.decideApproval(agentId, messageId, decision),
     loadOlder: () => active?.loadOlder(agentId),
     /** Private chats: the opened messages (memory only) and whether to pair again. */
+    private: active?.isPrivate(agentId) ?? false,
     opened: active?.getOpened(agentId),
     pairAgain: active?.getPairAgain(agentId) ?? false,
     available: active?.getAvailability() ?? false,
