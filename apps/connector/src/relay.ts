@@ -255,6 +255,9 @@ export class RelayClient {
       case 'channel.close':
         if (this.closeChannel(frame.channel)) this.options.log?.('call ended');
         return;
+      case 'sealed.message':
+        // Private chats (ADR-044) are not handled by this connector yet; ignore.
+        return;
     }
   }
 

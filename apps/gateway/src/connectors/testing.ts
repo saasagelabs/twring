@@ -161,6 +161,8 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
         closedByGateway.push(frame.channel);
         abortChannel(frame.channel);
         return;
+      case 'sealed.message':
+        return;
       case 'channel.message': {
         const state = channels.get(frame.channel);
         const message = nativeClientMessageSchema.safeParse(frame.message);
