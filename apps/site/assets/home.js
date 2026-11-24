@@ -323,9 +323,9 @@
       cv.removeAttribute('data-talk');
       caps.setAttribute('role', 'log');
       caps.setAttribute('aria-live', 'polite');
-      caps.setAttribute('aria-label', 'Sample call captions');
+      caps.setAttribute('aria-label', 'Call captions');
 
-      var end = toButton($('[data-end]', cv), 'End the sample call');
+      var end = toButton($('[data-end]', cv), 'End the demo call');
       var go = el('button', 'call-go');
       go.innerHTML = '<i>' + PHONE_ICON + '</i><span></span>';
       $('.cv-ctl', cv).appendChild(go);
@@ -459,7 +459,7 @@
         hintNodes.forEach(function (n) { hint.appendChild(typeof n === 'string' ? doc.createTextNode(n) : n); });
         go.lastChild.textContent = label;
         go.disabled = !!disabled;
-        S.set('idle', 'Sample call');
+        S.set('idle', 'Demo call');
       };
       S.finish = function (label) {
         var had = cv.contains(doc.activeElement);
@@ -539,11 +539,11 @@
     function resetCall() {
       if (agent.ringOnly) {
         // AI apps are in the other group: they ring and message, and there is no call to play.
-        var a = el('a', '', 'See the sample ring');
+        var a = el('a', '', 'See a ring');
         a.href = '#ring';
         C.idle('No live calls', [APPS + ' ring and message you. They do not take live calls. ', a], true);
       } else {
-        C.idle('Play a sample call', ['A short scripted call plays here. No sound, no microphone.'], false);
+        C.idle('Play the call', ['A short call plays here. No sound, no microphone.'], false);
       }
     }
 
@@ -671,13 +671,7 @@
   // 6. The giant wordmark (from variation 4): fitted to the width, lit like a spotlight by the
   // pointer, or by the scroll position on touch screens.
   (function () {
-    var g = byId('giant'), s = g && g.querySelector('span'), stage = byId('giantStage');
-    // Behind the word, the mark rings (from variation 2) only while the footer is on screen.
-    if (stage && !still) {
-      var ringing = false, setRings = function () { stage.classList.toggle('inview', ringing && !doc.hidden); };
-      watch(stage, 0.2, function (on) { ringing = on; setRings(); });
-      onShow.push(setRings);
-    }
+    var g = byId('giant'), s = g && g.querySelector('span');
     if (!g || !s) return;
     function fit() {
       s.style.fontSize = '';

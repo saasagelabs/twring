@@ -347,21 +347,12 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); overfl
 .giant span { display: inline-block; font: 200 clamp(110px, 29vw, 600px)/0.92 var(--display); letter-spacing: -0.06em; padding: 0 0.04em 0.1em; color: transparent; -webkit-text-stroke: 1px rgba(25, 214, 242, 0.45); background: linear-gradient(180deg, rgba(25, 214, 242, 0.22), transparent 80%); -webkit-background-clip: text; background-clip: text; }
 .giant.live span { background-image: radial-gradient(circle 0.9em at var(--mx) var(--my), rgba(25, 214, 242, 0.95), rgba(25, 214, 242, 0.35) 45%, rgba(25, 214, 242, 0.04) 100%); }
 
-/* Behind the wordmark, the mark rings outward (from variation 2) while the footer is on screen.
-   Kept faint so the word still reads; the spotlight above is what answers the pointer. */
+/* The wordmark's own stage: nothing behind the word, so it reads cleanly. */
 .giant-stage { position: relative; overflow: hidden; margin-top: clamp(2.5rem, 6vw, 4rem); }
 .giant-stage .giant { position: relative; margin-top: 0; }
-.rings { position: absolute; top: 50%; left: 50%; width: clamp(7rem, 20vw, 17rem); height: auto; transform: translate(-50%, -56%); overflow: visible; pointer-events: none; }
-.rings path, .flash .rg { fill: none; stroke: var(--cyan); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linecap: square; transform-box: fill-box; transform-origin: center; }
-.rings .mk { opacity: 0.22; }
-.rings .rg:nth-child(1) { transform: scale(1.7); opacity: 0.16; }
-.rings .rg:nth-child(2) { transform: scale(2.5); opacity: 0.1; }
-.rings .rg:nth-child(3) { transform: scale(3.4); opacity: 0.05; }
-.giant-stage.inview .rg { animation: markring 3.4s var(--out) infinite; }
-.giant-stage.inview .rg:nth-child(2) { animation-delay: 0.24s; }
-.giant-stage.inview .rg:nth-child(3) { animation-delay: 0.48s; }
-/* Three quick rings, then a breath: the cadence of a phone. */
-@keyframes markring { 0% { transform: scale(1); opacity: 0; } 5% { opacity: 0.42; } 58%, 100% { transform: scale(4.4); opacity: 0; } }
+
+/* The rings around the mark above the headline. */
+.flash .rg { fill: none; stroke: var(--cyan); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linecap: square; transform-box: fill-box; transform-origin: center; }
 
 /* The mark above the headline, about one headline line tall. Once, on load: the stroke draws
    itself, the same diamond rings leave it twice, then it rests. Without animation (reduced motion)
