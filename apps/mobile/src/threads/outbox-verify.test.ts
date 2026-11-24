@@ -111,6 +111,6 @@ describe('outbox verification', () => {
   it('says in plain words that a queued file is gone', () => {
     const copy = messageStatus('failed', 'Hermes', FILE_MISSING);
     expect(copy).toContain('no longer on your phone');
-    expect(copy).not.toContain('—');
+    expect(copy).not.toContain('\u2014');
   });
 });
