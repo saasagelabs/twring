@@ -64,6 +64,8 @@ export function searchTerms(query: string): string[] {
 }
 
 const SNIPPET = 90;
+/** 2,000 messages at 100 per page: the most the server keeps for one agent. */
+const MAX_PAGES = 20;
 
 /** About 90 characters of `text` around the first term, with dots where it was cut. */
 export function snippet(text: string, terms: readonly string[]): string {
@@ -152,7 +154,13 @@ export class SearchIndex {
             pages++;
             await this.record(result.messages);
             const oldest = Math.min(...result.messages.map((message) => message.seq));
-            if (!result.hasMore || !result.messages.length || !Number.isFinite(oldest)) {
+            // The server keeps at most 2,000 messages per agent: never page past that.
+            if (
+              !result.hasMore ||
+              !result.messages.length ||
+              !Number.isFinite(oldest) ||
+              pages >= MAX_PAGES
+            ) {
               await this.store.setComplete(agentId);
               break;
             }

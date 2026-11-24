@@ -19,6 +19,7 @@ const SECTIONS: readonly { title: string; body: readonly string[] }[] = [
     title: 'Does Twring keep my chats?',
     body: [
       "Yes. The messages you type to an agent and its written replies are kept, encrypted, so you can read them later. Calls appear in a chat only as a card with their length; Twring keeps no call audio or transcript. Clear a chat from the agent's page, or delete all your data in Settings.",
+      'To let you search your chats, the app keeps a copy of their text on this phone. It never leaves the phone and is removed when you sign out or delete your data.',
     ],
   },
   {

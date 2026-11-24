@@ -166,3 +166,18 @@ describe('filling older messages', () => {
     expect(page).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('SearchIndex.fill bounds', () => {
+  it('stops after 2,000 messages for one chat even if the server always says there is more', async () => {
+    const index = new SearchIndex(memorySearchStore(), () => undefined);
+    let calls = 0;
+    const page: HistoryPage = (_agentId, before) => {
+      calls++;
+      const top = (before ?? 1_000_000) - 1;
+      const messages = Array.from({ length: 100 }, (_, i) => text(top - i, `m${top - i}`));
+      return Promise.resolve({ messages, hasMore: calls < 1000 });
+    };
+    await index.fill([agent], page, new AbortController().signal);
+    expect(calls).toBeLessThanOrEqual(20);
+  });
+});
