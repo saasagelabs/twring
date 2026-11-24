@@ -30,6 +30,19 @@ describe('phone device key', () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain(base64urlEncode(key.privateKey));
   });
 
+  it('a replaced key clears the trusted computers: they sealed to a phone that is gone', async () => {
+    const s = memoryStore();
+    s.m.set('twring.e2e.device.v1', '{bad');
+    s.m.set('twring.e2e.trusted.v1', '[]');
+    await loadOrCreateDeviceKey(s);
+    expect(s.m.has('twring.e2e.trusted.v1')).toBe(false);
+    // A first key on a fresh phone touches nothing else.
+    const fresh = memoryStore();
+    fresh.m.set('twring.e2e.trusted.v1', '[]');
+    await loadOrCreateDeviceKey(fresh);
+    expect(fresh.m.has('twring.e2e.trusted.v1')).toBe(true);
+  });
+
   it('forgets on sign-out', async () => {
     const s = memoryStore();
     await loadOrCreateDeviceKey(s);
@@ -44,5 +57,41 @@ describe('phone device key', () => {
     expect(await nextSeq(s)).toBe(2);
     s.m.set('twring.e2e.seq.v1', 'junk');
     await expect(nextSeq(s)).rejects.toThrow();
+  });
+
+  it('two messages sealed at once never share a seq (the keychain is slow)', async () => {
+    const s = memoryStore();
+    const slow = {
+      getItemAsync: async (k: string) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return s.getItemAsync(k);
+      },
+      setItemAsync: async (k: string, v: string) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return s.setItemAsync(k, v);
+      },
+      deleteItemAsync: (k: string) => s.deleteItemAsync(k),
+    };
+    const seqs = await Promise.all([nextSeq(slow), nextSeq(slow), nextSeq(slow)]);
+    expect(seqs.sort()).toEqual([1, 2, 3]);
+    expect(await nextSeq(slow)).toBe(4);
+  });
+
+  it('a failed counter write does not block the next seq', async () => {
+    const s = memoryStore();
+    let fail = true;
+    const flaky = {
+      getItemAsync: (k: string) => s.getItemAsync(k),
+      setItemAsync: (k: string, v: string) => {
+        if (fail) {
+          fail = false;
+          return Promise.reject(new Error('keychain busy'));
+        }
+        return s.setItemAsync(k, v);
+      },
+      deleteItemAsync: (k: string) => s.deleteItemAsync(k),
+    };
+    await expect(nextSeq(flaky)).rejects.toThrow();
+    expect(await nextSeq(flaky)).toBe(1);
   });
 });

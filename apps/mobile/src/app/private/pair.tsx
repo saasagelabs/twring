@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
@@ -59,11 +59,13 @@ function spoken(code: string): string {
 
 /**
  * Pair this phone with a computer for private chats (ADR-044): scan the code the computer shows,
- * compare a 6-digit number on both screens, and only a "Yes" saves the computer. Not linked from
- * any screen yet (PRIVATE_CHATS_ENABLED).
+ * compare a 6-digit number on both screens, and only a "Yes" saves the computer. Opened from an
+ * agent's "Make chats private" (`?agentId=`), Done returns to that agent to finish turning it on.
  */
 export default function PrivatePairScreen() {
   const palette = usePalette();
+  const params = useLocalSearchParams<{ agentId?: string }>();
+  const agentId = typeof params.agentId === 'string' && params.agentId ? params.agentId : undefined;
   const [step, setStep] = useState<Step>({ kind: 'start' });
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | undefined>();
@@ -155,7 +157,19 @@ export default function PrivatePairScreen() {
     return (
       <Screen
         title="Private chats"
-        footer={<PrimaryButton label="Done" onPress={() => router.back()} />}
+        footer={
+          <PrimaryButton
+            label="Done"
+            onPress={() =>
+              agentId === undefined
+                ? router.back()
+                : router.dismissTo({
+                    pathname: '/agents/[id]',
+                    params: { id: agentId, private: 'ask' },
+                  })
+            }
+          />
+        }
       >
         <View style={styles.step}>
           {heading('Paired')}

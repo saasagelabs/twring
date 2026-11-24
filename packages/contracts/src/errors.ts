@@ -130,6 +130,12 @@ export const errorCodeSchema = z.enum([
   'audio_limit_reached',
   /** Relay: it sees a non-public caller address, so its proxy setting is wrong (503). */
   'relay_misconfigured',
+  /** Private chats (ADR-044), already sent by the gateway's thread routes. */
+  'private_thread',
+  'not_private',
+  'private_chats_off',
+  'private_unsupported',
+  'private_is_one_way',
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 

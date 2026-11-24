@@ -25,6 +25,7 @@ import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
 import { Sheet } from '@/components/Sheet';
 import { OfflineHelp } from '@/components/OfflineHelp';
+import { PrivateChatsRow } from '@/components/PrivateChatsRow';
 import { goBack, Screen } from '@/components/Screen';
 import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { StatusLabel } from '@/components/StatusLabel';
@@ -44,7 +45,7 @@ interface Detail {
 export default function AgentDetailScreen() {
   const palette = usePalette();
   const now = useNow();
-  const params = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{ id: string; private?: string }>();
   const id = typeof params.id === 'string' ? params.id : '';
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<ErrorCopy | undefined>(undefined);
@@ -308,6 +309,15 @@ export default function AgentDetailScreen() {
             />
           )}
         </SettingsGroup>
+      )}
+
+      {!aiApp && editable && (
+        <PrivateChatsRow
+          agent={agent}
+          isPrivate={chats.threads.some((t) => t.agent_id === agent.id && t.private === true)}
+          ask={params.private === 'ask'}
+          onTurnedOn={() => chats.refresh()}
+        />
       )}
 
       {(!aiApp || editable) && (

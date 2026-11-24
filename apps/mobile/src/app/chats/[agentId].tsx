@@ -42,6 +42,7 @@ import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
+import { PAIR_AGAIN } from '@/e2e/private-state';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
 import { Skeleton } from '@/components/Skeleton';
@@ -608,13 +609,21 @@ export default function ChatScreen() {
             </KeyboardGestureArea>
           )}
           {pill.show && rows.length > 0 && <NewReplyPill count={pill.count} onPress={toBottom} />}
-          {(removed || agent.error || messagePage.error) && (
+          {(removed || agent.error || messagePage.error || chat.pairAgain) && (
             // Opaque, so a notice laid over the messages stays readable.
             <View
               pointerEvents="box-none"
               style={[styles.notices, { backgroundColor: palette.background }]}
             >
               {removed && <Notice text="This agent was removed." />}
+              {chat.pairAgain && !removed && (
+                <ErrorNotice
+                  error={{ message: PAIR_AGAIN, retryable: true }}
+                  onRetry={() =>
+                    router.push({ pathname: '/private/pair', params: { agentId: id } })
+                  }
+                />
+              )}
               {agent.error && !removed && (
                 <ErrorNotice error={agent.error} onRetry={() => agent.reload()} />
               )}

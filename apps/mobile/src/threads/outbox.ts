@@ -1,4 +1,9 @@
-import type { Attachment, ThreadMessage } from '@twring/contracts';
+import {
+  sealedEnvelopeV1Schema,
+  type Attachment,
+  type SealedEnvelopeV1,
+  type ThreadMessage,
+} from '@twring/contracts';
 import { z } from 'zod';
 
 import { ApiError } from '../api/client';
@@ -19,7 +24,28 @@ export interface PendingMessage {
   error?: unknown;
   /** A stable machine code for a failure with no error object (a file lost over a restart). */
   errorCode?: string;
+  /**
+   * A private chat's message (ADR-044), sealed once and resent as is. Only this reaches the disk;
+   * `text` stays in memory.
+   */
+  sealed?: SealedEnvelopeV1;
+  /** Sent in a private chat: its text is never saved, and it is never sent as text. */
+  privateChat?: true;
 }
+
+/**
+ * How the outbox seals for private chats. `known` answers from what is already loaded;
+ * `isPrivate` may wait for the chat list.
+ */
+export interface OutboxSealer {
+  known(agentId: string): boolean;
+  isPrivate(agentId: string): Promise<boolean>;
+  /** Throws an error with a stable `code` when it cannot seal. */
+  seal(agentId: string, text: string): Promise<SealedEnvelopeV1>;
+  openOwn(agentId: string, sealed: SealedEnvelopeV1): Promise<string | undefined>;
+}
+/** Files in a private chat are not sealed yet: refused before anything goes out. */
+export const PRIVATE_FILES = 'private_files';
 
 /** At most this many queued messages are saved for the next launch, newest kept. */
 export const OUTBOX_LIMIT = 50;
@@ -36,6 +62,7 @@ const storedOutbox = z.object({
         clientId: z.string().min(1).max(100),
         agentId: z.string().min(1).max(100),
         text: z.string().max(20_000),
+        sealed: sealedEnvelopeV1Schema.optional(),
         state: z.enum(['sending', 'failed']),
         createdAt: z.string().max(100),
         voice: z.object({ uri: storedUri, durationMs: z.number().nonnegative() }).optional(),
@@ -116,6 +143,7 @@ export class Outbox {
       message: {
         clientId: string;
         text: string;
+        sealed?: SealedEnvelopeV1;
         voice?: { uri: string; durationMs: number };
         attachmentIds?: string[];
         replyTo?: string;
@@ -130,6 +158,7 @@ export class Outbox {
       signal: AbortSignal,
     ) => Promise<Attachment>,
     persistence?: OutboxPersistence,
+    private readonly sealer?: OutboxSealer,
   ) {
     this.store = persistence?.store;
     const files = persistence?.files ?? deviceOutboxFiles;
@@ -148,6 +177,7 @@ export class Outbox {
       clientId,
       agentId,
       text,
+      ...(this.sealer?.known(agentId) === true && { privateChat: true as const }),
       ...(replyTo !== undefined && { replyTo }),
       state: 'sending',
       createdAt: new Date().toISOString(),
@@ -165,6 +195,7 @@ export class Outbox {
       text,
       ...(replyTo !== undefined && { replyTo }),
       files: files.map((file) => ({ ...file })),
+      ...(this.sealer?.known(agentId) === true && { privateChat: true as const }),
       state: 'sending',
       createdAt: new Date().toISOString(),
     });
@@ -196,7 +227,8 @@ export class Outbox {
   }
 
   reconcile(message: ThreadMessage): void {
-    if (message.kind !== 'user_text') return;
+    if (message.kind !== 'user_text' && message.kind !== 'sealed') return;
+    if (message.client_id === undefined) return;
     const item = this.items.get(message.client_id);
     if (item?.agentId === message.agent_id) {
       this.items.delete(message.client_id);
@@ -262,12 +294,17 @@ export class Outbox {
   private write(): Promise<void> {
     const store = this.store;
     if (!store) return this.saving;
-    const items = [...this.items.values()].slice(-OUTBOX_LIMIT).map((item) => {
+    // A private chat's message is saved only once sealed, and then only sealed: never its text.
+    const kept = [...this.items.values()].filter(
+      (item) => item.sealed !== undefined || item.privateChat !== true,
+    );
+    const items = kept.slice(-OUTBOX_LIMIT).map((item) => {
       const errorCode = item.errorCode ?? errorCodeOf(item.error);
       return {
         clientId: item.clientId,
         agentId: item.agentId,
-        text: item.text,
+        text: item.sealed !== undefined ? '' : item.text,
+        ...(item.sealed !== undefined && { sealed: item.sealed }),
         state: item.state,
         createdAt: item.createdAt,
         ...(item.voice && { voice: item.voice }),
@@ -338,6 +375,7 @@ export class Outbox {
         clientId: item.clientId,
         agentId: item.agentId,
         text: item.text,
+        ...(item.sealed !== undefined && { sealed: item.sealed, privateChat: true as const }),
         createdAt: item.createdAt,
         ...(item.voice && { voice: item.voice }),
         ...(item.files && { files: item.files.map((file) => ({ ...file })) }),
@@ -347,9 +385,63 @@ export class Outbox {
           : { state: 'sending' as const }),
       });
       if (!missing) resend.push(item.clientId);
+      if (item.sealed !== undefined) this.restoreText(item.clientId, item.agentId, item.sealed);
     }
     this.notify();
     for (const clientId of resend) void this.attempt(clientId);
+  }
+
+  /** A sealed queued message shows its text again, opened on this phone. */
+  private restoreText(clientId: string, agentId: string, sealed: SealedEnvelopeV1): void {
+    void this.sealer
+      ?.openOwn(agentId, sealed)
+      .then((text) => {
+        const item = this.items.get(clientId);
+        if (text === undefined || item === undefined || item.text !== '') return;
+        this.items.set(clientId, { ...item, text });
+        this.changed();
+      })
+      .catch(() => undefined);
+  }
+
+  /**
+   * Seals a private chat's message before its first attempt. False when it must not go out:
+   * the message is then failed in the outbox, never sent as text.
+   */
+  private async sealFirst(clientId: string): Promise<boolean> {
+    const item = this.items.get(clientId);
+    if (!item || item.sealed !== undefined || !this.sealer) return true;
+    let isPrivate = item.privateChat === true;
+    if (!isPrivate) {
+      try {
+        isPrivate = await this.sealer.isPrivate(item.agentId);
+      } catch {
+        isPrivate = false;
+      }
+    }
+    if (!isPrivate) return true;
+    const fail = (errorCode: string) => {
+      const current = this.items.get(clientId);
+      if (!current) return false;
+      this.items.set(clientId, { ...current, privateChat: true, state: 'failed', errorCode });
+      this.notify();
+      return false;
+    };
+    if (item.files?.length) return fail(PRIVATE_FILES);
+    // A voice note goes as it is: the server asks for the person's consent first.
+    if (item.voice) return true;
+    if (item.privateChat !== true) this.items.set(clientId, { ...item, privateChat: true });
+    try {
+      const sealed = await this.sealer.seal(item.agentId, item.text);
+      const current = this.items.get(clientId);
+      if (!current) return false;
+      this.items.set(clientId, { ...current, privateChat: true, sealed });
+      this.notify();
+      return true;
+    } catch (error) {
+      const code = (error as { code?: unknown } | undefined)?.code;
+      return fail(typeof code === 'string' ? code : 'seal_failed');
+    }
   }
 
   private start(clientId: string): void {
@@ -417,6 +509,7 @@ export class Outbox {
   }
 
   private async attempt(clientId: string): Promise<void> {
+    if (!(await this.sealFirst(clientId))) return;
     const delays = [1_000, 3_000, 10_000];
     for (let attempt = 0; attempt <= delays.length; attempt++) {
       const item = this.items.get(clientId);
@@ -437,6 +530,7 @@ export class Outbox {
           {
             clientId,
             text: item.text,
+            ...(item.sealed !== undefined && { sealed: item.sealed }),
             ...(item.voice && { voice: item.voice }),
             ...(item.files?.length && {
               attachmentIds: item.files.map((file) => file.uploaded!.id),

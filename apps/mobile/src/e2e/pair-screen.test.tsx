@@ -2,15 +2,20 @@ import { Children, isValidElement, type ReactElement, type ReactNode } from 'rea
 import type * as ReactModule from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  state: [] as unknown[],
-  cursor: 0,
-  back: vi.fn(),
-  feedback: vi.fn(),
-  parsePairInput: vi.fn(),
-  claimPairing: vi.fn(),
-  confirmPairing: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const params: { agentId?: string } = {};
+  return {
+    state: [] as unknown[],
+    cursor: 0,
+    back: vi.fn(),
+    dismissTo: vi.fn(),
+    params,
+    feedback: vi.fn(),
+    parsePairInput: vi.fn(),
+    claimPairing: vi.fn(),
+    confirmPairing: vi.fn(),
+  };
+});
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
@@ -39,7 +44,10 @@ vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
   Platform: { OS: 'android' },
 }));
-vi.mock('expo-router', () => ({ router: { back: mocks.back, replace: vi.fn() } }));
+vi.mock('expo-router', () => ({
+  router: { back: mocks.back, replace: vi.fn(), dismissTo: mocks.dismissTo },
+  useLocalSearchParams: () => mocks.params,
+}));
 vi.mock('@/e2e/pairing', () => ({
   parsePairInput: mocks.parsePairInput,
   claimPairing: mocks.claimPairing,
@@ -110,6 +118,8 @@ async function scan(data = 'twring-pair:abc'): Promise<ReactElement> {
 beforeEach(() => {
   mocks.state = [];
   mocks.back.mockReset();
+  mocks.dismissTo.mockReset();
+  mocks.params = {};
   mocks.feedback.mockReset();
   mocks.parsePairInput.mockReset().mockReturnValue({ kind: 'qr', offer: {} });
   mocks.claimPairing
@@ -138,6 +148,26 @@ describe('private chat pairing screen', () => {
     expect(mocks.claimPairing.mock.calls[0]?.[0]).toMatchObject({ store: { deviceOnly: true } });
     expect(mocks.feedback).toHaveBeenCalledWith('connected');
     expect(text(render())).toContain('Paired');
+  });
+
+  it('returns to the agent it was opened for, ready to turn private chats on', async () => {
+    mocks.params = { agentId: 'agt_1' };
+    void labelled(await scan(), 'Yes, same number').props.onPress?.();
+    await flush();
+    void labelled(render(), 'Done').props.onPress?.();
+    expect(mocks.dismissTo).toHaveBeenCalledWith({
+      pathname: '/agents/[id]',
+      params: { id: 'agt_1', private: 'ask' },
+    });
+    expect(mocks.back).not.toHaveBeenCalled();
+  });
+
+  it('without an agent, Done just goes back', async () => {
+    void labelled(await scan(), 'Yes, same number').props.onPress?.();
+    await flush();
+    void labelled(render(), 'Done').props.onPress?.();
+    expect(mocks.back).toHaveBeenCalled();
+    expect(mocks.dismissTo).not.toHaveBeenCalled();
   });
 
   it('stores nothing when the numbers differ', async () => {

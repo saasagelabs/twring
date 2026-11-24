@@ -95,7 +95,7 @@ vi.mock('@/platform/voice-preview', () => ({
 }));
 vi.mock('@/threads/chats', () => ({
   chatController: () => undefined,
-  useChatList: () => ({ available: true, refresh: () => undefined }),
+  useChatList: () => ({ available: true, threads: [], refresh: () => undefined }),
 }));
 vi.mock('@/threads/useChatExport', () => ({
   useChatExport: () => ({ start: () => undefined, cancel: () => undefined }),
@@ -131,6 +131,7 @@ vi.mock('@/components/SettingsGroup', () => ({
 }));
 vi.mock('@/components/Screen', () => ({ Screen: 'Screen', goBack: () => undefined }));
 vi.mock('@/components/OfflineHelp', () => ({ OfflineHelp: 'OfflineHelp' }));
+vi.mock('@/components/PrivateChatsRow', () => ({ PrivateChatsRow: 'PrivateChatsRow' }));
 
 import { SHARED_AGENT_NOTE, VIEW_ONLY_AGENT_NOTE } from './shared';
 

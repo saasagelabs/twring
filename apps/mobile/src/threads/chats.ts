@@ -10,9 +10,18 @@ import { activeServerUrl, onActiveServerChanged } from '../servers/active';
 import { profileStore } from '../servers/profiles';
 import { STATUS_POLL_MS } from '@/hooks/useResource';
 
+import type { OpenedMessage } from '../e2e/sealed-thread';
+import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
+import type { SecureKeyValue } from '../auth/storage';
 import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
 import { DraftStore } from './drafts';
-import { Outbox, systemTimers, type OutboxTimers, type PendingMessage } from './outbox';
+import {
+  Outbox,
+  systemTimers,
+  type OutboxSealer,
+  type OutboxTimers,
+  type PendingMessage,
+} from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
 import { SearchIndex, memorySearchStore } from './search-index';
@@ -40,25 +49,49 @@ export class ChatController {
   private readonly search: SearchIndex;
   /** Aborted on clear(): a fill in progress stops when the person signs out or switches. */
   private filling = new AbortController();
+  private readonly privacy?: PrivateChats;
+  /** Opened private messages per chat, in memory only, for the messages list they came from. */
+  private readonly opened = new Map<
+    string,
+    { from: ChatState['messages']; list: OpenedMessage[] }
+  >();
 
   constructor(
     private readonly api: TwringApi,
     private readonly socketOptions?: { url: string; requireSecureMedia: boolean },
-    stores: { outbox?: JsonStore; drafts?: JsonStore; search?: SearchIndex } = {},
+    stores: {
+      outbox?: JsonStore;
+      drafts?: JsonStore;
+      search?: SearchIndex;
+      privacy?: PrivateChats;
+    } = {},
     timers: OutboxTimers = systemTimers,
   ) {
+    this.privacy = stores.privacy;
     this.outbox = new Outbox(
       async (agentId, message, signal) => {
-        const sent = message.voice
-          ? await this.api.sendVoiceNote(
+        if (message.sealed !== undefined && !this.api.sendSealedMessage)
+          throw new Error('Private chats unavailable');
+        const sent = message.sealed
+          ? await this.api.sendSealedMessage!(
               agentId,
-              message.clientId,
-              message.voice.durationMs,
-              message.voice.uri,
+              {
+                clientId: message.clientId,
+                sealed: message.sealed,
+                ...(message.replyTo !== undefined && { replyTo: message.replyTo }),
+              },
               signal,
-              message.replyTo,
             )
-          : await this.api.sendMessage(agentId, message, signal);
+          : message.voice
+            ? await this.api.sendVoiceNote(
+                agentId,
+                message.clientId,
+                message.voice.durationMs,
+                message.voice.uri,
+                signal,
+                message.replyTo,
+              )
+            : await this.api.sendMessage(agentId, message, signal);
         // Shown at once from the reply; the socket and catch-up only refresh it.
         this.put(agentId, upsert(this.getChat(agentId), [sent]));
         return sent;
@@ -74,10 +107,61 @@ export class ChatController {
         );
       },
       stores.outbox && { store: stores.outbox },
+      this.sealer(),
     );
     this.search = stores.search ?? new SearchIndex(memorySearchStore());
     this.drafts = new DraftStore(stores.drafts ?? memoryStore(), timers);
   }
+
+  /** Private chats never go out as text, even with no way to seal on this phone. */
+  private sealer(): OutboxSealer {
+    return {
+      known: (agentId) => this.isPrivate(agentId),
+      isPrivate: async (agentId) => {
+        if (this.availability === undefined) await this.refreshList();
+        return this.isPrivate(agentId);
+      },
+      seal: (agentId, text) => {
+        if (!this.privacy)
+          return Promise.reject(Object.assign(new Error(), { code: 'seal_failed' }));
+        return this.privacy.seal(agentId, text);
+      },
+      openOwn: (agentId, sealed) =>
+        this.privacy?.openOwn(agentId, sealed) ?? Promise.resolve(undefined),
+    };
+  }
+
+  /** A private chat (ADR-044), as the server's chat list says. */
+  isPrivate(agentId: string): boolean {
+    return this.summaries.some(
+      (summary) => summary.agent_id === agentId && summary.private === true,
+    );
+  }
+
+  /** A private chat's messages as opened on this phone; undefined while the keys load. */
+  getOpened = (agentId: string): OpenedMessage[] | undefined => {
+    if (!this.privacy || !this.isPrivate(agentId)) return undefined;
+    const messages = this.getChat(agentId).messages;
+    const cached = this.opened.get(agentId);
+    if (cached?.from === messages) return cached.list;
+    const list = this.privacy.open(agentId, messages);
+    if (list === undefined) {
+      void this.privacy.context(agentId).then((ctx) => {
+        if (ctx !== undefined) this.emit();
+      });
+      return undefined;
+    }
+    this.opened.set(agentId, { from: messages, list });
+    return list;
+  };
+
+  /** A private chat with no computer to send to: "Pair your computer again" (P3b ruling 3). */
+  getPairAgain = (agentId: string): boolean =>
+    this.privacy !== undefined &&
+    this.isPrivate(agentId) &&
+    this.privacy.ready(agentId) !== undefined
+      ? this.privacy.pairAgain()
+      : false;
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -400,6 +484,8 @@ export class ChatController {
     this.reads.clear();
     this.focusCounts.clear();
     this.chats.clear();
+    this.opened.clear();
+    const privacy = options.forget ? this.privacy?.forget() : Promise.resolve();
     const outbox = options.forget ? this.outbox.clear() : this.outbox.detach();
     const search = options.forget ? this.search.wipe() : Promise.resolve();
     const drafts = options.forget ? this.drafts.clear() : this.drafts.flush();
@@ -407,7 +493,7 @@ export class ChatController {
     this.availability = undefined;
     this.filesAvailable = false;
     this.emit();
-    await Promise.all([outbox, drafts, search]);
+    await Promise.all([outbox, drafts, search, privacy]);
   }
 
   getDraft(agentId: string): Promise<string> {
@@ -428,7 +514,7 @@ export class ChatController {
 }
 
 /** The signed-in account on the active server, or undefined (nothing is then saved). */
-function currentScope(): string | undefined {
+export function currentScope(): string | undefined {
   const active = profileStore.active();
   if (active.kind === 'selfhost')
     return storageScope(
@@ -438,6 +524,14 @@ function currentScope(): string | undefined {
   const state = authController()?.getState();
   return storageScope({ kind: 'hosted' }, state?.status === 'signed_in' ? state.userId : undefined);
 }
+
+/** The keychain for private chat keys (`deviceOnlyStore`), loaded only when first used. */
+const deviceKeychain = () => import('../platform/secure-store').then((m) => m.deviceOnlyStore);
+const keychain: SecureKeyValue = {
+  getItemAsync: (key) => deviceKeychain().then((store) => store.getItemAsync(key)),
+  setItemAsync: (key, value) => deviceKeychain().then((store) => store.setItemAsync(key, value)),
+  deleteItemAsync: (key) => deviceKeychain().then((store) => store.deleteItemAsync(key)),
+};
 
 let controller: ChatController | undefined;
 let controllerScope: string | undefined;
@@ -464,6 +558,15 @@ export function chatController(): ChatController | undefined {
             outbox: fileStore('outbox', scope),
             drafts: fileStore('drafts', scope),
             search: new SearchIndex(sqliteSearchStore(scope)),
+            privacy: new PrivateChats({
+              store: keychain,
+              replay: fileStore('private', scope),
+              addressOf: (agentId) =>
+                api.getAgent(agentId).then(
+                  (found) => found.endpoint_url,
+                  () => undefined,
+                ),
+            }),
           }
         : {},
     );
@@ -478,7 +581,9 @@ export function chatController(): ChatController | undefined {
           await Promise.all([
             fileStore('outbox', signingOut).remove(),
             fileStore('drafts', signingOut).remove(),
+            fileStore('private', signingOut).remove(),
             deleteSearchDatabase(signingOut),
+            forgetPrivateDevice(keychain),
           ]).catch(() => undefined);
       });
       signOutHookRegistered = true;
@@ -546,6 +651,9 @@ export function useChat(agentId: string) {
     decideApproval: (messageId: string, decision: 'approve' | 'deny') =>
       active?.decideApproval(agentId, messageId, decision),
     loadOlder: () => active?.loadOlder(agentId),
+    /** Private chats: the opened messages (memory only) and whether to pair again. */
+    opened: active?.getOpened(agentId),
+    pairAgain: active?.getPairAgain(agentId) ?? false,
     available: active?.getAvailability() ?? false,
     filesAvailable: active?.getFilesAvailable() ?? false,
   };

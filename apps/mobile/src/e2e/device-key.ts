@@ -16,6 +16,8 @@ import type { SecureKeyValue } from '../auth/storage';
  */
 export const DEVICE_KEY_NAME = 'twring.e2e.device.v1';
 export const SEQ_KEY_NAME = 'twring.e2e.seq.v1';
+/** The computers this phone verified (`pairing.ts`); cleared here when the key is replaced. */
+export const TRUSTED_KEY_NAME = 'twring.e2e.trusted.v1';
 
 const storedSchema = z
   .object({ v: z.literal(1), public_key: publicKeySchema, private_key: publicKeySchema })
@@ -49,7 +51,13 @@ export async function loadOrCreateDeviceKey(
   const raw = await store.getItemAsync(DEVICE_KEY_NAME);
   const found = read(raw);
   if (found !== undefined) return { ...found, created: false };
-  if (raw !== null) log?.('e2e_device_key_reset');
+  if (raw !== null) {
+    // A damaged key gets a new key and so a new device id: every paired computer would seal to a
+    // phone that no longer exists, so they are forgotten and the chat asks to pair again
+    // (P3b ruling 3). Cleared before the new key is saved, so a crash between cannot keep them.
+    log?.('e2e_device_key_reset');
+    await store.deleteItemAsync(TRUSTED_KEY_NAME);
+  }
   const pair = generateSealKeyPair();
   await store.setItemAsync(
     DEVICE_KEY_NAME,
@@ -68,7 +76,17 @@ export async function loadOrCreateDeviceKey(
 }
 
 /** The next seq this phone seals with, saved before it is handed out: never reused. */
-export async function nextSeq(store: SecureKeyValue): Promise<number> {
+/** One counter update at a time per keychain, so two quick sends never read the same seq. */
+const seqLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();
+
+export function nextSeq(store: SecureKeyValue): Promise<number> {
+  const previous = seqLocks.get(store) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => takeSeq(store));
+  seqLocks.set(store, next);
+  return next;
+}
+
+async function takeSeq(store: SecureKeyValue): Promise<number> {
   const raw = await store.getItemAsync(SEQ_KEY_NAME);
   const last = raw === null ? 0 : Number(raw);
   // A damaged counter must never restart at 1: the computer would drop those as replays.

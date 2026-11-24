@@ -14,7 +14,7 @@ import {
 import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
-import { loadOrCreateDeviceKey } from './device-key';
+import { loadOrCreateDeviceKey, TRUSTED_KEY_NAME } from './device-key';
 
 /**
  * Pairing this phone with a computer for private chats (ADR-044). The QR carries the computer's
@@ -22,7 +22,7 @@ import { loadOrCreateDeviceKey } from './device-key';
  * key the server answers with against the QR, and the person compares a 6-digit code on both
  * screens. Nothing is stored until they say the numbers match (`confirmPairing`).
  */
-export const TRUSTED_KEY_NAME = 'twring.e2e.trusted.v1';
+export { TRUSTED_KEY_NAME };
 const PAIR_LINK_PREFIX = 'twring-pair:';
 
 /** The computer's QR (mirrors `pairLinkSchema` in apps/connector/src/e2e/pair.ts). */

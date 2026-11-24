@@ -1,4 +1,7 @@
 import {
+  CLIENT_FEATURES_HEADER,
+  SEALED_CHAT_FEATURE,
+  type SealedEnvelopeV1,
   agentListResponseSchema,
   accessResponseSchema,
   inviteRedeemRequestSchema,
@@ -140,6 +143,19 @@ export interface TwringApi {
     message: { clientId: string; text: string; attachmentIds?: string[]; replyTo?: string },
     signal?: AbortSignal,
   ): Promise<ThreadMessage>;
+  /** A private chat's message (ADR-044): only the sealed body goes out, never the text. */
+  sendSealedMessage?(
+    agentId: string,
+    message: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+    signal?: AbortSignal,
+  ): Promise<ThreadMessage>;
+  /** `PUT /v1/agents/:agentId/private { on: true }`; refusals keep their machine code. */
+  setPrivate?(agentId: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * Whether private chats are on for this account, from `GET /v1/e2e/devices`: 200 is on, any 404
+   * is off, anything else (network, 5xx, 429) is unknown and worth asking again later.
+   */
+  privateChatsStatus?(signal?: AbortSignal): Promise<'on' | 'off' | 'unknown'>;
   sendVoiceNote(
     agentId: string,
     clientId: string,
@@ -403,6 +419,8 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
     contentType?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
+    /** Chat calls say the app can seal and open private messages (ADR-044). */
+    features?: boolean;
   };
 
   function request(method: Method, path: string, init: RequestInit = {}): Promise<unknown> {
@@ -435,6 +453,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
           headers: {
             accept: 'application/json',
             ...(options.appVersion !== undefined && { 'x-app-version': options.appVersion }),
+            ...(init.features === true && { [CLIENT_FEATURES_HEADER]: SEALED_CHAT_FEATURE }),
             ...authHeaders,
             ...(init.body !== undefined && { 'content-type': 'application/json' }),
             ...(init.contentType && { 'content-type': init.contentType }),
@@ -626,7 +645,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
     async listThreads(signal) {
       const result = parse(
         threadListResponseSchema,
-        await request('GET', '/v1/threads', { signal }),
+        await request('GET', '/v1/threads', { signal, features: true }),
       );
       return { threads: result.threads, files: result.files === true };
     },
@@ -638,7 +657,10 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
       const suffix = query.size ? `?${query.toString()}` : '';
       const page = parse(
         messagePageResponseSchema,
-        await request('GET', `${agentPath(agentId)}/messages${suffix}`, { signal }),
+        await request('GET', `${agentPath(agentId)}/messages${suffix}`, {
+          signal,
+          features: true,
+        }),
       );
       return { messages: page.messages, hasMore: page.has_more };
     },
@@ -653,8 +675,39 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
             ...(message.replyTo !== undefined && { reply_to: message.replyTo }),
           },
           signal,
+          features: true,
         }),
       ).message;
+    },
+    async sendSealedMessage(agentId, message, signal) {
+      return parse(
+        z.object({ message: threadMessageSchema }),
+        await request('POST', `${agentPath(agentId)}/messages`, {
+          body: {
+            client_id: message.clientId,
+            sealed: message.sealed,
+            ...(message.replyTo !== undefined && { reply_to: message.replyTo }),
+          },
+          signal,
+          features: true,
+        }),
+      ).message;
+    },
+    async setPrivate(agentId, signal) {
+      await request('PUT', `${agentPath(agentId)}/private`, {
+        body: { on: true },
+        signal,
+        features: true,
+      });
+    },
+    async privateChatsStatus(signal) {
+      try {
+        await request('GET', '/v1/e2e/devices', { signal });
+        return 'on';
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return 'off';
+        return 'unknown';
+      }
     },
     async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo) {
       let rawBody: Blob;
