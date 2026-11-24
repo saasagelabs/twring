@@ -18,16 +18,15 @@ const base = {
 };
 const reply = (seq: number, text = 'hi'): ThreadMessage =>
   ({ ...base, kind: 'agent_text', id: `msg_reply${seq}`, seq, text }) as ThreadMessage;
-const mine = (seq: number): ThreadMessage =>
-  ({
-    ...base,
-    kind: 'user_text',
-    id: `msg_user${seq}`,
-    seq,
-    client_id: '123e4567-e89b-42d3-a456-426614174000',
-    text: 'q',
-    status: 'answered',
-  }) as ThreadMessage;
+const mine = (seq: number): ThreadMessage => ({
+  ...base,
+  kind: 'user_text',
+  id: `msg_user${seq}`,
+  seq,
+  client_id: '123e4567-e89b-42d3-a456-426614174000',
+  text: 'q',
+  status: 'answered',
+});
 
 const viewport = 800;
 const far = { distanceFromBottom: 2000, viewportHeight: viewport };
