@@ -102,7 +102,7 @@ function fakeServer(options: FakeServerOptions = {}) {
     try {
       return Promise.resolve(handle(input, init));
     } catch (error) {
-      return Promise.reject(error as Error);
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
     }
   }) as typeof fetch;
   return {

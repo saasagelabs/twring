@@ -102,7 +102,8 @@ export async function syncDevices(
     counts = { revoked: out.revoked.length, unverified: out.unverified.length };
     if (current.pending === undefined) return { ...current, devices: out.trusted };
     const settled = settlePending(current.pending, body.devices, (options.now ?? Date.now)());
-    const { pending: _old, ...rest } = current;
+    const rest = { ...current };
+    delete rest.pending;
     return {
       ...rest,
       devices: [
