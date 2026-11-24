@@ -50,6 +50,7 @@ vi.mock('@/platform/secure-store', () => ({
   deviceOnlyStore: { deviceOnly: true },
   secureStore: { deviceOnly: false },
 }));
+vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
@@ -168,6 +169,15 @@ describe('private chat pairing screen', () => {
     mocks.state = [];
     mocks.claimPairing.mockResolvedValue({ ok: false, code: 'cap' });
     expect(text(await scan())).toContain('You already have 5 devices.');
+  });
+
+  it('says plainly when the code is for another server', async () => {
+    mocks.claimPairing.mockResolvedValue({ ok: false, code: 'wrong_server' });
+    expect(text(await scan())).toContain('This code is for a different Twring server.');
+    expect(mocks.claimPairing.mock.calls[0]?.[0]).toMatchObject({
+      activeServer: 'https://api.twring.com',
+    });
+    expect(mocks.feedback).toHaveBeenCalledWith('error');
   });
 
   it('keeps scanning after a code that is not a pairing code', async () => {

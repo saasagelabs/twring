@@ -94,8 +94,9 @@ function sealedMsg(
   } as unknown as Extract<ThreadMessage, { kind: 'sealed' }>;
 }
 
-function flipLastChar(text: string): string {
-  return text.slice(0, -1) + (text.endsWith('A') ? 'B' : 'A');
+/** Changes the first character: the last one of base64url can hold only padding bits. */
+function flipFirstChar(text: string): string {
+  return (text.startsWith('A') ? 'B' : 'A') + text.slice(1);
 }
 
 function reply(parts: string[], seq = 1): SealedEnvelopeV1[] {
@@ -112,7 +113,7 @@ describe('opening private chat messages on the phone', () => {
 
   it('tampered body shows couldnt_open', () => {
     const env = sealFromComputer({ text: 'hi' });
-    const flipped = { ...env, body: flipLastChar(env.body) };
+    const flipped = { ...env, body: flipFirstChar(env.body) };
     expect(openMessage(phoneCtx(), sealedMsg(flipped)).state).toBe('couldnt_open');
   });
 

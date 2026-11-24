@@ -162,3 +162,18 @@ describe('pairing client', () => {
     expect(await loadTrusted(d.store)).toEqual([]);
   });
 });
+
+describe('pairing with the server the code names', () => {
+  it('refuses a code for another server before any key is made or call sent', async () => {
+    const api = fakeApi();
+    const d = { ...deps(api), activeServer: 'https://staging.example.com' };
+    expect(await claimPairing(d, input())).toEqual({ ok: false, code: 'wrong_server' });
+    expect(api.claim).not.toHaveBeenCalled();
+    expect(d.store.m.size).toBe(0);
+  });
+
+  it('accepts the same server written with a trailing slash', async () => {
+    const d = { ...deps(fakeApi()), activeServer: 'https://api.twring.com/' };
+    expect((await claimPairing(d, input())).ok).toBe(true);
+  });
+});

@@ -12,6 +12,7 @@ import { claimPairing, confirmPairing, parsePairInput } from '@/e2e/pairing';
 import type { PairFailure, TrustedDevice } from '@/e2e/pairing';
 import { playCallFeedback } from '@/platform/haptics';
 import { deviceOnlyStore } from '@/platform/secure-store';
+import { activeServerUrl } from '@/servers/active';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -26,6 +27,8 @@ const FAILURE_COPY: Record<PairFailure, string> = {
   mismatch: STOPPED,
   cap: 'You already have 5 devices. Remove one in Private chats first.',
   network: 'Twring could not reach the server. Check your connection and try again.',
+  wrong_server:
+    'This code is for a different Twring server. Sign in to that server on this phone, or pair a computer that uses the same server as this phone.',
 };
 
 const SCAN_COPY = {
@@ -45,6 +48,7 @@ type Step =
 const deps = () => ({
   api: pairApi(),
   store: deviceOnlyStore,
+  activeServer: activeServerUrl(),
   phoneName: Platform.OS === 'ios' ? 'iPhone' : 'Android phone',
 });
 
@@ -83,7 +87,8 @@ export default function PrivatePairScreen() {
     setBusy(true);
     try {
       const result = await claimPairing(deps(), input);
-      if (result.ok) setStep({ kind: 'compare', safety: result.safety, connector: result.connector });
+      if (result.ok)
+        setStep({ kind: 'compare', safety: result.safety, connector: result.connector });
       else fail(FAILURE_COPY[result.code]);
     } catch {
       fail(FAILURE_COPY.network);
@@ -165,9 +170,7 @@ export default function PrivatePairScreen() {
       <Screen
         title="Private chats"
         back
-        footer={
-          <PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />
-        }
+        footer={<PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />}
       >
         <View style={styles.step}>
           {heading('Not paired')}

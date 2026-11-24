@@ -75,11 +75,13 @@ export interface PairDeps {
   store: SecureKeyValue;
   /** This phone's name as the computer will list it (1 to 60 characters). */
   phoneName: string;
+  /** The phone's active server; a code naming another server is refused before anything else. */
+  activeServer?: string;
   now?: () => number;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
-export type PairFailure = 'expired' | 'claimed' | 'mismatch' | 'cap' | 'network';
+export type PairFailure = 'expired' | 'claimed' | 'mismatch' | 'cap' | 'network' | 'wrong_server';
 export type ClaimResult =
   { ok: true; safety: string; connector: TrustedDevice } | { ok: false; code: PairFailure };
 
@@ -98,7 +100,19 @@ function refusal(status: number, body: unknown): PairFailure {
   return 'network';
 }
 
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 export async function claimPairing(deps: PairDeps, input: PairInput): Promise<ClaimResult> {
+  if (deps.activeServer !== undefined && originOf(deps.activeServer) !== originOf(input.server)) {
+    deps.log?.('e2e_pair_failed', { reason: 'wrong_server' });
+    return { ok: false, code: 'wrong_server' };
+  }
   const me = await loadOrCreateDeviceKey(deps.store, deps.log);
   const connectorKey = base64urlDecode(input.offer.connector_public_key);
   // The computer's id comes from its key (P3 ruling): the QR carries no id to trust.
