@@ -1,0 +1,458 @@
+/* twring.com home, variation 5: variation 2 ("Try the call") with the signal line from 1 and the
+   dot field and spotlit wordmark from 4. The page is the call screen: a scripted sample
+   plays inside a faithful phone. Black stage, white type, cyan for you and for the one action. */
+
+@font-face { font-family: "Manrope"; src: url("/assets/fonts/manrope-latin.woff2") format("woff2"); font-weight: 200 500; font-display: swap; }
+@font-face { font-family: "Inter"; src: url("/assets/fonts/inter-latin.woff2") format("woff2"); font-weight: 300 600; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("/assets/fonts/jetbrains-mono-latin.woff2") format("woff2"); font-weight: 400 500; font-display: swap; }
+
+:root {
+  color-scheme: dark;
+  --bg: #000;
+  --raise: #07090c;
+  --raise-2: #0c1014;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --cyan: #19d6f2;
+  --cyan-press: #12bcd6;
+  --cyan-line: rgba(25, 214, 242, 0.4);
+  --cyan-tint: rgba(25, 214, 242, 0.08);
+  --agent: #e8eaee;
+  --text: #fff;
+  --text-sec: rgba(255, 255, 255, 0.7);
+  --text-ter: rgba(255, 255, 255, 0.56);
+  --on-cyan: #001620;
+  --danger: #ff4d5e;
+  --display: "Manrope", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --wrap: 75rem;
+  --gutter: clamp(1rem, 4vw, 2rem);
+  --radius: 1.25rem;
+  --out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 5rem; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; scrollbar-color: #2a2f35 #000; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 1rem/1.6 var(--body); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+::selection { background: rgba(25, 214, 242, 0.32); color: #fff; }
+img, video, svg { display: block; max-width: 100%; }
+p { margin: 0; }
+a { color: inherit; text-underline-offset: 0.2em; text-decoration-thickness: 1px; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 4px; }
+[hidden] { display: none !important; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.wrap { max-width: var(--wrap); margin: 0 auto; padding-inline: var(--gutter); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+/* Things that only make sense once the script runs. */
+html:not(.js) .js-only { display: none !important; }
+
+h1, h2, h3 { font-family: var(--display); margin: 0; text-wrap: balance; }
+h1 { font-weight: 200; font-size: clamp(2.75rem, 6vw, 5.25rem); line-height: 1; letter-spacing: -0.04em; }
+h2 { font-weight: 200; font-size: clamp(2.125rem, 4.6vw, 3.5rem); line-height: 1.05; letter-spacing: -0.035em; }
+h3 { font-weight: 400; font-size: 1.1875rem; line-height: 1.35; letter-spacing: -0.01em; }
+.you { color: var(--cyan); }
+.lead { font-size: clamp(1.0625rem, 1.5vw, 1.25rem); line-height: 1.6; color: var(--text-sec); font-weight: 300; max-width: 36rem; }
+h2 + .lead { margin-top: 1.25rem; }
+.lead.wide { max-width: 44rem; }
+
+/* Buttons: one solid cyan action per screen, everything else quiet. */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.6rem; min-height: 3.25rem; padding: 0 1.5rem; border: 0; border-radius: 999px; font: 600 0.9375rem/1 var(--body); text-decoration: none; cursor: pointer; white-space: nowrap; transition: background-color 0.2s, transform 0.2s var(--out); }
+.btn-primary { background: var(--cyan); color: var(--on-cyan); }
+.btn-primary:hover { background: #3fe0f6; }
+.btn-primary:active { background: var(--cyan-press); transform: scale(0.97); }
+.btn-quiet { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.btn-quiet:hover { background: rgba(255, 255, 255, 0.06); }
+.btn-quiet:active { transform: scale(0.97); }
+.btn svg { flex: none; }
+
+/* Header */
+.nav { position: sticky; top: 0; z-index: 50; background: rgba(0, 0, 0, 0.82); -webkit-backdrop-filter: saturate(160%) blur(14px); backdrop-filter: saturate(160%) blur(14px); border-bottom: 1px solid var(--line); }
+.nav-in { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; height: 4rem; }
+.logo { display: inline-flex; align-items: center; min-height: 2.75rem; gap: 0.7rem; text-decoration: none; color: var(--text); }
+.logo svg { width: 2.1rem; height: auto; }
+.wordmark { font: 200 1.5rem/1 var(--display); letter-spacing: -0.02em; }
+.nav-links { display: flex; gap: 2rem; font-size: 0.875rem; color: var(--text-sec); }
+.nav-links a { padding-block: 0.6rem; text-decoration: none; transition: color 0.2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-right { display: flex; align-items: center; gap: 0.6rem; }
+.nav .btn { min-height: 2.75rem; padding: 0 1.1rem; font-size: 0.875rem; }
+.menu-btn { display: none; width: 2.75rem; height: 2.75rem; border-radius: 0.75rem; border: 0; box-shadow: inset 0 0 0 1px var(--line-strong); background: transparent; cursor: pointer; flex-direction: column; align-items: center; justify-content: center; gap: 0.3rem; }
+.menu-btn span { width: 1rem; height: 1.5px; background: var(--text); transition: transform 0.25s var(--out); }
+.menu-btn[aria-expanded="true"] span:first-child { transform: translateY(0.2rem) rotate(45deg); }
+.menu-btn[aria-expanded="true"] span:last-child { transform: translateY(-0.2rem) rotate(-45deg); }
+.skip { position: absolute; left: 1rem; top: -4rem; z-index: 100; padding: 0.6rem 1rem; border-radius: 0.6rem; background: var(--cyan); color: var(--on-cyan); font-weight: 600; text-decoration: none; }
+.skip:focus { top: 0.75rem; }
+
+/* Sections */
+.band { padding-block: clamp(4.5rem, 10vw, 8rem); }
+.band + .band, .works + .band { border-top: 1px solid var(--line); }
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2.5rem, 6vw, 5.5rem); align-items: center; }
+
+/* Hero: the words on the left, the call on the right. */
+.hero { padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(3.5rem, 8vw, 6rem); }
+.hero-in { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; column-gap: clamp(2rem, 5vw, 4.5rem); align-items: start; }
+.hero h1 span { display: block; }
+.hero .lead { margin-top: clamp(1.5rem, 3vw, 2.25rem); }
+.hero-ctas { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.75rem; }
+.hero-note { margin-top: 1.1rem; max-width: 26rem; font-size: 0.875rem; color: var(--text-ter); }
+
+/* The agent chooser: who the sample is with. Real radios, drawn as chips. */
+.agents { margin: 0 0 1.5rem; padding: 0; border: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; min-width: 0; }
+.agents legend { padding: 0; margin-bottom: 0.7rem; font-size: 0.8125rem; color: var(--text-ter); }
+.agents label { position: relative; cursor: pointer; }
+.agents input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.agents span { display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; padding: 0 0.95rem; border-radius: 999px; font-size: 0.875rem; font-weight: 500; color: var(--text-sec); box-shadow: inset 0 0 0 1px var(--line-strong); transition: color 0.2s, background-color 0.2s, box-shadow 0.2s, transform 0.2s var(--out); }
+.agents span::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--text-ter); transition: background-color 0.2s, box-shadow 0.2s, transform 0.3s var(--out); }
+.agents label:hover span { color: var(--text); background: rgba(255, 255, 255, 0.05); }
+.agents input:active + span { transform: scale(0.96); }
+.agents input:checked + span { color: var(--text); background: var(--cyan-tint); box-shadow: inset 0 0 0 1px var(--cyan); }
+.agents input:checked + span::before { background: var(--cyan); box-shadow: none; transform: scale(1.15); }
+.agents input:focus-visible + span { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+/* The phone. It grows with its content when text is set large. */
+.stage { min-width: 0; }
+.device { margin: 0; position: relative; }
+.tag { position: absolute; z-index: 2; top: -0.7rem; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 999px; background: #000; box-shadow: inset 0 0 0 1px var(--cyan-line); font: 600 0.6875rem/1.2 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); white-space: nowrap; }
+.phone { display: grid; width: min(20rem, 100%); aspect-ratio: 9 / 19; margin: 0 auto; border-radius: 2.9rem; padding: 0.6rem; background: #111417; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 3rem 7rem -2rem rgba(0, 0, 0, 0.95), 0 1.5rem 5rem -2.5rem rgba(25, 214, 242, 0.35); }
+.screen { display: grid; min-width: 0; border-radius: 2.35rem; overflow: hidden; background: #000; }
+.screen > * { grid-area: 1 / 1; min-width: 0; }
+.phone[data-view="call"] .rv, .phone[data-view="ring"] .cv { display: none; }
+.device-note { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin: 1.1rem auto 0; max-width: 20rem; text-align: center; font-size: 0.8125rem; line-height: 1.5; color: var(--text-ter); }
+.device-note a { display: inline-block; padding-block: 0.5rem; color: var(--text); text-decoration-color: var(--cyan-line); }
+.device-note a:hover { text-decoration-color: var(--cyan); }
+.device-note .btn { min-height: 2.75rem; padding: 0 1.2rem; font-size: 0.875rem; }
+
+/* Call screen */
+.cv, .rv { --v: var(--agent); --lvl: 0; display: flex; flex-direction: column; align-items: center; padding: 1.9rem 1.1rem 1.4rem; text-align: center; }
+.cv[data-voice="you"] { --v: var(--cyan); }
+.cv-top { display: flex; justify-content: space-between; align-items: center; width: 100%; padding-inline: 0.5rem; }
+.cv-lbl { font-size: 0.6875rem; letter-spacing: 0.22em; color: var(--text-sec); font-weight: 600; }
+.cv-time { font-size: 0.75rem; color: var(--text-sec); }
+.orb { position: relative; flex: none; width: 9rem; height: 9rem; margin-top: 0.9rem; display: grid; place-items: center; }
+.orb-core { position: relative; width: 5.5rem; height: 5.5rem; border-radius: 50%; display: grid; place-items: center; background: var(--raise-2); box-shadow: inset 0 0 0 2px var(--cyan); font: 200 2.2rem/1 var(--display); color: var(--agent); transition: box-shadow 0.3s; }
+.halo { position: absolute; inset: 1.75rem; border-radius: 50%; background: var(--v); transition: transform 0.14s linear, background-color 0.2s; }
+.halo:nth-child(1) { opacity: 0.2; transform: scale(calc(1.1 + var(--lvl) * 0.16)); }
+.halo:nth-child(2) { opacity: 0.11; transform: scale(calc(1.22 + var(--lvl) * 0.26)); transition-duration: 0.22s; }
+.halo:nth-child(3) { opacity: 0.06; transform: scale(calc(1.36 + var(--lvl) * 0.34)); transition-duration: 0.32s; }
+/* Calling and ringing: the halos leave the avatar like a ring. */
+.cv[data-state="calling"] .halo, .rv[data-state="ringing"] .halo { background: none; box-shadow: inset 0 0 0 1px var(--cyan); opacity: 0; animation: ringout 1.5s var(--out) infinite; }
+.cv[data-state="calling"] .halo:nth-child(2), .rv[data-state="ringing"] .halo:nth-child(2) { animation-delay: 0.22s; }
+.cv[data-state="calling"] .halo:nth-child(3), .rv[data-state="ringing"] .halo:nth-child(3) { animation-delay: 0.44s; }
+@keyframes ringout { 0% { transform: scale(1); opacity: 0.75; } 70%, 100% { transform: scale(1.62); opacity: 0; } }
+/* Working: three dots circle the avatar. Progress, never a waveform. */
+.orbit { position: absolute; inset: 1.1rem; display: none; }
+.orbit i { position: absolute; top: 0; left: 50%; width: 0.4rem; height: 0.4rem; margin: -0.2rem; border-radius: 50%; background: var(--agent); transform-origin: 0.2rem calc(3.4rem + 0.2rem); }
+.orbit i:nth-child(2) { transform: rotate(24deg); opacity: 0.6; }
+.orbit i:nth-child(3) { transform: rotate(48deg); opacity: 0.3; }
+.cv[data-state="working"] .orbit { display: block; animation: orbit 1.6s linear infinite; }
+.cv[data-state="working"] .halo { opacity: 0; }
+@keyframes orbit { to { transform: rotate(-360deg); } }
+.cv.cutflash .orb-core { box-shadow: inset 0 0 0 2px var(--cyan), 0 0 0 0.4rem rgba(25, 214, 242, 0.28); transition-duration: 0s; }
+
+.cv-name, .rv-name { font: 200 1.9rem/1.15 var(--display); letter-spacing: -0.03em; margin-top: 0.5rem; overflow-wrap: anywhere; }
+.cv-where { font-size: 0.75rem; color: var(--text-ter); }
+.cv-status { margin-top: 0.55rem; font-size: 0.875rem; font-weight: 500; color: var(--text); }
+.wave { flex: none; display: flex; align-items: center; justify-content: center; gap: 3px; width: 100%; height: 2.4rem; margin-top: 0.6rem; }
+.wave i { width: 3px; height: 100%; border-radius: 2px; background: var(--v); transform: scaleY(0.07); transition: background-color 0.2s; }
+/* A still picture of speech, for the page without script and for reduced motion. */
+.cv[data-talk="1"] .wave i:nth-child(4n + 1) { transform: scaleY(0.3); }
+.cv[data-talk="1"] .wave i:nth-child(4n + 2) { transform: scaleY(0.62); }
+.cv[data-talk="1"] .wave i:nth-child(4n + 3) { transform: scaleY(0.44); }
+.cv[data-talk="1"] .wave i:nth-child(4n + 4) { transform: scaleY(0.18); }
+.cv[data-talk="1"] .wave i:nth-child(n + 9):nth-child(-n + 15) { transform: scaleY(0.85); }
+.cv[data-talk="1"] .wave i:nth-child(11):nth-child(11), .cv[data-talk="1"] .wave i:nth-child(14):nth-child(14) { transform: scaleY(0.5); }
+
+.cv-hint { flex: 1; display: grid; align-content: center; padding: 0.5rem 0.6rem; font-size: 0.875rem; line-height: 1.5; color: var(--text-sec); }
+.cv-hint a { color: var(--text); text-decoration-color: var(--cyan-line); display: inline-block; padding-block: 0.4rem; }
+.caps { flex: 1; align-self: stretch; min-height: 8.75rem; max-height: 11rem; margin: 0.6rem 0 0.9rem; padding: 0 0.5rem; list-style: none; display: flex; flex-direction: column; justify-content: flex-end; gap: 0.7rem; overflow: hidden; text-align: left; -webkit-mask-image: linear-gradient(transparent, #000 2rem); mask-image: linear-gradient(transparent, #000 2rem); }
+.cap { flex: none; transition: opacity 0.3s; }
+.cap:not(:last-child) { opacity: 0.64; }
+.cap .who { display: block; font-size: 0.625rem; font-weight: 600; letter-spacing: 0.08em; color: var(--agent); }
+.cap p { font-size: 0.9375rem; line-height: 1.4; color: var(--text); }
+.cap.u .who, .cap.u p { color: var(--cyan); }
+.cap p span { opacity: 0; transition: opacity 0.16s; }
+.cap p span.on { opacity: 1; }
+.cap.in { animation: capin 0.35s var(--out); }
+@keyframes capin { from { transform: translateY(0.6rem); } }
+/* An interrupted line ends where the agent stopped. */
+.cap.cut p::after { content: ""; display: inline-block; width: 1em; height: 2px; margin-left: 0.3em; vertical-align: middle; background: var(--text-ter); }
+.cap.ask { padding: 0.75rem 0.8rem; border-radius: 0.9rem; background: var(--raise-2); box-shadow: inset 0 0 0 1px var(--cyan-line); }
+.cap.ask p { font: 300 1.0625rem/1.3 var(--display); }
+.cap.ask small { display: block; margin-top: 0.4rem; font-size: 0.75rem; color: var(--text-ter); }
+.ask-bts { display: flex; gap: 0.5rem; margin-top: 0.6rem; }
+.ask-bts button { flex: 1; min-height: 2.75rem; border: 0; border-radius: 999px; font: 600 0.8125rem/1 var(--body); cursor: pointer; transition: transform 0.2s var(--out), opacity 0.2s; }
+.ask-bts button:active { transform: scale(0.95); }
+.ask-bts .y { background: var(--cyan); color: var(--on-cyan); }
+.ask-bts .n { background: transparent; color: var(--text); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.ask-bts button:disabled { cursor: default; opacity: 0.35; transform: none; }
+.cap.ask.done .ask-bts { display: none; }
+.cap.ask.done small { color: var(--cyan); font-weight: 600; }
+
+.cv-ctl, .acts { display: flex; justify-content: space-around; align-items: flex-start; width: 100%; margin-top: auto; }
+.ctl, .ring-btn { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; min-width: 3.5rem; padding: 0; border: 0; background: none; font: 500 0.75rem/1.2 var(--body); color: var(--text-sec); }
+.ctl i, .ring-btn i { width: 3.5rem; height: 3.5rem; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.09); color: var(--text); transition: transform 0.2s var(--out), filter 0.2s; }
+.ctl.end i, .ring-btn.no i { background: var(--danger); }
+.ring-btn.no { color: var(--danger); }
+.ring-btn.yes { color: var(--cyan); }
+.ring-btn.yes i { background: var(--cyan); }
+button.ctl, button.ring-btn, .call-go { cursor: pointer; }
+button.ctl:hover i, button.ring-btn:hover i { filter: brightness(1.12); }
+button.ctl:active i, button.ring-btn:active i, .call-go:active i { transform: scale(0.92); }
+.call-go { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0; border: 0; background: none; font: 600 0.8125rem/1.2 var(--body); color: var(--cyan); }
+.call-go i { width: 4.25rem; height: 4.25rem; border-radius: 50%; display: grid; place-items: center; background: var(--cyan); transition: transform 0.2s var(--out), background-color 0.2s; }
+.call-go:hover i { background: #3fe0f6; }
+.call-go:disabled { cursor: default; color: var(--text-ter); }
+.call-go:disabled i { background: rgba(255, 255, 255, 0.12); }
+.js .cv[data-state="idle"] .ctl, .js .cv[data-state="ended"] .ctl, .js .cv:not([data-state="idle"]):not([data-state="ended"]) .call-go { display: none; }
+.js .cv[data-state="idle"] .caps { display: none; }
+.cv[data-state="idle"] .cv-time, .cv[data-state="calling"] .cv-time { visibility: hidden; }
+.cv.enter, .rv[data-state="arriving"] { animation: arrive 0.6s var(--out); }
+@keyframes arrive { from { opacity: 0; transform: translateY(1.5rem); } }
+
+/* Ring screen */
+.rv { padding: 2.4rem 1.3rem 1.6rem; }
+.rv .orb { margin-top: 1.4rem; }
+.rv .orb-core { width: 6.5rem; height: 6.5rem; font-size: 2.6rem; }
+.rv .halo { inset: 1.25rem; background: none; opacity: 0; }
+.rv-name { font-size: 2.3rem; letter-spacing: -0.04em; margin-top: 0.9rem; }
+.rv-why { font-size: 0.875rem; line-height: 1.5; color: var(--text-sec); margin-top: 0.7rem; }
+.rv-note { margin-top: 1.2rem; font-size: 0.9375rem; line-height: 1.5; color: var(--text); }
+.rv-reply { margin-top: auto; padding: 0; border: 0; background: none; min-height: 2.75rem; display: inline-flex; align-items: center; font: 500 0.8125rem/1.2 var(--body); color: var(--cyan); }
+button.rv-reply { cursor: pointer; text-decoration: underline; text-decoration-color: var(--cyan-line); text-underline-offset: 0.25em; }
+.rv .acts { margin-top: 0.9rem; }
+.rv[data-state="ringing"] .ring-btn.yes i { animation: answer 1.5s ease-out infinite; }
+@keyframes answer { 0% { box-shadow: 0 0 0 0 rgba(25, 214, 242, 0.45); } 70%, 100% { box-shadow: 0 0 0 1.1rem rgba(25, 214, 242, 0); } }
+.rv-replies { margin-top: auto; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.5rem; }
+.rv-replies button { min-height: 2.75rem; padding: 0 1rem; border: 0; border-radius: 999px; background: transparent; box-shadow: inset 0 0 0 1px var(--cyan-line); color: var(--text); font: 500 0.875rem/1 var(--body); cursor: pointer; transition: background-color 0.2s, transform 0.2s var(--out); }
+.rv-replies button:hover { background: var(--cyan-tint); }
+.rv-replies button:active { transform: scale(0.95); }
+.rv[data-state="reply"] .rv-reply, .rv[data-state="reply"] .acts, .rv[data-state="declined"] .rv-reply, .rv[data-state="declined"] .acts, .rv[data-state="declined"] .rv-why { display: none; }
+.rv[data-state="declined"] .orb-core { box-shadow: inset 0 0 0 2px var(--line-strong); }
+
+/* The same samples as plain text. */
+.script { max-width: 22rem; margin: 0.5rem auto 0; font-size: 0.875rem; color: var(--text-sec); }
+.script summary { display: flex; align-items: center; justify-content: center; min-height: 2.75rem; cursor: pointer; color: var(--text-ter); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 0.25em; list-style: none; }
+.script summary::-webkit-details-marker { display: none; }
+.script summary:hover { color: var(--text); }
+.script ol { margin: 0.5rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.script li { padding-block: 0.7rem; border-bottom: 1px solid var(--line); }
+.script b { display: block; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--agent); }
+.script li[data-who="you"] b, .script li[data-who="you"] .t, .script li[data-k="yes"] b, .script li[data-k="yes"] .t { color: var(--cyan); }
+.script .t { color: var(--text); }
+.script i { font-style: normal; color: var(--text-ter); }
+
+.works { padding-block: 1.6rem; border-top: 1px solid var(--line); }
+.works p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1.6rem; color: var(--text-ter); font-size: 0.9375rem; }
+.works b { font: 300 1.25rem/1.2 var(--display); color: var(--text); letter-spacing: -0.01em; }
+.works a { display: inline-flex; align-items: center; min-height: 2.75rem; text-decoration: none; }
+.works a:hover b, .works a:focus-visible b { text-decoration: underline; text-decoration-color: var(--cyan); text-underline-offset: 0.2em; }
+
+/* How it works: one line, three stops, the order a call travels. */
+.how-head { max-width: 48rem; }
+.path { counter-reset: p; margin: clamp(2.25rem, 5vw, 3.5rem) 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(1.5rem, 4vw, 3.5rem); border-top: 1px solid var(--line-strong); }
+.path li { position: relative; padding-top: 1.4rem; }
+.path li::before { content: ""; position: absolute; top: -0.3rem; left: 0; width: 0.5625rem; height: 0.5625rem; border-radius: 50%; background: #000; box-shadow: inset 0 0 0 1px var(--agent); }
+.path li:first-child::before, .path li:last-child::before { background: var(--cyan); box-shadow: none; }
+.path p { margin-top: 0.35rem; color: var(--text-sec); font-size: 0.9375rem; max-width: 22rem; }
+.hero-film { margin: clamp(3rem, 7vw, 5rem) 0 0; }
+.film { position: relative; border-radius: var(--radius); overflow: hidden; background: var(--raise); box-shadow: 0 0 0 1px var(--line-strong), 0 2.5rem 6rem -2rem rgba(0, 0, 0, 0.9); aspect-ratio: 16 / 9; }
+.film video { width: 100%; height: 100%; object-fit: cover; }
+.film-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 1rem; min-height: 2.75rem; margin-top: 0.5rem; }
+.film-cap { font-size: 0.8125rem; color: var(--text-ter); }
+.film-sound { display: inline-flex; align-items: center; gap: 0.45rem; min-height: 2.75rem; padding: 0 0.95rem; border: 0; border-radius: 999px; background: transparent; color: var(--text-sec); font: 500 0.8125rem/1 var(--body); cursor: pointer; box-shadow: inset 0 0 0 1px var(--line-strong); transition: background-color 0.2s, color 0.2s; }
+.film-sound:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+
+.points { margin: 2rem 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.points li { padding-block: 1.1rem; border-bottom: 1px solid var(--line); }
+.points p { margin-top: 0.3rem; color: var(--text-sec); font-size: 0.9375rem; }
+
+/* Promises made on a call: a real sequence, so it is numbered. */
+.steps { counter-reset: s; margin: 2.25rem 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 clamp(1.5rem, 4vw, 3.5rem); }
+.steps li { counter-increment: s; display: grid; grid-template-columns: 2.25rem minmax(0, 1fr); gap: 0.6rem; padding-block: 1.15rem; border-top: 1px solid var(--line); }
+.steps li::before { content: counter(s); font: 300 1.5rem/1 var(--display); color: var(--cyan); }
+.steps p { margin-top: 0.3rem; color: var(--text-sec); font-size: 0.9375rem; }
+.aside { margin-top: 1.75rem; color: var(--text-sec); font-size: 0.9375rem; max-width: 46rem; }
+
+.trust { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 clamp(1.25rem, 3vw, 2.5rem); margin-top: 2.5rem; }
+.trust > div { position: relative; padding-top: 1.1rem; border-top: 1px solid var(--line-strong); }
+.trust > div > * { position: relative; z-index: 1; }
+/* A cyan rule over each item's top line. With script it draws left to right, once, in turn. */
+.trust > div::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 1px; background: linear-gradient(90deg, var(--cyan), var(--cyan-line) 55%, transparent); transform-origin: left; }
+.trust.fx > div::before { transform: scaleX(0); transition: transform 0.9s var(--out) calc(var(--i, 0) * 0.14s); }
+.trust.fx.in > div::before { transform: none; }
+.trust > div:nth-child(2) { --i: 1; }
+.trust > div:nth-child(3) { --i: 2; }
+.trust > div:nth-child(4) { --i: 3; }
+/* The same spotlight as the footer wordmark, soft, following the mouse inside one item. */
+.trust > div::after { content: ""; position: absolute; inset: -1px -0.75rem -0.9rem; background: radial-gradient(circle 8.5rem at var(--mx, 50%) var(--my, 0%), rgba(25, 214, 242, 0.12), transparent 72%); opacity: 0; transition: opacity 0.35s; pointer-events: none; }
+.trust > div.lit::after { opacity: 1; }
+.trust h3 { display: flex; align-items: center; gap: 0.6rem; }
+/* The double diamond as a bullet, and as the faint mark beside the questions. Both draw once. */
+.dm { flex: none; width: 1.5rem; height: auto; overflow: visible; }
+.dm path, .faq-mark path { fill: none; stroke: var(--cyan); stroke-width: 4.5; stroke-linecap: square; stroke-linejoin: miter; }
+.fx .dm path, .faq-mark.fx path { stroke-dasharray: 100; stroke-dashoffset: 100; transition: stroke-dashoffset 1s var(--out) calc(var(--i, 0) * 0.14s + 0.25s); }
+.fx.in .dm path, .faq-mark.fx.in path { stroke-dashoffset: 0; }
+.faq-mark { display: block; width: clamp(9rem, 17vw, 15rem); height: auto; margin: clamp(2rem, 4vw, 3rem) 0 0 -0.6rem; overflow: visible; opacity: 0.2; }
+.faq-mark path { stroke-width: 0.5; }
+.faq-mark.fx path { transition-duration: 1.8s; }
+.trust p { margin-top: 0.45rem; color: var(--text-sec); font-size: 0.9375rem; }
+
+.faq-in { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2.4fr); gap: 2rem clamp(2rem, 5vw, 4.5rem); align-items: start; }
+.faq { border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { position: relative; color: var(--text-sec); list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 1.25rem; padding-block: 1.3rem; font: 300 clamp(1.125rem, 2vw, 1.375rem)/1.35 var(--display); letter-spacing: -0.01em; transition: color 0.2s; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary:hover, .faq summary:focus-visible, .faq details[open] summary { color: var(--text); }
+/* A thin cyan line grows from the left under the question you point at. */
+.faq summary::after { content: ""; position: absolute; left: 0; right: 0; bottom: -1px; height: 1px; background: linear-gradient(90deg, var(--cyan), var(--cyan-line) 45%, transparent 85%); transform: scaleX(0); transform-origin: left; transition: transform 0.5s var(--out); }
+.faq summary:hover::after, .faq summary:focus-visible::after { transform: none; }
+/* The plus becomes a minus: its upright stroke folds away. */
+.faq summary svg { flex: none; }
+.faq summary path { fill: none; stroke: currentColor; stroke-width: 1.2; transition: transform 0.3s var(--out), stroke 0.2s; }
+.faq summary .v { transform-box: view-box; transform-origin: center; }
+.faq details[open] summary path { stroke: var(--cyan); }
+.faq details[open] summary .v { transform: scaleY(0); }
+.faq details.closing summary .v { transform: none; }
+.faq details.closing summary path { stroke: currentColor; }
+/* The answer, with a cyan rule that draws down its left edge when it opens. */
+.faq details > div { position: relative; padding: 0.2rem 0 1.4rem 1.1rem; color: var(--text-sec); max-width: 44rem; }
+.faq details > div::before { content: ""; position: absolute; left: 0; top: 0.45rem; bottom: 1.55rem; width: 1px; background: linear-gradient(180deg, var(--cyan), var(--cyan-line)); transform-origin: top; }
+.faq details[open] > div::before { animation: faqrule 0.6s var(--out) both; }
+@keyframes faqrule { from { transform: scaleY(0); } }
+.faq details > div > * + * { margin-top: 0.7rem; }
+.faq ol { margin: 0; padding-left: 1.25rem; }
+.faq ol li + li { margin-top: 0.3rem; }
+.faq a, .points a, .aside a, .trust a { color: var(--text); text-decoration-color: var(--cyan-line); }
+.faq a:hover, .aside a:hover, .trust a:hover { text-decoration-color: var(--cyan); }
+.faq div a, .aside a, .trust a { display: inline-block; padding-block: 0.25rem; }
+
+.close { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 1.4rem; }
+.close .lead { margin-top: 0; text-align: center; }
+
+/* Footer */
+footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); overflow: hidden; }
+.foot-in { display: flex; justify-content: space-between; gap: 2.5rem; flex-wrap: wrap; }
+.foot-in > div:first-child p { margin-top: 1rem; max-width: 18rem; color: var(--text-sec); font-size: 0.875rem; }
+.foot-links { display: flex; gap: clamp(2rem, 5vw, 4rem); flex-wrap: wrap; font-size: 0.875rem; color: var(--text-sec); }
+.foot-links div { display: flex; flex-direction: column; }
+.foot-links b { font-size: 0.8125rem; font-weight: 600; color: var(--text); margin-bottom: 0.35rem; }
+.foot-links a { display: flex; align-items: center; min-height: 2rem; text-decoration: none; }
+.foot-links a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); }
+.legal { margin-top: 1.5rem; display: flex; justify-content: space-between; gap: 0.5rem 1.5rem; flex-wrap: wrap; padding-top: 1.25rem; border-top: 1px solid var(--line); font-size: 0.8125rem; color: var(--text-ter); }
+
+/* The giant wordmark, from variation 4: a thin cyan outline, with the fill lit only where the
+   light falls. The static look (no script, reduced motion) is a top-down wash. */
+.giant { --mx: 50%; --my: 0%; margin-top: clamp(2.5rem, 6vw, 4rem); padding-inline: var(--gutter); text-align: center; white-space: nowrap; user-select: none; -webkit-user-select: none; line-height: 1; }
+.giant span { display: inline-block; font: 200 clamp(110px, 29vw, 600px)/0.92 var(--display); letter-spacing: -0.06em; padding: 0 0.04em 0.1em; color: transparent; -webkit-text-stroke: 1px rgba(25, 214, 242, 0.45); background: linear-gradient(180deg, rgba(25, 214, 242, 0.22), transparent 80%); -webkit-background-clip: text; background-clip: text; }
+.giant.live span { background-image: radial-gradient(circle 0.9em at var(--mx) var(--my), rgba(25, 214, 242, 0.95), rgba(25, 214, 242, 0.35) 45%, rgba(25, 214, 242, 0.04) 100%); }
+
+/* Behind the wordmark, the mark rings outward (from variation 2) while the footer is on screen.
+   Kept faint so the word still reads; the spotlight above is what answers the pointer. */
+.giant-stage { position: relative; overflow: hidden; margin-top: clamp(2.5rem, 6vw, 4rem); }
+.giant-stage .giant { position: relative; margin-top: 0; }
+.rings { position: absolute; top: 50%; left: 50%; width: clamp(7rem, 20vw, 17rem); height: auto; transform: translate(-50%, -56%); overflow: visible; pointer-events: none; }
+.rings path, .flash .rg { fill: none; stroke: var(--cyan); stroke-width: 1.25; vector-effect: non-scaling-stroke; stroke-linecap: square; transform-box: fill-box; transform-origin: center; }
+.rings .mk { opacity: 0.22; }
+.rings .rg:nth-child(1) { transform: scale(1.7); opacity: 0.16; }
+.rings .rg:nth-child(2) { transform: scale(2.5); opacity: 0.1; }
+.rings .rg:nth-child(3) { transform: scale(3.4); opacity: 0.05; }
+.giant-stage.inview .rg { animation: markring 3.4s var(--out) infinite; }
+.giant-stage.inview .rg:nth-child(2) { animation-delay: 0.24s; }
+.giant-stage.inview .rg:nth-child(3) { animation-delay: 0.48s; }
+/* Three quick rings, then a breath: the cadence of a phone. */
+@keyframes markring { 0% { transform: scale(1); opacity: 0; } 5% { opacity: 0.42; } 58%, 100% { transform: scale(4.4); opacity: 0; } }
+
+/* The mark above the headline, about one headline line tall. Once, on load: the stroke draws
+   itself, the same diamond rings leave it twice, then it rests. Without animation (reduced motion)
+   the mark is shown with still rings around it. */
+.flash { --fh: clamp(88px, 11vw, 150px); position: relative; width: calc(var(--fh) * 1.75); height: var(--fh); margin: 0 0 clamp(1.25rem, 2.5vw, 2rem) calc(var(--fh) * -0.1); pointer-events: none; }
+.flash svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.flash .mk { fill: none; stroke: var(--cyan); stroke-width: 2.6; stroke-linecap: square; stroke-linejoin: miter; stroke-dasharray: 100; animation: flashdraw 1.1s cubic-bezier(0.65, 0, 0.35, 1) 0.15s both; }
+.flash .rg { animation: flashring 1.5s var(--out) 1.2s 2 both; }
+.flash .rg:nth-child(1) { transform: scale(1.3); opacity: 0.2; }
+.flash .rg:nth-child(2) { transform: scale(1.6); opacity: 0.12; animation-delay: 1.44s; }
+.flash .rg:nth-child(3) { transform: scale(1.9); opacity: 0.06; animation-delay: 1.68s; }
+@keyframes flashdraw { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes flashring { 0% { transform: scale(1); opacity: 0; } 8% { opacity: 0.6; } 70%, 100% { transform: scale(2.3); opacity: 0; } }
+
+/* The signal line, from variation 1: flat at rest, it answers the pointer, and it follows the
+   sample call's level while that plays. A plain rule without script or with reduced motion. */
+.signal { position: relative; height: clamp(5.5rem, 14vh, 8rem); touch-action: pan-y; }
+.signal::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.4); }
+.signal-on .signal::before { display: none; }
+.signal canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.signal-note { position: absolute; left: 0; right: 0; top: calc(50% + 0.9rem); margin: 0; display: none; font: 400 0.75rem/1.4 var(--mono); color: var(--text-ter); pointer-events: none; }
+.signal-note .wrap { display: block; text-align: right; }
+.signal-on .signal-note { display: block; }
+.signal + .works { border-top: 0; padding-top: 0.6rem; }
+/* The second line stands in for the rule above "You stay in control." */
+.band#trust { border-top: 0; padding-top: 0; }
+.signal-b { margin-bottom: clamp(1.5rem, 4vw, 3rem); }
+
+/* The dot field, from variation 4, behind the Rings section. */
+.has-field { position: relative; overflow: hidden; }
+.has-field > .wrap { position: relative; z-index: 1; }
+.field { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
+
+@media (min-width: 60.0625rem) {
+  /* Two columns: the mark's top lines up with the chooser's first line. */
+  .flash { margin-top: calc(var(--fh) * -0.08); }
+}
+@media (max-width: 60rem) {
+  .faq-mark { display: none; }
+  .menu-btn { display: inline-flex; }
+  .nav-links { display: none; }
+  .nav-links.open { display: flex; position: absolute; left: 0; right: 0; top: 4rem; flex-direction: column; gap: 0; padding: 0.5rem var(--gutter) 1rem; background: #000; border-bottom: 1px solid var(--line); }
+  .nav-links.open a { padding: 0.9rem 0; border-bottom: 1px solid var(--line); font-size: 1rem; color: var(--text); }
+  .hero-in, .split, .faq-in { grid-template-columns: minmax(0, 1fr); }
+  .hero-in { row-gap: 3rem; }
+  .foot-links a { min-height: 2.75rem; }
+  .agents { justify-content: center; }
+  .agents legend { width: 100%; text-align: center; }
+  .split.rev > :first-child { order: 2; }
+  .trust { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 1.5rem; }
+}
+@media (max-width: 40rem) {
+  .signal-note .wrap { text-align: left; }
+  .nav .btn { padding: 0 0.95rem; }
+  .steps, .trust { grid-template-columns: minmax(0, 1fr); }
+  /* The path turns to run down the page. */
+  .path { grid-template-columns: minmax(0, 1fr); border-top: 0; border-left: 1px solid var(--line-strong); }
+  .path li { padding: 0 0 1.5rem 1.4rem; }
+  .path li:last-child { padding-bottom: 0; }
+  .path li::before { top: 0.55rem; left: -0.3rem; }
+  .hero-ctas .btn { flex: 1 1 auto; }
+}
+@media (max-width: 22.5rem) {
+  .wordmark { font-size: 1.3rem; }
+  .logo svg { width: 1.8rem; }
+  .cv, .rv { padding-inline: 0.8rem; }
+}
+@media (max-width: 18rem) {
+  .nav .btn { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  .cap p span { opacity: 1; }
+  .signal-on .signal-note { display: none; }
+  .cv[data-state="calling"] .halo, .rv[data-state="ringing"] .halo { opacity: 0.4; transform: scale(1.3); }
+}
+
+/* Two groups of agents, side by side: the ones you talk to live, and the ones that ring and message. */
+.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem clamp(2rem, 5vw, 4.5rem); }
+.group h2 { font: 500 0.8125rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-sec); }
+.group.talk h2 { color: var(--cyan); }
+.group .names { gap: 0 1.6rem; margin-top: 0.3rem; }
+.group .names > b { display: inline-flex; align-items: center; min-height: 2.75rem; }
+.group p:not(.names) { display: block; margin-top: 0.3rem; max-width: 30rem; color: var(--text-sec); }
+.group p:not(.names) a { display: inline; min-height: 0; color: var(--text); text-decoration: underline; text-decoration-color: var(--cyan-line); white-space: nowrap; }
+.group + .group { padding-left: clamp(1.5rem, 4vw, 3.5rem); border-left: 1px solid var(--line); }
+.agents small { font-size: 0.75rem; font-weight: 400; color: var(--text-ter); }
+.foot-links span { margin-top: 0.5rem; font: 400 0.6875rem/1.6 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-ter); }
+.script-note { margin-top: 0.9rem; font-size: 0.875rem; color: var(--text-sec); }
+.rv[data-state="answered"] .rv-reply, .rv[data-state="answered"] .acts { display: none; }
+@media (max-width: 40rem) {
+  .groups { grid-template-columns: minmax(0, 1fr); }
+  .group + .group { padding: 1.75rem 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
