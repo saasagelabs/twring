@@ -78,9 +78,11 @@ vi.mock('@/e2e/private-availability', async () => {
   };
 });
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.invalid' }));
-vi.mock('@/threads/chats', () => ({ currentScope: () => mocks.scope }));
+vi.mock('@/threads/chats', () => ({
+  currentScope: () => mocks.scope,
+  privateKeychain: () => ({}),
+}));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
-vi.mock('@/platform/secure-store', () => ({ deviceOnlyStore: {} }));
 vi.mock('@/theme/tokens', () => ({
   type: { body: {} },
   usePalette: () => ({ textSecondary: '#aaa' }),

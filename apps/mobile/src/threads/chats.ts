@@ -12,6 +12,7 @@ import { STATUS_POLL_MS } from '@/hooks/useResource';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
+import { noKeychain, scopedKeychain } from '../e2e/scoped-keychain';
 import type { SecureKeyValue } from '../auth/storage';
 import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
 import { DraftStore } from './drafts';
@@ -533,6 +534,11 @@ const keychain: SecureKeyValue = {
   deleteItemAsync: (key) => deviceKeychain().then((store) => store.deleteItemAsync(key)),
 };
 
+/** This server and account's private chat keys (P3c ruling 1); nothing is kept when signed out. */
+export function privateKeychain(scope = currentScope()): SecureKeyValue {
+  return scope === undefined ? noKeychain : scopedKeychain(keychain, scope);
+}
+
 let controller: ChatController | undefined;
 let controllerScope: string | undefined;
 let signOutHookRegistered = false;
@@ -559,7 +565,7 @@ export function chatController(): ChatController | undefined {
             drafts: fileStore('drafts', scope),
             search: new SearchIndex(sqliteSearchStore(scope)),
             privacy: new PrivateChats({
-              store: keychain,
+              store: privateKeychain(scope),
               replay: fileStore('private', scope),
               addressOf: (agentId) =>
                 api.getAgent(agentId).then(
@@ -583,7 +589,7 @@ export function chatController(): ChatController | undefined {
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
             deleteSearchDatabase(signingOut),
-            forgetPrivateDevice(keychain),
+            forgetPrivateDevice(privateKeychain(signingOut)),
           ]).catch(() => undefined);
       });
       signOutHookRegistered = true;

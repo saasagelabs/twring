@@ -54,10 +54,8 @@ vi.mock('@/e2e/pairing', () => ({
   confirmPairing: mocks.confirmPairing,
 }));
 vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}) }));
-vi.mock('@/platform/secure-store', () => ({
-  deviceOnlyStore: { deviceOnly: true },
-  secureStore: { deviceOnly: false },
-}));
+// This server and account's keychain (P3c ruling 1), never the phone-wide one.
+vi.mock('@/threads/chats', () => ({ privateKeychain: () => ({ deviceOnly: true }) }));
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
