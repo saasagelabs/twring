@@ -179,7 +179,17 @@ export class FcmPushSender implements PushSender {
       if (sealed !== undefined) {
         return this.sendData(
           target.token,
-          { type: SEALED_PUSH_TYPE, kind: 'message', sealed: JSON.stringify(sealed) },
+          {
+            type: SEALED_PUSH_TYPE,
+            kind: 'message',
+            // Outside the seal only the routing fields the redacted push already sends, so a
+            // phone that cannot open it still shows the fixed "New message" (never a name or text).
+            user_ref: data.user_ref,
+            agent_id: data.agent_id,
+            message_id: data.message_id,
+            silent: data.silent,
+            sealed: JSON.stringify(sealed),
+          },
           options,
         );
       }

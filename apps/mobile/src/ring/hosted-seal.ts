@@ -87,6 +87,9 @@ export function hostedSealCalls(deps: HostedSealDeps): RegistrationCalls {
         shared.fill(0);
       } catch {
         await deps.sealKeys.remove(HOSTED_SEAL_SLOT).catch(() => undefined);
+        // The server now seals for a key this phone could not keep: register once without it so
+        // the server drops the pair and sends the redacted push this phone can show.
+        await deps.register(deviceId, request);
       }
     },
     async unregister(deviceId) {

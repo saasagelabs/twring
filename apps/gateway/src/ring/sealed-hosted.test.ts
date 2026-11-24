@@ -4,6 +4,7 @@ import {
   deriveSealKey,
   deviceRegistrationResponseSchema,
   generateSealKeyPair,
+  MAX_SEAL_PLAINTEXT_BYTES,
   open,
   type MessagePush,
   type SealedEnvelope,
@@ -258,7 +259,16 @@ describe('hosted message pushes', () => {
     expect(await s.pushMessage('alice', MESSAGE)).toBe(1);
     expect(fcmBodies).toHaveLength(1);
     const data = fcmBodies[0]!;
-    expect(Object.keys(data).sort()).toEqual(['kind', 'sealed', 'type']);
+    // Outside the seal: only the redacted push's routing ids, for the "New message" fallback.
+    expect(Object.keys(data).sort()).toEqual([
+      'agent_id',
+      'kind',
+      'message_id',
+      'sealed',
+      'silent',
+      'type',
+      'user_ref',
+    ]);
     expect(data).toMatchObject({ type: 'cord.sealed', kind: 'message' });
     expect(JSON.stringify(data)).not.toContain('Hermes');
     expect(JSON.stringify(data)).not.toContain('All tests pass');
@@ -337,5 +347,50 @@ describe('hosted message pushes', () => {
       expect.objectContaining({ type: 'cord.message', preview: 'New message' }),
     ]);
     s.close();
+  });
+
+  it('a very long name and a 4,000-character message are trimmed to fit, never skipped', async () => {
+    const ringStores = stores();
+    const key = await keyedDevice(ringStores, 'phone-android-03', 'android');
+    const { push, fcmBodies } = senders();
+    const { s } = service(ringStores, push);
+    const long: MessagePush = {
+      ...MESSAGE,
+      agent_name: 'N'.repeat(500),
+      preview: 'x'.repeat(4000),
+    };
+    expect(await s.pushMessage('alice', long)).toBe(1);
+    const data = fcmBodies[0]!;
+    expect(data.type).toBe('cord.sealed');
+    const inner = opened(key, data.sealed!);
+    expect(inner).toMatchObject({ id: MESSAGE.message_id, kind: 'message' });
+    expect(new TextEncoder().encode(JSON.stringify(inner)).length).toBeLessThanOrEqual(
+      MAX_SEAL_PLAINTEXT_BYTES,
+    );
+    expect((inner.preview as string).length).toBeLessThan(4000);
+    s.close();
+  });
+
+  it('concurrent registrations for one device leave the pair the last answer gave', async () => {
+    const ringStores = stores();
+    const phones = [phoneKeys(), phoneKeys(), phoneKeys()];
+    const answers = await Promise.all(
+      phones.map((phone) =>
+        ringStores.devices.upsert({
+          ...ANDROID,
+          platform: 'android',
+          seal_public_key: phone.publicB64,
+          user_id: 'alice',
+          device_id: 'phone-race-0001',
+          updated_at: new Date(NOW).toISOString(),
+        }),
+      ),
+    );
+    const rows = await ringStores.devices.list('alice');
+    expect(rows).toHaveLength(1);
+    const index = phones.findIndex((p) => p.publicB64 === rows[0]!.seal_public_key);
+    expect(index).toBeGreaterThanOrEqual(0);
+    // The stored server key is the one answered to the phone whose key is stored.
+    expect(rows[0]!.server_seal_public_key).toBe(answers[index]);
   });
 });

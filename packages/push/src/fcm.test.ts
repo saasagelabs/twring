@@ -12,6 +12,7 @@ import {
   FcmPushSender,
   GOOGLE_TOKEN_URL,
   loadServiceAccount,
+  redactMessagePush,
   type FetchFn,
   type ServiceAccount,
 } from './fcm';
@@ -89,9 +90,34 @@ describe('FCM push', () => {
     expect(body.message.data).toEqual({
       type: 'cord.sealed',
       kind: 'message',
+      user_ref: message.user_ref,
+      agent_id: message.agent_id,
+      message_id: message.message_id,
+      silent: '0',
       sealed: JSON.stringify(envelope),
     });
     expect(f.calls[1]!.init.body as string).not.toContain(RING.agent_name);
+  });
+
+  it('a sealed message carries outside the seal only the redacted routing fields', async () => {
+    const f = fcm();
+    const sender = new FcmPushSender({ account: ACCOUNT, fetch: f.fetch, retryDelayMs: 0 });
+    const long = { ...message, agent_name: 'Secret Agent Name', preview: 'secret first line' };
+    await sender.send({ token: 'device-token', sealMessage: () => ({ v: 1 }) as never }, long);
+    const raw = f.calls[1]!.init.body as string;
+    const data = (JSON.parse(raw) as { message: { data: Record<string, string> } }).message.data;
+    const redacted = Object.keys(redactMessagePush(long)).filter(
+      (key) => key !== 'type' && key !== 'preview',
+    );
+    expect(Object.keys(data).sort()).toEqual(['kind', 'sealed', 'type', ...redacted].sort());
+    expect(Object.keys(data).sort()).toEqual(
+      ['agent_id', 'kind', 'message_id', 'sealed', 'silent', 'type', 'user_ref'].sort(),
+    );
+    expect(raw).not.toContain('Secret Agent Name');
+    expect(raw).not.toContain('secret first line');
+    expect(raw).not.toContain('New message');
+    expect(data).not.toHaveProperty('agent_name');
+    expect(data).not.toHaveProperty('preview');
   });
 
   it('falls back to the redacted message when sealing fails', async () => {

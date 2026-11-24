@@ -86,6 +86,16 @@ describe('hosted seal registration', () => {
     expect(t.sealKeys.remove).toHaveBeenCalledWith(HOSTED_SEAL_SLOT);
   });
 
+  it('a native store that refuses the key re-registers once without it', async () => {
+    const t = setup();
+    t.sealKeys.set.mockRejectedValueOnce(new Error('Invalid server id'));
+    await t.calls.register('device-1', REQUEST);
+    expect(t.sent).toHaveLength(2);
+    expect(t.sent[0]?.seal_public_key).toBeDefined();
+    expect(t.sent[1]).toEqual(REQUEST);
+    expect(t.sealKeys.remove).toHaveBeenCalledWith(HOSTED_SEAL_SLOT);
+  });
+
   it('sign-out clears the hosted key, even when the server call fails', async () => {
     const t = setup();
     await t.calls.unregister('device-1');
