@@ -78,6 +78,38 @@
     },
     {
      "@type": "Question",
+     "name": "Why does Codex pause before answering on a call?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Codex reports its answer when it is finished rather than word by word, so Twring can only start speaking once the whole answer is ready. Short questions come back quickly; long tasks take as long as they take in the terminal."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can I approve Codex's actions by voice with Twring?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Twring runs Codex in a read-only sandbox by default, or a workspace-write sandbox if you choose, so it doesn't stop to ask. To approve individual actions from your phone, use Codex in OpenAI's ChatGPT app."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can Codex ring me when it finishes?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Ask it to in a Twring call or chat, and it rings you with a short reason when the job is done. Or turn on a ring after every turn it finishes, with one command on your computer."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Does Twring work with Codex on Android?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Yes. Twring runs on iPhone and Android and calls the Codex CLI on your computer, so the phone you use doesn't matter."
+     }
+    },
+    {
+     "@type": "Question",
      "name": "Are my calls recorded?",
      "acceptedAnswer": {
       "@type": "Answer",
@@ -89,7 +121,7 @@
      "name": "Is Twring free?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK."
+      "text": "Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. Pricing has the details."
      }
     }
    ]
@@ -123,38 +155,58 @@
 <main id="main" class="page">
   <div class="wrap">
     <h1>Talk to Codex from your phone.</h1>
-    <p class="lead">Twring calls the Codex you already run on your computer. Press Call, say what you need, and hear its answer as it comes. When a job is done or it needs your OK, it can ring your phone.</p>
+    <p class="lead">Twring calls the Codex you already run on your computer. Press Call, say what you need, and hear its answer. When a job is done, it can ring your phone. It works on iPhone and Android.</p>
     <p class="hero-ctas"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
-
     <div class="prose prose-tight">
+<h2>Two ways to talk to Codex by voice</h2>
+<ul>
+  <li><strong>OpenAI's ChatGPT Voice.</strong> OpenAI's <a href="https://learn.chatgpt.com/docs/features/voice">voice docs</a> describe a live spoken conversation that can start Codex tasks, check progress and change direction. It's in the ChatGPT desktop app on Plus, Pro, Business, Edu and Enterprise plans, and in Codex on iOS after you pair your phone with a desktop host. With <a href="https://learn.chatgpt.com/docs/mobile">Codex in the ChatGPT app</a> you can also approve requested commands and review changes from your phone. (As of 24 November 2026.)</li>
+  <li><strong>Twring.</strong> A phone app that calls the Codex CLI already running in your terminal, from an iPhone or Android phone, and lets Codex ring you.</li>
+</ul>
+<p>If you use the ChatGPT desktop app, have an iPhone and a paid plan, try OpenAI's first. Pick Twring if you live in the Codex CLI, use Android, or want Codex to ring you like a phone call.</p>
+
 <h2>Set it up</h2>
 <ol>
-  <li><a href="/beta/">Get an invite</a> and install Twring on your iPhone or Android phone.</li>
-  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>. Then either:<ul><li>paste the short message it gives you into Codex, and approve the command Codex runs to connect itself, or</li><li>tap <strong>Scan a code on my computer</strong>, run the command it shows in your project folder, and scan the code it prints.</li></ul>Both download the Twring connector from twring.com. It needs Node.js 20 or newer.</li>
+  <li><a href="/beta/">Get an invite</a> and install Twring: on iPhone through TestFlight, on Android as an APK from twring.com (not Google Play).</li>
+  <li>In the app, tap <strong>Connect Agent</strong>, <strong>On my computer or server</strong>. Then either:<ul><li>paste the short message it gives you into Codex, and approve the command Codex runs to connect itself, or</li><li>tap <strong>Scan a code on my computer</strong>, run the command it shows in your project folder, and scan the code it prints.</li></ul>Both download the Twring connector from twring.com. It needs <a href="https://nodejs.org/">Node.js</a> 20 or newer, the free program that runs it.</li>
   <li>Codex appears in the app. Press <strong>Call</strong>.</li>
 </ol>
 
-<h2>What happens on a call</h2>
+<h2>What a call is like</h2>
 <ul>
-  <li>Your words reach Codex as a message, in that folder, with its own model, instructions and tools.</li>
-  <li>Twring speaks the answer as it streams in. Talk over it at any time and it stops speaking.</li>
-  <li>Calls and typed chats with Codex sit side by side in the app.</li>
+  <li>Your words reach Codex as a message, in the folder you connected, with its own model, instructions and tools. The usage counts on your own account.</li>
+  <li>Codex sends its answer whole, not word by word, so Twring starts speaking when the answer is complete. On a longer task Twring may say a short line so the call isn't silent.</li>
+  <li>Talk over Codex at any time and it stops speaking. Calls and typed chats with Codex sit side by side in the app, and every call continues the same Twring conversation.</li>
 </ul>
 
 <h2>Read-only, unless you let it write</h2>
-<p>On a call, Codex works in a read-only sandbox: it can read your files but not change them. To let it write in that folder, add <code>--codex-sandbox workspace-write</code> to the command.</p>
+<p>On a call, Codex works in a read-only sandbox: it can read your files but not change them. To let it write in that folder, add <code>--codex-sandbox workspace-write</code> to the command. Twring never runs Codex's tools; whatever Codex does stays under its own sandbox and settings.</p>
 
-<h2>Let it ring you</h2>
-<p>In a Twring call or chat, Codex is told how to ring your phone. Ask it to call you when a long job is done, and it rings you with a short reason. If you hang up while it's still working, it keeps going, and its answer lands in your Twring chat.</p>
+<h2>Let Codex ring you when it's done</h2>
+<p>In a Twring call or chat, Codex is told how to ring your phone. Ask "ring me when the build finishes" and it rings full screen, even on a locked phone, with a short reason. If you hang up while it's still working, it keeps going, and its answer lands in your Twring chat.</p>
+<p>To have Codex ring you after every turn it finishes, run this in the connector's folder:</p>
+<pre><code>node twring-connect.mjs hooks install codex --on-turn-complete</code></pre>
+<p>It uses Codex's own <code>notify</code> setting in <code>~/.codex/config.toml</code>, and the start of Codex's reply becomes the ring's reason. Because it fires after every turn, it's off until you turn it on. Add <code>--message</code> to get a message in your Twring chat instead of a ring. <a href="/agent-calls-you/">How rings work</a> covers quiet hours, limits and declining with a reply.</p>
+
+<h2>What you need</h2>
+<ul>
+  <li>An invite. Twring is <a href="/pricing/">free while it launches</a>.</li>
+  <li>Codex signed in on your computer, and Node.js 20 or newer.</li>
+  <li>The computer on and awake, with the connector running. If it sleeps, Codex shows as offline in the app.</li>
+</ul>
+<p>If Codex doesn't answer, check the computer first, then see <a href="/support/">support</a>.</p>
 <p>Twring also works with <a href="/claude-code/">Claude Code</a> and <a href="/hermes/">Hermes</a>, and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can <a href="/connector/">ring and message you</a> too.</p>
-
       <h2>Questions</h2>
     </div>
     <div class="faq faq-tight">
       <details><summary>Does Twring replace Codex's model?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring only handles the voice: it turns your speech into text for Codex, and its reply into speech for you. Codex does the thinking with its own model and tools. Twring never runs its tools.</p></div></details>
       <details><summary>Does it use my own account?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring runs the Codex that is signed in on your computer, so its usage counts on your own account, as if you had typed.</p></div></details>
+      <details><summary>Why does Codex pause before answering on a call?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Codex reports its answer when it is finished rather than word by word, so Twring can only start speaking once the whole answer is ready. Short questions come back quickly; long tasks take as long as they take in the terminal.</p></div></details>
+      <details><summary>Can I approve Codex's actions by voice with Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Twring runs Codex in a read-only sandbox by default, or a workspace-write sandbox if you choose, so it doesn't stop to ask. To approve individual actions from your phone, use Codex in OpenAI's ChatGPT app.</p></div></details>
+      <details><summary>Can Codex ring me when it finishes?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Ask it to in a Twring call or chat, and it rings you with a short reason when the job is done. Or turn on a ring after every turn it finishes, with one command on your computer.</p></div></details>
+      <details><summary>Does Twring work with Codex on Android?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring runs on iPhone and Android and calls the Codex CLI on your computer, so the phone you use doesn't matter.</p></div></details>
       <details><summary>Are my calls recorded?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
-      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK.</p></div></details>
+      <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. <a href="/pricing/">Pricing</a> has the details.</p></div></details>
     </div>
   </div>
 </main>
