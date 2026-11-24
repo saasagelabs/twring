@@ -1,17 +1,8 @@
 import { base64urlEncode, deviceIdFor } from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
+import { memoryStore } from './test-fixtures';
 import { forgetDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
-
-export function memoryStore() {
-  const m = new Map<string, string>();
-  return {
-    getItemAsync: async (k: string) => m.get(k) ?? null,
-    setItemAsync: async (k: string, v: string) => void m.set(k, v),
-    deleteItemAsync: async (k: string) => void m.delete(k),
-    m,
-  };
-}
 
 describe('phone device key', () => {
   it('creates once and reloads the same key', async () => {
