@@ -3,9 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const native = vi.hoisted(() => ({
   AFTER_FIRST_UNLOCK: 1,
   AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY: 2,
-  getItemAsync: vi.fn(async () => null),
-  setItemAsync: vi.fn(async () => undefined),
-  deleteItemAsync: vi.fn(async () => undefined),
+  getItemAsync: vi.fn(() => Promise.resolve(null)),
+  setItemAsync: vi.fn(() => Promise.resolve(undefined)),
+  deleteItemAsync: vi.fn(() => Promise.resolve(undefined)),
 }));
 vi.mock('expo-secure-store', () => native);
 
