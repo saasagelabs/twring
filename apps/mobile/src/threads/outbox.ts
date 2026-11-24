@@ -219,18 +219,41 @@ export class Outbox {
    * (switching servers). Resolves once the latest queue is written.
    */
   async detach(): Promise<void> {
-    await this.flush();
+    // Stop first: a retry during the write would send under the next account's sign-in.
+    const loaded = this.loaded;
     this.stopWork();
+    const writing = loaded ? this.write() : this.saving;
     this.items.clear();
     this.changed();
+    await writing;
+  }
+
+  /**
+   * "Clear chat": forgets one agent's queued messages, aborting their sends and deleting their
+   * kept files, so nothing reaches the cleared chat afterwards.
+   */
+  forgetAgent(agentId: string): Promise<void> {
+    for (const item of [...this.items.values()]) {
+      if (item.agentId !== agentId) continue;
+      this.items.delete(item.clientId);
+      if (item.voice) this.removeFile(item.voice.uri);
+      for (const file of item.files ?? []) this.removeFile(file.uri);
+    }
+    this.changed();
+    return this.flush();
   }
 
   /** Writes the queue now, replacing a pending debounced write. */
   flush(): Promise<void> {
     if (this.saveTimer !== undefined) this.timers.clearTimeout(this.saveTimer);
     this.saveTimer = undefined;
+    if (!this.loaded || this.disposed) return this.saving;
+    return this.write();
+  }
+
+  private write(): Promise<void> {
     const store = this.store;
-    if (!store || !this.loaded || this.disposed) return this.saving;
+    if (!store) return this.saving;
     const items = [...this.items.values()].slice(-OUTBOX_LIMIT).map((item) => {
       const errorCode = item.errorCode ?? errorCodeOf(item.error);
       return {
@@ -335,9 +358,9 @@ export class Outbox {
     } catch {
       return;
     }
-    const keep = async (uri: string) => {
+    const keep = async (uri: string, key?: string) => {
       try {
-        const kept = await files.keep(clientId, uri);
+        const kept = await files.keep(clientId, uri, key);
         if (kept !== uri) files.remove(uri);
         return kept;
       } catch {
@@ -346,7 +369,8 @@ export class Outbox {
       }
     };
     if (item.voice) item.voice = { ...item.voice, uri: await keep(item.voice.uri) };
-    for (const file of item.files ?? []) file.uri = await keep(file.uri);
+    // Each file is named by its own clientId too: two picks can share a name.
+    for (const file of item.files ?? []) file.uri = await keep(file.uri, file.clientId);
     if (this.items.get(clientId) !== item) {
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);

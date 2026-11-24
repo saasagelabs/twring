@@ -306,9 +306,14 @@ export class ChatController {
   setDraft(agentId: string, text: string): void {
     this.drafts.set(agentId, text);
   }
-  /** After "Clear chat": the composer starts empty too. */
-  forgetDraft(agentId: string): void {
+  /** After "Clear chat": unsent messages are dropped and the composer starts empty too. */
+  forgetChat(agentId: string): void {
+    void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
+  }
+  /** Leaving a chat writes its draft now instead of after the debounce. */
+  flushDrafts(): void {
+    void this.drafts.flush();
   }
 }
 
@@ -385,6 +390,7 @@ export function useDraft(agentId: string): [string, (text: string) => void] {
     });
     return () => {
       current = false;
+      active?.flushDrafts();
     };
   }, [active, agentId]);
   const setDraft = useCallback(

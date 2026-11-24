@@ -53,6 +53,7 @@ type Row =
       voice?: { uri: string; durationMs: number };
       files?: PreparedFile[];
       error?: unknown;
+      errorCode?: string;
     }
   | { key: string; kind: 'working' };
 const timeOf = (date: string) =>
@@ -236,7 +237,7 @@ export default function ChatScreen() {
               >
                 {item.error
                   ? `Didn't go through: ${apiErrorCopy(item.error).message}`
-                  : messageStatus(item.state, name)}
+                  : messageStatus(item.state, name, item.errorCode)}
               </Text>
               <Pressable
                 accessibilityRole="button"

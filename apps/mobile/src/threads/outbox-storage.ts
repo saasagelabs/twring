@@ -12,8 +12,11 @@ export interface JsonStore {
 
 /** Copies of queued voice notes and files, so a restart can still send them. */
 export interface OutboxFiles {
-  /** Copies `uri` into the message's own folder and returns the copy's uri. */
-  keep(clientId: string, uri: string): Promise<string>;
+  /**
+   * Copies `uri` into the message's own folder and returns the copy's uri. `key`, when given,
+   * prefixes the copy's name so two files with the same name stay apart.
+   */
+  keep(clientId: string, uri: string, key?: string): Promise<string>;
   exists(uri: string): boolean;
   remove(uri: string): void;
 }
@@ -86,11 +89,11 @@ export function fileStore(kind: 'outbox' | 'drafts', scope: string): JsonStore {
 export async function deviceOutboxFiles(): Promise<OutboxFiles> {
   const { Directory, File, Paths } = await import('expo-file-system');
   return {
-    async keep(clientId, uri) {
+    async keep(clientId, uri, key) {
       const folder = new Directory(Paths.document, OUTBOX_FOLDER, clientId);
       if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
       const source = new File(uri);
-      const copy = new File(folder, source.name);
+      const copy = new File(folder, key ? `${key}-${source.name}` : source.name);
       await source.copy(copy, { overwrite: true });
       return copy.uri;
     },

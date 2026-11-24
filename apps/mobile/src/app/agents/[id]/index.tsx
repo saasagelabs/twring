@@ -321,7 +321,7 @@ export default function AgentDetailScreen() {
                 .then(
                   () => {
                     setClearVisible(false);
-                    chatController()?.forgetDraft(agent.id);
+                    chatController()?.forgetChat(agent.id);
                     chats.refresh();
                   },
                   (error: unknown) => setClearError(apiErrorCopy(error)),
