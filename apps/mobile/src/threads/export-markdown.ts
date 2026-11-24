@@ -81,6 +81,7 @@ function quote(text: string): string {
 
 function localStamp(iso: string): string {
   const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 'time unknown';
   const pad = (value: number) => String(value).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }

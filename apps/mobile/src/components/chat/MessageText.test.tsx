@@ -58,3 +58,9 @@ it('keeps prose around the code block readable', () => {
   expect(prose).toContain('Hermes wants to run this command:\n');
   expect(prose).toContain('\nAllow it?');
 });
+
+it('gives the Copy button exactly the code inside the fences, without the language tag', () => {
+  const all = elements(MessageText({ text: 'see\n```ts\nconst a = 1;\n```\nok', onLink: vi.fn() }));
+  const button = all.find((item) => (item.type as unknown) === 'CopyCodeButton');
+  expect(button?.props.code).toBe('const a = 1;\n');
+});
