@@ -111,7 +111,7 @@ export function sqliteSearchStore(scope: string): SearchStore {
       const current = opening;
       opening = undefined;
       if (current) await current.then(({ db }) => db.closeAsync()).catch(() => undefined);
-      await SQLite.deleteDatabaseAsync(name);
+      await removeDatabase(name);
     },
     async search(terms, limit) {
       const { db, fts } = await open();
@@ -144,11 +144,40 @@ export function sqliteSearchStore(scope: string): SearchStore {
   };
 }
 
+/** Drops every table, so no chat text is left in a file that could not be deleted. */
+const EMPTY = `
+DROP TABLE IF EXISTS messages_fts;
+DROP TABLE IF EXISTS messages;
+DROP TABLE IF EXISTS complete;
+VACUUM;
+`;
+
+/**
+ * Deletes the file. When it cannot be deleted (on Android a file still open elsewhere is refused),
+ * empties it instead and tries the delete once more, so the promise "removed when you sign out"
+ * holds either way. Never throws: signing out must not fail because of search.
+ */
+async function removeDatabase(name: string): Promise<void> {
+  try {
+    await SQLite.deleteDatabaseAsync(name);
+    return;
+  } catch {
+    /* Still open elsewhere, or no file: empty whatever is there. */
+  }
+  try {
+    const db = await SQLite.openDatabaseAsync(name);
+    try {
+      await db.execAsync(EMPTY);
+    } finally {
+      await db.closeAsync().catch(() => undefined);
+    }
+    await SQLite.deleteDatabaseAsync(name).catch(() => undefined);
+  } catch {
+    /* Nothing more to do here; the next sign-in starts from an empty copy. */
+  }
+}
+
 /** Deletes the saved copy for an account that is signing out, opened this launch or not. */
 export async function deleteSearchDatabase(scope: string): Promise<void> {
-  try {
-    await SQLite.deleteDatabaseAsync(searchDatabaseName(scope));
-  } catch {
-    /* No file yet, or already removed. */
-  }
+  await removeDatabase(searchDatabaseName(scope));
 }
