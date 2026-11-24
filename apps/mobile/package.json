@@ -29,7 +29,7 @@
     "@supabase/supabase-js": "^2.117.2",
     "@twring/config": "workspace:*",
     "@twring/contracts": "workspace:*",
-    "expo": "~57.0.33",
+    "expo": "~57.0.34",
     "expo-apple-authentication": "~57.0.2",
     "expo-audio": "~57.0.5",
     "expo-camera": "~57.0.6",

@@ -193,6 +193,7 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); }
 .foot-links b { font-size: 0.8125rem; font-weight: 600; color: var(--text); margin-bottom: 0.35rem; }
 .foot-links a { padding-block: 0.35rem; text-decoration: none; } .foot-links a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); }
 .legal a { display: inline-block; padding-block: 0.4rem; }
+.legal a:hover { color: var(--text); text-decoration-color: var(--cyan); }
 .legal { display: flex; justify-content: space-between; gap: 0.5rem 1.5rem; flex-wrap: wrap; margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid var(--line); font-size: 0.8125rem; color: var(--text-ter); }
 
 /* Reading pages: support, terms, invite */
