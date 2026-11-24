@@ -168,7 +168,7 @@ describe('pairing with the server the code names', () => {
     const api = fakeApi();
     const d = { ...deps(api), activeServer: 'https://staging.example.com' };
     expect(await claimPairing(d, input())).toEqual({ ok: false, code: 'wrong_server' });
-    expect(api.claim).not.toHaveBeenCalled();
+    expect(api.claim.mock.calls).toHaveLength(0);
     expect(d.store.m.size).toBe(0);
   });
 
