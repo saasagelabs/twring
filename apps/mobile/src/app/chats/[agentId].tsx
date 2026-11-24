@@ -222,11 +222,11 @@ export default function ChatScreen() {
   const unreadIndex = rows.findIndex((row) => row.kind === 'unread');
   useEffect(() => {
     if (jumped.current || unreadIndex < 0) return;
-    jumped.current = true;
-    const timer = setTimeout(
-      () => list.current?.scrollToIndex({ index: unreadIndex, viewPosition: 1, animated: false }),
-      0,
-    );
+    // Marked done only when it runs: rows shifting before then reschedule it with the new index.
+    const timer = setTimeout(() => {
+      jumped.current = true;
+      list.current?.scrollToIndex({ index: unreadIndex, viewPosition: 1, animated: false });
+    }, 0);
     return () => clearTimeout(timer);
   }, [unreadIndex]);
   // The "New reply" pill: scroll position and replies feed one pure state (threads/scroll-state).

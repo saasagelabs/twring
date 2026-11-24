@@ -3,21 +3,36 @@ import type { ThreadMessage } from '@twring/contracts';
 /** Closer than this to the newest message counts as reading the bottom. */
 export const AT_BOTTOM_PX = 48;
 
+/** An agent reply as the pill sees it: its id and where it sits in the thread. */
+export interface Reply {
+  id: string;
+  seq: number;
+}
+
 /**
- * What the "New reply" pill knows. `baseline` holds the agent messages already on screen when the
- * reader left the bottom; anything outside it is new. Undefined while the reader is at the bottom.
+ * What the "New reply" pill knows. `baseline` holds the agent replies already on screen when the
+ * reader left the bottom, and `newestSeq` the newest of them; only a reply after it is new, so
+ * older pages loaded while scrolling into history never count. Undefined while at the bottom.
  */
 export interface PillState {
   baseline: ReadonlySet<string> | undefined;
+  newestSeq: number;
   count: number;
   show: boolean;
 }
 
-export const initialPill: PillState = { baseline: undefined, count: 0, show: false };
+export const initialPill: PillState = {
+  baseline: undefined,
+  newestSeq: -Infinity,
+  count: 0,
+  show: false,
+};
 
 /** Agent replies: the only arrivals the pill counts. */
-export function replyIds(messages: readonly ThreadMessage[]): string[] {
-  return messages.filter((message) => message.kind === 'agent_text').map((message) => message.id);
+export function replyIds(messages: readonly ThreadMessage[]): Reply[] {
+  return messages
+    .filter((message) => message.kind === 'agent_text')
+    .map((message) => ({ id: message.id, seq: message.seq }));
 }
 
 /**
@@ -27,17 +42,22 @@ export function replyIds(messages: readonly ThreadMessage[]): string[] {
  */
 export function nextPill(
   previous: PillState,
-  input: { ids: readonly string[]; distanceFromBottom: number; viewportHeight: number },
+  input: { ids: readonly Reply[]; distanceFromBottom: number; viewportHeight: number },
 ): PillState {
   if (input.distanceFromBottom <= AT_BOTTOM_PX) return initialPill;
-  const baseline = previous.baseline ?? new Set(input.ids);
   const fresh = new Set<string>();
-  for (const id of input.ids) if (!baseline.has(id)) fresh.add(id);
+  let { baseline, newestSeq } = previous;
+  if (!baseline) {
+    baseline = new Set(input.ids.map((reply) => reply.id));
+    newestSeq = Math.max(-Infinity, ...input.ids.map((reply) => reply.seq));
+  }
+  for (const reply of input.ids)
+    if (!baseline.has(reply.id) && reply.seq > newestSeq) fresh.add(reply.id);
   const count = fresh.size;
   const show = count > 0 && input.distanceFromBottom > input.viewportHeight;
   if (baseline === previous.baseline && count === previous.count && show === previous.show)
     return previous;
-  return { baseline, count, show };
+  return { baseline, newestSeq, count, show };
 }
 
 /** Screen readers hear the pill once per burst: when it appears, not for every reply after. */

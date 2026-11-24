@@ -91,6 +91,15 @@ describe('new reply pill', () => {
     expect(step(state, []).show).toBe(false);
   });
 
+  it('does not count older replies loaded while scrolling into history', () => {
+    let state = step(initialPill, [reply(10), reply(11)]);
+    // onEndReached pages in older messages while the reader is scrolled up.
+    state = step(state, [reply(1), reply(2), reply(3), reply(10), reply(11)]);
+    expect(state).toMatchObject({ count: 0, show: false });
+    state = step(state, [reply(1), reply(2), reply(3), reply(10), reply(11), reply(12)]);
+    expect(state).toMatchObject({ count: 1, show: true });
+  });
+
   it('handles an empty chat', () => {
     const state = nextPill(initialPill, { ids: [], ...far });
     expect(state.show).toBe(false);
