@@ -58,4 +58,40 @@ describe('phone device key', () => {
     s.m.set('twring.e2e.seq.v1', 'junk');
     await expect(nextSeq(s)).rejects.toThrow();
   });
+
+  it('two messages sealed at once never share a seq (the keychain is slow)', async () => {
+    const s = memoryStore();
+    const slow = {
+      getItemAsync: async (k: string) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return s.getItemAsync(k);
+      },
+      setItemAsync: async (k: string, v: string) => {
+        await new Promise((r) => setTimeout(r, 5));
+        return s.setItemAsync(k, v);
+      },
+      deleteItemAsync: (k: string) => s.deleteItemAsync(k),
+    };
+    const seqs = await Promise.all([nextSeq(slow), nextSeq(slow), nextSeq(slow)]);
+    expect(seqs.sort()).toEqual([1, 2, 3]);
+    expect(await nextSeq(slow)).toBe(4);
+  });
+
+  it('a failed counter write does not block the next seq', async () => {
+    const s = memoryStore();
+    let fail = true;
+    const flaky = {
+      getItemAsync: (k: string) => s.getItemAsync(k),
+      setItemAsync: (k: string, v: string) => {
+        if (fail) {
+          fail = false;
+          return Promise.reject(new Error('keychain busy'));
+        }
+        return s.setItemAsync(k, v);
+      },
+      deleteItemAsync: (k: string) => s.deleteItemAsync(k),
+    };
+    await expect(nextSeq(flaky)).rejects.toThrow();
+    expect(await nextSeq(flaky)).toBe(1);
+  });
 });

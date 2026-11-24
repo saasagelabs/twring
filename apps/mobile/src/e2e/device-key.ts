@@ -76,7 +76,17 @@ export async function loadOrCreateDeviceKey(
 }
 
 /** The next seq this phone seals with, saved before it is handed out: never reused. */
-export async function nextSeq(store: SecureKeyValue): Promise<number> {
+/** One counter update at a time per keychain, so two quick sends never read the same seq. */
+const seqLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();
+
+export function nextSeq(store: SecureKeyValue): Promise<number> {
+  const previous = seqLocks.get(store) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(() => takeSeq(store));
+  seqLocks.set(store, next);
+  return next;
+}
+
+async function takeSeq(store: SecureKeyValue): Promise<number> {
   const raw = await store.getItemAsync(SEQ_KEY_NAME);
   const last = raw === null ? 0 : Number(raw);
   // A damaged counter must never restart at 1: the computer would drop those as replays.
