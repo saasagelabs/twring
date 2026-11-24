@@ -188,6 +188,12 @@ export const sessionRefSchema = z.string().regex(SESSION_REF_PATTERN);
 
 // Devices
 
+/**
+ * An X25519 public key: unpadded base64url of exactly 32 bytes (43 characters; the last one
+ * carries 4 data bits, so its low 2 bits are zero).
+ */
+export const sealKey32Schema = z.string().regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/);
+
 export const deviceIdSchema = z.string().regex(/^[A-Za-z0-9._:-]{8,128}$/);
 
 /**
@@ -204,9 +210,21 @@ export const deviceRegistrationSchema = z
       .string()
       .regex(/^[0-9a-fA-F]{32,400}$/)
       .optional(),
+    /**
+     * The phone's X25519 public key for sealed message pushes (ADR-043 Phase B). Sending it says
+     * this phone can open them; a registration without it gets the redacted push.
+     */
+    seal_public_key: sealKey32Schema.optional(),
   })
   .strict();
 export type DeviceRegistration = z.infer<typeof deviceRegistrationSchema>;
+
+/** `PUT /v1/me/devices/:deviceId` answer when the phone sent `seal_public_key` (204 otherwise). */
+export const deviceRegistrationResponseSchema = z.object({
+  /** The server's X25519 public key for this phone; the phone derives the shared seal key. */
+  seal_server_public_key: sealKey32Schema.optional(),
+});
+export type DeviceRegistrationResponse = z.infer<typeof deviceRegistrationResponseSchema>;
 
 // Ring settings
 

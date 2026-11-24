@@ -21,10 +21,12 @@ object SealKeys {
   private const val WRAP_ALIAS = "cord.seal.wrap"
   private const val IV_BYTES = 12
   private val SERVER_ID = Regex("^srv_[a-z2-7]{32}$")
+  /** Twring's own service (hosted sealed message pushes); must match HOSTED_SEAL_SLOT in JS. */
+  const val HOSTED_SLOT = "hosted"
 
   @Synchronized
   fun set(context: Context, serverId: String, keyB64url: String) {
-    require(SERVER_ID.matches(serverId)) { "Invalid server id" }
+    require(serverId == HOSTED_SLOT || SERVER_ID.matches(serverId)) { "Invalid server id" }
     val key = Base64.decode(keyB64url, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
     require(key.size == 32) { "Invalid seal key" }
     val cipher = Cipher.getInstance("AES/GCM/NoPadding")

@@ -1,4 +1,4 @@
-import { isActive } from '@twring/contracts';
+import { generateSealKeyPair, isActive } from '@twring/contracts';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
@@ -10,6 +10,7 @@ import { twringApi } from '@/api';
 import { createTwringApi, type TwringApi } from '@/api/client';
 import { appVersionLabel } from '@/api/app-version';
 import { addBeforeSignOut, authController, hostedApiAuth } from '@/auth';
+import { installRandomValues } from '@/auth/random-values';
 import { mobileEnv } from '@/config/env';
 import { reportSealSelfTestFailed } from '@/observability/sentry';
 import { sealKeys } from '@/platform/seal-keys';
@@ -27,6 +28,7 @@ import { ringPlatform } from '@/platform/ring';
 import { secureStore } from '@/platform/secure-store';
 
 import { flushDeclines } from './declines';
+import { hostedSealCalls } from './hosted-seal';
 import { parsePush, type RegisterDeviceRequest, type RingPush } from './protocol';
 import { createRingWatch } from './ring-watch';
 import { loadDeviceId } from './device-id';
@@ -102,14 +104,20 @@ export const ringRegistration = createRingRegistration({
       getAlertToken: () => ringPlatform.getAlertToken?.() ?? Promise.resolve(null),
     }),
   },
-  hosted: {
-    register: async (id, request) => {
-      await hostedApi()?.registerDevice(id, request);
-    },
+  // Sends this install's seal key; Android then shows the agent and first line of a message.
+  hosted: hostedSealCalls({
+    register: (id, request) =>
+      hostedApi()?.registerDevice(id, request) ?? Promise.resolve(undefined),
     unregister: async (id) => {
       await hostedApi()?.unregisterDevice(id);
     },
-  },
+    store: secureStore,
+    sealKeys,
+    keyPair: () => {
+      installRandomValues();
+      return generateSealKeyPair();
+    },
+  }),
   selfhost: (profile) =>
     selfhostRegistrationDeps(profile, {
       fetch: (url, init) => fetch(url, init),

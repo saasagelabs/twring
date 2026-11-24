@@ -1,20 +1,28 @@
 import {
   agentIdSchema,
+  base64urlEncode,
   connectorIdSchema,
   DEFAULT_RING_SETTINGS,
   deviceIdSchema,
+  generateSealKeyPair,
   deviceRegistrationSchema,
   inviteIdSchema,
   inviteStatusSchema,
   localAgentIdSchema,
   MAX_DEVICES_PER_USER,
+  type MessagePush,
   ringSettingsSchema,
   type InviteStatus,
   type RingSettings,
+  type SealedEnvelope,
 } from '@twring/contracts';
 import { z } from 'zod';
 
+import { deviceSealAad } from '../selfhost/people';
+import { sealedSecretSchema, type CredentialCipher } from '../store/cipher';
 import type { Collection } from '../store/collection';
+
+import { sealMessageFor } from './sealed-push';
 
 /**
  * Storage for rings (ADR-024): push-registered phones, ring settings, and invites. Every row is
@@ -26,11 +34,32 @@ export const deviceRecordSchema = deviceRegistrationSchema.extend({
   user_id: z.string().min(1),
   device_id: deviceIdSchema,
   updated_at: z.iso.datetime(),
+  /**
+   * With `seal_public_key`: this server's X25519 key pair for the phone, public in clear, private
+   * sealed under `deviceSealAad(device_id)` (ADR-043 Phase B). Never logged.
+   */
+  server_seal_public_key: z.string().min(1).optional(),
+  server_seal_private_key: sealedSecretSchema.optional(),
 });
 export type DeviceRecord = z.infer<typeof deviceRecordSchema>;
 
+/** A phone's registration as the route takes it; the server seal keys are made here. */
+export type DeviceRegistrationInput = Omit<
+  DeviceRecord,
+  'server_seal_public_key' | 'server_seal_private_key'
+>;
+
 export class DeviceRepository {
-  constructor(private readonly rows: Collection<DeviceRecord>) {}
+  private readonly now: () => Date;
+
+  /** Without a `cipher` no seal keys are kept and every message push goes redacted. */
+  constructor(
+    private readonly rows: Collection<DeviceRecord>,
+    private readonly cipher?: CredentialCipher,
+    now?: () => Date,
+  ) {
+    this.now = now ?? (() => new Date());
+  }
 
   async list(userId: string): Promise<DeviceRecord[]> {
     return (await this.rows.read()).filter((row) => row.user_id === userId);
@@ -40,9 +69,17 @@ export class DeviceRepository {
    * Upserts a phone. A token registered to another user (or another device) moves here: one token
    * reaches one phone, and that phone now belongs to this user. Past MAX_DEVICES_PER_USER, the
    * phone updated longest ago is dropped.
+   *
+   * With `seal_public_key`, resolves this server's public key for the phone: the same phone key
+   * keeps its pair, a new one gets a fresh pair. Without it (an older app, or one that lost its
+   * key) any stored pair goes with the old row.
    */
-  upsert(record: DeviceRecord): Promise<void> {
+  upsert(input: DeviceRegistrationInput): Promise<string | undefined> {
     return this.rows.update((items) => {
+      const previous = items.find(
+        (row) => row.user_id === input.user_id && row.device_id === input.device_id,
+      );
+      const record = this.withSealKeys(input, previous);
       const others = items.filter(
         (row) =>
           row.fcm_token !== record.fcm_token &&
@@ -52,8 +89,59 @@ export class DeviceRepository {
         .filter((row) => row.user_id === record.user_id)
         .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
       const drop = new Set(mine.slice(MAX_DEVICES_PER_USER - 1));
-      return { items: [...others.filter((row) => !drop.has(row)), record], result: undefined };
+      return {
+        items: [...others.filter((row) => !drop.has(row)), record],
+        result: record.server_seal_public_key,
+      };
     });
+  }
+
+  private withSealKeys(input: DeviceRegistrationInput, previous?: DeviceRecord): DeviceRecord {
+    const { seal_public_key: phoneKey, ...rest } = input;
+    if (phoneKey === undefined || this.cipher === undefined) return rest;
+    if (
+      previous?.seal_public_key === phoneKey &&
+      previous.server_seal_public_key !== undefined &&
+      previous.server_seal_private_key !== undefined
+    ) {
+      return {
+        ...rest,
+        seal_public_key: phoneKey,
+        server_seal_public_key: previous.server_seal_public_key,
+        server_seal_private_key: previous.server_seal_private_key,
+      };
+    }
+    const pair = generateSealKeyPair();
+    try {
+      return {
+        ...rest,
+        seal_public_key: phoneKey,
+        server_seal_public_key: base64urlEncode(pair.publicKey),
+        server_seal_private_key: this.cipher.seal(
+          base64urlEncode(pair.privateKey),
+          deviceSealAad(input.device_id),
+        ),
+      };
+    } finally {
+      pair.privateKey.fill(0);
+    }
+  }
+
+  /**
+   * Seals message pushes for a phone that sent a seal key, or undefined (redacted pushes). The
+   * sealer returns undefined when the stored key cannot be opened.
+   */
+  messageSealer(
+    device: DeviceRecord,
+  ): ((data: MessagePush) => SealedEnvelope | undefined) | undefined {
+    const cipher = this.cipher;
+    const phonePublicKey = device.seal_public_key;
+    const serverPrivateKey = device.server_seal_private_key;
+    if (cipher === undefined || phonePublicKey === undefined || serverPrivateKey === undefined) {
+      return undefined;
+    }
+    const keys = { phonePublicKey, serverPrivateKey, aad: deviceSealAad(device.device_id) };
+    return (data) => sealMessageFor(cipher, keys, data, this.now());
   }
 
   delete(userId: string, deviceId: string): Promise<boolean> {

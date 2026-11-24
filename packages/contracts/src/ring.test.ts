@@ -12,6 +12,11 @@ import {
   ringSettingsSchema,
   connectorMessageRequestSchema,
   messagePushSchema,
+  base64urlDecode,
+  base64urlEncode,
+  deviceRegistrationResponseSchema,
+  deviceRegistrationSchema,
+  sealKey32Schema,
 } from './index';
 
 describe('connector messages', () => {
@@ -141,5 +146,47 @@ describe('answeredTurnText', () => {
     expect(stripHangupMarkers('Okay, bye! ⟪hangup⟫')).toBe('Okay, bye!');
     expect(stripHangupMarkers('[[HANGUP]] Done')).toBe('Done');
     expect(stripHangupMarkers('⟪Hangup⟫')).toBe('');
+  });
+});
+
+describe('device registration seal key', () => {
+  const base = { fcm_token: 'a'.repeat(40), platform: 'android', app_variant: 'production' };
+  const key = base64urlEncode(new Uint8Array(32).fill(7));
+
+  it('takes a 32-byte base64url public key, or none', () => {
+    expect(deviceRegistrationSchema.safeParse({ ...base, seal_public_key: key }).success).toBe(
+      true,
+    );
+    expect(deviceRegistrationSchema.safeParse(base).success).toBe(true);
+  });
+
+  it('refuses keys of the wrong length or alphabet', () => {
+    for (const bad of [
+      base64urlEncode(new Uint8Array(31)),
+      base64urlEncode(new Uint8Array(33)),
+      `${key.slice(0, 42)}B`,
+      `${key.slice(0, 42)}=`,
+      `${key.slice(0, 42)}+`,
+      '',
+    ]) {
+      expect(deviceRegistrationSchema.safeParse({ ...base, seal_public_key: bad }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('every accepted key decodes to exactly 32 bytes', () => {
+    for (let i = 0; i < 64; i += 1) {
+      const encoded = base64urlEncode(new Uint8Array(32).map((_, j) => (i * 31 + j * 7) & 255));
+      expect(sealKey32Schema.safeParse(encoded).success).toBe(true);
+      expect(base64urlDecode(encoded)).toHaveLength(32);
+    }
+  });
+
+  it('the response key is optional and checked', () => {
+    expect(deviceRegistrationResponseSchema.parse({})).toEqual({});
+    expect(
+      deviceRegistrationResponseSchema.safeParse({ seal_server_public_key: 'x' }).success,
+    ).toBe(false);
   });
 });

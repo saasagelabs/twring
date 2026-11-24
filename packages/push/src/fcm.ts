@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
-import type { MessagePush, RingCancelPush, RingPush } from '@twring/contracts';
+import type { MessagePush, RingCancelPush, RingPush, SealedEnvelope } from '@twring/contracts';
 import { importPKCS8, SignJWT } from 'jose';
 import { z } from 'zod';
 
@@ -47,6 +47,25 @@ export function redactMessagePush(data: MessagePush): MessagePush {
   };
 }
 
+/** The `type` of a sealed push; the real push is inside `sealed` (the relay uses the same). */
+export const SEALED_PUSH_TYPE = 'cord.sealed';
+
+/**
+ * The message push sealed for this phone, when the target can open one. Undefined (no sealer, or
+ * sealing failed) means the redacted push goes instead: a notification is never skipped.
+ */
+export function sealedMessageFor(
+  target: PushTarget,
+  data: MessagePush,
+): SealedEnvelope | undefined {
+  if (target.sealMessage === undefined) return undefined;
+  try {
+    return target.sealMessage(data);
+  } catch {
+    return undefined;
+  }
+}
+
 export interface PushOptions {
   priority: 'high' | 'normal';
   ttlSeconds: number;
@@ -58,6 +77,11 @@ export interface PushTarget {
   platform?: 'android' | 'ios';
   /** iOS only: the alert token for messages and missed rings. */
   apnsToken?: string;
+  /**
+   * Seals a message push for this phone (ADR-043 Phase B), for phones that sent a seal key.
+   * Returns undefined when it cannot; the push then goes redacted.
+   */
+  sealMessage?: (data: MessagePush) => SealedEnvelope | undefined;
 }
 
 /**
@@ -149,8 +173,29 @@ export class FcmPushSender implements PushSender {
     data: PushPayload,
     options: PushOptions = { priority: 'high', ttlSeconds: 30 },
   ): Promise<PushOutcome> {
-    const sent = data.type === 'cord.message' ? redactMessagePush(data) : data;
-    return this.sendData(target.token, { ...sent }, options);
+    if (data.type === 'cord.message') {
+      // Android opens the envelope with its seal keys and shows the agent and the first line.
+      const sealed = sealedMessageFor(target, data);
+      if (sealed !== undefined) {
+        return this.sendData(
+          target.token,
+          {
+            type: SEALED_PUSH_TYPE,
+            kind: 'message',
+            // Outside the seal only the routing fields the redacted push already sends, so a
+            // phone that cannot open it still shows the fixed "New message" (never a name or text).
+            user_ref: data.user_ref,
+            agent_id: data.agent_id,
+            message_id: data.message_id,
+            silent: data.silent,
+            sealed: JSON.stringify(sealed),
+          },
+          options,
+        );
+      }
+      return this.sendData(target.token, { ...redactMessagePush(data) }, options);
+    }
+    return this.sendData(target.token, { ...data }, options);
   }
 
   /** Sends string `data` as-is to one FCM token (the relay's sealed pushes use this). */

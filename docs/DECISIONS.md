@@ -1328,7 +1328,17 @@ already send message pushes sealed to the phone through Twring's relay.
 - This is not end-to-end encryption. The Twring server still stores messages (encrypted at rest),
   and Google and Apple still see that a push happened, when, and its ids.
 - Installed apps keep working: Android shows "Your agent" and "New message"; iPhone shows "New
-  message". Previews come back in Phase B, sealed to the phone end to end, with its own spec.
+  message". Previews come back in Phase B, sealed for each phone (not end to end; see the Phase B update), with its own spec.
+
+### Update 2026-11-24: Phase B
+
+Hosted message pushes are now sealed per device, so Google and Apple carry only ciphertext for a
+phone that registered a seal key; a phone without one (older app, unreadable key) still gets the
+Phase A redacted push, never nothing. The hosted server holds its sealing key for each phone,
+encrypted at rest, so this is not end-to-end encryption: it keeps the agent name and preview away
+from push providers, not from the Twring server. The routing ids (`user_ref`, `agent_id`,
+`message_id`, `silent`) stay outside the seal so a phone that cannot open a push still shows the
+fixed "New message". iOS opens sealed pushes with a Notification Service Extension in a later part.
 
 ## ADR-044: End-to-end encrypted chat with computer agents (2026-11-24)
 

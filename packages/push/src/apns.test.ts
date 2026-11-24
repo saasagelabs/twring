@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from 'node:crypto';
 
-import type { MessagePush, RingCancelPush, RingPush } from '@twring/contracts';
+import type { MessagePush, RingCancelPush, RingPush, SealedEnvelope } from '@twring/contracts';
 import { decodeJwt, decodeProtectedHeader } from 'jose';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -55,6 +55,35 @@ describe('what an iPhone gets', () => {
       agent_id: message.agent_id,
     });
     expect(request?.body).not.toHaveProperty('agent_name');
+  });
+
+  it('a sealed message keeps the fixed alert, adds mutable-content and the envelope', () => {
+    const envelope = { v: 1, nonce: 'n', ciphertext: 'c' } as unknown as SealedEnvelope;
+    const request = apnsRequestFor({ ...ios, sealMessage: () => envelope }, message, BUNDLE);
+    expect(request).toMatchObject({ pushType: 'alert', collapseId: message.message_id });
+    expect(request?.body).toMatchObject({
+      aps: { alert: { body: 'New message' }, 'mutable-content': 1 },
+      type: 'cord.message',
+      message_id: message.message_id,
+      sealed: JSON.stringify(envelope),
+    });
+    const sent = JSON.stringify(request?.body);
+    expect(sent).not.toContain('Hermes');
+    expect(sent).not.toContain('All tests pass');
+  });
+
+  it('a sealer that fails or throws leaves the redacted alert', () => {
+    for (const sealMessage of [
+      () => undefined,
+      () => {
+        throw new Error('no key');
+      },
+    ]) {
+      const request = apnsRequestFor({ ...ios, sealMessage }, message, BUNDLE);
+      expect(request?.body).toMatchObject({ aps: { alert: { body: 'New message' } } });
+      expect(request?.body).not.toHaveProperty('sealed');
+      expect(request?.body).not.toHaveProperty(['aps', 'mutable-content']);
+    }
   });
 
   it('rings with a VoIP push to the VoIP token, and nothing else is VoIP', () => {
