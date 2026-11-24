@@ -33,6 +33,11 @@ export const e2eConfigSchema = z
     public_key: publicKeySchema,
     private_key: publicKeySchema,
     devices: z.array(trustedDeviceSchema).max(16),
+    /**
+     * Phones checked at pairing (MAC and code) whose server add is not known to have finished.
+     * Never wrapped to: they move to `devices` once the add succeeds or the server lists them.
+     */
+    pending: z.array(trustedDeviceSchema).max(4).optional(),
     /** The last seq this computer sealed with; never reused, even across restarts. */
     seq: z.number().int().nonnegative(),
     /** Highest seq opened per sender device, so a restart does not reopen old replays. */

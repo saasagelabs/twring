@@ -3,6 +3,7 @@ import {
   deviceIdFor,
   generateSealKeyPair,
   MAX_RELAY_MESSAGE_BYTES,
+  MAX_SEALED_REPLY_CHUNKS,
   SCOPED_SESSIONS_FEATURE,
   SEALED_CHAT_FEATURE,
   type RelayConnectorMessage,
@@ -15,7 +16,14 @@ import { ResultOutbox } from '../outbox';
 import { ensureDeviceKey, type E2eConfig, type TrustedDevice } from './keys';
 import { openIncoming, ReplayWindow, sealOutgoing, type SealContext } from './sealed';
 import { baseConfig } from './test-fixtures';
-import { helloFeatures, PrivateChats, privateTurnText } from './turn';
+import {
+  CHUNK_INTERVAL_MS,
+  helloFeatures,
+  PrivateChats,
+  privateTurnText,
+  UNKNOWN_SENDER_BUDGET,
+  UNKNOWN_SENDERS_BUDGET,
+} from './turn';
 
 const AGENT = 'claude-code';
 type Reply = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>;
@@ -30,6 +38,7 @@ interface FakeRunOptions {
   /** The socket stays down until `reconnect()`. */
   down?: boolean;
   agentThrows?: boolean;
+  now?: () => number;
 }
 
 function fakeRun(options: FakeRunOptions = {}) {
@@ -59,6 +68,7 @@ function fakeRun(options: FakeRunOptions = {}) {
     seen: new ReplayWindow(),
   };
   let phoneSeq = 0;
+  let writes = 0;
   const sent: RelayConnectorMessage[] = [];
   const inputs: string[] = [];
   let dropped = false;
@@ -77,6 +87,7 @@ function fakeRun(options: FakeRunOptions = {}) {
     connectorId: baseConfig.connector_id,
     e2e: () => e2e,
     persist: (change) => {
+      writes++;
       e2e = change(e2e);
       return Promise.resolve(e2e);
     },
@@ -96,6 +107,7 @@ function fakeRun(options: FakeRunOptions = {}) {
       return true;
     },
     outbox,
+    ...(options.now !== undefined && { now: options.now }),
   });
   const run = {
     phone,
@@ -105,6 +117,23 @@ function fakeRun(options: FakeRunOptions = {}) {
       message_id: messageId(),
       sealed: sealOutgoing(phoneCtx, payload, seq),
     }),
+    /** A message from a device this computer never paired, sealed to it properly. */
+    sealedFromStranger: (seq = 1) => {
+      const keys = generateSealKeyPair();
+      const ctx: SealContext = {
+        ...phoneCtx,
+        myDeviceId: deviceIdFor(keys.publicKey),
+        myPublic: base64urlEncode(keys.publicKey),
+        myPrivate: keys.privateKey,
+      };
+      return {
+        type: 'sealed.message' as const,
+        agent: AGENT,
+        message_id: messageId(),
+        sealed: sealOutgoing(ctx, { text: 'x' }, seq),
+      };
+    },
+    writes: () => writes,
     receive: (frame: Parameters<PrivateChats['receive']>[0]) => chats.receive(frame),
     agentInput: () => inputs.at(-1),
     agentTurns: () => inputs.length,
@@ -130,6 +159,39 @@ function fakeRun(options: FakeRunOptions = {}) {
   };
   return run;
 }
+
+describe('forged messages', () => {
+  it('limits config writes and replies for a burst from one unknown sender', async () => {
+    const run = fakeRun();
+    const first = run.sealedFromStranger();
+    for (let i = 0; i < 50; i++) await run.receive({ ...first, message_id: messageId() });
+    // Each allowed one costs one re-read and one reply seq: within the per-sender budget.
+    expect(run.sent('sealed.reply').length).toBe(UNKNOWN_SENDER_BUDGET);
+    expect(run.writes()).toBeLessThanOrEqual(UNKNOWN_SENDER_BUDGET * 2);
+    expect(run.agentTurns()).toBe(0);
+  });
+
+  it('limits a burst from many made-up senders as well', async () => {
+    const run = fakeRun();
+    for (let i = 0; i < 100; i++) await run.receive(run.sealedFromStranger());
+    expect(run.sent('sealed.reply').length).toBe(UNKNOWN_SENDERS_BUDGET);
+    expect(run.writes()).toBeLessThanOrEqual(UNKNOWN_SENDERS_BUDGET * 2);
+  });
+
+  it('allows more once a minute has passed, and still serves the paired phone', async () => {
+    let t = 0;
+    const run = fakeRun({ now: () => t });
+    const first = run.sealedFromStranger();
+    for (let i = 0; i < 20; i++) await run.receive({ ...first, message_id: messageId() });
+    await run.receive(run.sealedFromPhone({ text: 'hi' }));
+    expect(run.agentTurns()).toBe(1);
+    t += 61_000;
+    await run.receive({ ...first, message_id: messageId() });
+    expect(run.sent('sealed.reply').filter((f) => f.turn_id !== undefined).length).toBe(
+      UNKNOWN_SENDER_BUDGET + 2,
+    );
+  });
+});
 
 describe('private turns', () => {
   it('gives the agent the opened text with the phone-built quote', async () => {
@@ -166,6 +228,43 @@ describe('private turns', () => {
     expect(frames.filter((f) => f.final)).toHaveLength(1);
     expect(frames.at(-1)!.sealed.chunk!.final).toBe(true);
     expect(run.phoneReads(message.message_id)).toBe('Hello');
+  });
+
+  it('keeps a reply within the server chunk cap when the agent pauses often', async () => {
+    // 300 one-character events, each more than the flush interval apart.
+    let t = 0;
+    const says = Array.from({ length: 300 }, (_, i) => String.fromCharCode(97 + (i % 26)));
+    const run = fakeRun({
+      agentSays: says,
+      now: () => (t += CHUNK_INTERVAL_MS + 1),
+    });
+    const message = run.sealedFromPhone({ text: 'slow please' });
+    await run.receive(message);
+    const frames = run.sent('sealed.reply');
+    expect(frames.length).toBeLessThanOrEqual(MAX_SEALED_REPLY_CHUNKS);
+    expect(frames.map((f) => f.sealed.chunk!.index)).toEqual(frames.map((_, i) => i));
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    expect(frames.at(-1)!.final).toBe(true);
+    expect(run.phoneReads(message.message_id)).toBe(says.join(''));
+  });
+
+  it('keeps a reply within the chunk cap when slow chunks are followed by control-character bursts', async () => {
+    // 60 slow one-character events, then bursts of escaped control characters each just past a
+    // size flush, so every size flush is split and every piece may be halved for the relay limit.
+    let t = 0;
+    const slow = Array.from({ length: 60 }, () => '\u0001');
+    const burst = Array.from({ length: 3 }, () => '\u0001'.repeat(8_001));
+    const says = [...slow, ...burst, '\u0001'.repeat(20_000)];
+    const run = fakeRun({ agentSays: says, now: () => (t += CHUNK_INTERVAL_MS + 1) });
+    const message = run.sealedFromPhone({ text: 'slow then big' });
+    await run.receive(message);
+    const frames = run.sent('sealed.reply');
+    expect(frames.length).toBeLessThanOrEqual(MAX_SEALED_REPLY_CHUNKS);
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    for (const frame of frames)
+      expect(Buffer.byteLength(JSON.stringify(frame), 'utf8')).toBeLessThanOrEqual(
+        MAX_RELAY_MESSAGE_BYTES,
+      );
   });
 
   it('splits a long reply so no frame passes the relay limit', async () => {

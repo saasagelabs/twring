@@ -1252,25 +1252,14 @@ async function privateCommand(rest: string[]): Promise<number> {
         }
       },
       // The running copy may have sealed messages meanwhile: keep its seq and replay record.
-      save: async (next) => {
-        const added = next.e2e!.devices.filter(
-          (device) => !config.e2e!.devices.some((old) => old.id === device.id),
-        );
+      update: async (change) => {
         const kept = await updateE2e(path, (current) => {
           if (current.public_key !== config.e2e!.public_key) throw new Error('changed');
-          return {
-            ...current,
-            devices: [
-              ...current.devices.filter(
-                (old) => !added.some((d) => d.id === old.id || d.public_key === old.public_key),
-              ),
-              ...added,
-            ],
-          };
+          return change(current);
         }).catch(() => undefined);
         if (kept === undefined)
           throw new Error(
-            'This computer was set up again while pairing. Run this again to pair your phone.',
+            'This computer could not save your phone, or was set up again while pairing. Run this again to pair your phone.',
           );
       },
     });

@@ -4,6 +4,7 @@ import {
   base64urlDecode,
   base64urlEncode,
   e2eDeviceIdSchema,
+  e2eDeviceSchema,
   pairOfferIdSchema,
   pairingMac,
   publicKeySchema,
@@ -13,7 +14,7 @@ import { z } from 'zod';
 
 import { apiUrl, checkServerUrl, type ConnectorConfig } from '../config';
 import { terminalQr } from '../link';
-import type { TrustedDevice } from './keys';
+import type { E2eConfig, TrustedDevice } from './keys';
 
 /** What the phone reads from the QR: `twring-pair:` then base64url JSON of this. */
 export const pairLinkSchema = z
@@ -57,8 +58,12 @@ export interface PairPhoneOptions {
   print: (line: string) => void;
   /** Asks "Same number? (y/n)" after the code was printed. */
   confirm: (code: string) => Promise<boolean>;
-  /** Saves the config with the new phone; called only once pairing succeeded. */
-  save: (config: ConnectorConfig) => Promise<void>;
+  /**
+   * Changes and saves the private chat config (read fresh first); rejects when it could not. The
+   * phone is saved pending before the server hears of it and trusted only after the server added
+   * it, so a failure at any step leaves both sides agreeing (or the next device sync settles it).
+   */
+  update: (change: (current: E2eConfig) => E2eConfig) => Promise<void>;
   signal: AbortSignal;
   qr?: (text: string) => string | undefined;
   /** Long-poll wait the server is asked for, in seconds. */
@@ -77,8 +82,11 @@ const claimResponseSchema = z.object({
   mac: z.string().min(1).max(64),
 });
 type Claim = z.infer<typeof claimResponseSchema>;
+const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
 
 const RETRY_MS = 2_000;
+/** The most pending phones the saved config allows (`e2eConfigSchema`). */
+const MAX_PENDING = 4;
 
 class PairStop extends Error {
   constructor(readonly outcome: Exclude<PairOutcome, 'paired'>) {
@@ -94,7 +102,8 @@ function sameText(a: string, b: string): boolean {
 
 /**
  * Pairs a phone with this computer for private chats (ADR-044). The QR carries a secret the
- * server never sees; the phone's claim must carry an HMAC over both public keys with it, and the
+ * server never sees; the phone's claim must carry an HMAC with it over both public keys, both device
+ * ids and the phone's name (so the server cannot rename or re-id a phone), and the
  * person must see the same 6-digit code on both screens. Only then does the phone join this
  * computer's trusted list. Prints plain words only: never the secret, a key or a MAC.
  */
@@ -145,8 +154,15 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     const claim = await waitForClaim(options, call, offer.offer_id, Date.parse(offer.expires_at));
     const mine = base64urlDecode(e2e.public_key);
     const phoneKey = base64urlDecode(claim.phone_public_key);
-    // The MAC proves the phone read this QR: a key swapped on the way fails here.
-    if (!sameText(pairingMac(secret, mine, phoneKey), claim.mac)) {
+    // The MAC proves the phone read this QR: a key, device id or name swapped on the way fails.
+    const expected = pairingMac(secret, {
+      connectorPublic: mine,
+      phonePublic: phoneKey,
+      connectorDeviceId: e2e.device_id,
+      phoneDeviceId: claim.phone_device_id,
+      phoneName: claim.phone_name,
+    });
+    if (!sameText(expected, claim.mac)) {
       print('Your phone sent a code this computer could not check. Nothing was paired.');
       return 'mismatch';
     }
@@ -156,13 +172,6 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
       print('The numbers did not match, so nothing was paired.');
       return 'mismatch';
     }
-    const added = await call('/v1/e2e/computer/devices', {
-      method: 'POST',
-      body: JSON.stringify({ offer_id: offer.offer_id }),
-    });
-    if (added.status === 409 && (await errorCode(added)) === 'device_cap') return 'cap';
-    if (added.status === 410 || added.status === 404) return 'expired';
-    if (!added.ok) throw new Error(await refusal(added));
     const phone: TrustedDevice = {
       id: claim.phone_device_id,
       kind: 'phone',
@@ -170,20 +179,69 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
       public_key: claim.phone_public_key,
       verified_at: new Date(options.now?.() ?? Date.now()).toISOString(),
     };
-    await options.save({
-      ...config,
-      e2e: {
-        ...e2e,
-        devices: [
-          ...e2e.devices.filter((d) => d.id !== phone.id && d.public_key !== phone.public_key),
-          phone,
-        ],
-      },
-    });
+    const other = (d: TrustedDevice) => d.id !== phone.id && d.public_key !== phone.public_key;
+    const dropPending = (current: E2eConfig): E2eConfig => {
+      const { pending, ...rest } = current;
+      const left = (pending ?? []).filter(other);
+      return left.length > 0 ? { ...rest, pending: left } : rest;
+    };
+    // Saved before the server adds it: a failed save leaves nothing on either side.
+    await options.update((current) => ({
+      ...current,
+      // The config holds at most MAX_PENDING: the oldest give way (a sync re-lists them if added).
+      pending: [...(current.pending ?? []).filter(other), phone].slice(-MAX_PENDING),
+    }));
+    const forget = () => options.update(dropPending).catch(() => undefined);
+    let added: Response | undefined;
+    try {
+      added = await call('/v1/e2e/computer/devices', {
+        method: 'POST',
+        body: JSON.stringify({ offer_id: offer.offer_id }),
+      });
+    } catch (error) {
+      // The link dropped: the server may or may not have added it. Ask; if it cannot say, the
+      // phone stays pending and the next device sync settles it.
+      const listed = await serverLists(options, server, headers.authorization, phone);
+      if (listed === false) await forget();
+      if (listed !== true) throw error;
+    }
+    if (added !== undefined && !added.ok) {
+      await forget();
+      if (added.status === 409 && (await errorCode(added)) === 'device_cap') return 'cap';
+      if (added.status === 410 || added.status === 404) return 'expired';
+      throw new Error(await refusal(added));
+    }
+    await options.update((current) => ({
+      ...dropPending(current),
+      devices: [...current.devices.filter(other), phone],
+    }));
     return 'paired';
   } catch (error) {
     if (error instanceof PairStop) return error.outcome;
     throw error;
+  }
+}
+
+/** Whether the server lists `phone` with its key; undefined when it cannot be asked. */
+async function serverLists(
+  options: PairPhoneOptions,
+  server: URL,
+  authorization: string,
+  phone: TrustedDevice,
+): Promise<boolean | undefined> {
+  try {
+    const res = await options.fetch(apiUrl(server, '/v1/e2e/computer/devices'), {
+      headers: { authorization },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) return undefined;
+    const body = devicesResponseSchema.safeParse(await res.json());
+    if (!body.success) return undefined;
+    return body.data.devices.some(
+      (d) => d.id === phone.id && d.public_key === phone.public_key && d.revoked_at === undefined,
+    );
+  } catch {
+    return undefined;
   }
 }
 

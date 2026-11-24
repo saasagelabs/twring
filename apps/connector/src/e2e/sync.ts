@@ -33,6 +33,34 @@ export function reconcileDevices(
   };
 }
 
+/** A pending phone the server still does not list after this long was never added: dropped. */
+export const PENDING_MAX_MS = 30 * 60_000;
+
+/**
+ * Settles phones a pairing left pending (its last save or the server add did not finish): one
+ * the server lists with the same key is trusted (this computer checked it itself at pairing), one
+ * the server revoked or lists with another key is dropped, and one never listed is dropped after
+ * PENDING_MAX_MS. So this computer and the server end up agreeing on the pairing.
+ */
+export function settlePending(
+  pending: TrustedDevice[],
+  server: E2eDevice[],
+  now: number,
+): { confirmed: TrustedDevice[]; pending: TrustedDevice[] } {
+  const confirmed: TrustedDevice[] = [];
+  const kept: TrustedDevice[] = [];
+  for (const device of pending) {
+    const listed = server.find((d) => d.id === device.id);
+    if (listed !== undefined) {
+      if (listed.revoked_at === undefined && listed.public_key === device.public_key)
+        confirmed.push(device);
+    } else if (now - Date.parse(device.verified_at) <= PENDING_MAX_MS) {
+      kept.push(device);
+    }
+  }
+  return { confirmed, pending: kept };
+}
+
 const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
 
 export interface SyncDevicesOptions {
@@ -42,6 +70,7 @@ export interface SyncDevicesOptions {
   /** Changes and saves the private chat config (read fresh first). */
   persist: (change: (current: E2eConfig) => E2eConfig) => Promise<E2eConfig | undefined>;
   signal?: AbortSignal;
+  now?: () => number;
 }
 
 /**
@@ -71,7 +100,18 @@ export async function syncDevices(
   await options.persist((current) => {
     const out = reconcileDevices(current.devices, body.devices, current.device_id);
     counts = { revoked: out.revoked.length, unverified: out.unverified.length };
-    return { ...current, devices: out.trusted };
+    if (current.pending === undefined) return { ...current, devices: out.trusted };
+    const settled = settlePending(current.pending, body.devices, (options.now ?? Date.now)());
+    const rest = { ...current };
+    delete rest.pending;
+    return {
+      ...rest,
+      devices: [
+        ...out.trusted.filter((d) => !settled.confirmed.some((c) => c.id === d.id)),
+        ...settled.confirmed,
+      ],
+      ...(settled.pending.length > 0 && { pending: settled.pending }),
+    };
   });
   return counts;
 }
