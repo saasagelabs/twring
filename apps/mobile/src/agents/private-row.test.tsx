@@ -5,19 +5,23 @@ import type * as AvailabilityModule from '../e2e/private-availability';
 import { PrivateAvailabilityCache } from '../e2e/private-availability';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  state: [] as unknown[],
-  cursor: 0,
-  status: 'on',
-  statusCalls: 0,
-  scope: 'user-1',
-  trusted: [] as unknown[],
-  setPrivate: vi.fn(),
-  turnOnPrivate: vi.fn(),
-  push: vi.fn(),
-  feedback: vi.fn(),
-  cache: undefined,
-}));
+const mocks = vi.hoisted(() => {
+  const typed: { status: 'on' | 'off' | 'unknown'; cache?: PrivateAvailabilityCache } = {
+    status: 'on',
+  };
+  return {
+    ...typed,
+    state: [] as unknown[],
+    cursor: 0,
+    statusCalls: 0,
+    scope: 'user-1',
+    trusted: [] as unknown[],
+    setPrivate: vi.fn(),
+    turnOnPrivate: vi.fn(),
+    push: vi.fn(),
+    feedback: vi.fn(),
+  };
+});
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
@@ -148,9 +152,7 @@ describe('Make chats private row', () => {
     mocks.state = [];
     expect(await loaded()).not.toBeNull();
     expect(mocks.cache).toBeInstanceOf(PrivateAvailabilityCache);
-    expect(
-      (mocks.cache as PrivateAvailabilityCache).peek('https://api.twring.invalid|user-1'),
-    ).toBe('on');
+    expect(mocks.cache?.peek('https://api.twring.invalid|user-1')).toBe('on');
   });
 
   it('asks again for another account, never reusing its answer', async () => {
