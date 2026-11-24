@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
   MAX_SEALED_AGENT_BODY_CHARS,
   MAX_SEALED_BODY_CHARS,
+  messagePageResponseSchema,
   SEALED_CHAT_FEATURE,
   type SealedEnvelopeV1,
 } from '@twring/contracts';
@@ -67,7 +68,9 @@ async function privateThread() {
     return { status: res.statusCode, json: res.json() };
   };
   const list = async () =>
-    (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json().messages;
+    messagePageResponseSchema.parse(
+      (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json(),
+    ).messages;
   return { g, agentId, connectorId, token, connector, post, list, localAgent: 'claude-code' };
 }
 
@@ -216,7 +219,9 @@ describe('sealed relay', () => {
       final: true,
     });
     await waitFor(() => g.threads!.service.sealedRepliesRejected === 1);
-    const listed = (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json();
+    const listed = messagePageResponseSchema.parse(
+      (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json(),
+    );
     expect(listed.messages.some((m) => m.kind === 'sealed')).toBe(false);
   });
 

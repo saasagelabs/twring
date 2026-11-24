@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import {
   MAX_SEALED_BODY_CHARS,
   SEALED_CHAT_FEATURE,
+  threadListResponseSchema,
   type SealedEnvelopeV1,
   type ThreadMessage,
 } from '@twring/contracts';
@@ -142,10 +143,12 @@ describe('private threads', () => {
   it('marks the thread private in the thread list', async () => {
     const t = await privateThread();
     await t.postMessage({ client_id: randomUUID(), sealed: envelope() });
-    const list = (await t.g.send('GET', '/v1/threads', { user: 'u1' })).json();
+    const list = threadListResponseSchema.parse(
+      (await t.g.send('GET', '/v1/threads', { user: 'u1' })).json(),
+    );
     const summary = list.threads.find((entry) => entry.agent_id === t.agentId)!;
     expect(summary.private).toBe(true);
-    expect(summary.last_message.kind).toBe('sealed');
+    expect(summary.last_message?.kind).toBe('sealed');
   });
 
   it('refuses a sealed body over the ciphertext cap', async () => {

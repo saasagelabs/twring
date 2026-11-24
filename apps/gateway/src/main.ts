@@ -490,6 +490,9 @@ const ringService = new RingService({
   inCall: (userId) => calls?.registry.hasCallInUse(userId) ?? false,
   scheduler: systemScheduler,
   logger: ringLogger,
+  // Private chats (ADR-044): rings carry fixed words. The store is created below.
+  privateChat: (userId, agentId) =>
+    threadStore ? threadStore.isPrivate(userId, agentId) : Promise.resolve(false),
   onSettled: async (invite) => {
     if (threadService && invite.status !== 'pending') {
       await threadService.recordRing({ ...invite, status: invite.status });

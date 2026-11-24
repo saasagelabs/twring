@@ -11,6 +11,7 @@ import {
 } from '@twring/contracts';
 
 import type { Scheduler } from '../calls/scheduler';
+import { PRIVATE_RING_REASON } from '../e2e/guard';
 import { toSafeError } from '../redact';
 import type { CallHistoryRepository } from '../store/repositories';
 
@@ -70,6 +71,11 @@ export interface RingServiceOptions {
   logger: RingLogger;
   newInviteId?: () => string;
   onSettled?: (invite: InviteRecord) => Promise<void>;
+  /**
+   * Whether this person's chat with the agent is private (ADR-044): then the ring, its push and
+   * every record of it carry PRIVATE_RING_REASON, never the agent's own words.
+   */
+  privateChat?: (userId: string, agentId: string) => Promise<boolean>;
 }
 
 export interface RingTarget {
@@ -209,7 +215,10 @@ export class RingService {
       ...(target.localAgent !== undefined && { local_agent: target.localAgent }),
       agent_id: target.agentId,
       agent_name: target.agentName,
-      reason: target.reason,
+      reason:
+        (await this.options.privateChat?.(target.userId, target.agentId)) === true
+          ? PRIVATE_RING_REASON
+          : target.reason,
       ...(target.sessionRef !== undefined && { session_ref: target.sessionRef }),
       ...(target.messageId !== undefined && { message_id: target.messageId }),
       status: 'pending',
