@@ -233,6 +233,93 @@ describe('private turns', () => {
     expect(frames.at(-1)!.final).toBe(true);
     expect(run.phoneReads(message.message_id)).toMatch(/went wrong/);
   });
+
+  it('caps a reply of 4-byte characters at the stored limit, every frame under the relay limit', async () => {
+    const e = '\u{1F600}';
+    const run = fakeRun({ agentSays: [e.repeat(7_001), e.repeat(7_001), `x${e}`.repeat(3_000)] });
+    const message = run.sealedFromPhone({ text: 'long please' });
+    await run.receive(message);
+    const frames = run.sent('sealed.reply');
+    for (const frame of frames) {
+      expect(Buffer.byteLength(JSON.stringify(frame), 'utf8')).toBeLessThanOrEqual(
+        MAX_RELAY_MESSAGE_BYTES,
+      );
+      expect(frame.turn_id).toBe(message.message_id);
+    }
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    expect(frames.at(-1)!.final).toBe(true);
+    expect(frames.map((f) => f.sealed.chunk!.index)).toEqual(frames.map((_, i) => i));
+    expect(new Set(frames.map((f) => f.sealed.sender_seq)).size).toBe(1);
+    const text = run.phoneReads(message.message_id);
+    expect(text.length).toBeLessThanOrEqual(20_000);
+    expect(text.length).toBeGreaterThan(19_990);
+    expect(
+      /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/.test(text),
+    ).toBe(false);
+  });
+
+  it('keeps a reply of escaped control characters under the relay limit', async () => {
+    const run = fakeRun({ agentSays: ['\u0001'.repeat(20_000)] });
+    const message = run.sealedFromPhone({ text: 'hi' });
+    await run.receive(message);
+    for (const frame of run.sent('sealed.reply'))
+      expect(Buffer.byteLength(JSON.stringify(frame), 'utf8')).toBeLessThanOrEqual(
+        MAX_RELAY_MESSAGE_BYTES,
+      );
+    expect(run.phoneReads(message.message_id)).toBe('\u0001'.repeat(20_000));
+  });
+
+  it('sends final once, in order, when the link drops mid-reply and comes back twice', async () => {
+    const run = fakeRun({
+      agentSays: ['a'.repeat(9_000), 'b'.repeat(9_000)],
+      dropSocketOnce: true,
+    });
+    const message = run.sealedFromPhone({ text: 'hi' });
+    await run.receive(message);
+    await run.reconnect();
+    await run.reconnect();
+    const frames = run.sent('sealed.reply');
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    expect(frames.map((f) => f.sealed.chunk!.index)).toEqual(frames.map((_, i) => i));
+    expect(run.phoneReads(message.message_id)).toBe('a'.repeat(9_000) + 'b'.repeat(9_000));
+  });
+
+  it('a forged sender never reaches the agent and leaves the real seq usable', async () => {
+    const run = fakeRun();
+    const real = run.sealedFromPhone({ text: 'hi' }, 7);
+    const stranger = generateSealKeyPair();
+    const forgedCtx: SealContext = {
+      accountId: baseConfig.connector_id,
+      agentId: AGENT,
+      myDeviceId: run.phone.id,
+      myPublic: base64urlEncode(stranger.publicKey),
+      myPrivate: stranger.privateKey,
+      trusted: [
+        {
+          id: run.e2e().device_id,
+          kind: 'computer',
+          name: 'Laptop',
+          public_key: run.e2e().public_key,
+          verified_at: '2026-11-24T00:00:00.000Z',
+        },
+      ],
+      seen: new ReplayWindow(),
+    };
+    await run.receive({ ...real, sealed: sealOutgoing(forgedCtx, { text: 'evil' }, 7) });
+    expect(run.agentTurns()).toBe(0);
+    expect(run.e2e().seen ?? {}).toEqual({});
+    await run.receive(real);
+    expect(run.agentInput()).toContain('hi');
+  });
+
+  it('remembers seen seqs across a restart', async () => {
+    const run = fakeRun();
+    await run.receive(run.sealedFromPhone({ text: 'hi' }, 5));
+    const window = new ReplayWindow(run.e2e().seen ?? {});
+    expect(window.fresh(run.phone.id, 5)).toBe(false);
+    expect(window.fresh(run.phone.id, 4)).toBe(false);
+    expect(window.fresh(run.phone.id, 6)).toBe(true);
+  });
 });
 
 describe('helloFeatures', () => {

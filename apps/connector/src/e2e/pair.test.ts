@@ -214,4 +214,53 @@ describe('pairPhone', () => {
       x: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     });
   });
+  it('never sends the QR secret or anything made from it to the server', async () => {
+    const server = fakeServer({ waits: 1 });
+    const seen: string[] = [];
+    let link = '';
+    const run = deps(server, {
+      fetch: ((input: string | URL, init?: RequestInit) => {
+        seen.push(String(input), JSON.stringify(init?.body ?? ''));
+        new Headers(init?.headers).forEach((value, name) => seen.push(`${name}:${value}`));
+        return server.fetchImpl(input, init);
+      }) as typeof fetch,
+      qr: (text) => {
+        link = text;
+        server.setQr(text);
+        return '[qr]';
+      },
+    });
+    expect(await pairPhone(run.options)).toBe('paired');
+    const secret = parsePairLink(link)!.x;
+    const all = seen.join(' ');
+    expect(all).not.toContain(secret);
+    expect(all).not.toContain(Buffer.from(base64urlDecode(secret)).toString('hex'));
+    expect(all).not.toContain(link);
+    expect(all).not.toContain(run.options.config.e2e!.private_key);
+  });
+
+  it('adds nothing on the server or here when the person says no, the mac fails or it is cancelled mid-wait', async () => {
+    for (const over of [
+      { confirm: () => Promise.resolve(false) },
+      { tamper: true },
+      { cancelWhileWaiting: true },
+    ] as const) {
+      const server = fakeServer({ waits: 2, tamperMac: 'tamper' in over });
+      const controller = new AbortController();
+      const run = deps(server, {
+        signal: controller.signal,
+        waitSeconds: 0,
+        ...('confirm' in over && { confirm: over.confirm }),
+        ...('cancelWhileWaiting' in over && {
+          fetch: ((input: string | URL, init?: RequestInit) => {
+            if (String(input).includes('wait=')) controller.abort();
+            return server.fetchImpl(input, init);
+          }) as typeof fetch,
+        }),
+      });
+      expect(await pairPhone(run.options)).not.toBe('paired');
+      expect(server.requests.some((r) => r.path === '/v1/e2e/computer/devices')).toBe(false);
+      expect(run.saved()).toBeUndefined();
+    }
+  });
 });
