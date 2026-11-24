@@ -81,7 +81,7 @@ function roomConfig(room: string): RoomConfiguration {
 }
 
 /**
- * The phone's and the server's tokens for one room, each limited to that room for 2 hours. The
+ * The phone's and the server's tokens for one room, each limited to that room for 10 minutes. The
  * phone publishes only a microphone; the server joins as the agent, as on its own LiveKit.
  */
 export async function mintAudioTokens(
