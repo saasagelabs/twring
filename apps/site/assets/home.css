@@ -340,6 +340,7 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); overfl
 .foot-links a { display: flex; align-items: center; min-height: 2rem; text-decoration: none; }
 .foot-links a:hover { color: var(--text); text-decoration: underline; text-decoration-color: var(--line-strong); }
 .legal { margin-top: 1.5rem; display: flex; justify-content: space-between; gap: 0.5rem 1.5rem; flex-wrap: wrap; padding-top: 1.25rem; border-top: 1px solid var(--line); font-size: 0.8125rem; color: var(--text-ter); }
+.legal a:hover { color: var(--text); text-decoration-color: var(--cyan); }
 
 /* The giant wordmark, from variation 4: a thin cyan outline, with the fill lit only where the
    light falls. The static look (no script, reduced motion) is a top-down wash. */
