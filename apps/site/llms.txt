@@ -37,6 +37,7 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 - [Self-hosting](https://twring.com/self-hosting/): run Twring on your own server
 - [Server guide](https://twring.com/self-hosting/guide/): install, update, back up and fix a self-hosted server
 - [Support](https://twring.com/support/): installing, calls, rings, account and data questions
+- [Why didn't my phone ring?](https://twring.com/support/phone-did-not-ring/): every check in order: Twring's Calls settings, notifications, quiet hours, same account, limits (6 rings an hour per agent), the computer and hooks
 - [Pricing](https://twring.com/pricing/): free while launching; daily calling-time limit; what you still pay others for; self-hosting charge later
 - [Compare](https://twring.com/compare/): how Twring compares with Remote Control, voice dictation, VoiceMode, call-me plugins, agentring and ntfy, by job
 - [Twring vs Claude Code Remote Control](https://twring.com/vs/claude-code-remote-control/): typing and steering your session (Remote Control) vs talking and getting rung (Twring)
