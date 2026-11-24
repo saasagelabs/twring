@@ -257,6 +257,18 @@ export default function AgentDetailScreen() {
 
       {!aiApp && (chats.available || canStartNew) && (
         <SettingsGroup title="Conversation">
+          {chats.available && (
+            <SettingsRow
+              label="Photos and files"
+              accessibilityHint="Shows every photo and file in this chat"
+              onPress={() =>
+                router.push({
+                  pathname: '/agents/[id]/media',
+                  params: { id: agent.id, name: agent.name },
+                })
+              }
+            />
+          )}
           {canStartNew && (
             <SettingsRow
               label="Start a new conversation"
