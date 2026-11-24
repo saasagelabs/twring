@@ -1,15 +1,21 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
 import { randomUUID } from 'node:crypto';
+import type { DatabaseSync } from 'node:sqlite';
 
 import {
   MAX_RELAY_MESSAGE_BYTES,
   MAX_SEALED_AGENT_BODY_CHARS,
   MAX_SEALED_BODY_CHARS,
+  MAX_SEALED_REPLY_TOTAL_CHARS,
   messagePageResponseSchema,
   SEALED_CHAT_FEATURE,
+  threadListResponseSchema,
   type SealedEnvelopeV1,
+  type ThreadMessage,
 } from '@twring/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { messageAad, type CredentialCipher } from '../store/cipher';
 
 import { startConnectorGateway, type ConnectorGateway } from './harness';
 import { startFakeConnector, type FakeConnector } from './testing';
@@ -105,7 +111,7 @@ describe('sealed relay', () => {
       status: 'working',
     });
 
-    const reply = envelope({ sender_device: COMPUTER });
+    const reply = envelope({ sender_device: COMPUTER, chunk: { index: 1, final: true } });
     t.connector.send({
       type: 'sealed.reply',
       agent: t.localAgent,
@@ -120,12 +126,12 @@ describe('sealed relay', () => {
     );
     const messages = await t.list();
     const agentReplies = messages.filter((m) => m.kind === 'sealed' && m.author === 'agent');
-    // The streamed reply was updated in place, not stored twice.
+    // The streamed reply is one message holding every chunk, not stored twice.
     expect(agentReplies).toHaveLength(1);
     expect(agentReplies[0]).toMatchObject({
       kind: 'sealed',
       author: 'agent',
-      sealed: reply,
+      sealed: [partial, reply],
       turn_id: frame.message_id,
     });
     expect(JSON.stringify(messages)).not.toContain('"text"');
@@ -168,7 +174,166 @@ describe('sealed relay', () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     const replies = (await t.list()).filter((m) => m.kind === 'sealed' && m.author === 'agent');
     expect(replies).toHaveLength(1);
-    expect(replies[0]).toMatchObject({ sealed: final });
+    expect(replies[0]).toMatchObject({ sealed: [final] });
+  });
+
+  describe('chunked replies', () => {
+    const chunk = (index: number, final: boolean, body = `Q0hVTks${index}`) =>
+      envelope({ sender_device: COMPUTER, sender_seq: 900, body, chunk: { index, final } });
+    async function turn() {
+      const t = await privateThread();
+      const posted = await t.post({ client_id: randomUUID(), sealed: envelope() });
+      const id = posted.json.message.id as string;
+      const send = (sealed: SealedEnvelopeV1) =>
+        t.connector.send({
+          type: 'sealed.reply',
+          agent: t.localAgent,
+          turn_id: id,
+          sealed,
+          final: sealed.chunk?.final ?? true,
+        });
+      const reply = async () =>
+        (await t.list()).find(
+          (m): m is Extract<ThreadMessage, { kind: 'sealed' }> =>
+            m.kind === 'sealed' && m.author === 'agent',
+        );
+      const until = (n: number) => waitFor(async () => (await reply())?.sealed.length === n);
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 100));
+      return {
+        t,
+        id,
+        send,
+        reply,
+        until,
+        settle,
+        rejected: () => t.g.threads!.service.sealedRepliesRejected,
+      };
+    }
+
+    it('keeps every chunk of a reply, in order, in one message', async () => {
+      const r = await turn();
+      const chunks = [chunk(0, false), chunk(1, false), chunk(2, true)];
+      for (const c of chunks) r.send(c);
+      await r.until(3);
+      expect((await r.reply())!.sealed).toEqual(chunks);
+      await waitFor(async () =>
+        (await r.t.list()).some(
+          (m) => m.id === r.id && m.kind === 'sealed' && m.status === 'answered',
+        ),
+      );
+      expect((await r.t.list()).filter((m) => m.kind === 'sealed')).toHaveLength(2);
+    });
+
+    it('orders chunks by index when they arrive out of order', async () => {
+      const r = await turn();
+      const chunks = [chunk(0, false), chunk(1, false), chunk(2, true)];
+      r.send(chunks[2]!);
+      await r.until(1);
+      r.send(chunks[0]!);
+      await r.until(2);
+      r.send(chunks[1]!);
+      await r.until(3);
+      expect((await r.reply())!.sealed).toEqual(chunks);
+      expect(r.rejected()).toBe(0);
+    });
+
+    it('stores a chunk sent again after a reconnect once', async () => {
+      const r = await turn();
+      const chunks = [chunk(0, false), chunk(1, true)];
+      r.send(chunks[0]!);
+      await r.until(1);
+      r.send(chunks[0]!);
+      r.send(chunks[1]!);
+      await r.until(2);
+      r.send(chunks[0]!);
+      r.send(chunks[1]!);
+      await r.settle();
+      expect((await r.reply())!.sealed).toEqual(chunks);
+    });
+
+    it('refuses and counts a new chunk after the final one', async () => {
+      const r = await turn();
+      r.send(chunk(0, false));
+      r.send(chunk(1, true));
+      await r.until(2);
+      const before = r.rejected();
+      r.send(chunk(2, false));
+      r.send(chunk(3, true));
+      await waitFor(() => r.rejected() === before + 2);
+      expect((await r.reply())!.sealed).toHaveLength(2);
+    });
+
+    it('refuses a chunk whose index disagrees with the frame final flag', async () => {
+      const r = await turn();
+      r.t.connector.send({
+        type: 'sealed.reply',
+        agent: r.t.localAgent,
+        turn_id: r.id,
+        sealed: chunk(0, true),
+        final: false,
+      });
+      await waitFor(() => r.rejected() === 1);
+      expect(await r.reply()).toBeUndefined();
+    });
+
+    it('bounds the stored size of one reply', async () => {
+      const r = await turn();
+      const half = 'A'.repeat(Math.ceil(MAX_SEALED_REPLY_TOTAL_CHARS / 2) + 1);
+      expect(half.length).toBeLessThan(MAX_RELAY_MESSAGE_BYTES - 1024);
+      r.send(chunk(0, false, half));
+      await r.until(1);
+      r.send(chunk(1, true, half));
+      await waitFor(() => r.rejected() === 1);
+      expect((await r.reply())!.sealed).toHaveLength(1);
+    });
+
+    it('still reads a reply stored before chunking as a list of one', async () => {
+      const r = await turn();
+      const whole = envelope({ sender_device: COMPUTER });
+      r.send(whole);
+      await r.until(1);
+      const reply = (await r.reply())!;
+      const store = r.t.g.threads!.store as unknown as {
+        db: DatabaseSync;
+        cipher: CredentialCipher;
+      };
+      const row = store.db.prepare('SELECT thread_id FROM messages WHERE id=?').get(reply.id) as {
+        thread_id: string;
+      };
+      store.db
+        .prepare('UPDATE messages SET body=?, meta=? WHERE id=?')
+        .run(
+          JSON.stringify(
+            store.cipher.seal(JSON.stringify(whole), messageAad('u1', row.thread_id, reply.id)),
+          ),
+          JSON.stringify({ author: 'agent', final: true }),
+          reply.id,
+        );
+      expect((await r.reply())!.sealed).toEqual([whole]);
+      const before = r.rejected();
+      r.send(chunk(1, true));
+      await waitFor(() => r.rejected() === before + 1);
+    });
+
+    it('gives the phone every chunk through the page, the thread list and live updates', async () => {
+      const r = await turn();
+      const service = r.t.g.threads!.service as unknown as {
+        upsert(userId: string, message: ThreadMessage): void;
+      };
+      const live = vi.spyOn(service, 'upsert');
+      const chunks = [chunk(0, false), chunk(1, true)];
+      for (const c of chunks) r.send(c);
+      await r.until(2);
+      const lastLive = live.mock.calls
+        .map(([, m]) => m)
+        .filter((m) => m.kind === 'sealed' && m.author === 'agent')
+        .at(-1);
+      expect(lastLive).toMatchObject({ sealed: chunks });
+      const summary = threadListResponseSchema
+        .parse((await r.t.g.send('GET', '/v1/threads', { user: 'u1' })).json())
+        .threads.find((entry) => entry.agent_id === r.t.agentId)!;
+      expect(summary.last_message).toMatchObject({ kind: 'sealed', sealed: chunks });
+    });
   });
 
   it('drops a sealed reply from another account computer', async () => {
@@ -307,7 +472,11 @@ describe('sealed relay', () => {
       type: 'sealed.reply',
       agent: t.localAgent,
       turn_id: posted.json.message.id,
-      sealed: envelope({ sender_device: COMPUTER, body: 'U0VDUkVU' }),
+      sealed: envelope({
+        sender_device: COMPUTER,
+        body: 'U0VDUkVU',
+        chunk: { index: 0, final: false },
+      }),
       final: false,
     });
     await waitFor(async () => (await t.list()).length === 2);
@@ -316,7 +485,11 @@ describe('sealed relay', () => {
       type: 'sealed.reply',
       agent: t.localAgent,
       turn_id: posted.json.message.id,
-      sealed: envelope({ sender_device: COMPUTER, body: 'U0VDUkVU' }),
+      sealed: envelope({
+        sender_device: COMPUTER,
+        body: 'U0VDUkVU',
+        chunk: { index: 1, final: true },
+      }),
       final: true,
     });
     await waitFor(() => push.mock.calls.length === 1);

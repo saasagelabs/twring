@@ -98,7 +98,7 @@ describe('private threads', () => {
     const res = await t.postMessage({ client_id: randomUUID(), sealed });
     expect(res.status).toBe(201);
     const [m] = (await t.list()).messages;
-    expect(m).toMatchObject({ kind: 'sealed', author: 'user', sealed });
+    expect(m).toMatchObject({ kind: 'sealed', author: 'user', sealed: [sealed] });
     expect(JSON.stringify(m)).not.toContain('"text"');
   });
 

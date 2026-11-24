@@ -8,6 +8,8 @@ import {
   FILES_PER_DAY,
   type Attachment,
   MAX_QUEUED_PER_THREAD,
+  MAX_SEALED_REPLY_CHUNKS,
+  MAX_SEALED_REPLY_TOTAL_CHARS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   QUEUED_MESSAGE_TTL_MS,
   threadMessageSchema,
@@ -20,6 +22,15 @@ import {
 import { messageAad, sealedSecretSchema, type CredentialCipher } from '../store/cipher';
 import { fileAad } from '../files/cipher';
 import { quoteOf, type Quote } from './quote';
+
+/** A reply chunk's place in its reply; an envelope without one is a whole reply (chunk 0). */
+const chunkIndex = (envelope: SealedEnvelopeV1) => envelope.chunk?.index ?? 0;
+
+/** A stored sealed body: a list of envelopes, or one bare envelope in rows from before chunking. */
+function envelopeList(text: string): unknown[] {
+  const parsed = JSON.parse(text) as unknown;
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
 
 const quoteAad = (userId: string, threadId: string, messageId: string) =>
   `${messageAad(userId, threadId, messageId)}:quote`;
@@ -218,7 +229,7 @@ export class SqliteThreadStore {
         (row.kind === 'ring' || row.kind === 'approval') && text !== undefined
           ? (JSON.parse(text) as Record<string, unknown>)
           : row.kind === 'sealed' && text !== undefined
-            ? { sealed: JSON.parse(text) as unknown }
+            ? { sealed: envelopeList(text) }
             : {};
       const { quote_sealed: quoteSealed, ...meta } = JSON.parse(row.meta) as Record<
         string,
@@ -600,7 +611,7 @@ export class SqliteThreadStore {
         if (!answered) throw new ThreadStoreError('reply_to_not_found');
       }
       const message = this.insert(userId, thread, 'sealed', {
-        text: JSON.stringify(input.sealed),
+        text: JSON.stringify([input.sealed]),
         ...(input.status !== undefined && { status: input.status }),
         ...(input.clientId !== undefined && { clientId: input.clientId }),
         ...(input.turnId !== undefined && { turnId: input.turnId }),
@@ -629,39 +640,70 @@ export class SqliteThreadStore {
   }
 
   /**
-   * Stores a computer's sealed reply to one turn: the first frame adds the agent message, later
-   * ones replace its envelope while it is not final. `ignored` once the reply was final.
+   * Stores one chunk of a computer's sealed reply to a turn. All chunks of a reply live in one
+   * agent message, ordered by chunk index: the first chunk adds it, later ones are merged in. A
+   * chunk index already stored is a resend (after a reconnect) and changes nothing. Once the final
+   * chunk is in, only the missing lower indices are still taken. `complete` is true when the final
+   * chunk and every chunk before it are stored.
    */
   async upsertSealedReply(
     userId: string,
     agentId: string,
     input: { turnId: string; sealed: SealedEnvelopeV1; final: boolean },
-  ): Promise<{ message: ThreadMessage; created: boolean } | 'ignored'> {
+  ): Promise<
+    | { message: ThreadMessage; created: boolean; complete: boolean }
+    | 'duplicate'
+    | 'after_final'
+    | 'too_large'
+  > {
     return this.transaction(() => {
       const thread = this.ensureThread(userId, agentId);
+      const index = chunkIndex(input.sealed);
+      if (index >= MAX_SEALED_REPLY_CHUNKS) return 'too_large';
       const existing = this.db
         .prepare(
           "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND kind='sealed' AND turn_id=? AND client_id IS NULL",
         )
         .get(thread.id, userId, input.turnId) as Row | undefined;
-      const meta = { author: 'agent', final: input.final };
+      let stored: SealedEnvelopeV1[] = [];
+      let finalIndex: number | undefined;
+      if (existing) {
+        const decoded = this.decode(existing, agentId);
+        if (decoded.kind !== 'sealed') throw new ThreadStoreError('message_unreadable');
+        stored = decoded.sealed;
+        const meta = JSON.parse(existing.meta) as { final?: boolean; final_index?: number };
+        // Rows from before chunking recorded only `final`: their last chunk was the final one.
+        finalIndex =
+          meta.final_index ??
+          (meta.final === true ? Math.max(...stored.map(chunkIndex)) : undefined);
+      }
+      if (stored.some((envelope) => chunkIndex(envelope) === index)) return 'duplicate';
+      if (finalIndex !== undefined && (input.final || index > finalIndex)) return 'after_final';
+      if (input.final && stored.some((envelope) => chunkIndex(envelope) > index))
+        return 'after_final';
+      const sealed = [...stored, input.sealed].sort((a, b) => chunkIndex(a) - chunkIndex(b));
+      if (sealed.length > MAX_SEALED_REPLY_CHUNKS) return 'too_large';
+      const total = sealed.reduce((sum, envelope) => sum + envelope.body.length, 0);
+      if (total > MAX_SEALED_REPLY_TOTAL_CHARS) return 'too_large';
+      if (input.final) finalIndex = index;
+      const complete = finalIndex !== undefined && sealed.length === finalIndex + 1;
+      const meta = {
+        author: 'agent',
+        ...(finalIndex !== undefined && { final: true, final_index: finalIndex }),
+      };
       if (!existing) {
         const message = this.insert(userId, thread, 'sealed', {
-          text: JSON.stringify(input.sealed),
+          text: JSON.stringify(sealed),
           turnId: input.turnId,
           meta,
         });
-        return { message, created: true };
+        return { message, created: true, complete };
       }
-      if ((JSON.parse(existing.meta) as { final?: boolean }).final === true) return 'ignored';
       this.db
         .prepare('UPDATE messages SET body=?,meta=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
         .run(
           JSON.stringify(
-            this.cipher.seal(
-              JSON.stringify(input.sealed),
-              messageAad(userId, thread.id, existing.id),
-            ),
+            this.cipher.seal(JSON.stringify(sealed), messageAad(userId, thread.id, existing.id)),
           ),
           JSON.stringify(meta),
           thread.next_rev,
@@ -675,7 +717,7 @@ export class SqliteThreadStore {
       const row = this.db
         .prepare('SELECT * FROM messages WHERE id=? AND user_id=?')
         .get(existing.id, userId) as Row;
-      return { message: this.decode(row, agentId), created: false };
+      return { message: this.decode(row, agentId), created: false, complete };
     });
   }
 

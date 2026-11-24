@@ -26,6 +26,16 @@ export const MAX_SEALED_BODY_CHARS =
  */
 export const MAX_SEALED_AGENT_BODY_CHARS = Math.ceil(((4 * 20_000 + 1024) * 4) / 3) + 24;
 
+/**
+ * A computer splits a long reply so no relay frame exceeds MAX_RELAY_MESSAGE_BYTES: each chunk is
+ * its own envelope, and the server keeps them all, in chunk order, in one message. At most this
+ * many chunks per reply.
+ */
+export const MAX_SEALED_REPLY_CHUNKS = 64;
+/** Most ciphertext characters all chunks of one reply hold together: the reply cap plus a tag each. */
+export const MAX_SEALED_REPLY_TOTAL_CHARS =
+  MAX_SEALED_AGENT_BODY_CHARS + MAX_SEALED_REPLY_CHUNKS * 64;
+
 const MAX_WRAPPED_KEY_CHARS = 128;
 
 /**
