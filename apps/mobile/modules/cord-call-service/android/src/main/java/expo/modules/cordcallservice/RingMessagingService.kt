@@ -12,9 +12,25 @@ class RingMessagingService : FirebaseMessagingService() {
   override fun onMessageReceived(message: RemoteMessage) {
     val data = message.data
     if (data["type"] == "cord.sealed") {
-      // From a person's own server: only the inner fields go on, never the outer ones.
+      // Inner fields are trusted; outer ones only feed the fixed "New message" fallback below.
       val inner = Sealed.open(SealKeys.all(applicationContext), data, System.currentTimeMillis())
       if (inner == null) {
+        // A hosted message this phone cannot open still shows the fixed "New message", built only
+        // from the outer routing ids (no name, no text). Rings and relay pushes stay dropped.
+        val agentId = data["agent_id"]
+        val messageId = data["message_id"]
+        if (data["kind"] == "message" && agentId != null && messageId != null) {
+          val fallback = mutableMapOf(
+            "type" to "cord.message",
+            "agent_id" to agentId,
+            "message_id" to messageId,
+            "preview" to "New message",
+          )
+          data["user_ref"]?.let { fallback["user_ref"] = it }
+          data["silent"]?.let { fallback["silent"] = it }
+          dispatch(fallback)
+          return
+        }
         Log.d("CordRing", "sealed push dropped")
         return
       }

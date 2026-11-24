@@ -22,6 +22,7 @@ import {
   type CreateCallResponse,
   type ConnectorMessageResponse,
   type ConnectorWordsResponse,
+  type DeviceRegistrationResponse,
   type ErrorCode,
   type ErrorResponse,
   type Invite,
@@ -199,13 +200,17 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
         if (!deviceId.success || !body.success) {
           return sendError(reply, 400, 'bad_request', 'The device details are not valid.');
         }
-        await ringStores.devices.upsert({
+        const serverKey = await ringStores.devices.upsert({
           ...body.data,
           user_id: userFor(request),
           device_id: deviceId.data,
           updated_at: now().toISOString(),
         });
-        return reply.code(204).send();
+        // A phone that sent a seal key gets this server's key for it (ADR-043 Phase B).
+        if (body.data.seal_public_key === undefined) return reply.code(204).send();
+        const answer: DeviceRegistrationResponse =
+          serverKey === undefined ? {} : { seal_server_public_key: serverKey };
+        return reply.code(200).send(answer);
       },
     );
 

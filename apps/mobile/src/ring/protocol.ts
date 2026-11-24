@@ -24,6 +24,8 @@ export const registerDeviceRequestSchema = z.object({
   app_variant: z.enum(['development', 'staging', 'production']),
   /** iOS: the alert token for messages and missed rings. */
   apns_token: z.string().min(32).max(400).optional(),
+  /** The phone's X25519 public key for sealed message previews (hosted only). */
+  seal_public_key: z.string().min(43).max(43).optional(),
 });
 export type RegisterDeviceRequest = z.infer<typeof registerDeviceRequestSchema>;
 

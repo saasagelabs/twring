@@ -256,7 +256,11 @@ export async function startConnectorGateway(
             },
           };
     const ringStores: RingStores = {
-      devices: new DeviceRepository(new MemoryCollection()),
+      devices: new DeviceRepository(
+        new MemoryCollection(),
+        new CredentialCipher(TEST_KEYS),
+        () => new Date(clock.ms),
+      ),
       settings: new RingSettingsRepository(new MemoryCollection()),
       invites: new InviteRepository(options.ring.invites ?? new MemoryCollection()),
     };

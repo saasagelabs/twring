@@ -413,6 +413,8 @@ const ringLogger = pino(createLoggerOptions(env)).child({ component: 'ring' });
 const ringStores: RingStores = {
   devices: new DeviceRepository(
     new JsonFileCollection(join(env.CORD_DATA_DIR, 'devices.json'), deviceRecordSchema),
+    // Seals message pushes for phones that sent a key (ADR-043 Phase B); none without store keys.
+    keys ? new CredentialCipher(keys) : undefined,
   ),
   settings: new RingSettingsRepository(
     new JsonFileCollection(join(env.CORD_DATA_DIR, 'ring-settings.json'), ringSettingsRecordSchema),

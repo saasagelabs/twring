@@ -64,6 +64,8 @@ import {
   type VoiceListResponse,
   type ThreadSummary,
   type ThreadMessage,
+  deviceRegistrationResponseSchema,
+  type DeviceRegistrationResponse,
 } from '@twring/contracts';
 import { z } from 'zod';
 
@@ -209,7 +211,7 @@ export interface TwringApi {
     deviceId: string,
     request: RegisterDeviceRequest,
     signal?: AbortSignal,
-  ): Promise<void>;
+  ): Promise<DeviceRegistrationResponse | undefined>;
   unregisterDevice(deviceId: string, signal?: AbortSignal): Promise<void>;
   /** Both providers, each with its saved key's last four characters or null. A 404 means off. */
   listSpeechKeys(signal?: AbortSignal): Promise<SpeechKeyListResponse['providers']>;
@@ -847,7 +849,9 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
       await request('DELETE', `/v1/people/${encodeURIComponent(personId)}`, { signal });
     },
     async registerDevice(deviceId, body, signal) {
-      await request('PUT', devicePath(deviceId), { body, signal });
+      // 204 (no seal key sent, or an older server): nothing to read.
+      const answer = await request('PUT', devicePath(deviceId), { body, signal });
+      return answer === undefined ? undefined : parse(deviceRegistrationResponseSchema, answer);
     },
     async unregisterDevice(deviceId, signal) {
       await request('DELETE', devicePath(deviceId), { signal });

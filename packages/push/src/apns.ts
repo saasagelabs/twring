@@ -7,6 +7,7 @@ import { z } from 'zod';
 import {
   MESSAGE_PUSH_TEXT,
   redactMessagePush,
+  sealedMessageFor,
   type PushOptions,
   type PushOutcome,
   type PushPayload,
@@ -104,6 +105,8 @@ export function apnsRequestFor(
   if (alertToken === undefined) return undefined;
   if (data.type === 'cord.message') {
     const silent = data.silent === '1';
+    // Sealed: the same alert, which a Notification Service Extension can open and rewrite.
+    const sealed = sealedMessageFor(target, data);
     return {
       token: alertToken,
       pushType: 'alert',
@@ -116,8 +119,10 @@ export function apnsRequestFor(
           alert: { body: MESSAGE_PUSH_TEXT },
           'thread-id': data.agent_id,
           ...(silent ? { 'interruption-level': 'passive' } : { sound: 'default' }),
+          ...(sealed !== undefined && { 'mutable-content': 1 }),
         },
         ...redactMessagePush(data),
+        ...(sealed !== undefined && { sealed: JSON.stringify(sealed) }),
       },
     };
   }

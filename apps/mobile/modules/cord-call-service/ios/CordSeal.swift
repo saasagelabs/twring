@@ -167,8 +167,11 @@ enum CordSealKeys {
     case keychain(OSStatus)
   }
 
+  /// Twring's own service (hosted sealed message pushes); must match HOSTED_SEAL_SLOT in JS.
+  static let hostedSlot = "hosted"
+
   static func isServerId(_ value: String) -> Bool {
-    value.range(of: "^srv_[a-z2-7]{32}$", options: .regularExpression) != nil
+    value == hostedSlot || value.range(of: "^srv_[a-z2-7]{32}$", options: .regularExpression) != nil
   }
 
   static func set(serverId: String, keyB64url: String) throws {
