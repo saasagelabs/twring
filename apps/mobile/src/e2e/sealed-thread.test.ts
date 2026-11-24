@@ -243,10 +243,8 @@ describe('sealing on the phone', () => {
     expect(aadIdsFor('https://example.com')).toBeUndefined();
   });
 
-  // Skipped, not met: about 3 ms per message on node (6 s for 2,000), all in one X25519 per
-  // unwrap. Needs a contracts change (message-seal.ts: unwrap with a per-sender cached wrap key),
-  // which P3a may not make. Must pass before Task 21 shows long private threads.
-  it.skip('opens 2,000 messages in under 3 seconds on node', () => {
+  // Was about 6 s before message-seal.ts cached the wrap key per (my key, their key).
+  it('opens 2,000 messages in under 3 seconds on node', () => {
     const ctx = phoneCtx();
     const list = Array.from({ length: 2000 }, (_, i) =>
       sealedMsg(sealFromComputer({ text: `m${i}` }, i + 1, { index: 0, final: true })),

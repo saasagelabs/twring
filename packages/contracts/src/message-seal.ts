@@ -72,9 +72,36 @@ export function fileAad(a: { accountId: string; agentId: string }): Uint8Array {
   return utf8.encode(JSON.stringify(['twring-e2e-file-v1', a.accountId, a.agentId]));
 }
 
+/**
+ * The wrap key depends only on (my private key, their public key), and one X25519 costs about
+ * 3 ms, so opening a long thread would spend seconds on it. Cache it in memory, bounded, keyed by
+ * a hash of both keys (never the private key itself). Oldest entry goes first.
+ */
+const WRAP_CACHE_MAX = 32;
+const WRAP_CACHE_TAG = utf8.encode('twring-wrap-cache-v1');
+const wrapKeyCache = new Map<string, Uint8Array>();
+
+/** For tests: how many wrap keys are cached. */
+export function wrapKeyCacheSize(): number {
+  return wrapKeyCache.size;
+}
+
 function wrapKeyFor(myPrivate: Uint8Array, theirPublic: Uint8Array): Uint8Array {
   need32(myPrivate, 'private key');
   need32(theirPublic, 'public key');
+  const cacheKey = base64urlEncode(sha256(concat(WRAP_CACHE_TAG, myPrivate, theirPublic)));
+  const cached = wrapKeyCache.get(cacheKey);
+  if (cached) return cached;
+  const derived = deriveWrapKey(myPrivate, theirPublic);
+  if (wrapKeyCache.size >= WRAP_CACHE_MAX) {
+    const oldest = wrapKeyCache.keys().next().value;
+    if (oldest !== undefined) wrapKeyCache.delete(oldest);
+  }
+  wrapKeyCache.set(cacheKey, derived);
+  return derived;
+}
+
+function deriveWrapKey(myPrivate: Uint8Array, theirPublic: Uint8Array): Uint8Array {
   let shared: Uint8Array;
   try {
     shared = x25519.getSharedSecret(myPrivate, theirPublic);
