@@ -8,8 +8,7 @@ import {
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
 
-import type { ConnectorConfig } from '../config';
-import { ensureDeviceKey } from './keys';
+import { ensureDeviceKey, type E2eConfig } from './keys';
 import { pairPhone, parsePairLink, type PairPhoneOptions } from './pair';
 import { baseConfig } from './test-fixtures';
 
@@ -23,6 +22,8 @@ interface FakeServerOptions {
   swapName?: string;
   expired?: boolean;
   cap?: boolean;
+  /** How adding the devices fails: a refusal, or a dropped link before or after the server added. */
+  addFails?: 'refused' | 'network' | 'network-after-add';
   /** 204s before the claim arrives. */
   waits?: number;
 }
@@ -73,13 +74,37 @@ function fakeServer(options: FakeServerOptions = {}) {
     }
     if (method === 'POST' && url.pathname === '/v1/e2e/computer/devices') {
       if (options.cap) return json(409, { error: { code: 'device_cap', message: 'x' } });
+      if (options.addFails === 'refused')
+        return json(500, { error: { code: 'internal', message: 'x' } });
+      if (options.addFails === 'network') throw new TypeError('fetch failed');
       addedDevices.push(offered!.device, phoneId);
+      if (options.addFails === 'network-after-add') throw new TypeError('fetch failed');
       return json(200, { devices: [] });
+    }
+    if (method === 'GET' && url.pathname === '/v1/e2e/computer/devices') {
+      return json(200, {
+        devices: addedDevices.includes(phoneId)
+          ? [
+              {
+                id: phoneId,
+                kind: 'phone',
+                name: 'Pixel',
+                public_key: base64urlEncode(phone.publicKey),
+                added_at: '2026-11-25T00:00:00.000Z',
+              },
+            ]
+          : [],
+      });
     }
     return json(404, { error: { code: 'not_found', message: 'x' } });
   };
-  const fetchImpl = ((input: string | URL, init?: RequestInit) =>
-    Promise.resolve(handle(input, init))) as typeof fetch;
+  const fetchImpl = ((input: string | URL, init?: RequestInit) => {
+    try {
+      return Promise.resolve(handle(input, init));
+    } catch (error) {
+      return Promise.reject(error as Error);
+    }
+  }) as typeof fetch;
   return {
     fetchImpl,
     addedDevices,
@@ -90,11 +115,18 @@ function fakeServer(options: FakeServerOptions = {}) {
   };
 }
 
-function deps(server: ReturnType<typeof fakeServer>, over: Partial<PairPhoneOptions> = {}) {
-  let saved: ConnectorConfig | undefined;
+function deps(
+  server: ReturnType<typeof fakeServer>,
+  over: Partial<PairPhoneOptions> = {},
+  failSave?: (call: number) => boolean,
+) {
+  const config = ensureDeviceKey(baseConfig).config;
+  let e2e: E2eConfig = config.e2e!;
+  let changed = false;
+  let calls = 0;
   const lines: string[] = [];
   const options: PairPhoneOptions = {
-    config: ensureDeviceKey(baseConfig).config,
+    config,
     fetch: server.fetchImpl,
     print: (line) => lines.push(line),
     qr: (text) => {
@@ -102,14 +134,16 @@ function deps(server: ReturnType<typeof fakeServer>, over: Partial<PairPhoneOpti
       return '[qr]';
     },
     confirm: () => Promise.resolve(true),
-    save: (config) => {
-      saved = config;
+    update: (change) => {
+      if (failSave?.(++calls)) return Promise.reject(new Error('disk full'));
+      e2e = change(e2e);
+      changed = true;
       return Promise.resolve();
     },
     signal: new AbortController().signal,
     ...over,
   };
-  return { options, lines, saved: () => saved };
+  return { options, lines, saved: () => (changed ? e2e : undefined) };
 }
 
 describe('pairPhone', () => {
@@ -118,7 +152,7 @@ describe('pairPhone', () => {
     const run = deps(server);
     expect(await pairPhone(run.options)).toBe('paired');
     expect(server.addedDevices).toHaveLength(2);
-    const trusted = run.saved()!.e2e!.devices;
+    const trusted = run.saved()!.devices;
     expect(trusted).toEqual([
       expect.objectContaining({
         id: server.phoneId,
@@ -127,7 +161,48 @@ describe('pairPhone', () => {
         public_key: base64urlEncode(server.phone.publicKey),
       }),
     ]);
+    expect(run.saved()!.pending ?? []).toEqual([]);
     expect(server.requests.every((r) => r.auth === `Bearer ${baseConfig.token}`)).toBe(true);
+  });
+
+  it('adds nothing on the server when this computer cannot save the phone first', async () => {
+    const server = fakeServer();
+    const run = deps(server, {}, () => true);
+    await expect(pairPhone(run.options)).rejects.toThrow();
+    expect(server.addedDevices).toHaveLength(0);
+    expect(run.saved()).toBeUndefined();
+  });
+
+  it('keeps nothing here when the server refuses to add the phone', async () => {
+    const server = fakeServer({ addFails: 'refused' });
+    const run = deps(server);
+    await expect(pairPhone(run.options)).rejects.toThrow();
+    expect(server.addedDevices).toHaveLength(0);
+    expect(run.saved()!.devices).toEqual([]);
+    expect(run.saved()!.pending ?? []).toEqual([]);
+  });
+
+  it('asks the server whether the add went through when the link dropped', async () => {
+    const lost = deps(fakeServer({ addFails: 'network' }));
+    await expect(pairPhone(lost.options)).rejects.toThrow();
+    expect(lost.saved()!.devices).toEqual([]);
+    expect(lost.saved()!.pending ?? []).toEqual([]);
+
+    const server = fakeServer({ addFails: 'network-after-add' });
+    const made = deps(server);
+    expect(await pairPhone(made.options)).toBe('paired');
+    expect(made.saved()!.devices.map((d) => d.id)).toEqual([server.phoneId]);
+    expect(made.saved()!.pending ?? []).toEqual([]);
+  });
+
+  it('leaves the phone pending (never trusted) when the last save fails after the server added it', async () => {
+    const server = fakeServer();
+    const run = deps(server, {}, (call) => call === 2);
+    await expect(pairPhone(run.options)).rejects.toThrow();
+    expect(server.addedDevices).toContain(server.phoneId);
+    expect(run.saved()!.devices).toEqual([]);
+    // The next device sync trusts it (sync.test.ts): both sides then agree.
+    expect(run.saved()!.pending!.map((d) => d.id)).toEqual([server.phoneId]);
   });
 
   it('shows the same safety code the phone computes', async () => {
@@ -185,7 +260,8 @@ describe('pairPhone', () => {
   it('says cap when the account has 5 devices', async () => {
     const run = deps(fakeServer({ cap: true }));
     expect(await pairPhone(run.options)).toBe('cap');
-    expect(run.saved()).toBeUndefined();
+    expect(run.saved()!.devices).toEqual([]);
+    expect(run.saved()!.pending ?? []).toEqual([]);
   });
 
   it('stops when cancelled', async () => {
