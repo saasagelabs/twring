@@ -26,6 +26,22 @@ export const MAX_SEALED_BODY_CHARS =
  */
 export const MAX_SEALED_AGENT_BODY_CHARS = Math.ceil(((4 * 20_000 + 1024) * 4) / 3) + 24;
 
+/**
+ * A computer splits a long reply so no relay frame exceeds MAX_RELAY_MESSAGE_BYTES: each chunk is
+ * its own envelope, and the server keeps them all, in chunk order, in one message. At most this
+ * many chunks per reply.
+ */
+export const MAX_SEALED_REPLY_CHUNKS = 64;
+/**
+ * Most ciphertext characters all chunks of one reply hold together. A computer cuts a reply at
+ * 20,000 UTF-16 units, and JSON escapes a control character such as U+0001 to 6 bytes, so the
+ * sealed text is at most 120,000 bytes, base64url 4/3 of that. Each chunk adds its own JSON wrapper, AEAD
+ * tag and base64 padding (under 40 characters); 64 per chunk leaves room for the computer's short
+ * failure note.
+ */
+export const MAX_SEALED_REPLY_TOTAL_CHARS =
+  Math.ceil((6 * 20_000 * 4) / 3) + MAX_SEALED_REPLY_CHUNKS * 64;
+
 const MAX_WRAPPED_KEY_CHARS = 128;
 
 /**

@@ -709,6 +709,8 @@ export class ThreadService {
       );
     };
     if (!/^msg_[a-z2-7]{20}$/.test(frame.turn_id)) return reject('bad_turn');
+    if (frame.sealed.chunk !== undefined && frame.sealed.chunk.final !== frame.final)
+      return reject('bad_chunk');
     const found = await this.options.store.findMessageForUser(from.userId, frame.turn_id);
     if (found?.message.kind !== 'sealed' || found.message.author !== 'user')
       return reject('unknown_turn');
@@ -731,9 +733,11 @@ export class ThreadService {
       sealed: frame.sealed,
       final: frame.final,
     });
-    if (saved === 'ignored') return reject('after_final');
+    // A chunk resent after a reconnect is already stored: nothing changed, nothing to count.
+    if (saved === 'duplicate') return;
+    if (saved === 'after_final' || saved === 'too_large') return reject(saved);
     this.upsert(from.userId, saved.message);
-    const status = frame.final ? 'answered' : 'working';
+    const status = saved.complete ? 'answered' : 'working';
     const current = found.message.status;
     if (current !== status && current !== 'answered' && current !== 'stopped') {
       const changed = await this.options.store.updateUserMessage(from.userId, frame.turn_id, {
@@ -747,11 +751,13 @@ export class ThreadService {
         agent_id: agentId,
         message_id: saved.message.id,
         final: frame.final,
+        chunk: frame.sealed.chunk?.index ?? 0,
         length: frame.sealed.body.length,
       },
       'thread_sealed_reply',
     );
-    if (frame.final) void this.notifySealedReply(from.userId, agentId, record.name, saved.message);
+    if (saved.complete)
+      void this.notifySealedReply(from.userId, agentId, record.name, saved.message);
   }
 
   /** Sends sealed messages that waited for their computer, oldest first, in order per chat. */
@@ -766,7 +772,8 @@ export class ThreadService {
       if (
         !record ||
         !privateChats.computerSupports(record) ||
-        !privateChats.deliver(record, message.id, message.sealed)
+        !message.sealed[0] ||
+        !privateChats.deliver(record, message.id, message.sealed[0])
       ) {
         blocked.add(key);
         continue;

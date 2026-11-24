@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_SEALED_BODY_CHARS,
+  MAX_SEALED_REPLY_CHUNKS,
+  MAX_SEALED_REPLY_TOTAL_CHARS,
   relayConnectorMessageSchema,
   relayGatewayMessageSchema,
   threadMessageSchema,
 } from './index';
+import { newMessageKey, sealBody } from './message-seal';
 
 const sealed = {
   v: 1,
@@ -25,7 +29,8 @@ const common = {
 describe('sealed kind', () => {
   it('parses a sealed user message', () => {
     expect(
-      threadMessageSchema.parse({ ...common, kind: 'sealed', author: 'user', sealed }).kind,
+      threadMessageSchema.parse({ ...common, kind: 'sealed', author: 'user', sealed: [sealed] })
+        .kind,
     ).toBe('sealed');
   });
   it('has no text field to leak', () => {
@@ -33,9 +38,49 @@ describe('sealed kind', () => {
       ...common,
       kind: 'sealed',
       author: 'agent',
-      sealed,
+      sealed: [sealed],
     });
     expect('text' in parsed).toBe(false);
+  });
+  it('holds every chunk of an agent reply, in a bounded list', () => {
+    const agent = (list: unknown[]) =>
+      threadMessageSchema.safeParse({ ...common, kind: 'sealed', author: 'agent', sealed: list })
+        .success;
+    const chunk = (index: number, body = 'BBBB') => ({
+      ...sealed,
+      body,
+      chunk: { index, final: false },
+    });
+    expect(agent([chunk(0), chunk(1), chunk(2)])).toBe(true);
+    expect(agent([])).toBe(false);
+    expect(agent(Array.from({ length: MAX_SEALED_REPLY_CHUNKS + 1 }, (_, i) => chunk(i)))).toBe(
+      false,
+    );
+    const big = 'A'.repeat(Math.ceil(MAX_SEALED_REPLY_TOTAL_CHARS / 2) + 1);
+    expect(agent([chunk(0, big), chunk(1, big)])).toBe(false);
+  });
+  it('fits a whole 20,000-character reply at 6 JSON bytes a character, split into chunks', () => {
+    // Escaped control characters are the worst case: 6 bytes each in the sealed JSON.
+    const control = String.fromCharCode(1);
+    const key = newMessageKey();
+    const aad = new Uint8Array(8);
+    const total = (pieces: number) => {
+      const size = Math.ceil(20_000 / pieces);
+      let sum = 0;
+      for (let left = 20_000; left > 0; left -= size)
+        sum += sealBody(key, { text: control.repeat(Math.min(size, left)) }, aad).body.length;
+      return sum;
+    };
+    for (const pieces of [3, 4, 16, MAX_SEALED_REPLY_CHUNKS])
+      expect(total(pieces)).toBeLessThanOrEqual(MAX_SEALED_REPLY_TOTAL_CHARS);
+  });
+  it('a user message is a list of one at the user cap', () => {
+    const user = (list: unknown[]) =>
+      threadMessageSchema.safeParse({ ...common, kind: 'sealed', author: 'user', sealed: list })
+        .success;
+    expect(user([sealed, sealed])).toBe(false);
+    expect(user([{ ...sealed, body: 'A'.repeat(MAX_SEALED_BODY_CHARS + 1) }])).toBe(false);
+    expect(user([sealed])).toBe(true);
   });
   it('carries sealed frames both ways', () => {
     expect(

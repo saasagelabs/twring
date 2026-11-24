@@ -5,6 +5,8 @@ import { MAX_ACTIVITY_LABEL_CHARS } from './agent';
 import { attachmentSchema, fileIdSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './files';
 import {
   MAX_SEALED_BODY_CHARS,
+  MAX_SEALED_REPLY_CHUNKS,
+  MAX_SEALED_REPLY_TOTAL_CHARS,
   sealedAgentEnvelopeV1Schema,
   sealedEnvelopeV1Schema,
 } from './sealed-chat';
@@ -117,7 +119,8 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
   z.object({ ...common, kind: z.literal('notice'), code: z.literal('new_session') }),
   /**
    * A private chat message (ADR-044): only the paired phone and computer can open `sealed`.
-   * There is no text field, so nothing readable can leak through the server.
+   * There is no text field, so nothing readable can leak through the server. `sealed` lists the
+   * envelopes in chunk order: one for a phone message, one per chunk of a computer's reply.
    */
   z
     .object({
@@ -125,7 +128,7 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       kind: z.literal('sealed'),
       author: z.enum(['user', 'agent']),
       client_id: z.uuid().optional(),
-      sealed: sealedAgentEnvelopeV1Schema,
+      sealed: z.array(sealedAgentEnvelopeV1Schema).min(1).max(MAX_SEALED_REPLY_CHUNKS),
       status: userMessageStatusSchema.optional(),
       turn_id: z.string().max(128).optional(),
       /** The message this one answers; the quote itself is inside `sealed`, never on the server. */
@@ -133,8 +136,16 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
     })
     .refine(
       (message) =>
-        message.author === 'agent' || message.sealed.body.length <= MAX_SEALED_BODY_CHARS,
-      { message: 'sealed body too long', path: ['sealed', 'body'] },
+        message.author === 'agent' ||
+        (message.sealed.length === 1 &&
+          message.sealed.every((envelope) => envelope.body.length <= MAX_SEALED_BODY_CHARS)),
+      { message: 'a sealed user message is one envelope at the user cap', path: ['sealed'] },
+    )
+    .refine(
+      (message) =>
+        message.sealed.reduce((sum, envelope) => sum + envelope.body.length, 0) <=
+        MAX_SEALED_REPLY_TOTAL_CHARS,
+      { message: 'sealed reply too long', path: ['sealed'] },
     ),
 ]);
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;
