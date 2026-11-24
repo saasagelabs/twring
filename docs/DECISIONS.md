@@ -1350,8 +1350,8 @@ voice outside the private label. No Happy code is used.
 
 Phone and connector each hold an X25519 device key, paired by QR with a safety code. Each
 message is sealed on the sending device with a fresh key wrapped to every paired device; the
-gateway stores and relays ciphertext. Optional recovery key backs up the phone key. Reuse
-seal-core (noble X25519 + XChaCha20-Poly1305). No forward secrecy in v1. Calls, voice-note
+gateway stores and relays ciphertext. Optional recovery key backs up the phone key. Same
+primitives as seal-core (noble X25519 + XChaCha20-Poly1305), with an AAD. No forward secrecy in v1. Calls, voice-note
 transcription, Listen and AI apps connected online are never labelled end-to-end. The label
 "Private: only your phone and your computer can read this" shows only when true.
 
