@@ -31,7 +31,7 @@ import { StatusLabel } from '@/components/StatusLabel';
 import { useNow } from '@/hooks/useNow';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { space, type, usePalette } from '@/theme/tokens';
-import { useChatList } from '@/threads/chats';
+import { chatController, useChatList } from '@/threads/chats';
 
 interface Detail {
   agent: Agent;
@@ -321,6 +321,7 @@ export default function AgentDetailScreen() {
                 .then(
                   () => {
                     setClearVisible(false);
+                    chatController()?.forgetChat(agent.id);
                     chats.refresh();
                   },
                   (error: unknown) => setClearError(apiErrorCopy(error)),

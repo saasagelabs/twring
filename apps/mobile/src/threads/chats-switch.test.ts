@@ -10,7 +10,12 @@ vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },
 }));
 vi.mock('@/api', () => ({ ApiError: class extends Error {}, twringApi: () => ({}) }));
-vi.mock('@/auth', () => ({ addBeforeSignOut: () => undefined, authHeaders: () => ({}) }));
+vi.mock('@/auth', () => ({
+  addBeforeSignOut: () => undefined,
+  authController: () => undefined,
+  authHeaders: () => ({}),
+}));
+vi.mock('../servers/profiles', () => ({ profileStore: { active: () => ({ kind: 'hosted' }) } }));
 vi.mock('@/config/env', () => ({
   mobileEnv: { ok: true, env: { CORD_ENV: 'development', API_BASE_URL: 'http://build.example' } },
 }));

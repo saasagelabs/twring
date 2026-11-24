@@ -144,6 +144,7 @@ function errorCopy(code: string): string {
     rate_limited: 'too many messages',
     agent_error: 'the agent could not reply',
     agent_failed: 'the agent could not reply',
+    file_missing: 'this file is no longer on your phone. Attach it again.',
   };
   return known[code] ?? 'please try again later';
 }

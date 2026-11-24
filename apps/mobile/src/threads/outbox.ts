@@ -1,8 +1,10 @@
 import type { Attachment, ThreadMessage } from '@twring/contracts';
+import { z } from 'zod';
 
 import { ApiError } from '../api/client';
 import { callDuration } from './presentation';
 import type { PreparedFile } from './files';
+import { deviceOutboxFiles, type JsonStore, type OutboxFiles } from './outbox-storage';
 
 export interface PendingMessage {
   clientId: string;
@@ -13,6 +15,58 @@ export interface PendingMessage {
   voice?: { uri: string; durationMs: number };
   files?: PreparedFile[];
   error?: unknown;
+  /** A stable machine code for a failure with no error object (a file lost over a restart). */
+  errorCode?: string;
+}
+
+/** At most this many queued messages are saved for the next launch, newest kept. */
+export const OUTBOX_LIMIT = 50;
+const SAVE_DEBOUNCE_MS = 300;
+/** A queued voice note or file was no longer on the phone after a restart. */
+export const FILE_MISSING = 'file_missing';
+
+const storedUri = z.string().min(1).max(2_000);
+const storedOutbox = z.object({
+  version: z.literal(1),
+  items: z
+    .array(
+      z.object({
+        clientId: z.string().min(1).max(100),
+        agentId: z.string().min(1).max(100),
+        text: z.string().max(20_000),
+        state: z.enum(['sending', 'failed']),
+        createdAt: z.string().max(100),
+        voice: z.object({ uri: storedUri, durationMs: z.number().nonnegative() }).optional(),
+        files: z
+          .array(
+            z.object({
+              clientId: z.string().min(1).max(100),
+              uri: storedUri,
+              name: z.string().max(500),
+              mimeType: z.string().max(200),
+              sizeBytes: z.number().nonnegative(),
+              width: z.number().optional(),
+              height: z.number().optional(),
+            }),
+          )
+          .max(20)
+          .optional(),
+        errorCode: z.string().max(100).optional(),
+      }),
+    )
+    .max(OUTBOX_LIMIT),
+});
+
+/** A stable code for a failure, never the error object (it can hold request details). */
+function errorCodeOf(error: unknown): string | undefined {
+  if (error === undefined) return undefined;
+  if (error instanceof ApiError) return error.code ?? error.kind;
+  return 'unknown';
+}
+
+export interface OutboxPersistence {
+  store: JsonStore;
+  files?: () => Promise<OutboxFiles>;
 }
 
 export function newClientId(): string {
@@ -32,7 +86,7 @@ export interface OutboxTimers {
   now(): number;
 }
 
-const systemTimers: OutboxTimers = {
+export const systemTimers: OutboxTimers = {
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
   now: () => Date.now(),
@@ -42,6 +96,16 @@ export class Outbox {
   private readonly items = new Map<string, PendingMessage>();
   private readonly waits = new Set<() => void>();
   private readonly controllers = new Set<AbortController>();
+  private readonly store?: JsonStore;
+  private readonly files: () => Promise<OutboxFiles>;
+  private filesPromise?: Promise<OutboxFiles>;
+  private loaded = false;
+  private disposed = false;
+  private saveTimer: unknown;
+  private saving: Promise<void> = Promise.resolve();
+  /** Resolves once the saved queue (if any) is back in memory and resending. */
+  readonly hydrated: Promise<void>;
+
   constructor(
     private readonly sendRequest: (
       agentId: string,
@@ -60,7 +124,14 @@ export class Outbox {
       file: PreparedFile,
       signal: AbortSignal,
     ) => Promise<Attachment>,
-  ) {}
+    persistence?: OutboxPersistence,
+  ) {
+    this.store = persistence?.store;
+    const files = persistence?.files ?? deviceOutboxFiles;
+    this.files = () => (this.filesPromise ??= files());
+    // Nothing is saved until the saved queue is read, or an early save would overwrite it.
+    this.hydrated = this.store ? this.hydrate(this.store) : Promise.resolve();
+  }
 
   list(agentId: string): PendingMessage[] {
     return [...this.items.values()].filter((item) => item.agentId === agentId);
@@ -75,7 +146,7 @@ export class Outbox {
       state: 'sending',
       createdAt: new Date().toISOString(),
     });
-    this.changed();
+    this.notify();
     void this.attempt(clientId);
     return clientId;
   }
@@ -90,8 +161,7 @@ export class Outbox {
       state: 'sending',
       createdAt: new Date().toISOString(),
     });
-    this.changed();
-    void this.attempt(clientId);
+    this.start(clientId);
     return clientId;
   }
 
@@ -105,16 +175,15 @@ export class Outbox {
       createdAt: new Date().toISOString(),
       voice: { uri, durationMs },
     });
-    this.changed();
-    void this.attempt(clientId);
+    this.start(clientId);
     return clientId;
   }
 
   retry(clientId: string): void {
     const item = this.items.get(clientId);
     if (!item || item.state !== 'failed') return;
-    this.items.set(clientId, { ...item, state: 'sending', error: undefined });
-    this.changed();
+    this.items.set(clientId, { ...item, state: 'sending', error: undefined, errorCode: undefined });
+    this.notify();
     void this.attempt(clientId);
   }
 
@@ -125,31 +194,203 @@ export class Outbox {
       this.items.delete(message.client_id);
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
-      this.changed();
+      this.notify();
     }
   }
 
-  clear(): void {
-    for (const controller of this.controllers) controller.abort();
-    for (const cancel of this.waits) cancel();
+  /**
+   * Forgets every queued message: aborts sends and deletes their files and the saved queue
+   * (sign-out). Resolves once storage is empty.
+   */
+  async clear(): Promise<void> {
+    this.stopWork();
     for (const item of this.items.values()) {
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
     }
     this.items.clear();
     this.changed();
+    const store = this.store;
+    if (store) await this.saving.then(() => store.remove()).catch(() => undefined);
+  }
+
+  /**
+   * Stops sending but keeps the saved queue and its files for the next launch on this account
+   * (switching servers). Resolves once the latest queue is written.
+   */
+  async detach(): Promise<void> {
+    // Stop first: a retry during the write would send under the next account's sign-in.
+    const loaded = this.loaded;
+    this.stopWork();
+    const writing = loaded ? this.write() : this.saving;
+    this.items.clear();
+    this.changed();
+    await writing;
+  }
+
+  /**
+   * "Clear chat": forgets one agent's queued messages, aborting their sends and deleting their
+   * kept files, so nothing reaches the cleared chat afterwards.
+   */
+  forgetAgent(agentId: string): Promise<void> {
+    for (const item of [...this.items.values()]) {
+      if (item.agentId !== agentId) continue;
+      this.items.delete(item.clientId);
+      if (item.voice) this.removeFile(item.voice.uri);
+      for (const file of item.files ?? []) this.removeFile(file.uri);
+    }
+    this.changed();
+    return this.flush();
+  }
+
+  /** Writes the queue now, replacing a pending debounced write. */
+  flush(): Promise<void> {
+    if (this.saveTimer !== undefined) this.timers.clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    if (!this.loaded || this.disposed) return this.saving;
+    return this.write();
+  }
+
+  private write(): Promise<void> {
+    const store = this.store;
+    if (!store) return this.saving;
+    const items = [...this.items.values()].slice(-OUTBOX_LIMIT).map((item) => {
+      const errorCode = item.errorCode ?? errorCodeOf(item.error);
+      return {
+        clientId: item.clientId,
+        agentId: item.agentId,
+        text: item.text,
+        state: item.state,
+        createdAt: item.createdAt,
+        ...(item.voice && { voice: item.voice }),
+        // An upload is redone after a restart under the same file clientId.
+        ...(item.files?.length && {
+          files: item.files.map(({ uploaded: _uploaded, ...file }) => file),
+        }),
+        ...(errorCode !== undefined && { errorCode }),
+      };
+    });
+    const value = { version: 1 as const, items };
+    // Writes run one after another, so an older snapshot never lands after a newer one.
+    this.saving = this.saving
+      .then(() => (items.length ? store.save(value) : store.remove()))
+      .catch(() => undefined);
+    return this.saving;
+  }
+
+  private notify(): void {
+    this.changed();
+    this.scheduleSave();
+  }
+
+  private scheduleSave(): void {
+    if (!this.store || !this.loaded || this.disposed) return;
+    if (this.saveTimer !== undefined) this.timers.clearTimeout(this.saveTimer);
+    this.saveTimer = this.timers.setTimeout(() => {
+      this.saveTimer = undefined;
+      void this.flush();
+    }, SAVE_DEBOUNCE_MS);
+  }
+
+  private async hydrate(store: JsonStore): Promise<void> {
+    let saved: z.infer<typeof storedOutbox> | undefined;
+    try {
+      const raw = await store.load();
+      if (raw !== undefined) {
+        const parsed = storedOutbox.safeParse(raw);
+        if (parsed.success) saved = parsed.data;
+        else await store.remove();
+      }
+    } catch {
+      // An unreadable or unknown file is dropped, never a crash.
+      await store.remove().catch(() => undefined);
+    }
+    if (this.disposed) return;
+    let files: OutboxFiles | undefined;
+    if (saved?.items.some((item) => item.voice || item.files?.length)) {
+      try {
+        files = await this.files();
+      } catch {
+        files = undefined;
+      }
+      if (this.disposed) return;
+    }
+    this.loaded = true;
+    const resend: string[] = [];
+    for (const item of saved?.items ?? []) {
+      if (this.items.has(item.clientId)) continue;
+      const uris = [
+        ...(item.voice ? [item.voice.uri] : []),
+        ...(item.files ?? []).map((file) => file.uri),
+      ];
+      const missing = uris.some((uri) => !(files?.exists(uri) ?? false));
+      // The saved clientId is resent as is, never a new one: the server dedupes on it.
+      this.items.set(item.clientId, {
+        clientId: item.clientId,
+        agentId: item.agentId,
+        text: item.text,
+        createdAt: item.createdAt,
+        ...(item.voice && { voice: item.voice }),
+        ...(item.files && { files: item.files.map((file) => ({ ...file })) }),
+        ...(missing
+          ? { state: 'failed' as const, errorCode: FILE_MISSING }
+          : { state: 'sending' as const }),
+      });
+      if (!missing) resend.push(item.clientId);
+    }
+    this.notify();
+    for (const clientId of resend) void this.attempt(clientId);
+  }
+
+  private start(clientId: string): void {
+    this.notify();
+    void this.keepFiles(clientId).then(() => this.attempt(clientId));
+  }
+
+  /** Copies a message's recording or files into its own folder before the first attempt. */
+  private async keepFiles(clientId: string): Promise<void> {
+    if (!this.store) return;
+    const item = this.items.get(clientId);
+    if (!item || (!item.voice && !item.files?.length)) return;
+    let files: OutboxFiles;
+    try {
+      files = await this.files();
+    } catch {
+      return;
+    }
+    const keep = async (uri: string, key?: string) => {
+      try {
+        const kept = await files.keep(clientId, uri, key);
+        if (kept !== uri) files.remove(uri);
+        return kept;
+      } catch {
+        // Still sendable from the temporary file in this session.
+        return uri;
+      }
+    };
+    if (item.voice) item.voice = { ...item.voice, uri: await keep(item.voice.uri) };
+    // Each file is named by its own clientId too: two picks can share a name.
+    for (const file of item.files ?? []) file.uri = await keep(file.uri, file.clientId);
+    if (this.items.get(clientId) !== item) {
+      if (item.voice) this.removeFile(item.voice.uri);
+      for (const file of item.files ?? []) this.removeFile(file.uri);
+      return;
+    }
+    this.scheduleSave();
   }
 
   private removeFile(uri: string): void {
-    void import('expo-file-system')
-      .then(({ File }) => {
-        try {
-          new File(uri).delete();
-        } catch {
-          /* A temporary recording may already be gone. */
-        }
-      })
+    void this.files()
+      .then((files) => files.remove(uri))
       .catch(() => undefined);
+  }
+
+  private stopWork(): void {
+    this.disposed = true;
+    if (this.saveTimer !== undefined) this.timers.clearTimeout(this.saveTimer);
+    this.saveTimer = undefined;
+    for (const controller of this.controllers) controller.abort();
+    for (const cancel of this.waits) cancel();
   }
 
   private wait(ms: number): Promise<boolean> {
@@ -169,7 +410,7 @@ export class Outbox {
     const delays = [1_000, 3_000, 10_000];
     for (let attempt = 0; attempt <= delays.length; attempt++) {
       const item = this.items.get(clientId);
-      if (!item) return;
+      if (!item || this.disposed) return;
       const controller = new AbortController();
       this.controllers.add(controller);
       try {
@@ -178,7 +419,7 @@ export class Outbox {
           for (const file of item.files) {
             if (file.uploaded) continue;
             file.uploaded = await this.upload(item.agentId, file, controller.signal);
-            this.changed();
+            this.notify();
           }
         }
         const message = await this.sendRequest(
@@ -213,7 +454,7 @@ export class Outbox {
                 (error.status !== undefined && error.status >= 500))));
         if (!retryable || attempt === delays.length) {
           this.items.set(clientId, { ...item, state: 'failed', error });
-          this.changed();
+          this.notify();
           return;
         }
         const delay =
