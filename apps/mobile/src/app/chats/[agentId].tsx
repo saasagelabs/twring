@@ -34,7 +34,7 @@ import { ringPlatform } from '@/platform/ring';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { font } from '@/theme/fonts';
 import { type, usePalette } from '@/theme/tokens';
-import { useChat } from '@/threads/chats';
+import { useChat, useDraft } from '@/threads/chats';
 import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
 import { File } from 'expo-file-system';
@@ -83,7 +83,7 @@ export default function ChatScreen() {
       if (!isActive(controller.getView().call)) setCallForThisChat(false);
     });
   }, []);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useDraft(id);
   const [files, setFiles] = useState<PreparedFile[]>([]);
   const unsentFiles = useRef<PreparedFile[]>([]);
   useEffect(() => {
