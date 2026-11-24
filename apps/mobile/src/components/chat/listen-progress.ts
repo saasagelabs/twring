@@ -31,20 +31,23 @@ const SPEED_KEY = 'twring.listen_speed';
 export function createListenSpeedStore(storage: () => SpeedStorage) {
   let speed: ListenSpeed = 1;
   let loaded: Promise<ListenSpeed> | undefined;
+  /** A speed chosen on this phone wins over a stored one that arrives after it. */
+  let chosen = false;
   return {
     current: (): ListenSpeed => speed,
     load(): Promise<ListenSpeed> {
-      loaded ??= storage()
-        .getItemAsync(SPEED_KEY)
-        .then((raw) => (speed = parseListenSpeed(raw)))
+      loaded ??= Promise.resolve()
+        .then(() => storage().getItemAsync(SPEED_KEY))
+        .then((raw) => (chosen ? speed : (speed = parseListenSpeed(raw))))
         .catch(() => speed);
       return loaded;
     },
     async set(next: ListenSpeed): Promise<void> {
       speed = next;
+      chosen = true;
       loaded = Promise.resolve(next);
-      await storage()
-        .setItemAsync(SPEED_KEY, String(next))
+      await Promise.resolve()
+        .then(() => storage().setItemAsync(SPEED_KEY, String(next)))
         .catch(() => undefined);
     },
   };
@@ -125,4 +128,11 @@ export function listenStatusHandler(handlers: StatusHandlers) {
     handlers.onProgress({ position: status.currentTime, duration: status.duration });
     if (status.playing) handlers.onPlaying();
   };
+}
+
+/** The position under a finger on the bar, or undefined before the length or bar size is known. */
+export function positionAt(x: number, width: number, duration: number): number | undefined {
+  const length = knownDuration(duration);
+  if (length === undefined || !(width > 0) || !Number.isFinite(x)) return undefined;
+  return clampSeek((x / width) * length, length);
 }

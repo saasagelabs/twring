@@ -29,6 +29,7 @@ import {
   knownDuration,
   listenStatusHandler,
   nextListenSpeed,
+  positionAt,
   progressFraction,
   progressText,
   speedLabel,
@@ -128,6 +129,8 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
   const [progress, setProgress] = useState<ListenProgress | undefined>(undefined);
   const [speed, setSpeed] = useState<ListenSpeed>(listenSpeed.current());
   const [trackWidth, setTrackWidth] = useState(0);
+  /** While a finger is on the bar: where it is. The player only seeks on release. */
+  const [drag, setDrag] = useState<number | undefined>(undefined);
   const mounted = useRef(true);
 
   const stop = useCallback(() => {
@@ -143,6 +146,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
     }
     if (mounted.current) {
       setProgress(undefined);
+      setDrag(undefined);
       dispatch('stop');
     }
   }, []);
@@ -237,11 +241,20 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
     [progress],
   );
 
-  const seekAt = useCallback(
+  const dragTo = useCallback(
     (event: GestureResponderEvent) => {
-      const length = progress && knownDuration(progress.duration);
-      if (length === undefined || trackWidth <= 0) return;
-      seek((event.nativeEvent.locationX / trackWidth) * length);
+      if (!progress) return;
+      const at = positionAt(event.nativeEvent.locationX, trackWidth, progress.duration);
+      if (at !== undefined) setDrag(at);
+    },
+    [progress, trackWidth],
+  );
+
+  const release = useCallback(
+    (event: GestureResponderEvent) => {
+      const at = progress && positionAt(event.nativeEvent.locationX, trackWidth, progress.duration);
+      setDrag(undefined);
+      if (at !== undefined) seek(at);
     },
     [progress, seek, trackWidth],
   );
@@ -287,52 +300,61 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
           {state === 'loading' ? 'Loading…' : state === 'playing' ? 'Stop' : 'Listen'}
         </Text>
       </Pressable>
-      {state === 'playing' && progress && (
-        <View style={styles.progressRow}>
-          <View
-            accessible
-            accessibilityRole="adjustable"
-            accessibilityLabel="Position"
-            accessibilityValue={{ text: progressText(progress) }}
-            accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
-            onAccessibilityAction={onAccessibilityAction}
-            onLayout={(event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width)}
-            onStartShouldSetResponder={() => true}
-            onMoveShouldSetResponder={() => true}
-            onResponderGrant={seekAt}
-            onResponderRelease={seekAt}
-            style={styles.track}
-          >
-            <View style={[styles.rail, { backgroundColor: palette.inactive }]}>
-              {progressFraction(progress) !== undefined && (
-                <View
-                  style={[
-                    styles.fill,
-                    {
-                      backgroundColor: palette.accent,
-                      width: `${(progressFraction(progress) ?? 0) * 100}%`,
-                    },
-                  ]}
-                />
-              )}
+      {state === 'playing' &&
+        progress &&
+        (() => {
+          const shown = drag === undefined ? progress : { ...progress, position: drag };
+          return (
+            <View style={styles.progressRow}>
+              <View
+                accessible
+                accessibilityRole="adjustable"
+                accessibilityLabel="Position"
+                accessibilityValue={{ text: progressText(shown) }}
+                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                onAccessibilityAction={onAccessibilityAction}
+                onLayout={(event: LayoutChangeEvent) =>
+                  setTrackWidth(event.nativeEvent.layout.width)
+                }
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderGrant={dragTo}
+                onResponderMove={dragTo}
+                onResponderRelease={release}
+                onResponderTerminate={() => setDrag(undefined)}
+                style={styles.track}
+              >
+                <View style={[styles.rail, { backgroundColor: palette.inactive }]}>
+                  {progressFraction(shown) !== undefined && (
+                    <View
+                      style={[
+                        styles.fill,
+                        {
+                          backgroundColor: palette.accent,
+                          width: `${(progressFraction(progress) ?? 0) * 100}%`,
+                        },
+                      ]}
+                    />
+                  )}
+                </View>
+              </View>
+              <Text style={[styles.time, { color: palette.textSecondary }]}>
+                {formatClock(shown.position)} /{' '}
+                {knownDuration(progress.duration) === undefined
+                  ? '-:--'
+                  : formatClock(progress.duration)}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Speed ${speedLabel(speed)}. Change speed`}
+                onPress={changeSpeed}
+                style={styles.speed}
+              >
+                <Text style={[styles.label, { color: palette.accent }]}>{speedLabel(speed)}</Text>
+              </Pressable>
             </View>
-          </View>
-          <Text style={[styles.time, { color: palette.textSecondary }]}>
-            {formatClock(progress.position)} /{' '}
-            {knownDuration(progress.duration) === undefined
-              ? '-:--'
-              : formatClock(progress.duration)}
-          </Text>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Speed ${speedLabel(speed)}. Change speed`}
-            onPress={changeSpeed}
-            style={styles.speed}
-          >
-            <Text style={[styles.label, { color: palette.accent }]}>{speedLabel(speed)}</Text>
-          </Pressable>
-        </View>
-      )}
+          );
+        })()}
       {state === 'error' && (
         <Text accessibilityLiveRegion="polite" style={[styles.error, { color: palette.danger }]}>
           {failure}
@@ -343,7 +365,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignSelf: 'flex-start', marginLeft: 12 },
+  wrap: { alignSelf: 'flex-start', marginLeft: 12, maxWidth: '100%' },
   button: {
     minHeight: 44,
     flexDirection: 'row',
@@ -352,11 +374,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   label: { fontFamily: font.caption, fontSize: type.caption.fontSize },
-  progressRow: { flexDirection: 'row', alignItems: 'center', gap: 8, width: 260 },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: 260,
+    maxWidth: '100%',
+  },
   track: { flex: 1, minHeight: 44, justifyContent: 'center' },
   rail: { height: 3, borderRadius: 2, overflow: 'hidden' },
   fill: { height: 3 },
   time: {
+    flexShrink: 0,
     fontFamily: font.caption,
     fontSize: type.caption.fontSize,
     fontVariant: ['tabular-nums'],

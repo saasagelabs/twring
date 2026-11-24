@@ -6,6 +6,7 @@ import {
   createListenSpeedStore,
   listenStatusHandler,
   nextListenSpeed,
+  positionAt,
   progressFraction,
   progressText,
 } from './listen-progress';
@@ -101,5 +102,52 @@ describe('status handler', () => {
     expect(handlers.onProgress).toHaveBeenCalledTimes(1);
     expect(handlers.onFinish).not.toHaveBeenCalled();
     expect(handlers.onError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('verifier edge cases', () => {
+  it('falls back to 1x when the store throws before returning a promise', async () => {
+    const store = createListenSpeedStore(() => ({
+      getItemAsync: () => {
+        throw new Error('keystore gone');
+      },
+      setItemAsync: () => {
+        throw new Error('keystore gone');
+      },
+    }));
+    await expect(store.load()).resolves.toBe(1);
+    await expect(store.set(2)).resolves.toBeUndefined();
+    expect(store.current()).toBe(2);
+  });
+
+  it('keeps a speed chosen while the stored one was still loading', async () => {
+    let resolve: (value: string | null) => void = () => undefined;
+    const store = createListenSpeedStore(() => ({
+      getItemAsync: () => new Promise<string | null>((r) => (resolve = r)),
+      setItemAsync: () => Promise.resolve(),
+    }));
+    const loading = store.load();
+    await Promise.resolve();
+    await store.set(2);
+    resolve('1.5');
+    await loading;
+    expect(store.current()).toBe(2);
+  });
+
+  it('maps a finger on the bar to a clamped position, nothing while the length is unknown', () => {
+    expect(positionAt(50, 200, 40)).toBe(10);
+    expect(positionAt(-20, 200, 40)).toBe(0);
+    expect(positionAt(400, 200, 40)).toBe(40);
+    expect(positionAt(50, 0, 40)).toBeUndefined();
+    expect(positionAt(50, 200, 0)).toBeUndefined();
+    expect(positionAt(50, 200, Number.POSITIVE_INFINITY)).toBeUndefined();
+    expect(positionAt(Number.NaN, 200, 40)).toBeUndefined();
+  });
+
+  it('a length that becomes known mid-play makes the bar determinate', () => {
+    expect(progressFraction({ position: 4, duration: 0 })).toBeUndefined();
+    expect(progressFraction({ position: 4, duration: 8 })).toBe(0.5);
+    expect(clampSeek(4, 0)).toBeUndefined();
+    expect(clampSeek(4, 8)).toBe(4);
   });
 });
