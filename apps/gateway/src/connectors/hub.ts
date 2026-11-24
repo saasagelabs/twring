@@ -480,6 +480,9 @@ export class ConnectorHub {
       case 'channel.close':
         entry.channels.get(message.channel)?.remoteClosed();
         return;
+      case 'sealed.reply':
+        // Private chats (ADR-044) are not relayed yet; ignore.
+        return;
     }
   }
 
