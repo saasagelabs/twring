@@ -158,6 +158,17 @@ export class E2eDeviceStore {
     ).map((row) => this.device(row));
   }
 
+  /** Active devices, then those revoked at or after `since` (with `revoked_at`), oldest first. */
+  listWithRevoked(userId: string, since: Date): E2eDevice[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM e2e_devices WHERE user_id=? AND (revoked_at IS NULL OR revoked_at>=?) ORDER BY added_at, id',
+        )
+        .all(userId, since.toISOString()) as DeviceRow[]
+    ).map((row) => this.device(row));
+  }
+
   /** An active device of this account. */
   get(userId: string, deviceId: string): E2eDevice | undefined {
     const row = this.db

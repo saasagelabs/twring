@@ -1,0 +1,77 @@
+import { e2eDeviceSchema, type E2eDevice } from '@twring/contracts';
+import { z } from 'zod';
+
+import { apiUrl, checkServerUrl } from '../config';
+import type { E2eConfig, TrustedDevice } from './keys';
+
+/** How often a running computer reads the account's device list. */
+export const DEVICE_SYNC_MS = 10 * 60_000;
+
+/**
+ * This computer's trusted list against the server's (ADR-044). A device the server says was
+ * revoked is dropped; a device only the server lists is unverified and never wrapped to; a trusted
+ * device missing from the server stays until the server says it was revoked (an outage or a short
+ * list must not drop devices). The server can only take trust away, never add it.
+ */
+export function reconcileDevices(
+  trusted: TrustedDevice[],
+  server: E2eDevice[],
+  selfId?: string,
+): { trusted: TrustedDevice[]; revoked: string[]; unverified: E2eDevice[] } {
+  const revoked = new Set(
+    server.filter((device) => device.revoked_at !== undefined).map((device) => device.id),
+  );
+  return {
+    trusted: trusted.filter((device) => !revoked.has(device.id)),
+    revoked: trusted.filter((device) => revoked.has(device.id)).map((device) => device.id),
+    unverified: server.filter(
+      (device) =>
+        device.revoked_at === undefined &&
+        device.id !== selfId &&
+        !trusted.some((mine) => mine.id === device.id),
+    ),
+  };
+}
+
+const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
+
+export interface SyncDevicesOptions {
+  server: string;
+  token: string;
+  fetch: typeof fetch;
+  /** Changes and saves the private chat config (read fresh first). */
+  persist: (change: (current: E2eConfig) => E2eConfig) => Promise<E2eConfig | undefined>;
+  signal?: AbortSignal;
+}
+
+/**
+ * Reads the account's devices and drops the revoked ones from the trusted list. Undefined when
+ * the list could not be read (offline, private chats off, a bad answer): nothing changes then.
+ */
+export async function syncDevices(
+  options: SyncDevicesOptions,
+): Promise<{ revoked: number; unverified: number } | undefined> {
+  let body: z.infer<typeof devicesResponseSchema>;
+  try {
+    const res = await options.fetch(
+      apiUrl(checkServerUrl(options.server), '/v1/e2e/computer/devices'),
+      {
+        headers: { authorization: `Bearer ${options.token}` },
+        ...(options.signal !== undefined && { signal: options.signal }),
+      },
+    );
+    if (!res.ok) return undefined;
+    const parsed = devicesResponseSchema.safeParse(await res.json());
+    if (!parsed.success) return undefined;
+    body = parsed.data;
+  } catch {
+    return undefined;
+  }
+  let counts = { revoked: 0, unverified: 0 };
+  await options.persist((current) => {
+    const out = reconcileDevices(current.devices, body.devices, current.device_id);
+    counts = { revoked: out.revoked.length, unverified: out.unverified.length };
+    return { ...current, devices: out.trusted };
+  });
+  return counts;
+}

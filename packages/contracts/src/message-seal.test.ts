@@ -93,3 +93,16 @@ describe('message seal', () => {
     expect(base64urlEncode(c)).not.toBe(pairingMac(s, c, p));
   });
 });
+
+describe('sealed payload', () => {
+  it('carries who was quoted and the could-not-open notice', () => {
+    const key = newMessageKey();
+    const payload = {
+      text: '',
+      notice: 'couldnt_open' as const,
+      quote: { message_id: `msg_${'a'.repeat(20)}`, text: 'Ship it?', from: 'agent' as const },
+    };
+    const sealed = sealBody(key, payload, aad);
+    expect(openBody(key, sealed.nonce, sealed.body, aad)).toEqual(payload);
+  });
+});
