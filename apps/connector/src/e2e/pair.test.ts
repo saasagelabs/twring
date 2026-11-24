@@ -18,6 +18,9 @@ const OFFER = `off_${'b'.repeat(20)}`;
 interface FakeServerOptions {
   tamperMac?: boolean;
   swapPhoneKey?: boolean;
+  /** The server hands over a device id or name other than the one the phone sent. */
+  swapDeviceId?: string;
+  swapName?: string;
   expired?: boolean;
   cap?: boolean;
   /** 204s before the claim arrives. */
@@ -54,11 +57,17 @@ function fakeServer(options: FakeServerOptions = {}) {
       const link = parsePairLink(qr!)!;
       const secret = base64urlDecode(link.x);
       const claimedKey = options.swapPhoneKey ? generateSealKeyPair().publicKey : phone.publicKey;
-      const mac = pairingMac(secret, base64urlDecode(offered!.key), phone.publicKey);
+      const mac = pairingMac(secret, {
+        connectorPublic: base64urlDecode(offered!.key),
+        phonePublic: phone.publicKey,
+        connectorDeviceId: offered!.device,
+        phoneDeviceId: phoneId,
+        phoneName: 'Pixel',
+      });
       return json(200, {
-        phone_device_id: phoneId,
+        phone_device_id: options.swapDeviceId ?? phoneId,
         phone_public_key: base64urlEncode(claimedKey),
-        phone_name: 'Pixel',
+        phone_name: options.swapName ?? 'Pixel',
         mac: options.tamperMac ? `${mac.slice(0, -2)}AA` : mac,
       });
     }
@@ -149,6 +158,16 @@ describe('pairPhone', () => {
     const run = deps(server);
     expect(await pairPhone(run.options)).toBe('mismatch');
     expect(server.addedDevices).toHaveLength(0);
+  });
+
+  it('refuses a device id or name the server changed, and adds nothing', async () => {
+    for (const over of [{ swapDeviceId: `dev_${'z'.repeat(20)}` }, { swapName: 'Old phone' }]) {
+      const server = fakeServer(over);
+      const run = deps(server);
+      expect(await pairPhone(run.options)).toBe('mismatch');
+      expect(server.addedDevices).toHaveLength(0);
+      expect(run.saved()).toBeUndefined();
+    }
   });
 
   it('stops when the user says the codes differ', async () => {

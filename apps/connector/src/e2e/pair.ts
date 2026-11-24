@@ -94,7 +94,8 @@ function sameText(a: string, b: string): boolean {
 
 /**
  * Pairs a phone with this computer for private chats (ADR-044). The QR carries a secret the
- * server never sees; the phone's claim must carry an HMAC over both public keys with it, and the
+ * server never sees; the phone's claim must carry an HMAC with it over both public keys, both device
+ * ids and the phone's name (so the server cannot rename or re-id a phone), and the
  * person must see the same 6-digit code on both screens. Only then does the phone join this
  * computer's trusted list. Prints plain words only: never the secret, a key or a MAC.
  */
@@ -145,8 +146,15 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     const claim = await waitForClaim(options, call, offer.offer_id, Date.parse(offer.expires_at));
     const mine = base64urlDecode(e2e.public_key);
     const phoneKey = base64urlDecode(claim.phone_public_key);
-    // The MAC proves the phone read this QR: a key swapped on the way fails here.
-    if (!sameText(pairingMac(secret, mine, phoneKey), claim.mac)) {
+    // The MAC proves the phone read this QR: a key, device id or name swapped on the way fails.
+    const expected = pairingMac(secret, {
+      connectorPublic: mine,
+      phonePublic: phoneKey,
+      connectorDeviceId: e2e.device_id,
+      phoneDeviceId: claim.phone_device_id,
+      phoneName: claim.phone_name,
+    });
+    if (!sameText(expected, claim.mac)) {
       print('Your phone sent a code this computer could not check. Nothing was paired.');
       return 'mismatch';
     }

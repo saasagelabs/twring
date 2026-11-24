@@ -27,6 +27,7 @@ const utf8 = { encode: utf8ToBytes };
 const WRAP_INFO = utf8.encode('twring-e2e-wrap-v1');
 const SAFETY_PREFIX = utf8.encode('twring-safety-v1');
 const DEVICE_ID_PREFIX = utf8.encode('twring-device-id-v1');
+const PAIR_MAC_PREFIX = utf8.encode('twring-pair-mac-v1');
 
 function need32(bytes: Uint8Array, what: string): void {
   if (bytes.length !== KEY_BYTES) throw new SealError(`${what} must be ${KEY_BYTES} bytes`);
@@ -197,15 +198,42 @@ export function openBody(
   return parsed.data;
 }
 
-/** HMAC-SHA256 over both public keys with the QR's pairing secret, in a fixed order. */
-export function pairingMac(
-  secret: Uint8Array,
-  connectorPublic: Uint8Array,
-  phonePublic: Uint8Array,
-): string {
-  need32(connectorPublic, 'public key');
-  need32(phonePublic, 'public key');
-  return base64urlEncode(hmac(sha256, secret, concat(connectorPublic, phonePublic)));
+/** What the phone's pairing MAC covers: everything the computer saves about the pair. */
+export interface PairingMacInput {
+  connectorPublic: Uint8Array;
+  phonePublic: Uint8Array;
+  connectorDeviceId: string;
+  phoneDeviceId: string;
+  phoneName: string;
+}
+
+function lengthPrefixed(bytes: Uint8Array): Uint8Array {
+  const out = new Uint8Array(4 + bytes.length);
+  new DataView(out.buffer).setUint32(0, bytes.length);
+  out.set(bytes, 4);
+  return out;
+}
+
+/**
+ * HMAC-SHA256 with the QR's pairing secret over, in this order, `twring-pair-mac-v1`, then the
+ * computer's public key, the phone's public key, the computer's device id, the phone's device id
+ * and the phone's name, each as a 4-byte big-endian length and its bytes (text as UTF-8, as sent).
+ * Binding the ids and name stops a server giving a new phone a trusted device's id.
+ */
+export function pairingMac(secret: Uint8Array, input: PairingMacInput): string {
+  need32(input.connectorPublic, 'public key');
+  need32(input.phonePublic, 'public key');
+  const data = concat(
+    PAIR_MAC_PREFIX,
+    ...[
+      input.connectorPublic,
+      input.phonePublic,
+      utf8.encode(input.connectorDeviceId),
+      utf8.encode(input.phoneDeviceId),
+      utf8.encode(input.phoneName),
+    ].map(lengthPrefixed),
+  );
+  return base64urlEncode(hmac(sha256, secret, data));
 }
 
 function compareBytes(a: Uint8Array, b: Uint8Array): number {

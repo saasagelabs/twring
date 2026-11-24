@@ -85,12 +85,38 @@ describe('message seal', () => {
     expect(safetyCode(c, p)).toMatch(/^\d{3} \d{3}$/);
     expect(safetyCode(evil, p)).not.toBe(safetyCode(c, p));
   });
-  it('binds the mac to both keys', () => {
+  it('binds the mac to both keys, both device ids and the phone name', () => {
     const s = new Uint8Array(32).fill(1);
     const c = generateSealKeyPair().publicKey;
     const p = generateSealKeyPair().publicKey;
-    expect(pairingMac(s, c, p)).not.toBe(pairingMac(s, p, c));
-    expect(base64urlEncode(c)).not.toBe(pairingMac(s, c, p));
+    const input = {
+      connectorPublic: c,
+      phonePublic: p,
+      connectorDeviceId: `dev_${'c'.repeat(20)}`,
+      phoneDeviceId: `dev_${'p'.repeat(20)}`,
+      phoneName: 'Pixel',
+    };
+    const mac = pairingMac(s, input);
+    expect(pairingMac(s, { ...input })).toBe(mac);
+    expect(pairingMac(s, { ...input, connectorPublic: p, phonePublic: c })).not.toBe(mac);
+    expect(pairingMac(s, { ...input, phoneDeviceId: `dev_${'q'.repeat(20)}` })).not.toBe(mac);
+    expect(pairingMac(s, { ...input, connectorDeviceId: `dev_${'d'.repeat(20)}` })).not.toBe(mac);
+    expect(pairingMac(s, { ...input, phoneName: 'Pixel 2' })).not.toBe(mac);
+    // Length-prefixed: moving a character from one text field to the next changes the MAC.
+    expect(
+      pairingMac(s, { ...input, phoneDeviceId: `${input.phoneDeviceId}P`, phoneName: 'ixel' }),
+    ).not.toBe(mac);
+    expect(base64urlEncode(c)).not.toBe(mac);
+  });
+  it('keeps the pairing mac input fixed (the phone must compute the same bytes)', () => {
+    const mac = pairingMac(new Uint8Array(32).fill(7), {
+      connectorPublic: new Uint8Array(32).fill(1),
+      phonePublic: new Uint8Array(32).fill(2),
+      connectorDeviceId: `dev_${'a'.repeat(20)}`,
+      phoneDeviceId: `dev_${'b'.repeat(20)}`,
+      phoneName: 'Pixel',
+    });
+    expect(mac).toMatchInlineSnapshot(`"Vfa4JNY_uuKXRhK0FspI22RQfpAXskrgOqTp9soh-Gs"`);
   });
 });
 
