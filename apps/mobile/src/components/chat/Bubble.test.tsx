@@ -2,7 +2,7 @@ import { isValidElement, type ReactElement, type ReactNode } from 'react';
 import type * as ReactModule from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
 
-// useState returns these in call order (all, copied, measured height), then the initial value.
+// useState returns these in call order (all, measured height), then the initial value.
 const states: unknown[] = [];
 const setters: ReturnType<typeof vi.fn>[] = [];
 vi.mock('react', async (original) => ({
@@ -19,9 +19,10 @@ vi.mock('react-native', () => ({
   Text: 'Text',
   Pressable: 'Pressable',
 }));
-vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }));
 vi.mock('expo-linear-gradient', () => ({ LinearGradient: 'LinearGradient' }));
-vi.mock('@/theme/fonts', () => ({ font: { body: 'body', mono: 'mono' } }));
+vi.mock('@/theme/fonts', () => ({
+  font: { body: 'body', mono: 'mono', bodyEmphasis: 'bodyEmphasis' },
+}));
 vi.mock('@/theme/tokens', () => ({
   radius: new Proxy({}, { get: () => 0 }),
   type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
@@ -73,7 +74,7 @@ it('measures the rendered message and clips it to the fold until measured', () =
   (measured?.props.onLayout as (event: unknown) => void)({
     nativeEvent: { layout: { height: 2400 } },
   });
-  expect(setters[2]).toHaveBeenCalledWith(2400);
+  expect(setters[1]).toHaveBeenCalledWith(2400);
   // Short or not yet measured: clipped (no visual change when short), no fade, no Show all.
   expect(clipped(all)).toBe(true);
   expect(all.some((item) => item.type === 'LinearGradient')).toBe(false);
@@ -81,16 +82,72 @@ it('measures the rendered message and clips it to the fold until measured', () =
 });
 
 it('folds a message whose rendered height passes forty lines, whatever its length', () => {
-  states.push(false, false, 40 * 23 + 1);
+  states.push(false, 40 * 23 + 1);
   const all = render();
   expect(all.some((item) => item.type === 'LinearGradient')).toBe(true);
   expect(showAll(all)).toBe(true);
 });
 
 it('shows everything after Show all', () => {
-  states.push(true, false, 4000);
+  states.push(true, 4000);
   const all = render();
   expect(all.some((item) => item.type === 'LinearGradient')).toBe(false);
   expect(showAll(all)).toBe(false);
   expect(clipped(all)).toBe(false);
+});
+
+const textsOf = (all: ReactElement<Props>[]) =>
+  all
+    .filter((item) => item.type === 'Text')
+    .map((item) =>
+      Array.isArray(item.props.children) ? item.props.children.join('') : item.props.children,
+    );
+
+it('shows a quoted block above a reply: who wrote it and two lines at most', () => {
+  const all = elements(
+    Bubble({
+      text: 'Yes, do that',
+      time: '10:00',
+      sender: 'You',
+      own: true,
+      onLink: vi.fn(),
+      quote: { from: 'Hermes', text: 'Shall I book the table?' },
+    }),
+  );
+  const block = all.find((item) => item.props.testID === 'bubble-quote');
+  expect(block).toBeDefined();
+  expect((block?.props.style as { borderLeftColor?: string }[])[1].borderLeftColor).toBe('#0ff');
+  const texts = all.filter((item) => item.type === 'Text');
+  expect(textsOf(all)).toContain('Hermes');
+  expect(textsOf(all)).toContain('Shall I book the table?');
+  expect(
+    texts.find((item) => item.props.children === 'Shall I book the table?')?.props.numberOfLines,
+  ).toBe(2);
+  const bubble = all.find((item) => item.type === 'Pressable');
+  expect(bubble?.props.accessibilityLabel).toBe('You, 10:00: replying to Hermes, Yes, do that');
+});
+
+it('has no quoted block on a plain message', () => {
+  expect(render().some((item) => item.props.testID === 'bubble-quote')).toBe(false);
+});
+
+it('offers its long-press choices to screen readers', () => {
+  const onAction = vi.fn();
+  const all = elements(
+    Bubble({
+      text: 'hi',
+      time: '10:00',
+      sender: 'Hermes',
+      own: false,
+      onLink: vi.fn(),
+      actions: [{ name: 'reply', label: 'Reply' }],
+      onAction,
+    }),
+  );
+  const bubble = all.find((item) => item.type === 'Pressable');
+  expect(bubble?.props.accessibilityActions).toEqual([{ name: 'reply', label: 'Reply' }]);
+  (bubble?.props.onAccessibilityAction as (event: unknown) => void)({
+    nativeEvent: { actionName: 'reply' },
+  });
+  expect(onAction).toHaveBeenCalledWith('reply');
 });

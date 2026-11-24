@@ -1,9 +1,13 @@
 import { isActive, type ThreadMessage } from '@twring/contracts';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import * as Clipboard from 'expo-clipboard';
+import * as Haptics from 'expo-haptics';
 import {
   AccessibilityInfo,
+  Alert,
   FlatList,
+  Share,
   Pressable,
   StyleSheet,
   Text,
@@ -28,6 +32,7 @@ import { Composer } from '@/components/chat/Composer';
 import { DateSeparator } from '@/components/chat/DateSeparator';
 import { NewReplyPill, UnreadDivider } from '@/components/chat/NewReplyPill';
 import { LinkSheet } from '@/components/chat/LinkSheet';
+import { MessageActionSheet, ReplyBar } from '@/components/chat/MessageActions';
 import { ListenButton, stopMessageSpeech } from '@/components/chat/ListenButton';
 import { Notice } from '@/components/chat/Notice';
 import { StatusLine } from '@/components/chat/StatusLine';
@@ -59,6 +64,23 @@ import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
 import { File } from 'expo-file-system';
 import { apiErrorCopy } from '@/api/errors';
+import {
+  ACTION_LABELS,
+  DELETE_CONFIRM,
+  deleteFailureCopy,
+  messageActions,
+  type MessageAction,
+} from '@/threads/message-actions';
+
+/** The message a long press or screen-reader action is about. */
+interface ActionTarget {
+  /** The server id; absent for a message still only on this phone. */
+  id?: string;
+  text: string;
+  /** "yourself" or the agent's name, for the reply bar. */
+  from: string;
+  actions: MessageAction[];
+}
 
 type Row =
   | { key: string; kind: 'date'; label: string }
@@ -124,6 +146,11 @@ export default function ChatScreen() {
     [],
   );
   const [url, setUrl] = useState<string>();
+  const [actionTarget, setActionTarget] = useState<ActionTarget>();
+  const [replyTo, setReplyTo] = useState<{ id: string; from: string; text: string }>();
+  const [copiedKey, setCopiedKey] = useState<string>();
+  const copiedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => clearTimeout(copiedTimer.current), []);
   const [removed, setRemoved] = useState(false);
   const load = useCallback(
     async (signal: AbortSignal) => {
@@ -264,8 +291,9 @@ export default function ChatScreen() {
   const toBottom = () => list.current?.scrollToOffset({ offset: 0, animated: true });
   const send = () => {
     if (draft.trim() || files.length) {
-      if (files.length) chat.sendFiles(draft.trim(), files);
-      else chat.send(draft.trim());
+      if (files.length) chat.sendFiles(draft.trim(), files, replyTo?.id);
+      else chat.send(draft.trim(), replyTo?.id);
+      setReplyTo(undefined);
       setDraft('');
       toBottom();
       unsentFiles.current = [];
@@ -290,15 +318,77 @@ export default function ChatScreen() {
     const target = chat.state.progress?.messageId ?? latestId;
     if (target) void chat.stop(target);
   };
+  const openActions = (target: ActionTarget) => {
+    if (!target.actions.length) return;
+    void Haptics.selectionAsync().catch(() => undefined);
+    setActionTarget(target);
+  };
+  const runAction = (target: ActionTarget, action: MessageAction, key: string) => {
+    setActionTarget(undefined);
+    switch (action) {
+      case 'reply':
+        if (target.id) setReplyTo({ id: target.id, from: target.from, text: target.text });
+        return;
+      case 'copy':
+        void Clipboard.setStringAsync(target.text);
+        setCopiedKey(key);
+        clearTimeout(copiedTimer.current);
+        copiedTimer.current = setTimeout(() => setCopiedKey(undefined), 2000);
+        return;
+      case 'share':
+        void Share.share({ message: target.text }).catch(() => undefined);
+        return;
+      case 'delete': {
+        const messageId = target.id;
+        if (!messageId) return;
+        Alert.alert('Delete message?', DELETE_CONFIRM, [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: () => {
+              if (replyTo?.id === messageId) setReplyTo(undefined);
+              chat.deleteMessage(messageId).catch((error: unknown) => {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
+                  () => undefined,
+                );
+                Alert.alert("Couldn't delete", deleteFailureCopy(error));
+              });
+            },
+          },
+        ]);
+        return;
+      }
+    }
+  };
+  const actionProps = (target: ActionTarget, key: string) => ({
+    actions: target.actions.map((action) => ({ name: action, label: ACTION_LABELS[action] })),
+    onAction: (name: string) => {
+      const action = target.actions.find((entry) => entry === name);
+      if (action) runAction(target, action, key);
+    },
+    onLongPress: () => {
+      actionKey.current = key;
+      openActions(target);
+    },
+    copied: copiedKey === key,
+  });
+  const actionKey = useRef('');
   const render = ({ item }: { item: Row }) => {
     if (item.kind === 'date') return <DateSeparator label={item.label} />;
     if (item.kind === 'unread') return <UnreadDivider />;
     if (item.kind === 'working')
       return <StreamingReply name={name} text={chat.state.progress?.text} onLink={setUrl} />;
-    if (item.kind === 'pending')
+    if (item.kind === 'pending') {
+      const pendingTarget: ActionTarget = {
+        text: item.voice ? '' : item.text,
+        from: 'yourself',
+        actions: messageActions({ kind: 'pending', text: item.voice ? '' : item.text }),
+      };
       return (
         <View>
           <Bubble
+            {...actionProps(pendingTarget, item.clientId)}
             text={
               item.voice
                 ? `Voice note · ${callDuration(Math.round(item.voice.durationMs / 1000))} · ${item.state === 'failed' ? 'Failed' : 'Sending…'}`
@@ -336,6 +426,7 @@ export default function ChatScreen() {
           )}
         </View>
       );
+    }
     const message = item.message;
     if (message.kind === 'call' || message.kind === 'ring')
       return (
@@ -359,9 +450,18 @@ export default function ChatScreen() {
       return <Notice text={`New conversation: ${name} won't remember earlier messages.`} />;
     if (message.kind !== 'agent_text' && message.kind !== 'user_text') return null;
     const own = message.kind === 'user_text';
+    const target: ActionTarget = {
+      id: message.id,
+      text: message.text,
+      from: own ? 'yourself' : name,
+      actions: messageActions({ kind: 'message', message }),
+    };
+    const quote = message.kind === 'user_text' ? message.quote : undefined;
     return (
       <View>
         <Bubble
+          {...actionProps(target, message.id)}
+          quote={quote && { from: quote.from === 'owner' ? 'You' : name, text: quote.text }}
           text={message.text}
           voiceDuration={message.kind === 'user_text' ? message.voice?.duration_s : undefined}
           time={timeOf(message.created_at)}
@@ -526,6 +626,13 @@ export default function ChatScreen() {
         </View>
         {!removed && (
           <View>
+            {replyTo && (
+              <ReplyBar
+                from={replyTo.from}
+                text={replyTo.text}
+                onCancel={() => setReplyTo(undefined)}
+              />
+            )}
             <StatusLine
               name={name}
               content={statusContent}
@@ -554,7 +661,8 @@ export default function ChatScreen() {
                 })
               }
               onVoiceSend={(uri, durationMs) => {
-                chat.sendVoice(uri, durationMs);
+                chat.sendVoice(uri, durationMs, replyTo?.id);
+                setReplyTo(undefined);
               }}
               disabled={onCall}
             />
@@ -562,6 +670,13 @@ export default function ChatScreen() {
         )}
       </KeyboardAvoidingView>
       <LinkSheet url={url} onClose={() => setUrl(undefined)} />
+      <MessageActionSheet
+        target={actionTarget}
+        onClose={() => setActionTarget(undefined)}
+        onChoose={(action) => {
+          if (actionTarget) runAction(actionTarget, action, actionKey.current);
+        }}
+      />
     </SafeAreaView>
   );
 }

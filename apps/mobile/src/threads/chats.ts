@@ -10,7 +10,7 @@ import { activeServerUrl, onActiveServerChanged } from '../servers/active';
 import { profileStore } from '../servers/profiles';
 import { STATUS_POLL_MS } from '@/hooks/useResource';
 
-import { applyFrame, emptyChat, upsert, type ChatState } from './chat-store';
+import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
 import { DraftStore } from './drafts';
 import { Outbox, systemTimers, type OutboxTimers, type PendingMessage } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
@@ -26,6 +26,8 @@ export class ChatController {
   private readonly drafts: DraftStore;
   private readonly reads = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly catching = new Map<string, Promise<void>>();
+  private readonly reloading = new Map<string, Promise<void>>();
+  private socketConnectedBefore = false;
   private readonly focusCounts = new Map<string, number>();
   private summaries: ThreadSummary[] = [];
   private availability: boolean | undefined;
@@ -49,6 +51,7 @@ export class ChatController {
               message.voice.durationMs,
               message.voice.uri,
               signal,
+              message.replyTo,
             )
           : await this.api.sendMessage(agentId, message, signal);
         // Shown at once from the reply; the socket and catch-up only refresh it.
@@ -97,8 +100,11 @@ export class ChatController {
       headers: authHeaders,
       onFrame: (frame) => this.frame(frame),
       onState: (state) => {
-        if (state === 'connected')
-          for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
+        if (state !== 'connected') return;
+        for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
+        // The first connection follows open(), which just loaded the newest page.
+        if (this.socketConnectedBefore) this.reloadFocused();
+        this.socketConnectedBefore = true;
       },
     });
     this.appSubscription = AppState.addEventListener('change', (state) => {
@@ -109,6 +115,7 @@ export class ChatController {
       }
       this.socket?.setFocus([...this.focusCounts.keys()].at(-1) ?? null);
       for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
+      this.reloadFocused();
     });
   }
 
@@ -218,14 +225,57 @@ export class ChatController {
     this.put(agentId, { ...upsert(this.getChat(agentId), page.messages), hasOlder: page.hasMore });
   }
 
-  send(agentId: string, text: string): string {
-    return this.outbox.send(agentId, text);
+  send(agentId: string, text: string, replyTo?: string): string {
+    return this.outbox.send(agentId, text, replyTo);
   }
-  sendFiles(agentId: string, text: string, files: PreparedFile[]): string {
-    return this.outbox.sendFiles(agentId, text, files);
+  sendFiles(agentId: string, text: string, files: PreparedFile[], replyTo?: string): string {
+    return this.outbox.sendFiles(agentId, text, files, replyTo);
   }
-  sendVoice(agentId: string, uri: string, durationMs: number): string {
-    return this.outbox.sendVoice(agentId, uri, durationMs);
+  sendVoice(agentId: string, uri: string, durationMs: number, replyTo?: string): string {
+    return this.outbox.sendVoice(agentId, uri, durationMs, replyTo);
+  }
+  /** Deletes a message everywhere; throws the server's refusal (409 while it is answered). */
+  async deleteMessage(agentId: string, messageId: string): Promise<void> {
+    if (!this.api.deleteMessage) throw new Error('Deleting messages is unavailable');
+    const epoch = this.epoch;
+    await this.api.deleteMessage(agentId, messageId);
+    if (epoch !== this.epoch) return;
+    this.put(
+      agentId,
+      applyFrame(this.getChat(agentId), agentId, {
+        type: 'message.deleted',
+        agent_id: agentId,
+        message_id: messageId,
+      }),
+    );
+  }
+
+  /**
+   * Reloads the newest page so messages deleted while the socket was down disappear: a delete
+   * does not bump rev, so catch-up cannot report it. Overlapping calls share one request.
+   */
+  reloadLatest(agentId: string): Promise<void> {
+    if (this.availability === false) return Promise.resolve();
+    const existing = this.reloading.get(agentId);
+    if (existing) return existing;
+    const epoch = this.epoch;
+    const knownSeq = this.getChat(agentId).messages.at(-1)?.seq ?? 0;
+    const work = this.api
+      .listMessages(agentId, { limit: 50 })
+      .then((page) => {
+        if (epoch !== this.epoch) return;
+        this.put(agentId, replaceLatest(this.getChat(agentId), page, knownSeq));
+        for (const message of page.messages) this.outbox.reconcile(message);
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.reloading.delete(agentId);
+      });
+    this.reloading.set(agentId, work);
+    return work;
+  }
+  private reloadFocused(): void {
+    for (const agentId of this.focusCounts.keys()) void this.reloadLatest(agentId);
   }
   retry(clientId: string): void {
     this.outbox.retry(clientId);
@@ -285,6 +335,7 @@ export class ChatController {
     this.epoch++;
     this.socket?.close();
     this.socket = undefined;
+    this.socketConnectedBefore = false;
     this.appSubscription?.remove();
     this.appSubscription = undefined;
     for (const timer of this.reads.values()) clearTimeout(timer);
@@ -417,9 +468,13 @@ export function useChat(agentId: string) {
   return {
     state: active?.getChat(agentId) ?? EMPTY_CHAT,
     pending: active?.getPending(agentId) ?? [],
-    send: (text: string) => active?.send(agentId, text),
-    sendFiles: (text: string, files: PreparedFile[]) => active?.sendFiles(agentId, text, files),
-    sendVoice: (uri: string, durationMs: number) => active?.sendVoice(agentId, uri, durationMs),
+    send: (text: string, replyTo?: string) => active?.send(agentId, text, replyTo),
+    sendFiles: (text: string, files: PreparedFile[], replyTo?: string) =>
+      active?.sendFiles(agentId, text, files, replyTo),
+    sendVoice: (uri: string, durationMs: number, replyTo?: string) =>
+      active?.sendVoice(agentId, uri, durationMs, replyTo),
+    deleteMessage: (messageId: string) =>
+      active ? active.deleteMessage(agentId, messageId) : Promise.resolve(),
     retry: (clientId: string) => active?.retry(clientId),
     stop: (messageId: string) => active?.stop(agentId, messageId),
     decideApproval: (messageId: string, decision: 'approve' | 'deny') =>

@@ -14,6 +14,8 @@ export interface PendingMessage {
   createdAt: string;
   voice?: { uri: string; durationMs: number };
   files?: PreparedFile[];
+  /** The message this one answers; dropped if that message is deleted before this goes out. */
+  replyTo?: string;
   error?: unknown;
   /** A stable machine code for a failure with no error object (a file lost over a restart). */
   errorCode?: string;
@@ -52,6 +54,8 @@ const storedOutbox = z.object({
           .max(20)
           .optional(),
         errorCode: z.string().max(100).optional(),
+        // Missing in queues saved before replies existed.
+        replyTo: z.string().min(1).max(100).optional(),
       }),
     )
     .max(OUTBOX_LIMIT),
@@ -114,6 +118,7 @@ export class Outbox {
         text: string;
         voice?: { uri: string; durationMs: number };
         attachmentIds?: string[];
+        replyTo?: string;
       },
       signal: AbortSignal,
     ) => Promise<ThreadMessage>,
@@ -137,12 +142,13 @@ export class Outbox {
     return [...this.items.values()].filter((item) => item.agentId === agentId);
   }
 
-  send(agentId: string, text: string): string {
+  send(agentId: string, text: string, replyTo?: string): string {
     const clientId = newClientId();
     this.items.set(clientId, {
       clientId,
       agentId,
       text,
+      ...(replyTo !== undefined && { replyTo }),
       state: 'sending',
       createdAt: new Date().toISOString(),
     });
@@ -151,12 +157,13 @@ export class Outbox {
     return clientId;
   }
 
-  sendFiles(agentId: string, text: string, files: PreparedFile[]): string {
+  sendFiles(agentId: string, text: string, files: PreparedFile[], replyTo?: string): string {
     const clientId = newClientId();
     this.items.set(clientId, {
       clientId,
       agentId,
       text,
+      ...(replyTo !== undefined && { replyTo }),
       files: files.map((file) => ({ ...file })),
       state: 'sending',
       createdAt: new Date().toISOString(),
@@ -165,11 +172,12 @@ export class Outbox {
     return clientId;
   }
 
-  sendVoice(agentId: string, uri: string, durationMs: number): string {
+  sendVoice(agentId: string, uri: string, durationMs: number, replyTo?: string): string {
     const clientId = newClientId();
     this.items.set(clientId, {
       clientId,
       agentId,
+      ...(replyTo !== undefined && { replyTo }),
       text: `Voice note · ${callDuration(Math.round(durationMs / 1000))} · Sending…`,
       state: 'sending',
       createdAt: new Date().toISOString(),
@@ -268,6 +276,7 @@ export class Outbox {
           files: item.files.map(({ uploaded: _uploaded, ...file }) => file),
         }),
         ...(errorCode !== undefined && { errorCode }),
+        ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
       };
     });
     const value = { version: 1 as const, items };
@@ -332,6 +341,7 @@ export class Outbox {
         createdAt: item.createdAt,
         ...(item.voice && { voice: item.voice }),
         ...(item.files && { files: item.files.map((file) => ({ ...file })) }),
+        ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
         ...(missing
           ? { state: 'failed' as const, errorCode: FILE_MISSING }
           : { state: 'sending' as const }),
@@ -431,6 +441,7 @@ export class Outbox {
             ...(item.files?.length && {
               attachmentIds: item.files.map((file) => file.uploaded!.id),
             }),
+            ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
           },
           controller.signal,
         );
@@ -438,6 +449,21 @@ export class Outbox {
         return;
       } catch (error) {
         if (!this.items.has(clientId)) return;
+        if (
+          error instanceof ApiError &&
+          error.code === 'reply_to_not_found' &&
+          item.replyTo !== undefined
+        ) {
+          // The quoted message was deleted meanwhile: send once more without the reply link,
+          // under the same clientId. The server dedupes on client_id, so this can never post
+          // the message twice; without replyTo this branch cannot run again.
+          const unlinked = { ...item };
+          delete unlinked.replyTo;
+          this.items.set(clientId, unlinked);
+          this.notify();
+          attempt--;
+          continue;
+        }
         const retryable =
           error instanceof ApiError &&
           ![
