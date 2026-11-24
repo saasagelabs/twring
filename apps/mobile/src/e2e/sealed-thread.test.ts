@@ -19,6 +19,7 @@ import {
   openMessage,
   openMessages,
   sealOutgoing,
+  seenToSave,
   TooLongError,
   type PhoneSealContext,
 } from './sealed-thread';
@@ -254,5 +255,78 @@ describe('sealing on the phone', () => {
     const out = openMessages(ctx, list);
     expect(performance.now() - started).toBeLessThan(3000);
     expect(out.filter((m) => m.state === 'ok')).toHaveLength(2000);
+  });
+});
+
+describe('verifier edge cases', () => {
+  it('reopens the whole thread again in the same session (every render lists it anew)', () => {
+    const ctx = phoneCtx();
+    const list = [1, 2, 3].map((s) => sealedMsg(sealFromComputer({ text: `m${s}` }, s)));
+    openMessages(ctx, list);
+    expect(openMessages(ctx, list).map((m) => m.state)).toEqual(['ok', 'ok', 'ok']);
+  });
+
+  // KNOWN BUG (verifier): seeding the window with seenToSave() marks every earlier seq as seen,
+  // and the message-id map is not saved, so after a restart the whole earlier history is dropped
+  // as replays, silently. Nothing calls seenToSave yet (P3b will). `it.fails` until fixed.
+  it.fails('after a restart with the saved seq, the earlier history still opens', () => {
+    const first = phoneCtx();
+    const list = [1, 2, 3].map((s) => sealedMsg(sealFromComputer({ text: `m${s}` }, s)));
+    openMessages(first, list);
+    const after = createPhoneContext({ ...first, seen: seenToSave(first) });
+    expect(openMessages(after, list).map((m) => m.state)).toEqual(['ok', 'ok', 'ok']);
+  });
+
+  it('refuses a final chunk in the middle', () => {
+    const a = sealFromComputer({ text: 'a' }, 2, { index: 0, final: true });
+    const b = sealFromComputer({ text: 'b' }, 2, { index: 1, final: true });
+    expect(openMessage(phoneCtx(), sealedMsg([a, b])).state).toBe('couldnt_open');
+  });
+
+  it('refuses a reply listing the same chunk twice', () => {
+    const parts = reply(['a', 'b'], 2);
+    expect(openMessage(phoneCtx(), sealedMsg([parts[0], parts[0], parts[1]])).state).toBe(
+      'couldnt_open',
+    );
+  });
+
+  it('refuses a reply that mixes chunked and unchunked envelopes', () => {
+    const a = sealFromComputer({ text: 'a' }, 2, { index: 0, final: false });
+    const b = sealFromComputer({ text: 'b' }, 2);
+    expect(openMessage(phoneCtx(), sealedMsg([a, b])).state).toBe('couldnt_open');
+  });
+
+  it('drops a copied chunk under another id while the real reply keeps growing', () => {
+    const ctx = phoneCtx();
+    const c0 = sealFromComputer({ text: 'Hel' }, 4, { index: 0, final: false });
+    const real = sealedMsg([c0]);
+    expect(openMessage(ctx, real)).toMatchObject({ state: 'ok', partial: true });
+    expect(openMessages(ctx, [{ ...real, id: 'msg_copy' }])).toEqual([]);
+    const c1 = sealFromComputer({ text: 'lo' }, 4, { index: 1, final: true });
+    expect(openMessage(ctx, { ...real, sealed: [c0, c1] })).toMatchObject({ text: 'Hello' });
+  });
+
+  it('does not mark a gap for an older message arriving late, nor for its own seq gaps', () => {
+    const ctx = phoneCtx(5);
+    const out = openMessages(ctx, [
+      sealedMsg(sealFromComputer({ text: 'c' }, 3)),
+      sealedMsg(sealFromComputer({ text: 'b' }, 2)),
+      sealedMsg(sealOutgoing(ctx, { text: 'mine' }), 'user'),
+      sealedMsg(sealOutgoing(ctx, { text: 'mine2' }), 'user'),
+    ]);
+    expect(out.map((m) => m.state)).toEqual(['ok', 'ok', 'ok', 'ok']);
+  });
+
+  it('a forged chunk in an otherwise real reply burns none of its chunk windows', () => {
+    const ctx = phoneCtx();
+    const parts = reply(['a', 'b'], 7);
+    const forged = sealFromComputer(
+      { text: 'b' },
+      7,
+      { index: 1, final: true },
+      stranger.privateKey,
+    );
+    expect(openMessage(ctx, sealedMsg([parts[0], forged])).state).toBe('couldnt_open');
+    expect(openMessage(ctx, sealedMsg(parts))).toMatchObject({ state: 'ok', text: 'ab' });
   });
 });
