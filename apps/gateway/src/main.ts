@@ -8,6 +8,7 @@ import {
   loadGatewayEnv,
   type GatewayEnv,
 } from '@twring/config/gateway';
+import { SEALED_CHAT_FEATURE } from '@twring/contracts';
 
 import { statfs, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -252,7 +253,12 @@ const dailyLimits = new DailyLimits(
 // Computers paired with `cord-connect` dial in here (ADR-023); only with saved agents configured.
 const connectorLogger = pino(createLoggerOptions(env)).child({ component: 'connectors' });
 const connectorHub = new ConnectorHub({
-  ...(env.THREADS_ENABLED && keys && stores && { features: ['messages'] }),
+  ...(env.THREADS_ENABLED &&
+    keys &&
+    stores && {
+      // Computers learn the server relays private chats (ADR-044); each account is still checked.
+      features: env.PRIVATE_CHATS_ENABLED ? ['messages', SEALED_CHAT_FEATURE] : ['messages'],
+    }),
   logger: connectorLogger,
   onHello: async (connectorId, agents) =>
     stores !== undefined &&
