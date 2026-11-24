@@ -37,6 +37,8 @@ import {
   voiceListResponseSchema,
   threadListResponseSchema,
   messagePageResponseSchema,
+  mediaPageResponseSchema,
+  type MediaPageResponse,
   threadMessageSchema,
   newConversationResponseSchema,
   fileUploadResponseSchema,
@@ -133,7 +135,7 @@ export interface TwringApi {
   ): Promise<{ messages: ThreadMessage[]; hasMore: boolean }>;
   sendMessage(
     agentId: string,
-    message: { clientId: string; text: string; attachmentIds?: string[] },
+    message: { clientId: string; text: string; attachmentIds?: string[]; replyTo?: string },
     signal?: AbortSignal,
   ): Promise<ThreadMessage>;
   sendVoiceNote(
@@ -142,7 +144,16 @@ export interface TwringApi {
     durationMs: number,
     fileUri: string,
     signal?: AbortSignal,
+    replyTo?: string,
   ): Promise<ThreadMessage>;
+  /** Deletes one message from Twring (the agent may still remember it). Idempotent. */
+  deleteMessage?(agentId: string, messageId: string, signal?: AbortSignal): Promise<void>;
+  /** Files sent and received with this agent, newest first. */
+  listMedia?(
+    agentId: string,
+    options?: { cursor?: string; limit?: number },
+    signal?: AbortSignal,
+  ): Promise<MediaPageResponse>;
   stopMessage(agentId: string, messageId: string, signal?: AbortSignal): Promise<ThreadMessage>;
   decideChatApproval(
     agentId: string,
@@ -637,12 +648,13 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
             client_id: message.clientId,
             text: message.text,
             ...(message.attachmentIds?.length && { attachment_ids: message.attachmentIds }),
+            ...(message.replyTo !== undefined && { reply_to: message.replyTo }),
           },
           signal,
         }),
       ).message;
     },
-    async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal) {
+    async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo) {
       let rawBody: Blob;
       try {
         const fileResponse = await doFetch(fileUri, { method: 'GET', signal });
@@ -654,6 +666,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         throw new ApiError(signal?.aborted ? 'cancelled' : 'network');
       }
       const query = new URLSearchParams({ client_id: clientId, duration_ms: String(durationMs) });
+      if (replyTo !== undefined) query.set('reply_to', replyTo);
       return parse(
         z.object({ message: threadMessageSchema }),
         await request('POST', `${agentPath(agentId)}/voice-notes?${query}`, {
@@ -673,6 +686,21 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
           { body: {}, signal },
         ),
       ).message;
+    },
+    async deleteMessage(agentId, messageId, signal) {
+      await request('DELETE', `${agentPath(agentId)}/messages/${encodeURIComponent(messageId)}`, {
+        signal,
+      });
+    },
+    async listMedia(agentId, options = {}, signal) {
+      const query = new URLSearchParams();
+      if (options.cursor !== undefined) query.set('cursor', options.cursor);
+      if (options.limit !== undefined) query.set('limit', String(options.limit));
+      const suffix = query.size ? `?${query.toString()}` : '';
+      return parse(
+        mediaPageResponseSchema,
+        await request('GET', `${agentPath(agentId)}/media${suffix}`, { signal }),
+      );
     },
     async decideChatApproval(agentId, messageId, decision, signal) {
       return parse(

@@ -21,6 +21,7 @@ import { RecordLimitError } from '../store/record-limits';
 import type { AgentRepository } from '../store/repositories';
 import { addAgentWords } from '../agents/words';
 import { ConnectedAppBlocked, type McpContacts } from './contacts';
+import { withQuote } from '../threads/quote';
 
 type RpcId = string | number | null;
 const rpcSchema = z.object({
@@ -387,7 +388,7 @@ export function registerMcpRoutes(app: FastifyInstance, options: McpRoutesOption
           const replies = selected.map((m) => ({
             id: m.id,
             time: m.created_at,
-            text: m.text,
+            text: withQuote(m, m.text),
             attachments: (m.attachments ?? []).map((f) => ({ name: f.name, type: f.mime_type })),
           }));
           const next_since = selected.at(-1)?.created_at ?? since ?? null;

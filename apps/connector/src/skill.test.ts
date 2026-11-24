@@ -95,8 +95,8 @@ describe('twring agent skill', () => {
     );
   });
 
-  it('is version 0.6.2', () => {
-    expect(skill.replace(/\r\n/g, '\n')).toMatch(/\n {2}version: 0\.6\.2\n/);
+  it('is version 0.6.3', () => {
+    expect(skill.replace(/\r\n/g, '\n')).toMatch(/\n {2}version: 0\.6\.3\n/);
   });
 
   it('makes agents write down what the owner asks for on a call, in the same turn', () => {

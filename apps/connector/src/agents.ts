@@ -112,6 +112,8 @@ export function createAdapter(
   resumeRef?: string,
   /** A team member's own session on a shared server agent. */
   scope?: string,
+  /** Local log for lines that stay on this computer (why a custom command failed). */
+  log?: (line: string) => void,
 ): LocalAgentAdapter {
   const resume = resumeRef !== undefined && RESUME_REF.test(resumeRef) ? resumeRef : undefined;
   const spawn = scopedSpawn(baseSpawn, scope);
@@ -159,6 +161,8 @@ export function createAdapter(
         args: config.args,
         cwd: config.cwd,
         spawn,
+        label: config.label,
+        ...(log !== undefined && { log }),
       });
   }
 }

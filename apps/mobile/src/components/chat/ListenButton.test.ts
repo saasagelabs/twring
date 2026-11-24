@@ -9,6 +9,7 @@ vi.mock('@/theme/tokens', () => ({
 vi.mock('@/theme/fonts', () => ({ font: { caption: 'caption' } }));
 vi.mock('@/components/Icon', () => ({ Icon: vi.fn() }));
 vi.mock('@/api', () => ({ twringApi: vi.fn() }));
+vi.mock('@/platform/secure-store', () => ({ secureStore: {} }));
 
 import { ApiError } from '../../api/client';
 

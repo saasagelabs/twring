@@ -1,0 +1,311 @@
+import type { ThreadMessage } from '@twring/contracts';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ApiError } from '../api/client';
+import { DraftStore } from './drafts';
+import { FILE_MISSING, Outbox } from './outbox';
+import { memoryStore, storageScope, type OutboxFiles } from './outbox-storage';
+
+const agent = 'agt_abcdefghij0123456789';
+const echo = (clientId: string): ThreadMessage => ({
+  id: 'msg_aaaaaaaaaaaaaaaaaaaa',
+  agent_id: agent,
+  seq: 1,
+  rev: 1,
+  kind: 'user_text',
+  text: 'hello',
+  status: 'sent',
+  client_id: clientId,
+  created_at: '2026-10-13T00:00:00.000Z',
+  updated_at: '2026-10-13T00:00:00.000Z',
+});
+const timers = {
+  setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+  clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+  now: () => Date.now(),
+};
+const settle = async () => {
+  for (let i = 0; i < 10; i++) await Promise.resolve();
+};
+type Send = (
+  agentId: string,
+  request: { clientId: string; text: string },
+  signal: AbortSignal,
+) => Promise<ThreadMessage>;
+const networkDown = () => Promise.reject(new ApiError('network'));
+const never = () => new Promise<ThreadMessage>(() => undefined);
+
+function memoryFiles(present: string[] = []): OutboxFiles & { present: Set<string> } {
+  const files = {
+    present: new Set(present),
+    keep: (clientId: string, uri: string) => {
+      const kept = `doc://outbox/${clientId}/${uri.split('/').at(-1)}`;
+      files.present.add(kept);
+      return Promise.resolve(kept);
+    },
+    exists: (uri: string) => files.present.has(uri),
+    remove: (uri: string) => {
+      files.present.delete(uri);
+    },
+  };
+  return files;
+}
+
+describe('durable outbox', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('saves once after the debounce, coalescing changes', async () => {
+    const store = memoryStore();
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await outbox.hydrated;
+    outbox.send(agent, 'one');
+    outbox.send(agent, 'two');
+    outbox.send(agent, 'three');
+    await vi.advanceTimersByTimeAsync(299);
+    expect(store.saves).toBe(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.saves).toBe(1);
+    expect((store.value as { items: unknown[] }).items).toHaveLength(3);
+  });
+
+  it('resends a saved message after a restart with the same clientId', async () => {
+    const store = memoryStore();
+    const first = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await first.hydrated;
+    const clientId = first.send(agent, 'hello');
+    await vi.advanceTimersByTimeAsync(300);
+
+    const send = vi.fn<Send>((_agent, request) => Promise.resolve(echo(request.clientId)));
+    const second = new Outbox(send, () => undefined, timers, undefined, { store });
+    await second.hydrated;
+    await settle();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1].clientId).toBe(clientId);
+    expect(second.list(agent)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(300);
+    // Reconcile removed it from storage too.
+    expect(store.value).toBeUndefined();
+  });
+
+  it('brings a failed message back as sending and stores only an error code', async () => {
+    const store = memoryStore();
+    const first = new Outbox(
+      vi.fn<Send>(() =>
+        Promise.reject(new ApiError('http', 'agent_offline', undefined, undefined, 400)),
+      ),
+      () => undefined,
+      timers,
+      undefined,
+      { store },
+    );
+    await first.hydrated;
+    first.send(agent, 'hello');
+    await settle();
+    await vi.advanceTimersByTimeAsync(300);
+    const saved = (store.value as { items: Record<string, unknown>[] }).items[0];
+    expect(saved.state).toBe('failed');
+    expect(saved.errorCode).toBe('agent_offline');
+    expect(saved).not.toHaveProperty('error');
+
+    const second = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await second.hydrated;
+    expect(second.list(agent)[0].state).toBe('sending');
+  });
+
+  it('empties storage on clear, even with a write pending', async () => {
+    const store = memoryStore();
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await outbox.hydrated;
+    outbox.send(agent, 'one');
+    await vi.advanceTimersByTimeAsync(300);
+    outbox.send(agent, 'two');
+    await outbox.clear();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(store.value).toBeUndefined();
+  });
+
+  it('keeps the saved queue when detached (switching servers)', async () => {
+    const store = memoryStore();
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await outbox.hydrated;
+    outbox.send(agent, 'one');
+    await outbox.detach();
+    expect((store.value as { items: unknown[] }).items).toHaveLength(1);
+    expect(outbox.list(agent)).toEqual([]);
+  });
+
+  it.each([
+    ['not json', '{oops'],
+    ['an unknown version', { version: 9, items: [] }],
+    ['a wrong shape', { version: 1, items: [{ clientId: 3 }] }],
+  ])('ignores and removes %s', async (_name, value) => {
+    const store = memoryStore();
+    store.value = value;
+    const remove = vi.spyOn(store, 'remove');
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await outbox.hydrated;
+    expect(remove).toHaveBeenCalled();
+    expect(outbox.list(agent)).toEqual([]);
+  });
+
+  it('survives a load that throws', async () => {
+    const store = memoryStore();
+    store.load = () => Promise.reject(new Error('unreadable'));
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, { store });
+    await expect(outbox.hydrated).resolves.toBeUndefined();
+  });
+
+  it('copies a voice note into the outbox folder and fails it if the copy is gone', async () => {
+    const store = memoryStore();
+    const files = memoryFiles(['cache://rec.m4a']);
+    const first = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await first.hydrated;
+    const clientId = first.sendVoice(agent, 'cache://rec.m4a', 4_000);
+    await settle();
+    const kept = `doc://outbox/${clientId}/rec.m4a`;
+    expect(first.list(agent)[0].voice?.uri).toBe(kept);
+    expect(files.present.has('cache://rec.m4a')).toBe(false);
+    await vi.advanceTimersByTimeAsync(300);
+
+    files.present.delete(kept);
+    const send = vi.fn<Send>(never);
+    const second = new Outbox(send, () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await second.hydrated;
+    await settle();
+    expect(second.list(agent)).toMatchObject([
+      { clientId, state: 'failed', errorCode: FILE_MISSING },
+    ]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('deletes the kept copy once the server has the message', async () => {
+    const store = memoryStore();
+    const files = memoryFiles(['cache://rec.m4a']);
+    const send = vi.fn<Send>((_agent, request) => Promise.resolve(echo(request.clientId)));
+    const outbox = new Outbox(send, () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await outbox.hydrated;
+    outbox.sendVoice(agent, 'cache://rec.m4a', 4_000);
+    await settle();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(files.present.size).toBe(0);
+  });
+
+  it('does not send twice when a save lands during an attempt', async () => {
+    const store = memoryStore();
+    let resolve: (message: ThreadMessage) => void = () => undefined;
+    const send = vi.fn<Send>(
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
+    );
+    const outbox = new Outbox(send, () => undefined, timers, undefined, { store });
+    await outbox.hydrated;
+    const clientId = outbox.send(agent, 'hello');
+    await vi.advanceTimersByTimeAsync(300);
+    outbox.send(agent, 'second');
+    await vi.advanceTimersByTimeAsync(300);
+    resolve(echo(clientId));
+    await settle();
+    expect(send.mock.calls.filter((call) => call[1].clientId === clientId)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(300);
+    expect((store.value as { items: { clientId: string }[] }).items.map((i) => i.clientId)).toEqual(
+      [expect.not.stringMatching(clientId)],
+    );
+  });
+
+  it('keeps the newest 50 messages', async () => {
+    const store = memoryStore();
+    const outbox = new Outbox(vi.fn<Send>(networkDown), () => undefined, timers, undefined, {
+      store,
+    });
+    await outbox.hydrated;
+    for (let i = 0; i < 60; i++) outbox.send(agent, `m${i}`);
+    await outbox.flush();
+    const items = (store.value as { items: { text: string }[] }).items;
+    expect(items).toHaveLength(50);
+    expect(items.at(-1)?.text).toBe('m59');
+    await outbox.clear();
+  });
+});
+
+describe('storage scope', () => {
+  it('isolates accounts and servers', async () => {
+    const a = storageScope({ kind: 'hosted' }, 'user-a');
+    const b = storageScope({ kind: 'hosted' }, 'user-b');
+    const self = storageScope({ kind: 'selfhost', serverId: 'srv/1', personId: 'p 1' }, 'user-a');
+    expect(new Set([a, b, self]).size).toBe(3);
+    expect(self).toBe('selfhost_srv_1_p_1');
+    expect(storageScope({ kind: 'hosted' }, undefined)).toBeUndefined();
+
+    // Two accounts' stores never see each other's queue.
+    const stores = new Map([
+      [a, memoryStore()],
+      [b, memoryStore()],
+    ]);
+    vi.useFakeTimers();
+    const first = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, {
+      store: stores.get(a)!,
+    });
+    await first.hydrated;
+    first.send(agent, 'from a');
+    await first.detach();
+    const send = vi.fn<Send>(never);
+    const second = new Outbox(send, () => undefined, timers, undefined, { store: stores.get(b)! });
+    await second.hydrated;
+    await settle();
+    expect(send).not.toHaveBeenCalled();
+    expect(second.list(agent)).toEqual([]);
+    vi.useRealTimers();
+  });
+});
+
+describe('drafts', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('round-trips a draft and clears it on send', async () => {
+    const store = memoryStore();
+    const first = new DraftStore(store, timers);
+    await first.hydrated;
+    first.set(agent, 'half a thought');
+    first.set(agent, 'half a thought, finished');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(store.saves).toBe(1);
+
+    const second = new DraftStore(store, timers);
+    expect(await second.get(agent)).toBe('half a thought, finished');
+    second.set(agent, '');
+    await vi.advanceTimersByTimeAsync(300);
+    expect(store.value).toBeUndefined();
+  });
+
+  it('caps a draft at the composer limit and ignores a corrupt file', async () => {
+    const store = memoryStore();
+    store.value = { version: 1, drafts: { [agent]: 7 } };
+    const drafts = new DraftStore(store, timers);
+    expect(await drafts.get(agent)).toBe('');
+    drafts.set(agent, 'x'.repeat(10_000));
+    expect((await drafts.get(agent)).length).toBe(4_000);
+  });
+
+  it('forgets every draft on clear', async () => {
+    const store = memoryStore();
+    const drafts = new DraftStore(store, timers);
+    await drafts.hydrated;
+    drafts.set(agent, 'secret');
+    await drafts.clear();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(store.value).toBeUndefined();
+  });
+});

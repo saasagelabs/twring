@@ -31,7 +31,8 @@ import { StatusLabel } from '@/components/StatusLabel';
 import { useNow } from '@/hooks/useNow';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { space, type, usePalette } from '@/theme/tokens';
-import { useChatList } from '@/threads/chats';
+import { chatController, useChatList } from '@/threads/chats';
+import { useChatExport } from '@/threads/useChatExport';
 
 interface Detail {
   agent: Agent;
@@ -75,6 +76,7 @@ export default function AgentDetailScreen() {
   );
   // Polled while open so the computer's online status stays current.
   const detail = useResource(load, { pollMs: STATUS_POLL_MS });
+  const exporter = useChatExport(detail.data?.agent);
 
   function confirmDelete(agent: Agent) {
     const aiApp = isAiApp(agent);
@@ -141,6 +143,12 @@ export default function AgentDetailScreen() {
       )}
       {deleteError !== undefined && <ErrorNotice error={deleteError} />}
       {clearError !== undefined && <ErrorNotice error={clearError} />}
+      {exporter.error !== undefined && (
+        <ErrorNotice error={exporter.error} onRetry={exporter.start} />
+      )}
+      {exporter.note !== undefined && (
+        <Text style={[type.caption, { color: palette.textSecondary }]}>{exporter.note}</Text>
+      )}
 
       <View style={styles.identity}>
         <Avatar
@@ -257,6 +265,21 @@ export default function AgentDetailScreen() {
               onPress={() => setNewVisible(true)}
             />
           )}
+          {chats.available &&
+            (exporter.progress === undefined ? (
+              <SettingsRow
+                label="Export chat"
+                accessibilityHint="Shares the whole chat as a text file"
+                onPress={exporter.start}
+              />
+            ) : (
+              <SettingsRow
+                label={`Preparing ${exporter.progress.toLocaleString('en-US')} messages`}
+                value="Cancel"
+                accessibilityHint="Stops the export"
+                onPress={exporter.cancel}
+              />
+            ))}
           {chats.available && (
             <SettingsRow
               label="Clear chat"
@@ -321,6 +344,7 @@ export default function AgentDetailScreen() {
                 .then(
                   () => {
                     setClearVisible(false);
+                    chatController()?.forgetChat(agent.id);
                     chats.refresh();
                   },
                   (error: unknown) => setClearError(apiErrorCopy(error)),

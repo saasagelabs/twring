@@ -1,6 +1,15 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from 'expo-audio';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type AccessibilityActionEvent,
+  type GestureResponderEvent,
+  type LayoutChangeEvent,
+} from 'react-native';
 
 import { twringApi } from '@/api';
 import { ApiError } from '../../api/client';
@@ -8,7 +17,28 @@ import { apiErrorCopy } from '../../api/errors';
 import { probeSpeech, probeSpeechKeyError } from '../../api/speech-key-probe';
 import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
+import { secureStore } from '@/platform/secure-store';
 import { usePalette, type } from '@/theme/tokens';
+
+import {
+  SEEK_STEP_SECONDS,
+  applyListenSpeed,
+  clampSeek,
+  createListenSpeedStore,
+  formatClock,
+  knownDuration,
+  listenStatusHandler,
+  nextListenSpeed,
+  positionAt,
+  progressFraction,
+  progressText,
+  speedLabel,
+  type ListenProgress,
+  type ListenSpeed,
+} from './listen-progress';
+
+/** One speed for every Listen on this phone, auto-listen included. */
+export const listenSpeed = createListenSpeedStore(() => secureStore);
 
 export type ListenState = 'idle' | 'loading' | 'playing' | 'error';
 export type ListenAction = 'load' | 'play' | 'stop' | 'fail';
@@ -96,6 +126,12 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
   const playedAutomatically = useRef(false);
   const preflight = useRef<AbortController | undefined>(undefined);
   const [failure, setFailure] = useState(LISTEN_FAILED);
+  const [progress, setProgress] = useState<ListenProgress | undefined>(undefined);
+  const [speed, setSpeed] = useState<ListenSpeed>(listenSpeed.current());
+  const [trackWidth, setTrackWidth] = useState(0);
+  /** While a finger is on the bar: where it is. The player only seeks on release. */
+  const [drag, setDrag] = useState<number | undefined>(undefined);
+  const mounted = useRef(true);
 
   const stop = useCallback(() => {
     generation.current++;
@@ -108,10 +144,15 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       player.pause();
       player.remove();
     }
-    dispatch('stop');
+    if (mounted.current) {
+      setProgress(undefined);
+      setDrag(undefined);
+      dispatch('stop');
+    }
   }, []);
   useEffect(
     () => () => {
+      mounted.current = false;
       generation.current++;
       preflight.current?.abort();
       const player = owned.current;
@@ -151,24 +192,32 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       if (request !== generation.current) return;
       if (refused !== undefined) throw refused;
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: false });
+      const rate = await listenSpeed.load();
       if (request !== generation.current) return;
+      setSpeed(rate);
       const player = createAudioPlayer(source);
       owned.current = player;
       current = { owner: owner.current, player, stop };
-      player.addListener('playbackStatusUpdate', (status) => {
-        if (request !== generation.current) return;
-        if (status.error) {
-          stop();
-          setFailure(LISTEN_FAILED);
-          dispatch('fail');
-          // The player cannot say why; ask the same URL as plain HTTP for a refused own key.
-          void probeSpeechKeyError(fetch, source.uri, source.headers).then((probed) => {
-            noteListenFailure(agentId, probed);
-            if (probed !== undefined) setFailure(listenFailureMessage(probed));
-          });
-        } else if (status.didJustFinish) stop();
-        else if (status.isLoaded && status.playing) dispatch('play');
-      });
+      applyListenSpeed(player, rate);
+      player.addListener(
+        'playbackStatusUpdate',
+        listenStatusHandler({
+          isCurrent: () => mounted.current && request === generation.current,
+          onProgress: setProgress,
+          onPlaying: () => dispatch('play'),
+          onFinish: stop,
+          onError: () => {
+            stop();
+            setFailure(LISTEN_FAILED);
+            dispatch('fail');
+            // The player cannot say why; ask the same URL as plain HTTP for a refused own key.
+            void probeSpeechKeyError(fetch, source.uri, source.headers).then((probed) => {
+              noteListenFailure(agentId, probed);
+              if (probed !== undefined && mounted.current) setFailure(listenFailureMessage(probed));
+            });
+          },
+        }),
+      );
       player.play();
     } catch (error) {
       if (request === generation.current) {
@@ -179,6 +228,53 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
       }
     }
   }, [agentId, messageId, state, stop]);
+
+  const seek = useCallback(
+    (target: number) => {
+      const player = owned.current;
+      if (!player || !progress) return;
+      const to = clampSeek(target, progress.duration);
+      if (to === undefined) return;
+      setProgress({ position: to, duration: progress.duration });
+      player.seekTo(to).catch(() => undefined);
+    },
+    [progress],
+  );
+
+  const dragTo = useCallback(
+    (event: GestureResponderEvent) => {
+      if (!progress) return;
+      const at = positionAt(event.nativeEvent.locationX, trackWidth, progress.duration);
+      if (at !== undefined) setDrag(at);
+    },
+    [progress, trackWidth],
+  );
+
+  const release = useCallback(
+    (event: GestureResponderEvent) => {
+      const at = progress && positionAt(event.nativeEvent.locationX, trackWidth, progress.duration);
+      setDrag(undefined);
+      if (at !== undefined) seek(at);
+    },
+    [progress, seek, trackWidth],
+  );
+
+  const onAccessibilityAction = useCallback(
+    (event: AccessibilityActionEvent) => {
+      if (!progress) return;
+      const step =
+        event.nativeEvent.actionName === 'increment' ? SEEK_STEP_SECONDS : -SEEK_STEP_SECONDS;
+      seek(progress.position + step);
+    },
+    [progress, seek],
+  );
+
+  const changeSpeed = useCallback(() => {
+    const next = nextListenSpeed(speed);
+    setSpeed(next);
+    if (owned.current) applyListenSpeed(owned.current, next);
+    void listenSpeed.set(next);
+  }, [speed]);
 
   useEffect(() => {
     if (autoPlay && !playedAutomatically.current) {
@@ -204,6 +300,61 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
           {state === 'loading' ? 'Loading…' : state === 'playing' ? 'Stop' : 'Listen'}
         </Text>
       </Pressable>
+      {state === 'playing' &&
+        progress &&
+        (() => {
+          const shown = drag === undefined ? progress : { ...progress, position: drag };
+          return (
+            <View style={styles.progressRow}>
+              <View
+                accessible
+                accessibilityRole="adjustable"
+                accessibilityLabel="Position"
+                accessibilityValue={{ text: progressText(shown) }}
+                accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+                onAccessibilityAction={onAccessibilityAction}
+                onLayout={(event: LayoutChangeEvent) =>
+                  setTrackWidth(event.nativeEvent.layout.width)
+                }
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderGrant={dragTo}
+                onResponderMove={dragTo}
+                onResponderRelease={release}
+                onResponderTerminate={() => setDrag(undefined)}
+                style={styles.track}
+              >
+                <View style={[styles.rail, { backgroundColor: palette.inactive }]}>
+                  {progressFraction(shown) !== undefined && (
+                    <View
+                      style={[
+                        styles.fill,
+                        {
+                          backgroundColor: palette.accent,
+                          width: `${(progressFraction(progress) ?? 0) * 100}%`,
+                        },
+                      ]}
+                    />
+                  )}
+                </View>
+              </View>
+              <Text style={[styles.time, { color: palette.textSecondary }]}>
+                {formatClock(shown.position)} /{' '}
+                {knownDuration(progress.duration) === undefined
+                  ? '-:--'
+                  : formatClock(progress.duration)}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Speed ${speedLabel(speed)}. Change speed`}
+                onPress={changeSpeed}
+                style={styles.speed}
+              >
+                <Text style={[styles.label, { color: palette.accent }]}>{speedLabel(speed)}</Text>
+              </Pressable>
+            </View>
+          );
+        })()}
       {state === 'error' && (
         <Text accessibilityLiveRegion="polite" style={[styles.error, { color: palette.danger }]}>
           {failure}
@@ -214,7 +365,7 @@ export function ListenButton({ agentId, messageId, name, autoPlay = false }: Pro
 }
 
 const styles = StyleSheet.create({
-  wrap: { alignSelf: 'flex-start', marginLeft: 12 },
+  wrap: { alignSelf: 'flex-start', marginLeft: 12, maxWidth: '100%' },
   button: {
     minHeight: 44,
     flexDirection: 'row',
@@ -223,5 +374,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   label: { fontFamily: font.caption, fontSize: type.caption.fontSize },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    width: 260,
+    maxWidth: '100%',
+  },
+  track: { flex: 1, minHeight: 44, justifyContent: 'center' },
+  rail: { height: 3, borderRadius: 2, overflow: 'hidden' },
+  fill: { height: 3 },
+  time: {
+    flexShrink: 0,
+    fontFamily: font.caption,
+    fontSize: type.caption.fontSize,
+    fontVariant: ['tabular-nums'],
+  },
+  speed: { minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' },
   error: { fontFamily: font.caption, fontSize: type.caption.fontSize, paddingBottom: 8 },
 });

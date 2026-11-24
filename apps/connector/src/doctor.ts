@@ -1,14 +1,19 @@
 import { createAdapter, type LocalAgentConfig } from './agents';
 import { AcpAdapter } from './adapters/acp';
 import type { LocalAgentAdapter } from './events';
-import { systemSpawn } from './process';
+import { systemSpawn, type SpawnFn } from './process';
 
 export async function doctor(
   agents: LocalAgentConfig[],
   print: (line: string) => void,
-  create: (agent: LocalAgentConfig) => LocalAgentAdapter = (agent) =>
-    createAdapter(agent, systemSpawn),
+  create?: (agent: LocalAgentConfig) => LocalAgentAdapter,
+  spawn: SpawnFn = systemSpawn,
 ): Promise<number> {
+  // A failing custom command says why here, from its own error output (never sent to Twring).
+  const make =
+    create ??
+    ((agent: LocalAgentConfig) =>
+      createAdapter(agent, spawn, undefined, undefined, (line) => print(`  ${line}`)));
   let failures = 0;
   for (const agent of agents) {
     let adapter: LocalAgentAdapter | undefined;
@@ -18,7 +23,7 @@ export async function doctor(
       reply = '';
     const deadline = AbortSignal.timeout(90_000);
     try {
-      adapter = create(agent);
+      adapter = make(agent);
       for await (const event of adapter.sendTurn(
         'This is a Twring connection test. Reply with the single word: ready',
         deadline,

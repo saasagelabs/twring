@@ -1,16 +1,19 @@
 import type { ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
 import { twringApi, ApiError, type TwringApi } from '@/api';
-import { addBeforeSignOut, authHeaders } from '@/auth';
+import { addBeforeSignOut, authController, authHeaders } from '@/auth';
 import { mobileEnv } from '@/config/env';
 import { activeServerUrl, onActiveServerChanged } from '../servers/active';
+import { profileStore } from '../servers/profiles';
 import { STATUS_POLL_MS } from '@/hooks/useResource';
 
 import { applyFrame, emptyChat, upsert, type ChatState } from './chat-store';
-import { Outbox, type PendingMessage } from './outbox';
+import { DraftStore } from './drafts';
+import { Outbox, systemTimers, type OutboxTimers, type PendingMessage } from './outbox';
+import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
 import { connectThreadSocket } from './socket';
 
@@ -20,6 +23,7 @@ export class ChatController {
   private readonly chats = new Map<string, ChatState>();
   private readonly listeners = new Set<() => void>();
   private readonly outbox: Outbox;
+  private readonly drafts: DraftStore;
   private readonly reads = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly catching = new Map<string, Promise<void>>();
   private readonly focusCounts = new Map<string, number>();
@@ -33,6 +37,8 @@ export class ChatController {
   constructor(
     private readonly api: TwringApi,
     private readonly socketOptions?: { url: string; requireSecureMedia: boolean },
+    stores: { outbox?: JsonStore; drafts?: JsonStore } = {},
+    timers: OutboxTimers = systemTimers,
   ) {
     this.outbox = new Outbox(
       async (agentId, message, signal) => {
@@ -50,7 +56,7 @@ export class ChatController {
         return sent;
       },
       () => this.emit(),
-      undefined,
+      timers,
       (agentId, file, signal) => {
         if (!this.api.uploadFile) return Promise.reject(new Error('File upload unavailable'));
         return this.api.uploadFile(
@@ -59,7 +65,9 @@ export class ChatController {
           signal,
         );
       },
+      stores.outbox && { store: stores.outbox },
     );
+    this.drafts = new DraftStore(stores.drafts ?? memoryStore(), timers);
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -272,7 +280,8 @@ export class ChatController {
     );
   }
 
-  clear(): void {
+  /** Signing out forgets the saved queue and drafts; switching servers keeps them for later. */
+  async clear(options: { forget?: boolean } = {}): Promise<void> {
     this.epoch++;
     this.socket?.close();
     this.socket = undefined;
@@ -282,29 +291,78 @@ export class ChatController {
     this.reads.clear();
     this.focusCounts.clear();
     this.chats.clear();
-    this.outbox.clear();
+    const outbox = options.forget ? this.outbox.clear() : this.outbox.detach();
+    const drafts = options.forget ? this.drafts.clear() : this.drafts.flush();
     this.summaries = [];
     this.availability = undefined;
     this.filesAvailable = false;
     this.emit();
+    await Promise.all([outbox, drafts]);
+  }
+
+  getDraft(agentId: string): Promise<string> {
+    return this.drafts.get(agentId);
+  }
+  setDraft(agentId: string, text: string): void {
+    this.drafts.set(agentId, text);
+  }
+  /** After "Clear chat": unsent messages are dropped and the composer starts empty too. */
+  forgetChat(agentId: string): void {
+    void this.outbox.forgetAgent(agentId);
+    this.drafts.forget(agentId);
+  }
+  /** Leaving a chat writes its draft now instead of after the debounce. */
+  flushDrafts(): void {
+    void this.drafts.flush();
   }
 }
 
+/** The signed-in account on the active server, or undefined (nothing is then saved). */
+function currentScope(): string | undefined {
+  const active = profileStore.active();
+  if (active.kind === 'selfhost')
+    return storageScope(
+      { kind: 'selfhost', serverId: active.serverId, personId: active.person.id },
+      undefined,
+    );
+  const state = authController()?.getState();
+  return storageScope({ kind: 'hosted' }, state?.status === 'signed_in' ? state.userId : undefined);
+}
+
 let controller: ChatController | undefined;
+let controllerScope: string | undefined;
 let signOutHookRegistered = false;
 export function chatController(): ChatController | undefined {
   const api = twringApi();
   if (!api || !mobileEnv.ok) return undefined;
+  const scope = currentScope();
+  if (controller && controllerScope !== scope) {
+    // The account changed under a running controller: start again with this account's state.
+    void controller.clear();
+    controller = undefined;
+  }
   if (!controller) {
-    controller = new ChatController(api, {
-      url: activeServerUrl(),
-      requireSecureMedia: mobileEnv.env.CORD_ENV !== 'development',
-    });
+    controllerScope = scope;
+    controller = new ChatController(
+      api,
+      {
+        url: activeServerUrl(),
+        requireSecureMedia: mobileEnv.env.CORD_ENV !== 'development',
+      },
+      scope ? { outbox: fileStore('outbox', scope), drafts: fileStore('drafts', scope) } : {},
+    );
     if (!signOutHookRegistered) {
-      addBeforeSignOut(() => {
-        controller?.clear();
+      addBeforeSignOut(async () => {
+        const signingOut = currentScope();
+        const ending = controller;
         controller = undefined;
-        return Promise.resolve();
+        if (ending) await ending.clear({ forget: true });
+        // State saved by an earlier launch that never opened chats this time.
+        if (signingOut)
+          await Promise.all([
+            fileStore('outbox', signingOut).remove(),
+            fileStore('drafts', signingOut).remove(),
+          ]).catch(() => undefined);
       });
       signOutHookRegistered = true;
     }
@@ -312,11 +370,38 @@ export function chatController(): ChatController | undefined {
   return controller;
 }
 
-// Chats belong to one server: a switch drops them, and the next chatController() starts fresh.
+// Chats belong to one server: a switch drops them (kept on disk for that account), and the next
+// chatController() starts fresh.
 onActiveServerChanged(() => {
-  controller?.clear();
+  void controller?.clear();
   controller = undefined;
 });
+
+/** The composer's text for one chat: restored when the chat opens, saved as it changes. */
+export function useDraft(agentId: string): [string, (text: string) => void] {
+  'use no memo';
+  const active = chatController();
+  const [draft, setLocal] = useState('');
+  useEffect(() => {
+    let current = true;
+    void active?.getDraft(agentId).then((saved) => {
+      // Text typed while the file was read is kept.
+      if (current && saved) setLocal((typed) => typed || saved);
+    });
+    return () => {
+      current = false;
+      active?.flushDrafts();
+    };
+  }, [active, agentId]);
+  const setDraft = useCallback(
+    (text: string) => {
+      setLocal(text);
+      active?.setDraft(agentId, text);
+    },
+    [active, agentId],
+  );
+  return [draft, setDraft];
+}
 
 export function useChat(agentId: string) {
   // Reads a mutable controller after subscribing: the React Compiler must not cache those reads.

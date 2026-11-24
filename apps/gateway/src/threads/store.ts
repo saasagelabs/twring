@@ -18,6 +18,15 @@ import {
 
 import { messageAad, sealedSecretSchema, type CredentialCipher } from '../store/cipher';
 import { fileAad } from '../files/cipher';
+import { quoteOf, type Quote } from './quote';
+
+const quoteAad = (userId: string, threadId: string, messageId: string) =>
+  `${messageAad(userId, threadId, messageId)}:quote`;
+export type MediaRow = Attachment & {
+  messageId: string;
+  direction: 'sent' | 'received';
+  createdAt: string;
+};
 
 export type FileRow = Attachment & {
   userId: string;
@@ -94,7 +103,7 @@ type AppendInput =
   | Pick<Extract<ThreadMessage, { kind: 'notice' }>, 'kind' | 'code'>;
 
 export class ThreadStoreError extends Error {
-  constructor(readonly code: 'queue_full' | 'message_unreadable') {
+  constructor(readonly code: 'queue_full' | 'message_unreadable' | 'reply_to_not_found') {
     super(code);
     this.name = 'ThreadStoreError';
   }
@@ -203,7 +212,20 @@ export class SqliteThreadStore {
         (row.kind === 'ring' || row.kind === 'approval') && text !== undefined
           ? (JSON.parse(text) as Record<string, unknown>)
           : {};
-      const meta = JSON.parse(row.meta) as Record<string, unknown>;
+      const { quote_sealed: quoteSealed, ...meta } = JSON.parse(row.meta) as Record<
+        string,
+        unknown
+      >;
+      // The quote is the answered message's text, so it is sealed like the body.
+      const quote =
+        quoteSealed === undefined
+          ? undefined
+          : (JSON.parse(
+              this.cipher.open(
+                sealedSecretSchema.parse(quoteSealed),
+                quoteAad(row.user_id, row.thread_id, row.id),
+              ),
+            ) as unknown);
       const attachmentIds = Array.isArray(meta.attachment_ids) ? meta.attachment_ids : [];
       const attachments =
         row.kind === 'user_text' || row.kind === 'agent_text'
@@ -227,6 +249,7 @@ export class SqliteThreadStore {
         ...(row.turn_id === null ? {} : { turn_id: row.turn_id }),
         ...meta,
         ...(attachments.length && { attachments }),
+        ...(quote !== undefined && { quote }),
         ...sealedFields,
       });
     } catch {
@@ -401,10 +424,17 @@ export class SqliteThreadStore {
       turnId?: string;
       meta?: Record<string, unknown>;
       attachmentIds?: string[];
+      quote?: Quote;
     },
   ): ThreadMessage {
     const id = newId('msg');
     const at = this.now().toISOString();
+    const meta = {
+      ...data.meta,
+      ...(data.quote && {
+        quote_sealed: this.cipher.seal(JSON.stringify(data.quote), quoteAad(userId, thread.id, id)),
+      }),
+    };
     const body =
       data.text === undefined
         ? null
@@ -425,7 +455,7 @@ export class SqliteThreadStore {
         data.status ?? null,
         data.clientId ?? null,
         data.turnId ?? null,
-        JSON.stringify(data.meta ?? {}),
+        JSON.stringify(meta),
         at,
         at,
       );
@@ -456,6 +486,7 @@ export class SqliteThreadStore {
       status: UserMessageStatus;
       voice?: { duration_s: number };
       attachmentIds?: string[];
+      replyTo?: string;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     return this.transaction(() => {
@@ -472,6 +503,16 @@ export class SqliteThreadStore {
           .get(thread.id, userId) as { n: number };
         if (count.n >= MAX_QUEUED_PER_THREAD) throw new ThreadStoreError('queue_full');
       }
+      let quote: Quote | undefined;
+      if (input.replyTo !== undefined) {
+        // Only this person's thread with this agent: another thread's text never leaks.
+        const answered = this.db
+          .prepare('SELECT * FROM messages WHERE id=? AND thread_id=? AND user_id=?')
+          .get(input.replyTo, thread.id, userId) as Row | undefined;
+        const decoded = answered && this.tryDecode(answered, agentId);
+        quote = decoded ? quoteOf(decoded) : undefined;
+        if (!quote) throw new ThreadStoreError('reply_to_not_found');
+      }
       const message = this.insert(userId, thread, 'user_text', {
         text: input.text,
         status: input.status,
@@ -479,8 +520,10 @@ export class SqliteThreadStore {
         meta: {
           ...(input.voice && { voice: input.voice }),
           ...(input.attachmentIds && { attachment_ids: input.attachmentIds }),
+          ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
         },
         attachmentIds: input.attachmentIds,
+        quote,
       });
       return { message, created: true };
     });
@@ -765,6 +808,77 @@ export class SqliteThreadStore {
       )
       .get(thread.id, userId, messageId) as Row | undefined;
     return row ? this.decode(row, agentId) : undefined;
+  }
+
+  /**
+   * Deletes one message and the files on it. `in_progress` while its turn is still with the
+   * agent; `missing` when it is not in this person's thread (already deleted, or never there).
+   */
+  async deleteMessage(
+    userId: string,
+    agentId: string,
+    messageId: string,
+  ): Promise<{ result: 'deleted' | 'missing' | 'in_progress'; fileIds: string[] }> {
+    return this.transaction(() => {
+      const thread = this.thread(userId, agentId);
+      if (!thread) return { result: 'missing' as const, fileIds: [] };
+      const row = this.db
+        .prepare('SELECT kind,status FROM messages WHERE id=? AND thread_id=? AND user_id=?')
+        .get(messageId, thread.id, userId) as { kind: string; status: string | null } | undefined;
+      if (!row) return { result: 'missing' as const, fileIds: [] };
+      if (row.kind === 'user_text' && (row.status === 'sent' || row.status === 'working'))
+        return { result: 'in_progress' as const, fileIds: [] };
+      const fileIds = (
+        this.db
+          .prepare('SELECT id FROM files WHERE message_id=? AND user_id=? AND agent_id=?')
+          .all(messageId, userId, agentId) as { id: string }[]
+      ).map((file) => file.id);
+      this.db
+        .prepare('DELETE FROM files WHERE message_id=? AND user_id=? AND agent_id=?')
+        .run(messageId, userId, agentId);
+      this.db.prepare('DELETE FROM messages WHERE id=? AND user_id=?').run(messageId, userId);
+      const last = this.db
+        .prepare('SELECT max(created_at) AS at FROM messages WHERE thread_id=? AND user_id=?')
+        .get(thread.id, userId) as { at: string | null };
+      this.db
+        .prepare('UPDATE threads SET last_message_at=? WHERE id=? AND user_id=?')
+        .run(last.at, thread.id, userId);
+      return { result: 'deleted' as const, fileIds };
+    });
+  }
+
+  /** Files on this person's messages with this agent, newest first, after `before` (exclusive). */
+  async listMedia(
+    userId: string,
+    agentId: string,
+    options: { before?: { createdAt: string; id: string }; limit: number },
+  ): Promise<{ items: MediaRow[]; hasMore: boolean }> {
+    const before = options.before;
+    const rows = this.db
+      .prepare(
+        `SELECT f.* FROM files f JOIN messages m ON m.id=f.message_id AND m.user_id=f.user_id
+          JOIN threads t ON t.id=m.thread_id AND t.user_id=f.user_id AND t.agent_id=f.agent_id
+          WHERE f.user_id=? AND f.agent_id=?${before ? ' AND (f.created_at<? OR (f.created_at=? AND f.id<?))' : ''}
+          ORDER BY f.created_at DESC, f.id DESC LIMIT ?`,
+      )
+      .all(
+        userId,
+        agentId,
+        ...(before ? [before.createdAt, before.createdAt, before.id] : []),
+        options.limit + 1,
+      ) as StoredFile[];
+    return {
+      items: rows.slice(0, options.limit).map((row): MediaRow => {
+        const file = this.file(row);
+        return {
+          ...this.attachment(file),
+          messageId: file.messageId!,
+          direction: file.direction === 'owner' ? 'sent' : 'received',
+          createdAt: file.createdAt,
+        };
+      }),
+      hasMore: rows.length > options.limit,
+    };
   }
 
   async markRead(userId: string, agentId: string, seq: number): Promise<void> {

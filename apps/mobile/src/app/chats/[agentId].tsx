@@ -1,7 +1,17 @@
 import { isActive, type ThreadMessage } from '@twring/contracts';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
+} from 'react-native';
+import { KeyboardAvoidingView, KeyboardGestureArea } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { agentStatusFor, callRefusal } from '@/agents/labels';
 import { aiAppEmptyChat, canCall, isAiApp, showComputerCallHint } from '@/agents/ai-app';
@@ -16,6 +26,7 @@ import { ChatApproval } from '@/components/chat/ChatApproval';
 import { CallCard } from '@/components/chat/CallCard';
 import { Composer } from '@/components/chat/Composer';
 import { DateSeparator } from '@/components/chat/DateSeparator';
+import { NewReplyPill, UnreadDivider } from '@/components/chat/NewReplyPill';
 import { LinkSheet } from '@/components/chat/LinkSheet';
 import { ListenButton, stopMessageSpeech } from '@/components/chat/ListenButton';
 import { Notice } from '@/components/chat/Notice';
@@ -34,7 +45,16 @@ import { ringPlatform } from '@/platform/ring';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { font } from '@/theme/fonts';
 import { type, usePalette } from '@/theme/tokens';
-import { useChat } from '@/threads/chats';
+import { chatController, useChat, useDraft } from '@/threads/chats';
+import {
+  firstUnreadSeq,
+  initialPill,
+  nextPill,
+  pillLabel,
+  replyIds,
+  shouldAnnounce,
+  type PillState,
+} from '@/threads/scroll-state';
 import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
 import { File } from 'expo-file-system';
@@ -53,8 +73,10 @@ type Row =
       voice?: { uri: string; durationMs: number };
       files?: PreparedFile[];
       error?: unknown;
+      errorCode?: string;
     }
-  | { key: string; kind: 'working' };
+  | { key: string; kind: 'working' }
+  | { key: string; kind: 'unread' };
 const timeOf = (date: string) =>
   new Date(date).toLocaleTimeString('en', { hour: '2-digit', minute: '2-digit', hour12: false });
 
@@ -83,7 +105,7 @@ export default function ChatScreen() {
       if (!isActive(controller.getView().call)) setCallForThisChat(false);
     });
   }, []);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useDraft(id);
   const [files, setFiles] = useState<PreparedFile[]>([]);
   const unsentFiles = useRef<PreparedFile[]>([]);
   useEffect(() => {
@@ -139,6 +161,21 @@ export default function ChatScreen() {
         : [...(messagePage.data?.messages ?? [])].sort((a, b) => a.seq - b.seq),
     [chat.state.messages, messagePage.data?.messages],
   );
+  // The read marker as the chat opened: later reads move it, but the divider stays put.
+  const [openedReadSeq] = useState(
+    () =>
+      chatController()
+        ?.getSummaries()
+        .find((thread) => thread.agent_id === id)?.read_seq,
+  );
+  // Fixed once the first page is in: new replies never move the divider.
+  const [unreadSeq, setUnreadSeq] = useState<number>();
+  const unreadFixed = useRef(false);
+  useEffect(() => {
+    if (unreadFixed.current || messagePage.loading) return;
+    unreadFixed.current = true;
+    setUnreadSeq(firstUnreadSeq(messages, openedReadSeq));
+  }, [messagePage.loading, messages, openedReadSeq]);
   const name = agent.data?.name ?? 'Agent';
   const aiApp = isAiApp(agent.data);
   const autoListenId = autoListenTarget(messages, listen === '1' && !messagePage.loading);
@@ -171,18 +208,66 @@ export default function ChatScreen() {
         ordered.push({ key: `date-${message.seq}`, kind: 'date', label });
         previous = label;
       }
+      if (message.seq === unreadSeq) ordered.push({ key: 'unread', kind: 'unread' });
       ordered.push({ key: message.id, kind: 'message', message });
     }
     for (const pending of chat.pending)
       ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
     if (streaming) ordered.push({ key: 'working', kind: 'working' });
     return ordered.reverse();
-  }, [messages, chat.pending, streaming, now]);
+  }, [messages, chat.pending, streaming, now, unreadSeq]);
+  const list = useRef<FlatList<Row>>(null);
+  // Open at the first unread message, once, when there is one.
+  const jumped = useRef(false);
+  const unreadIndex = rows.findIndex((row) => row.kind === 'unread');
+  useEffect(() => {
+    if (jumped.current || unreadIndex < 0) return;
+    // Marked done only when it runs: rows shifting before then reschedule it with the new index.
+    const timer = setTimeout(() => {
+      jumped.current = true;
+      list.current?.scrollToIndex({ index: unreadIndex, viewPosition: 1, animated: false });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [unreadIndex]);
+  // The "New reply" pill: scroll position and replies feed one pure state (threads/scroll-state).
+  const [pill, setPill] = useState<PillState>(initialPill);
+  const scroll = useRef({ distanceFromBottom: 0, viewportHeight: 0 });
+  const ids = useMemo(() => replyIds(messages), [messages]);
+  const idsRef = useRef(ids);
+  useEffect(() => {
+    idsRef.current = ids;
+  }, [ids]);
+  const updatePill = useCallback(() => {
+    setPill((previous) => nextPill(previous, { ids: idsRef.current, ...scroll.current }));
+  }, []);
+  useEffect(updatePill, [ids, updatePill]);
+  // Screen readers hear the pill once per burst of replies, not per streamed word.
+  const pillRef = useRef(pill);
+  useEffect(() => {
+    if (shouldAnnounce(pillRef.current, pill))
+      AccessibilityInfo.announceForAccessibilityWithOptions(pillLabel(pill.count), {
+        queue: true,
+      });
+    pillRef.current = pill;
+  }, [pill]);
+  const onScroll = useCallback(
+    (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+      // Inverted: offset 0 is the newest message.
+      scroll.current = {
+        distanceFromBottom: event.nativeEvent.contentOffset.y,
+        viewportHeight: event.nativeEvent.layoutMeasurement.height,
+      };
+      updatePill();
+    },
+    [updatePill],
+  );
+  const toBottom = () => list.current?.scrollToOffset({ offset: 0, animated: true });
   const send = () => {
     if (draft.trim() || files.length) {
       if (files.length) chat.sendFiles(draft.trim(), files);
       else chat.send(draft.trim());
       setDraft('');
+      toBottom();
       unsentFiles.current = [];
       setFiles([]);
     }
@@ -207,6 +292,7 @@ export default function ChatScreen() {
   };
   const render = ({ item }: { item: Row }) => {
     if (item.kind === 'date') return <DateSeparator label={item.label} />;
+    if (item.kind === 'unread') return <UnreadDivider />;
     if (item.kind === 'working')
       return <StreamingReply name={name} text={chat.state.progress?.text} onLink={setUrl} />;
     if (item.kind === 'pending')
@@ -236,7 +322,7 @@ export default function ChatScreen() {
               >
                 {item.error
                   ? `Didn't go through: ${apiErrorCopy(item.error).message}`
-                  : messageStatus(item.state, name)}
+                  : messageStatus(item.state, name, item.errorCode)}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -357,101 +443,124 @@ export default function ChatScreen() {
           )
         )}
       </View>
-      <View style={styles.body}>
-        {(agent.loading || messagePage.loading) && (
-          <View style={styles.skeleton}>
-            <Skeleton height={64} />
-            <Skeleton height={88} />
-            <Skeleton height={64} />
-          </View>
-        )}
-        {!agent.loading &&
-          !messagePage.loading &&
-          !removed &&
-          !messagePage.error &&
-          rows.length === 0 && (
-            <View style={styles.empty}>
-              <Avatar
-                id={id}
-                name={name}
-                avatarVersion={agent.data?.avatar_version}
-                size={72}
-                online={aiApp ? undefined : !offline}
-              />
-              <Text style={[type.title, { color: palette.textPrimary }]}>{name}</Text>
-              <Text style={[type.body, { color: palette.textSecondary, textAlign: 'center' }]}>
-                {aiApp ? aiAppEmptyChat(name) : `Messages and calls with ${name} appear here.`}
-              </Text>
-              {showComputerCallHint(agent.data) && <ComputerCallHint name={name} />}
-              {!aiApp && <GhostButton label={`Call ${name}`} onPress={start} disabled={offline} />}
+      <KeyboardAvoidingView behavior="padding" style={styles.body}>
+        <View style={styles.body}>
+          {(agent.loading || messagePage.loading) && (
+            <View style={styles.skeleton}>
+              <Skeleton height={64} />
+              <Skeleton height={88} />
+              <Skeleton height={64} />
             </View>
           )}
-        {rows.length > 0 && (
-          <FlatList
-            inverted
-            data={rows}
-            renderItem={render}
-            keyExtractor={(item) => item.key}
-            onEndReached={() => {
-              void chat.loadOlder();
-            }}
-            onEndReachedThreshold={0.25}
-            contentContainerStyle={styles.list}
-            keyboardShouldPersistTaps="handled"
-          />
-        )}
-        {(removed || agent.error || messagePage.error) && (
-          // Opaque, so a notice laid over the messages stays readable.
-          <View
-            pointerEvents="box-none"
-            style={[styles.notices, { backgroundColor: palette.background }]}
-          >
-            {removed && <Notice text="This agent was removed." />}
-            {agent.error && !removed && (
-              <ErrorNotice error={agent.error} onRetry={() => agent.reload()} />
+          {!agent.loading &&
+            !messagePage.loading &&
+            !removed &&
+            !messagePage.error &&
+            rows.length === 0 && (
+              <View style={styles.empty}>
+                <Avatar
+                  id={id}
+                  name={name}
+                  avatarVersion={agent.data?.avatar_version}
+                  size={72}
+                  online={aiApp ? undefined : !offline}
+                />
+                <Text style={[type.title, { color: palette.textPrimary }]}>{name}</Text>
+                <Text style={[type.body, { color: palette.textSecondary, textAlign: 'center' }]}>
+                  {aiApp ? aiAppEmptyChat(name) : `Messages and calls with ${name} appear here.`}
+                </Text>
+                {showComputerCallHint(agent.data) && <ComputerCallHint name={name} />}
+                {!aiApp && (
+                  <GhostButton label={`Call ${name}`} onPress={start} disabled={offline} />
+                )}
+              </View>
             )}
-            {messagePage.error && !removed && (
-              <ErrorNotice error={messagePage.error} onRetry={() => messagePage.reload()} />
-            )}
+          {rows.length > 0 && (
+            <KeyboardGestureArea interpolator="ios" style={styles.body}>
+              <FlatList
+                ref={list}
+                inverted
+                // Scrolled up, a streaming or new reply must not move what the reader sees; at the
+                // bottom, new rows keep the list pinned to the newest message.
+                maintainVisibleContentPosition={{
+                  minIndexForVisible: 0,
+                  autoscrollToTopThreshold: 48,
+                }}
+                onScroll={onScroll}
+                scrollEventThrottle={100}
+                onScrollToIndexFailed={(info) => {
+                  list.current?.scrollToOffset({
+                    offset: info.averageItemLength * info.index,
+                    animated: false,
+                  });
+                }}
+                keyboardDismissMode="interactive"
+                data={rows}
+                renderItem={render}
+                keyExtractor={(item) => item.key}
+                onEndReached={() => {
+                  void chat.loadOlder();
+                }}
+                onEndReachedThreshold={0.25}
+                contentContainerStyle={styles.list}
+                keyboardShouldPersistTaps="handled"
+              />
+            </KeyboardGestureArea>
+          )}
+          {pill.show && rows.length > 0 && <NewReplyPill count={pill.count} onPress={toBottom} />}
+          {(removed || agent.error || messagePage.error) && (
+            // Opaque, so a notice laid over the messages stays readable.
+            <View
+              pointerEvents="box-none"
+              style={[styles.notices, { backgroundColor: palette.background }]}
+            >
+              {removed && <Notice text="This agent was removed." />}
+              {agent.error && !removed && (
+                <ErrorNotice error={agent.error} onRetry={() => agent.reload()} />
+              )}
+              {messagePage.error && !removed && (
+                <ErrorNotice error={messagePage.error} onRetry={() => messagePage.reload()} />
+              )}
+            </View>
+          )}
+        </View>
+        {!removed && (
+          <View>
+            <StatusLine
+              name={name}
+              content={statusContent}
+              onStop={stop}
+              onRetry={(clientId) => chat.retry(clientId)}
+            />
+            <Composer
+              name={name}
+              value={draft}
+              onChange={setDraft}
+              onSend={send}
+              files={files}
+              filesAvailable={chat.filesAvailable}
+              onAddFiles={(chosen) => setFiles((current) => [...current, ...chosen].slice(0, 5))}
+              onRemoveFile={(clientId) =>
+                setFiles((current) => {
+                  const removed = current.find((file) => file.clientId === clientId);
+                  if (removed) {
+                    try {
+                      new File(removed.uri).delete();
+                    } catch {
+                      /* cache may already be gone */
+                    }
+                  }
+                  return current.filter((file) => file.clientId !== clientId);
+                })
+              }
+              onVoiceSend={(uri, durationMs) => {
+                chat.sendVoice(uri, durationMs);
+              }}
+              disabled={onCall}
+            />
           </View>
         )}
-      </View>
-      {!removed && (
-        <KeyboardAvoidingView behavior="padding">
-          <StatusLine
-            name={name}
-            content={statusContent}
-            onStop={stop}
-            onRetry={(clientId) => chat.retry(clientId)}
-          />
-          <Composer
-            name={name}
-            value={draft}
-            onChange={setDraft}
-            onSend={send}
-            files={files}
-            filesAvailable={chat.filesAvailable}
-            onAddFiles={(chosen) => setFiles((current) => [...current, ...chosen].slice(0, 5))}
-            onRemoveFile={(clientId) =>
-              setFiles((current) => {
-                const removed = current.find((file) => file.clientId === clientId);
-                if (removed) {
-                  try {
-                    new File(removed.uri).delete();
-                  } catch {
-                    /* cache may already be gone */
-                  }
-                }
-                return current.filter((file) => file.clientId !== clientId);
-              })
-            }
-            onVoiceSend={(uri, durationMs) => {
-              chat.sendVoice(uri, durationMs);
-            }}
-            disabled={onCall}
-          />
-        </KeyboardAvoidingView>
-      )}
+      </KeyboardAvoidingView>
       <LinkSheet url={url} onClose={() => setUrl(undefined)} />
     </SafeAreaView>
   );
