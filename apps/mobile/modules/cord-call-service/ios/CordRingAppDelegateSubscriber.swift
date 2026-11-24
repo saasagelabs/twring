@@ -9,6 +9,8 @@ public class CordRingAppDelegateSubscriber: ExpoAppDelegateSubscriber {
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
   ) -> Bool {
     CordRing.shared.start()
+    // Seal keys move into the group the notification extension reads (retried every launch).
+    DispatchQueue.global(qos: .utility).async { CordSealKeys.migrateToSharedGroup() }
     return true
   }
 

@@ -167,6 +167,16 @@ enum CordSealKeys {
     case keychain(OSStatus)
   }
 
+  /// The keychain group the app shares with the Notification Service Extension
+  /// (`TwringKeychainGroup` in both Info.plists, from plugins/withNotificationService.ts). nil
+  /// when the build has none or it was not expanded, so keys stay in the default group.
+  static let sharedGroup: String? = {
+    guard let group = Bundle.main.object(forInfoDictionaryKey: "TwringKeychainGroup") as? String,
+      !group.isEmpty, !group.hasPrefix("$"), !group.hasPrefix(".")
+    else { return nil }
+    return group
+  }()
+
   /// Twring's own service (hosted sealed message pushes); must match HOSTED_SEAL_SLOT in JS.
   static let hostedSlot = "hosted"
 
@@ -190,8 +200,60 @@ enum CordSealKeys {
     add[kSecValueData as String] = Data(key)
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     add[kSecAttrSynchronizable as String] = kCFBooleanFalse
-    let status = SecItemAdd(add as CFDictionary, nil)
+    var status = errSecMissingEntitlement
+    if let group = sharedGroup {
+      var shared = add
+      shared[kSecAttrAccessGroup as String] = group
+      status = SecItemAdd(shared as CFDictionary, nil)
+    }
+    // A build without the shared group entitlement still keeps the key (the app can still ring).
+    if status == errSecMissingEntitlement { status = SecItemAdd(add as CFDictionary, nil) }
     guard status == errSecSuccess else { throw Failure.keychain(status) }
+  }
+
+  /// A key saved before the shared group existed is copied into it, then the old copy is deleted
+  /// (never the other way round, so a key is never lost). Idempotent; a locked keychain leaves
+  /// everything as it is for the next launch.
+  static func migrateToSharedGroup() {
+    guard let group = sharedGroup else { return }
+    lock.lock()
+    defer { lock.unlock() }
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecMatchLimit as String: kSecMatchLimitAll,
+      kSecReturnAttributes as String: true,
+      kSecReturnData as String: true,
+    ]
+    var result: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+      let items = result as? [[String: Any]]
+    else { return }
+    for item in items {
+      guard let account = item[kSecAttrAccount as String] as? String,
+        let oldGroup = item[kSecAttrAccessGroup as String] as? String, oldGroup != group,
+        let data = item[kSecValueData as String] as? Data
+      else { continue }
+      let add: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: account,
+        kSecAttrAccessGroup as String: group,
+        kSecValueData as String: data,
+        kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+      ]
+      let status = SecItemAdd(add as CFDictionary, nil)
+      // A copy already in the group is the newer one (set() deletes every copy first).
+      guard status == errSecSuccess || status == errSecDuplicateItem else { continue }
+      let old: [String: Any] = [
+        kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service,
+        kSecAttrAccount as String: account,
+        kSecAttrAccessGroup as String: oldGroup,
+      ]
+      SecItemDelete(old as CFDictionary)
+    }
   }
 
   static func remove(serverId: String) {
@@ -205,7 +267,8 @@ enum CordSealKeys {
     SecItemDelete(query as CFDictionary)
   }
 
-  /// Every stored 32-byte key; an entry that is not one is skipped.
+  /// Every stored 32-byte key; an entry that is not one is skipped. remove() and all() name no
+  /// group on purpose: they cover every group this target can reach, old copies included.
   static func all() -> [[UInt8]] {
     lock.lock()
     defer { lock.unlock() }

@@ -77,6 +77,21 @@ describe('app config permissions Play would ask about', () => {
   );
 });
 
+describe('app config notification service (iPhone)', () => {
+  const iosMods = (config: ExpoConfig) =>
+    (config as { mods?: { ios?: Record<string, unknown> } }).mods?.ios ?? {};
+
+  it.each(['development', 'staging', 'production'])(
+    '%s adds the extension target, entitlements and Info.plist key',
+    async (variant) => {
+      const mods = iosMods(await configFor(variant));
+      for (const mod of ['xcodeproj', 'entitlements', 'infoPlist', 'dangerous']) {
+        expect(typeof mods[mod]).toBe('function');
+      }
+    },
+  );
+});
+
 describe('app config schemes', () => {
   it('production also opens twring:// links; development and staging keep one scheme', async () => {
     expect((await configFor('production')).scheme).toEqual(['cord', 'twring']);
