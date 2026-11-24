@@ -444,3 +444,99 @@ describe('media list', () => {
     expect(bobs.items.map((item) => item.id)).toEqual([bobFile]);
   });
 });
+
+describe('verifier edge cases', () => {
+  it('deleting a queued message skips its turn and the next queued one still runs', async () => {
+    const t = await setup();
+    t.holdTurns();
+    await t.send({ text: 'first' });
+    await t.waitFor(() => t.turns.length === 1);
+    const queued = (await t.send({ text: 'second' })).json().message;
+    expect(queued.status).toBe('queued');
+    await t.send({ text: 'third' });
+    expect((await t.del(queued.id as string)).statusCode).toBe(204);
+    t.release();
+    await t.waitFor(() => t.turns.length === 2);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.turns.map((turn) => turn.text)).toEqual(['first', 'third']);
+  });
+
+  it('folds a hostile quote onto one line and keeps the turn and JSON intact', async () => {
+    const t = await setup();
+    const hostile = `line1\r\n\n"quoted" \`code\` # head\u202Ertl\u202C \u{1F600}${'\u{1F600}'.repeat(300)}`;
+    const answered = await t.agentSays(hostile);
+    const response = await t.send({ text: 'ok', reply_to: answered.id });
+    expect(response.statusCode).toBe(201);
+    const quote: string = response.json().message.quote.text;
+    expect(quote).not.toMatch(/[\r\n]/u);
+    expect(quote.length).toBeLessThanOrEqual(MAX_QUOTE_CHARS + 1);
+    // No lone surrogate left by the cut.
+    expect(() => encodeURIComponent(quote)).not.toThrow();
+    await t.waitFor(() => t.turns.length === 1);
+    expect(t.turns[0]?.text.endsWith('\n\nok')).toBe(true);
+    expect(t.turns[0]?.text.split('\n')).toHaveLength(3);
+  });
+
+  it('a file-only message is quoted by its file names', async () => {
+    const t = await setup();
+    const file = t.addFile('agent');
+    const answered = await t.agentSays('', [file]);
+    const response = await t.send({ reply_to: answered.id });
+    expect(response.json().message.quote).toEqual({ text: '[photo.png]', from: 'agent' });
+  });
+
+  it('tampered media cursors and limits are 400, never 500', async () => {
+    const t = await setup();
+    const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
+    const at = '2026-11-24T00:00:00.000Z';
+    for (const query of [
+      '?cursor=%%%',
+      '?cursor=a+b',
+      `?cursor=${b64(`${at}:fil_${'a'.repeat(20)}`)}`,
+      `?cursor=${b64(`${at}|fil_${'a'.repeat(20)}|x`)}`,
+      `?cursor=${b64(`nope|fil_${'a'.repeat(20)}`)}`,
+      `?cursor=${b64(`${at}|msg_${'a'.repeat(20)}`)}`,
+      `?cursor=${'A'.repeat(500)}`,
+      '?cursor=',
+      '?limit=0',
+      '?limit=-1',
+      '?limit=1e3',
+      '?limit=99999999999999999999999',
+      '?limit=abc',
+      '?other=1',
+    ]) {
+      const response = await t.media(query);
+      expect({ query, status: response.statusCode }).toEqual({ query, status: 400 });
+    }
+    // A well-formed cursor for someone else's file only filters by time: it reveals nothing.
+    const ok = await t.media(`?cursor=${b64(`${at}|fil_${'z'.repeat(20)}`)}`);
+    expect(ok.statusCode).toBe(200);
+  });
+
+  it('logs never carry message or quote text', async () => {
+    const lines: string[] = [];
+    const t = await setup();
+    const log = {
+      info: (obj: unknown) => lines.push(JSON.stringify(obj)),
+      warn: (obj: unknown) => lines.push(JSON.stringify(obj)),
+      error: (obj: unknown) => lines.push(JSON.stringify(obj)),
+      debug: (obj: unknown) => lines.push(JSON.stringify(obj)),
+    };
+    (t.service as unknown as { options: { log: unknown } }).options.log = log;
+    const answered = await t.agentSays('SECRETQUOTE words');
+    const sent = await t.send({ text: 'SECRETBODY', reply_to: answered.id });
+    await t.waitFor(() => t.turns.length === 1);
+    await t.waitFor(() =>
+      t.frames.some(
+        (f) =>
+          f.frame.type === 'message.upserted' &&
+          f.frame.message.id === sent.json().message.id &&
+          f.frame.message.kind === 'user_text' &&
+          !['queued', 'sent', 'working'].includes(f.frame.message.status),
+      ),
+    );
+    expect((await t.del(sent.json().message.id as string)).statusCode).toBe(204);
+    expect(lines.some((l) => l.includes('thread_message_deleted'))).toBe(true);
+    expect(lines.join('\n')).not.toMatch(/SECRETQUOTE|SECRETBODY/u);
+  });
+});
