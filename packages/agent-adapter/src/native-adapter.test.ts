@@ -1,5 +1,8 @@
+import { once } from 'node:events';
+
 import { MAX_NATIVE_MESSAGE_BYTES, type AgentEvent } from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import WebSocket from 'ws';
 
 import {
   conformanceTurn,
@@ -403,6 +406,7 @@ describe('NativeWsAdapter', () => {
   it('gives up reconnecting after the bounded attempts', async () => {
     server = await startFakeNativeServer({ token: TOKEN, mode: 'instant' });
     const sleeps: number[] = [];
+    const sockets: WebSocket[] = [];
     adapter = new NativeWsAdapter({
       url: server.url,
       token: TOKEN,
@@ -411,11 +415,19 @@ describe('NativeWsAdapter', () => {
         sleeps.push(ms);
         return Promise.resolve();
       },
+      socketFactory: (url, options) => {
+        const ws = new WebSocket(url, options);
+        sockets.push(ws);
+        return ws;
+      },
     });
     await adapter.connect(ctx, signal());
+    // Wait for the client to see the drop (the adapter's own close handler runs first), not a
+    // fixed time: on a slow runner the turn otherwise goes out on the dying socket.
+    const dropped = once(sockets[0]!, 'close');
     await server.close();
     server = null;
-    await tick();
+    await dropped;
     const error = await errorOf(collect(adapter.sendTurn(conformanceTurn('t'), signal())));
     expect(isAdapterError(error) && error.code).toBe('connection_failed');
     expect(sleeps).toEqual([1, 2, 3]);
