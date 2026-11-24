@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -82,5 +83,14 @@ describe('updateE2e across processes', () => {
       }),
     ).rejects.toThrow('no');
     await expect(stat(`${path}.lock`)).rejects.toThrow();
+  });
+
+  it('never removes a lock another process took over while this change ran', async () => {
+    await updateE2e(path, (current) => {
+      // As if this change ran past LOCK_STALE_MS and another process took the lock over.
+      writeFileSync(`${path}.lock`, 'another process\n');
+      return current;
+    });
+    expect(await readFile(`${path}.lock`, 'utf8')).toBe('another process\n');
   });
 });

@@ -1,4 +1,5 @@
-import { open, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { open, readFile, rm, stat } from 'node:fs/promises';
 
 import { loadConfig, saveConfig } from '../config';
 import { e2eConfigSchema, type E2eConfig } from './keys';
@@ -44,13 +45,16 @@ export function updateE2e(
 /**
  * Runs `fn` while holding `lockPath`, made with the exclusive 'wx' flag (atomic on Windows, macOS
  * and Linux). Waits up to `waitMs` for another holder; a lock older than LOCK_STALE_MS is removed.
+ * The lock holds a random token and is removed afterwards only if it still holds this one, so a
+ * change that ran past LOCK_STALE_MS never removes the lock of the process that took it over.
  */
 async function withFileLock<T>(lockPath: string, waitMs: number, fn: () => Promise<T>): Promise<T> {
   const deadline = Date.now() + waitMs;
+  const token = `${process.pid} ${randomUUID()}\n`;
   for (;;) {
     try {
       const handle = await open(lockPath, 'wx', 0o600);
-      await handle.writeFile(`${process.pid} ${new Date().toISOString()}\n`);
+      await handle.writeFile(token);
       await handle.close();
       break;
     } catch (error) {
@@ -72,6 +76,7 @@ async function withFileLock<T>(lockPath: string, waitMs: number, fn: () => Promi
   try {
     return await fn();
   } finally {
-    await rm(lockPath, { force: true }).catch(() => undefined);
+    const holder = await readFile(lockPath, 'utf8').catch(() => undefined);
+    if (holder === token) await rm(lockPath, { force: true }).catch(() => undefined);
   }
 }
