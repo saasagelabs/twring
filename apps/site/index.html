@@ -23,7 +23,7 @@
 <link rel="manifest" href="/site.webmanifest">
 <link rel="preload" href="/assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/home.css?v=1">
+<link rel="stylesheet" href="/assets/home.css?v=2">
 <script type="application/ld+json">
 {
  "@context": "https://schema.org",
@@ -219,7 +219,7 @@
 
       <div class="stage" id="try">
         <fieldset class="agents js-only" id="agents">
-          <legend>Choose an agent for the samples</legend>
+          <legend>Choose an agent</legend>
           <label><input type="radio" name="agent" value="claude-code" data-name="Claude Code" data-where="on your computer" data-href="/claude-code/" data-link="Twring with Claude Code" checked><span>Claude Code</span></label>
           <label><input type="radio" name="agent" value="codex" data-name="Codex" data-where="on your computer" data-href="/codex/" data-link="Twring with Codex"><span>Codex</span></label>
           <label><input type="radio" name="agent" value="hermes" data-name="Hermes" data-where="on your computer" data-href="/hermes/" data-link="Twring with Hermes"><span>Hermes</span></label>
@@ -227,7 +227,7 @@
         </fieldset>
 
         <figure class="device">
-          <span class="tag">Sample, not live</span>
+          <span class="tag">Demo</span>
           <div class="phone" id="callPhone" data-view="call">
             <div class="screen">
               <div class="cv" data-state="speaking" data-voice="agent" data-talk="1">
@@ -254,11 +254,11 @@
               </div>
             </div>
           </div>
-          <figcaption class="device-note">A scripted sample. It is not a live call and it never uses your microphone. <a id="agentLink" href="/claude-code/">Twring with Claude Code</a></figcaption>
+          <figcaption class="device-note">No microphone, no real call. <a id="agentLink" href="/claude-code/">Twring with Claude Code</a></figcaption>
         </figure>
 
         <details class="script">
-          <summary>Read the sample call as text</summary>
+          <summary>Read this call as text</summary>
           <ol id="scriptCall">
             <li data-who="you"><b>You</b> <span class="t">Is the deploy for session 41 ready?</span></li>
             <li data-who="agent"><b data-agent>Claude Code</b> <span class="t">Tests passed on all three services. Here is the full log from each one, starting with</span> <i>(you cut in)</i></li>
@@ -274,7 +274,7 @@
 
   <div class="signal" id="signal" aria-hidden="true">
     <canvas id="signalCanvas"></canvas>
-    <p class="signal-note"><span class="wrap">Sample line. Move across it, or play the sample call. No sound is used.</span></p>
+    <p class="signal-note"><span class="wrap">Move across the line, or play the call above.</span></p>
   </div>
 
   <div class="works">
@@ -324,7 +324,7 @@
     <div class="wrap split rev">
       <div class="stage">
         <figure class="device">
-          <span class="tag">Sample, not live</span>
+          <span class="tag">Demo</span>
           <div class="phone" id="ringPhone" data-view="ring">
             <div class="screen">
               <div class="rv" data-state="idle">
@@ -347,13 +347,12 @@
             </div>
           </div>
           <figcaption class="device-note">
-            <button class="btn btn-quiet js-only" id="playRing" type="button"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg><span>Play a sample ring</span></button>
-            <span>A scripted sample. No real call is placed.</span>
+            <button class="btn btn-quiet js-only" id="playRing" type="button"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M3 1.5v11l9-5.5z" fill="currentColor"/></svg><span>Play a ring</span></button>
           </figcaption>
         </figure>
 
         <details class="script">
-          <summary>Read the sample ring as text</summary>
+          <summary>Read this ring as text</summary>
           <ol id="scriptRing">
             <li data-k="why"><b>Ring from <span data-agent>Claude Code</span></b> <span class="t">Deploy is blocked on your approval for the production branch.</span></li>
             <li data-k="open"><b data-agent>Claude Code</b> <span class="t">Tests passed on all three services. I need your OK to push to production.</span></li>
@@ -451,13 +450,7 @@
       </nav>
     </div>
   </div>
-  <div class="giant-stage" id="giantStage" aria-hidden="true">
-    <svg class="rings" viewBox="0 0 100 66">
-      <path class="rg" d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z"/>
-      <path class="rg" d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z"/>
-      <path class="rg" d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z"/>
-      <path class="mk" d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z"/>
-    </svg>
+  <div class="giant-stage" aria-hidden="true">
     <div class="giant" id="giant"><span>twring</span></div>
   </div>
   <div class="wrap">
@@ -465,6 +458,6 @@
   </div>
 </footer>
 
-<script src="/assets/home.js?v=1"></script>
+<script src="/assets/home.js?v=2"></script>
 </body>
 </html>
