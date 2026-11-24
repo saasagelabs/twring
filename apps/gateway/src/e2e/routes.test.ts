@@ -159,6 +159,50 @@ describe('private chat pairing routes', () => {
     expect(res.json().error.code).toBe('offer_expired');
   });
 
+  it('refuses to add devices from an offer that expired after the phone claimed it', async () => {
+    const g = await start();
+    const { connectorId, token } = await g.pair('u1');
+    const offerId = g.e2e.createOffer('u1', {
+      connectorId,
+      connectorDeviceId: devId('c'),
+      connectorPublicKey: key(1),
+      expiresAt: new Date(Date.now() - 1),
+    }).id;
+    const { offer_id: _offer, ...claim } = claimBody(offerId);
+    expect(g.e2e.claimOffer('u1', offerId, claim)).toBe('claimed');
+    const res = await g.send('POST', '/v1/e2e/computer/devices', {
+      headers: bearer(token),
+      body: { offer_id: offerId },
+    });
+    expect(res.statusCode).toBe(410);
+    expect(res.json().error.code).toBe('offer_expired');
+    expect(g.e2e.list('u1')).toHaveLength(0);
+  });
+
+  it('tells the computer about revoked devices, and the phone only about active ones', async () => {
+    const g = await start();
+    const { token } = await g.pair('u1');
+    const offerId = (await offer(g, token)).json<{ offer_id: string }>().offer_id;
+    await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+      user: 'u1',
+      body: claimBody(offerId),
+    });
+    await g.send('POST', '/v1/e2e/computer/devices', {
+      headers: bearer(token),
+      body: { offer_id: offerId },
+    });
+    const revoked = await g.send('DELETE', `/v1/e2e/devices/${devId('p')}`, { user: 'u1' });
+    expect(revoked.statusCode).toBe(204);
+    const computer = await g.send('GET', '/v1/e2e/computer/devices', { headers: bearer(token) });
+    const devices = computer.json<{ devices: { id: string; revoked_at?: string }[] }>().devices;
+    expect(devices.find((d) => d.id === devId('p'))?.revoked_at).toEqual(expect.any(String));
+    expect(devices.find((d) => d.id === devId('c'))?.revoked_at).toBeUndefined();
+    const phone = await g.send('GET', '/v1/e2e/devices', { user: 'u1' });
+    expect(phone.json<{ devices: { id: string }[] }>().devices.map((d) => d.id)).toEqual([
+      devId('c'),
+    ]);
+  });
+
   it('enforces the device cap of 5 on the server, adding neither device', async () => {
     const g = await start();
     for (let i = 0; i < 4; i++) {

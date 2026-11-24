@@ -24,6 +24,8 @@ export const PAIR_OFFER_TTL_MS = 10 * 60_000;
 /** Longest wait a computer may ask for while it polls its offer. */
 export const PAIR_WAIT_MAX_S = 25;
 const BODY_LIMIT = 4 * 1024;
+/** How long a revoked device stays in the computer's list, so an offline computer still hears. */
+export const REVOKED_SHOWN_MS = 30 * 24 * 60 * 60_000;
 
 export interface E2eRoutesOptions {
   env: Pick<GatewayEnv, 'PRIVATE_CHATS_ENABLED' | 'PRIVATE_CHATS_USERS'>;
@@ -234,6 +236,8 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     if (offer === undefined || offer.connectorId !== connector.id)
       return sendError(reply, 404, 'not_found');
     if (offer.claim === undefined) return sendError(reply, 409, 'not_ready');
+    if (Date.parse(offer.expiresAt) <= now().getTime())
+      return sendError(reply, 410, 'offer_expired');
     try {
       devices.addAll(connector.user_id, [
         {
@@ -268,11 +272,13 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     return devicesBody(list);
   });
 
-  // Computer: the account's devices, to wrap message keys for each of them.
+  // Computer: the account's devices, plus those revoked lately (with `revoked_at`), so the
+  // computer stops wrapping to a removed device; an absent device is never taken as revoked.
   app.get('/v1/e2e/computer/devices', async (request, reply) => {
     const connector = await connectorFor(request, reply);
     if (connector === undefined) return reply;
-    return devicesBody(devices.list(connector.user_id));
+    const since = new Date(now().getTime() - REVOKED_SHOWN_MS);
+    return devicesBody(devices.listWithRevoked(connector.user_id, since));
   });
 
   app.get('/v1/e2e/devices', (request, reply) => {
