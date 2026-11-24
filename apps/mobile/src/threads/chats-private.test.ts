@@ -298,4 +298,19 @@ describe('private chats in the chat data layer', () => {
     await vi.waitFor(() => expect(controller.getOpened(privateAgent)).toBeDefined());
     expect(controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'ok' });
   });
+
+  it('a retry after a failed post resends the same sealed body and seq', async () => {
+    const t = await setup({ sendFails: true });
+    t.controller.send(privateAgent, 'again');
+    await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
+    const sent = t.posts.length;
+    const clientId = t.controller.getPending(privateAgent)[0]!.clientId;
+    t.controller.retry(clientId);
+    await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
+    const all = t.posts as { clientId: string; sealed: SealedEnvelopeV1 }[];
+    expect(all.length).toBeGreaterThan(sent);
+    expect(new Set(all.map((p) => JSON.stringify(p.sealed))).size).toBe(1);
+    expect(new Set(all.map((p) => p.clientId))).toEqual(new Set([clientId]));
+    expect(t.store.m.get(SEQ_KEY_NAME)).toBe('1');
+  });
 });
