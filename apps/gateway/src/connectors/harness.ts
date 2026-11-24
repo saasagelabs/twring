@@ -47,6 +47,7 @@ import { ThreadService } from '../threads/service';
 import { SqliteThreadStore } from '../threads/store';
 import { FakeSttProvider, FakeTtsProvider } from '../voice/testing';
 import { E2eDeviceStore } from '../e2e/devices-store';
+import { privateChatAccess } from '../e2e/flag';
 
 import { ConnectorHub, type HubLogger } from './hub';
 import type { LinkBook } from './link-requests';
@@ -292,6 +293,7 @@ export async function startConnectorGateway(
         calls?.registry.hasLiveCallToAgent(userId, agentId) ?? false,
       ...(ring && { ring: ring.service }),
       notify: () => undefined,
+      privateChats: privateChatAccess(env, hub),
       sweepIntervalMs: options.threads.sweepIntervalMs ?? 20,
     });
     await service.start();

@@ -28,6 +28,7 @@ import { createBetaMembers } from './beta/members';
 import { createInviteService, redemptionRecordSchema } from './beta/invites';
 import { ConnectorHub } from './connectors/hub';
 import { E2eDeviceStore } from './e2e/devices-store';
+import { privateChatAccess } from './e2e/flag';
 import { PairingBook } from './connectors/pairing';
 import { connectorCallStatus } from './connectors/routes';
 import { agentFactoryFor } from './calls/agents';
@@ -543,6 +544,9 @@ threadService =
         ring: ringService,
         isFocused: (userId, agentId) => phoneSocketHub?.isFocused(userId, agentId) ?? false,
         notify: (userId, frame) => phoneSocketHub?.publish(userId, frame),
+        ...(env.PRIVATE_CHATS_ENABLED && {
+          privateChats: privateChatAccess(env, connectorHub),
+        }),
         log: pino(createLoggerOptions(env)).child({ component: 'threads' }),
       })
     : undefined;

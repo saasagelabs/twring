@@ -5,9 +5,11 @@ import {
   APPROVAL_HOLD_MS,
   MAX_ACTIVITY_LABEL_CHARS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
+  parseConnectorEndpoint,
   sanitizeRingText,
   truncateRingText,
   userRef,
+  type SealedEnvelopeV1,
   type ThreadMessage,
   type ThreadSocketFrame,
   type UserMessageStatus,
@@ -55,6 +57,14 @@ export interface ThreadServiceOptions {
   };
   timeouts?: Partial<ThreadTurnTimeouts>;
   sweepIntervalMs?: number;
+  /**
+   * Private chats (ADR-044). Absent: no chat can become private, and sealed messages are refused.
+   * `computerSupports` is true only when the agent's computer is connected and said `sealed_chat`.
+   */
+  privateChats?: {
+    allowed(userId: string): boolean;
+    computerSupports(record: AgentRecord): boolean;
+  };
 }
 export class ThreadServiceError extends Error {
   constructor(
@@ -65,7 +75,11 @@ export class ThreadServiceError extends Error {
       | 'approval_conflict'
       | 'approval_not_found'
       | 'reply_to_not_found'
-      | 'message_in_progress',
+      | 'message_in_progress'
+      | 'private_chats_off'
+      | 'private_unsupported'
+      | 'private_thread'
+      | 'not_private',
     readonly current?: ThreadMessage,
   ) {
     super(code);
@@ -512,6 +526,16 @@ export class ThreadService {
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const record = await this.options.agents.get(userId, agentId);
     if (!record) throw new ThreadServiceError('agent_not_found');
+    // Nothing goes into a private chat in plain text, so it never silently downgrades.
+    if (await this.options.store.isPrivate(userId, agentId)) {
+      const prior = await this.options.store.findUserMessageByClientId(
+        userId,
+        agentId,
+        input.clientId,
+      );
+      if (prior) return { message: prior, created: false };
+      throw new ThreadServiceError('private_thread');
+    }
     if (input.attachmentIds) {
       if (!this.options.files) throw new ThreadServiceError('bad_attachment');
       const prior = await this.options.store.findUserMessageByClientId(
@@ -560,6 +584,85 @@ export class ThreadService {
     this.upsert(userId, result.message);
     if (ready) this.launch(userId, agentId, record, result.message);
     return result;
+  }
+
+  /**
+   * Makes the chat private (ADR-044): only for this person's own computer agent, when private
+   * chats are on for them, the computer is connected and supports them, and so does the app.
+   */
+  async setPrivate(userId: string, agentId: string, appSupports: boolean): Promise<void> {
+    const privateChats = this.options.privateChats;
+    if (!privateChats?.allowed(userId)) throw new ThreadServiceError('private_chats_off');
+    const record = await this.options.agents.get(userId, agentId);
+    if (!record) throw new ThreadServiceError('agent_not_found');
+    if (
+      !appSupports ||
+      record.user_id !== userId ||
+      record.protocol !== 'cord-connector' ||
+      parseConnectorEndpoint(record.endpoint_url) === undefined ||
+      !privateChats.computerSupports(record)
+    )
+      throw new ThreadServiceError('private_unsupported');
+    if (await this.options.store.isPrivate(userId, agentId)) return;
+    await this.options.store.setPrivate(userId, agentId);
+    this.options.log?.info(
+      { event: 'thread_made_private', agent_id: agentId },
+      'thread_made_private',
+    );
+  }
+
+  /** A sealed message from the phone into a private chat. Deduped by client id. */
+  async sendSealed(
+    userId: string,
+    agentId: string,
+    input: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+  ): Promise<{ message: ThreadMessage; created: boolean }> {
+    const key = keyOf(userId, agentId);
+    const prior = this.sendLocks.get(key);
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.sendLocks.set(key, current);
+    await prior;
+    try {
+      const record = await this.options.agents.get(userId, agentId);
+      if (!record) throw new ThreadServiceError('agent_not_found');
+      if (!(await this.options.store.isPrivate(userId, agentId)))
+        throw new ThreadServiceError('not_private');
+      let result: { message: ThreadMessage; created: boolean };
+      try {
+        result = await this.options.store.appendSealedMessage(userId, agentId, {
+          author: 'user',
+          sealed: input.sealed,
+          clientId: input.clientId,
+          status: 'queued',
+          ...(input.replyTo !== undefined && { replyTo: input.replyTo }),
+        });
+      } catch (error) {
+        if (error instanceof ThreadStoreError && error.code === 'queue_full')
+          throw new ThreadServiceError('queue_full');
+        if (error instanceof ThreadStoreError && error.code === 'reply_to_not_found')
+          throw new ThreadServiceError('reply_to_not_found');
+        throw error;
+      }
+      if (!result.created) return result;
+      this.upsert(userId, result.message);
+      this.options.log?.info(
+        {
+          event: 'thread_sealed_received',
+          agent_id: agentId,
+          message_id: result.message.id,
+          keys: input.sealed.keys.length,
+          length: input.sealed.body.length,
+        },
+        'thread_sealed_received',
+      );
+      return result;
+    } finally {
+      if (this.sendLocks.get(key) === current) this.sendLocks.delete(key);
+      release();
+    }
   }
 
   async sweep(): Promise<void> {

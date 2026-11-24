@@ -118,6 +118,8 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
     sealed: sealedEnvelopeV1Schema,
     status: userMessageStatusSchema.optional(),
     turn_id: z.string().max(128).optional(),
+    /** The message this one answers; the quote itself is inside `sealed`, never on the server. */
+    reply_to: threadMessageIdSchema.optional(),
   }),
 ]);
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;
@@ -152,6 +154,8 @@ export const threadSummarySchema = z.object({
   unread: z.number().int().nonnegative(),
   last_message_at: z.iso.datetime().nullable(),
   read_seq: z.number().int().nonnegative(),
+  /** A private chat (ADR-044): its messages are sealed; older servers leave this out. */
+  private: z.boolean().optional(),
 });
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export const threadListResponseSchema = z.object({
@@ -188,6 +192,19 @@ export const sendMessageRequestSchema = z
     { message: 'attachment_ids must be distinct', path: ['attachment_ids'] },
   );
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+/** `POST /v1/agents/:agentId/messages` in a private chat: a sealed body instead of text. */
+export const sendSealedMessageRequestSchema = z
+  .object({
+    client_id: z.uuid(),
+    sealed: sealedEnvelopeV1Schema,
+    reply_to: threadMessageIdSchema.optional(),
+  })
+  .strict();
+export type SendSealedMessageRequest = z.infer<typeof sendSealedMessageRequestSchema>;
+/** `PUT /v1/agents/:agentId/private`: makes a chat private. Turning it off is refused. */
+export const setPrivateRequestSchema = z.object({ on: z.boolean() }).strict();
+/** Header the app sends to say it can seal and open messages. */
+export const CLIENT_FEATURES_HEADER = 'x-twring-features';
 export const voiceNoteQuerySchema = z
   .object({
     client_id: z.uuid(),
