@@ -46,7 +46,10 @@ vi.mock('@/e2e/pairing', () => ({
   confirmPairing: mocks.confirmPairing,
 }));
 vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}) }));
-vi.mock('@/platform/secure-store', () => ({ secureStore: {} }));
+vi.mock('@/platform/secure-store', () => ({
+  deviceOnlyStore: { deviceOnly: true },
+  secureStore: { deviceOnly: false },
+}));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
@@ -127,7 +130,11 @@ describe('private chat pairing screen', () => {
     expect(mocks.confirmPairing).not.toHaveBeenCalled();
     void labelled(tree, 'Yes, same number').props.onPress?.();
     await flush();
-    expect(mocks.confirmPairing).toHaveBeenCalledWith(expect.anything(), { id: 'dev_c' });
+    expect(mocks.confirmPairing).toHaveBeenCalledWith(
+      { store: { deviceOnly: true } },
+      { id: 'dev_c' },
+    );
+    expect(mocks.claimPairing.mock.calls[0]?.[0]).toMatchObject({ store: { deviceOnly: true } });
     expect(mocks.feedback).toHaveBeenCalledWith('connected');
     expect(text(render())).toContain('Paired');
   });

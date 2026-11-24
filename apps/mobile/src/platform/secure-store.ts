@@ -7,6 +7,14 @@ export const secureStore = backgroundReadable(SecureStore, {
   keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
 });
 
+/**
+ * For private chat keys (the e2e device key, its seq and the trusted computers): also readable on
+ * a locked phone, but never copied to another phone through a backup or device transfer.
+ */
+export const deviceOnlyStore = backgroundReadable(SecureStore, {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY,
+});
+
 /** Keys saved before build 11, re-saved once with the new setting (the session separately). */
 export const KEYS_TO_MIGRATE = [
   'cord.push_device_id',

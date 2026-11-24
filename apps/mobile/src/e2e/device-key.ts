@@ -11,7 +11,7 @@ import type { SecureKeyValue } from '../auth/storage';
 
 /**
  * This phone's device key for private chats (ADR-044). The private key stays in the keychain
- * (through `platform/secure-store.ts`) and is never logged; the device id comes from the public
+ * (through `platform/secure-store.ts`, `deviceOnlyStore`) and is never logged; the device id comes from the public
  * key (`deviceIdFor`), the same rule the computer uses, so each side can check the other's.
  */
 export const DEVICE_KEY_NAME = 'twring.e2e.device.v1';
