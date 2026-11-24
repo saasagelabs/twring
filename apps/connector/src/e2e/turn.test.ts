@@ -15,7 +15,13 @@ import { ResultOutbox } from '../outbox';
 import { ensureDeviceKey, type E2eConfig, type TrustedDevice } from './keys';
 import { openIncoming, ReplayWindow, sealOutgoing, type SealContext } from './sealed';
 import { baseConfig } from './test-fixtures';
-import { helloFeatures, PrivateChats, privateTurnText } from './turn';
+import {
+  helloFeatures,
+  PrivateChats,
+  privateTurnText,
+  UNKNOWN_SENDER_BUDGET,
+  UNKNOWN_SENDERS_BUDGET,
+} from './turn';
 
 const AGENT = 'claude-code';
 type Reply = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>;
@@ -30,6 +36,7 @@ interface FakeRunOptions {
   /** The socket stays down until `reconnect()`. */
   down?: boolean;
   agentThrows?: boolean;
+  now?: () => number;
 }
 
 function fakeRun(options: FakeRunOptions = {}) {
@@ -59,6 +66,7 @@ function fakeRun(options: FakeRunOptions = {}) {
     seen: new ReplayWindow(),
   };
   let phoneSeq = 0;
+  let writes = 0;
   const sent: RelayConnectorMessage[] = [];
   const inputs: string[] = [];
   let dropped = false;
@@ -77,6 +85,7 @@ function fakeRun(options: FakeRunOptions = {}) {
     connectorId: baseConfig.connector_id,
     e2e: () => e2e,
     persist: (change) => {
+      writes++;
       e2e = change(e2e);
       return Promise.resolve(e2e);
     },
@@ -96,6 +105,7 @@ function fakeRun(options: FakeRunOptions = {}) {
       return true;
     },
     outbox,
+    ...(options.now !== undefined && { now: options.now }),
   });
   const run = {
     phone,
@@ -105,6 +115,23 @@ function fakeRun(options: FakeRunOptions = {}) {
       message_id: messageId(),
       sealed: sealOutgoing(phoneCtx, payload, seq),
     }),
+    /** A message from a device this computer never paired, sealed to it properly. */
+    sealedFromStranger: (seq = 1) => {
+      const keys = generateSealKeyPair();
+      const ctx: SealContext = {
+        ...phoneCtx,
+        myDeviceId: deviceIdFor(keys.publicKey),
+        myPublic: base64urlEncode(keys.publicKey),
+        myPrivate: keys.privateKey,
+      };
+      return {
+        type: 'sealed.message' as const,
+        agent: AGENT,
+        message_id: messageId(),
+        sealed: sealOutgoing(ctx, { text: 'x' }, seq),
+      };
+    },
+    writes: () => writes,
     receive: (frame: Parameters<PrivateChats['receive']>[0]) => chats.receive(frame),
     agentInput: () => inputs.at(-1),
     agentTurns: () => inputs.length,
@@ -130,6 +157,39 @@ function fakeRun(options: FakeRunOptions = {}) {
   };
   return run;
 }
+
+describe('forged messages', () => {
+  it('limits config writes and replies for a burst from one unknown sender', async () => {
+    const run = fakeRun();
+    const first = run.sealedFromStranger();
+    for (let i = 0; i < 50; i++) await run.receive({ ...first, message_id: messageId() });
+    // Each allowed one costs one re-read and one reply seq: within the per-sender budget.
+    expect(run.sent('sealed.reply').length).toBe(UNKNOWN_SENDER_BUDGET);
+    expect(run.writes()).toBeLessThanOrEqual(UNKNOWN_SENDER_BUDGET * 2);
+    expect(run.agentTurns()).toBe(0);
+  });
+
+  it('limits a burst from many made-up senders as well', async () => {
+    const run = fakeRun();
+    for (let i = 0; i < 100; i++) await run.receive(run.sealedFromStranger());
+    expect(run.sent('sealed.reply').length).toBe(UNKNOWN_SENDERS_BUDGET);
+    expect(run.writes()).toBeLessThanOrEqual(UNKNOWN_SENDERS_BUDGET * 2);
+  });
+
+  it('allows more once a minute has passed, and still serves the paired phone', async () => {
+    let t = 0;
+    const run = fakeRun({ now: () => t });
+    const first = run.sealedFromStranger();
+    for (let i = 0; i < 20; i++) await run.receive({ ...first, message_id: messageId() });
+    await run.receive(run.sealedFromPhone({ text: 'hi' }));
+    expect(run.agentTurns()).toBe(1);
+    t += 61_000;
+    await run.receive({ ...first, message_id: messageId() });
+    expect(run.sent('sealed.reply').filter((f) => f.turn_id !== undefined).length).toBe(
+      UNKNOWN_SENDER_BUDGET + 2,
+    );
+  });
+});
 
 describe('private turns', () => {
   it('gives the agent the opened text with the phone-built quote', async () => {

@@ -31,6 +31,40 @@ export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try aga
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';
 export const FILES_NOT_OPENED_TEXT = "This computer can't open files in private chats yet.";
 
+/** Messages that did not open, per sender device id per minute, that may cost a write or reply. */
+export const UNKNOWN_SENDER_BUDGET = 5;
+/** The same across all senders, since a sender id is the sender's own choice. */
+export const UNKNOWN_SENDERS_BUDGET = 20;
+const BUDGET_WINDOW_MS = 60_000;
+const BUDGET_TRACKED_SENDERS = 64;
+
+/**
+ * Fixed per-minute budgets for messages that did not open: each may cost a config read and write
+ * and a sealed reply (a seq), so a forged flood must not. Memory stays bounded: at most
+ * BUDGET_TRACKED_SENDERS senders are tracked; past that, new senders share the overall budget only.
+ */
+export class FailureBudget {
+  private readonly senders = new Map<string, number[]>();
+  private all: number[] = [];
+
+  take(sender: string, now: number): boolean {
+    const since = now - BUDGET_WINDOW_MS;
+    this.all = this.all.filter((t) => t > since);
+    if (this.all.length >= UNKNOWN_SENDERS_BUDGET) return false;
+    for (const [id, times] of this.senders) {
+      const left = times.filter((t) => t > since);
+      if (left.length === 0) this.senders.delete(id);
+      else this.senders.set(id, left);
+    }
+    const mine = this.senders.get(sender) ?? [];
+    if (mine.length >= UNKNOWN_SENDER_BUDGET) return false;
+    if (mine.length === 0 && this.senders.size >= BUDGET_TRACKED_SENDERS) return false;
+    this.senders.set(sender, [...mine, now]);
+    this.all.push(now);
+    return true;
+  }
+}
+
 /** What this computer says it supports: `sealed_chat` only once it trusts a phone. */
 export function helloFeatures(e2e: E2eConfig | undefined): string[] {
   const phones = e2e?.devices.some((device) => device.kind === 'phone') ?? false;
@@ -79,6 +113,8 @@ export interface PrivateChatsOptions {
  */
 export class PrivateChats {
   private seen: ReplayWindow | undefined;
+  private readonly failures = new FailureBudget();
+  private refused = 0;
 
   constructor(private readonly options: PrivateChatsOptions) {}
 
@@ -104,6 +140,15 @@ export class PrivateChats {
     let e2e = this.options.e2e();
     if (e2e === undefined) return;
     let opened = openIncoming(this.context(e2e, frame.agent), frame.sealed);
+    if (!opened.ok && opened.reason !== 'replay') {
+      // Each failure may cost a config write and a reply seq: a flood is dropped quietly.
+      const now = (this.options.now ?? Date.now)();
+      if (!this.failures.take(frame.sealed.sender_device, now)) {
+        if (this.refused++ % 100 === 0)
+          log?.(`private messages not opened and dropped: ${this.refused}`);
+        return;
+      }
+    }
     if (!opened.ok && opened.reason === 'unknown_sender') {
       // A phone paired by `private pair` while this copy ran: read the saved list once more.
       e2e = (await this.options.persist((current) => current)) ?? e2e;
