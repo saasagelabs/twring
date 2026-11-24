@@ -278,13 +278,15 @@ describe('sealed relay', () => {
 
     it('bounds the stored size of one reply', async () => {
       const r = await turn();
-      const half = 'A'.repeat(Math.ceil(MAX_SEALED_REPLY_TOTAL_CHARS / 2) + 1);
-      expect(half.length).toBeLessThan(MAX_RELAY_MESSAGE_BYTES - 1024);
-      r.send(chunk(0, false, half));
+      const third = 'A'.repeat(Math.ceil(MAX_SEALED_REPLY_TOTAL_CHARS / 3) + 1);
+      expect(third.length).toBeLessThan(MAX_RELAY_MESSAGE_BYTES - 1024);
+      r.send(chunk(0, false, third));
       await r.until(1);
-      r.send(chunk(1, true, half));
+      r.send(chunk(1, false, third));
+      await r.until(2);
+      r.send(chunk(2, true, third));
       await waitFor(() => r.rejected() === 1);
-      expect((await r.reply())!.sealed).toHaveLength(1);
+      expect((await r.reply())!.sealed).toHaveLength(2);
     });
 
     it('still reads a reply stored before chunking as a list of one', async () => {
