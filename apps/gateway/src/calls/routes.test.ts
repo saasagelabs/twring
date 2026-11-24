@@ -281,7 +281,8 @@ describe('POST /v1/calls', () => {
     expect(claims.video?.roomAdmin).toBeUndefined();
     expect(claims.video?.roomCreate).toBeUndefined();
     expect(claims.sub).not.toBe(GATEWAY_IDENTITY);
-    expect(claims.exp! - claims.nbf!).toBe(600);
+    // The LiveKit SDK reads the real clock twice (expiry, then not-before): 599 when a second ticks between.
+    expect([599, 600]).toContain(claims.exp! - claims.nbf!);
 
     await flushMicrotasks();
     expect(transports).toHaveLength(1);

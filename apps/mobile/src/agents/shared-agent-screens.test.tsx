@@ -96,6 +96,9 @@ vi.mock('@/platform/voice-preview', () => ({
 vi.mock('@/threads/chats', () => ({
   useChatList: () => ({ available: true, refresh: () => undefined }),
 }));
+vi.mock('@/threads/useChatExport', () => ({
+  useChatExport: () => ({ start: () => undefined, cancel: () => undefined }),
+}));
 vi.mock('@/theme/tokens', () => ({
   usePalette: () => ({}),
   space: { xs: 1, sm: 1, md: 1, lg: 1 },

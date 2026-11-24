@@ -199,14 +199,16 @@ describe('POST /v1/audio/sessions', () => {
     expect(caller.video?.roomCreate).toBeUndefined();
     expect(caller.video?.roomList).toBeUndefined();
     expect(caller.roomConfig).toMatchObject({ name: session.room, maxParticipants: 2 });
-    expect(caller.exp! - caller.nbf!).toBe(600);
+    // The LiveKit SDK reads the real clock twice (expiry, then not-before): 599 when a second ticks between.
+    expect([599, 600]).toContain(caller.exp! - caller.nbf!);
 
     const server = await verify(session.server_token);
     expect(server.sub).toBe(GATEWAY_IDENTITY);
     expect(server.video).toMatchObject({ room: session.room, roomJoin: true, agent: true });
     expect(server.video?.roomAdmin).toBeUndefined();
     expect(server.roomConfig).toMatchObject({ name: session.room, maxParticipants: 2 });
-    expect(server.exp! - server.nbf!).toBe(600);
+    // The LiveKit SDK reads the real clock twice (expiry, then not-before): 599 when a second ticks between.
+    expect([599, 600]).toContain(server.exp! - server.nbf!);
   });
 
   it('refuses a call id that is not room-safe', async () => {
