@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { MAX_NATIVE_MESSAGE_BYTES } from './native-protocol';
-import { sealedEnvelopeV1Schema } from './sealed-chat';
+import { sealedAgentEnvelopeV1Schema, sealedEnvelopeV1Schema } from './sealed-chat';
 
 /**
  * The local agent connector (ADR-023): a small program on the user's computer that dials OUT to
@@ -239,7 +239,7 @@ export const relaySealedReplySchema = z.object({
   agent: localAgentIdSchema,
   turn_id: z.string().min(1).max(128),
   message_id: sealedMessageIdSchema.optional(),
-  sealed: sealedEnvelopeV1Schema,
+  sealed: sealedAgentEnvelopeV1Schema,
   final: z.boolean(),
 });
 

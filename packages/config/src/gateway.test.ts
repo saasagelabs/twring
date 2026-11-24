@@ -56,6 +56,21 @@ describe('loadGatewayEnv', () => {
       ).CONNECTOR_MCP_ENABLED,
     ).toBe(true);
   });
+  it('PRIVATE_CHATS_ENABLED requires THREADS_ENABLED and is off by default', () => {
+    expect(() => loadGatewayEnv({ PRIVATE_CHATS_ENABLED: 'true', PORT: '9001' })).toThrow(
+      /PRIVATE_CHATS_ENABLED: requires THREADS_ENABLED=true/,
+    );
+    const off = loadGatewayEnv({ PORT: '9001' });
+    expect(off.PRIVATE_CHATS_ENABLED).toBe(false);
+    expect(off.PRIVATE_CHATS_USERS).toBeUndefined();
+    const on = loadGatewayEnv({
+      PRIVATE_CHATS_ENABLED: 'true',
+      THREADS_ENABLED: 'true',
+      PRIVATE_CHATS_USERS: ' owner , u2 ,',
+      PORT: '9001',
+    });
+    expect(on.PRIVATE_CHATS_USERS).toEqual(['owner', 'u2']);
+  });
   it('requires threads for files and a secure public URL outside development', () => {
     expect(() => loadGatewayEnv({ FILES_ENABLED: 'true' })).toThrow(
       /FILES_ENABLED: requires THREADS_ENABLED=true/,
@@ -201,6 +216,7 @@ describe('loadGatewayEnv', () => {
       CALL_CREATE_RATE_PER_MINUTE: 10,
       AGENT_TURN_MAX_S: 600,
       PRESENCE_CUES: 'on',
+      PRIVATE_CHATS_ENABLED: false,
       PRESENCE_ACK: 'on',
       SHORT_TURN_HOLD_MS: 800,
       AGENT_TESTS_ENABLED: true,

@@ -1,0 +1,298 @@
+import { EventEmitter } from 'node:events';
+
+import type { GatewayEnv } from '@twring/config/gateway';
+import {
+  e2eDeviceIdSchema,
+  pairClaimSchema,
+  pairOfferIdSchema,
+  publicKeySchema,
+  type E2eDevice,
+} from '@twring/contracts';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import { z } from 'zod';
+
+import { devUserResolver, type UserResolver } from '../auth';
+import { hashConnectorToken } from '../connectors/pairing';
+import type { ConnectorRecord, ConnectorRepository } from '../connectors/store';
+import { FixedWindowLimiter } from '../rate-limit';
+import { E2eDeviceError, type E2eDeviceStore } from './devices-store';
+import type { GatewayErrorCode } from './guard';
+import { privateChatsAllowed } from './flag';
+
+/** How long a pairing offer can be claimed. */
+export const PAIR_OFFER_TTL_MS = 10 * 60_000;
+/** Longest wait a computer may ask for while it polls its offer. */
+export const PAIR_WAIT_MAX_S = 25;
+const BODY_LIMIT = 4 * 1024;
+
+export interface E2eRoutesOptions {
+  env: Pick<GatewayEnv, 'PRIVATE_CHATS_ENABLED' | 'PRIVATE_CHATS_USERS'>;
+  devices: E2eDeviceStore;
+  connectors: Pick<ConnectorRepository, 'findByTokenHash'>;
+  userFor?: UserResolver;
+  /** Phone claims per account per minute (pairing guesses). */
+  claimRatePerMinute?: number;
+  /** Connector requests per address per minute, as for the other connector routes. */
+  connectorRatePerMinute: number;
+  /** Phone reads and writes per account per minute. */
+  writeRatePerMinute: number;
+  now?: () => Date;
+}
+
+const offerRequestSchema = z
+  .object({ connector_public_key: publicKeySchema, connector_device_id: e2eDeviceIdSchema })
+  .strict();
+const addDevicesRequestSchema = z.object({ offer_id: pairOfferIdSchema }).strict();
+const waitQuerySchema = z
+  .object({
+    wait: z
+      .string()
+      .regex(/^\d{1,2}$/)
+      .transform(Number)
+      .optional(),
+  })
+  .strict();
+
+const CONNECTOR_BEARER = /^Bearer +(cct_[A-Za-z0-9_-]{43})$/i;
+
+const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
+  private_chats_off: 'Private chats are not available for this account.',
+  device_cap: 'This account already has 5 devices for private chats. Remove one first.',
+  device_conflict: 'This device is already set up differently. Set it up again.',
+  offer_expired: 'This code expired. Make a new one on your computer.',
+  offer_claimed: 'This code was already used. Make a new one on your computer.',
+  not_found: 'No such pairing.',
+  rate_limited: 'Too many tries. Wait a minute and try again.',
+  bad_request: 'Invalid request.',
+  connector_invalid: 'This computer is not paired any more. Pair it again from the Twring app.',
+};
+
+function sendError(reply: FastifyReply, status: number, code: GatewayErrorCode): FastifyReply {
+  const body = {
+    error: { code, message: MESSAGES[code] ?? 'Request refused.', request_id: reply.request.id },
+  };
+  return reply.code(status).send(body);
+}
+
+const devicesBody = (devices: E2eDevice[]) => ({ devices });
+
+/**
+ * Private chat pairing and device lists (ADR-044). Everything here is public keys, ids and an
+ * HMAC the phone made; the server can neither open a message nor pass pairing off as verified,
+ * because the phone checks the MAC and the safety code itself. Logs carry ids and counts only.
+ */
+export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOptions): void {
+  const { devices } = options;
+  const userFor = options.userFor ?? devUserResolver;
+  const now = options.now ?? (() => new Date());
+  const claims = new FixedWindowLimiter(options.claimRatePerMinute ?? 5, 60_000);
+  const writes = new FixedWindowLimiter(options.writeRatePerMinute, 60_000);
+  const connectorLimiter = new FixedWindowLimiter(options.connectorRatePerMinute, 60_000);
+  const claimed = new EventEmitter();
+  claimed.setMaxListeners(0);
+  const allowed = (userId: string) => privateChatsAllowed(options.env, userId);
+
+  /** The token's connector, or undefined once a refusal was sent (never returns the reply). */
+  const connectorFor = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<ConnectorRecord | undefined> => {
+    if (!connectorLimiter.tryAcquire(request.ip)) {
+      sendError(reply, 429, 'rate_limited');
+      return undefined;
+    }
+    const header = request.headers.authorization;
+    const token =
+      typeof header === 'string' && header.length < 256
+        ? CONNECTOR_BEARER.exec(header.trim())?.[1]
+        : undefined;
+    const record =
+      token === undefined
+        ? undefined
+        : await options.connectors.findByTokenHash(hashConnectorToken(token));
+    if (record === undefined) {
+      void reply.header('www-authenticate', 'Bearer');
+      sendError(reply, 401, 'connector_invalid');
+      return undefined;
+    }
+    if (!allowed(record.user_id)) {
+      sendError(reply, 404, 'private_chats_off');
+      return undefined;
+    }
+    return record;
+  };
+  /** The signed-in phone's account, or undefined once a refusal was sent. */
+  const phoneFor = (request: FastifyRequest, reply: FastifyReply): string | undefined => {
+    const userId = userFor(request);
+    if (!allowed(userId)) {
+      sendError(reply, 404, 'private_chats_off');
+      return undefined;
+    }
+    return userId;
+  };
+
+  // Computer: offer a pairing. The QR it shows carries the offer id, its key and a secret.
+  app.post('/v1/e2e/pairings', { bodyLimit: BODY_LIMIT }, async (request, reply) => {
+    const connector = await connectorFor(request, reply);
+    if (connector === undefined) return reply;
+    const body = offerRequestSchema.safeParse(request.body);
+    if (!body.success) return sendError(reply, 400, 'bad_request');
+    const offer = devices.createOffer(connector.user_id, {
+      connectorId: connector.id,
+      connectorDeviceId: body.data.connector_device_id,
+      connectorPublicKey: body.data.connector_public_key,
+      expiresAt: new Date(now().getTime() + PAIR_OFFER_TTL_MS),
+    });
+    request.log.info(
+      { event: 'e2e_pair_offered', offer_id: offer.id, connector_id: connector.id },
+      'e2e pairing offered',
+    );
+    return { offer_id: offer.id, expires_at: offer.expiresAt };
+  });
+
+  // Phone: claim the offer it scanned. Answers the computer key the server holds, so the phone
+  // can check it against the QR before it trusts anything.
+  app.post<{ Params: { offerId: string } }>(
+    '/v1/e2e/pairings/:offerId/claim',
+    { bodyLimit: BODY_LIMIT },
+    (request, reply) => {
+      const userId = phoneFor(request, reply);
+      if (userId === undefined) return reply;
+      if (!claims.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+      const body = pairClaimSchema.safeParse(request.body);
+      if (!body.success || body.data.offer_id !== request.params.offerId)
+        return sendError(reply, 400, 'bad_request');
+      const offer = devices.offer(userId, body.data.offer_id);
+      if (offer === undefined) return sendError(reply, 404, 'not_found');
+      if (offer.claim !== undefined) return sendError(reply, 409, 'offer_claimed');
+      if (Date.parse(offer.expiresAt) <= now().getTime())
+        return sendError(reply, 410, 'offer_expired');
+      const { offer_id: offerId, ...claim } = body.data;
+      const result = devices.claimOffer(userId, offerId, claim);
+      if (result === 'already_claimed') return sendError(reply, 409, 'offer_claimed');
+      if (result === 'missing') return sendError(reply, 404, 'not_found');
+      claimed.emit(offerId);
+      request.log.info(
+        { event: 'e2e_pair_claimed', offer_id: offerId, device_id: claim.phone_device_id },
+        'e2e pairing claimed',
+      );
+      return {
+        connector_public_key: offer.connectorPublicKey,
+        connector_device_id: offer.connectorDeviceId,
+      };
+    },
+  );
+
+  // Computer: wait for the phone's claim (long poll up to PAIR_WAIT_MAX_S seconds), 204 if none.
+  app.get<{ Params: { offerId: string }; Querystring: Record<string, unknown> }>(
+    '/v1/e2e/pairings/:offerId',
+    async (request, reply) => {
+      const connector = await connectorFor(request, reply);
+      if (connector === undefined) return reply;
+      const query = waitQuerySchema.safeParse(request.query);
+      if (!query.success || !pairOfferIdSchema.safeParse(request.params.offerId).success)
+        return sendError(reply, 400, 'bad_request');
+      const offerId = request.params.offerId;
+      const read = () => {
+        const offer = devices.offer(connector.user_id, offerId);
+        return offer?.connectorId === connector.id ? offer : undefined;
+      };
+      let offer = read();
+      if (offer === undefined) return sendError(reply, 404, 'not_found');
+      const waitMs = Math.min(query.data.wait ?? 0, PAIR_WAIT_MAX_S) * 1000;
+      if (offer.claim === undefined && waitMs > 0) {
+        await new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            claimed.off(offerId, done);
+            request.raw.off('close', done);
+            resolve();
+          };
+          const timer = setTimeout(done, waitMs);
+          claimed.on(offerId, done);
+          request.raw.on('close', done);
+        });
+        offer = read();
+        if (offer === undefined) return sendError(reply, 404, 'not_found');
+      }
+      if (offer.claim === undefined) {
+        if (Date.parse(offer.expiresAt) <= now().getTime())
+          return sendError(reply, 410, 'offer_expired');
+        return reply.code(204).send();
+      }
+      return offer.claim;
+    },
+  );
+
+  // Computer: it checked the phone's MAC, so both devices join the account's list together.
+  app.post('/v1/e2e/computer/devices', { bodyLimit: BODY_LIMIT }, async (request, reply) => {
+    const connector = await connectorFor(request, reply);
+    if (connector === undefined) return reply;
+    const body = addDevicesRequestSchema.safeParse(request.body);
+    if (!body.success) return sendError(reply, 400, 'bad_request');
+    const offer = devices.offer(connector.user_id, body.data.offer_id);
+    if (offer === undefined || offer.connectorId !== connector.id)
+      return sendError(reply, 404, 'not_found');
+    if (offer.claim === undefined) return sendError(reply, 409, 'not_ready');
+    try {
+      devices.addAll(connector.user_id, [
+        {
+          id: offer.connectorDeviceId,
+          kind: 'computer',
+          name: connector.name.slice(0, 60) || 'Computer',
+          public_key: offer.connectorPublicKey,
+          connector_id: connector.id,
+        },
+        {
+          id: offer.claim.phone_device_id,
+          kind: 'phone',
+          name: offer.claim.phone_name,
+          public_key: offer.claim.phone_public_key,
+        },
+      ]);
+    } catch (cause) {
+      if (cause instanceof E2eDeviceError)
+        return sendError(
+          reply,
+          409,
+          cause.code === 'device_cap' ? 'device_cap' : 'device_conflict',
+        );
+      throw cause;
+    }
+    devices.deleteOffer(connector.user_id, offer.id);
+    const list = devices.list(connector.user_id);
+    request.log.info(
+      { event: 'e2e_devices_paired', connector_id: connector.id, devices: list.length },
+      'e2e devices paired',
+    );
+    return devicesBody(list);
+  });
+
+  // Computer: the account's devices, to wrap message keys for each of them.
+  app.get('/v1/e2e/computer/devices', async (request, reply) => {
+    const connector = await connectorFor(request, reply);
+    if (connector === undefined) return reply;
+    return devicesBody(devices.list(connector.user_id));
+  });
+
+  app.get('/v1/e2e/devices', (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    return devicesBody(devices.list(userId));
+  });
+
+  app.delete<{ Params: { id: string } }>('/v1/e2e/devices/:id', (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    if (!e2eDeviceIdSchema.safeParse(request.params.id).success)
+      return sendError(reply, 404, 'not_found');
+    if (!devices.revoke(userId, request.params.id)) return sendError(reply, 404, 'not_found');
+    request.log.info(
+      { event: 'e2e_device_revoked', device_id: request.params.id },
+      'e2e device revoked',
+    );
+    return reply.code(204).send();
+  });
+}

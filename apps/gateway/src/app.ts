@@ -53,6 +53,8 @@ import { registerRingRoutes } from './ring/routes';
 import { connectorReplacedNotifier } from './selfhost/connector-replaced';
 import { registerSelfhostRoutes, type SelfhostRoutesOptions } from './selfhost/routes';
 import { registerThreadRoutes } from './threads/routes';
+import type { E2eDeviceStore } from './e2e/devices-store';
+import { registerE2eRoutes } from './e2e/routes';
 import { registerFileRoutes, type FileRoutesOptions } from './files/routes';
 import type { ThreadRoutesOptions } from './threads/routes';
 import { registerMessageSpeechRoute, type MessageSpeechOptions } from './threads/speech';
@@ -146,6 +148,11 @@ export interface BuildAppOptions {
     linkCreatePerHour?: number;
     linkGuessesPerHour?: number;
   };
+  /**
+   * Private chats (ADR-044): device keys and pairing. Mounted only with `PRIVATE_CHATS_ENABLED`
+   * (and `connectors`); each route also checks the account against `PRIVATE_CHATS_USERS`.
+   */
+  e2e?: { devices: E2eDeviceStore; claimRatePerMinute?: number; writeRatePerMinute: number };
   /** Mounts rings, devices, ring settings, and invites when provided (ADR-024). */
   ring?: {
     stores: RingStores;
@@ -226,6 +233,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
     messageSpeech,
     files,
     selfhost,
+    e2e,
   } = options;
   const userFor = auth?.userFor ?? options.userFor;
   const profileFor = auth?.profileFor;
@@ -460,6 +468,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         ...(agents.avatars !== undefined && { avatars: agents.avatars }),
         deleteRatePerMinute: me.deleteRatePerMinute,
         ...(me.appleRevoker !== undefined && { appleRevoker: me.appleRevoker }),
+        ...(e2e !== undefined && { e2eDevices: e2e.devices }),
         ...(selfhost !== undefined && {
           selfhost: {
             deletePerson: async (userId: string) => {
@@ -535,6 +544,19 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
           ...messageSpeech,
           ...(userFor !== undefined && { userFor }),
         });
+    }
+    if (connectors !== undefined && stores !== undefined && e2e && env.PRIVATE_CHATS_ENABLED) {
+      registerE2eRoutes(app, {
+        env,
+        devices: e2e.devices,
+        connectors: stores.connectors,
+        connectorRatePerMinute: connectors.writeRatePerMinute,
+        writeRatePerMinute: e2e.writeRatePerMinute,
+        ...(e2e.claimRatePerMinute !== undefined && {
+          claimRatePerMinute: e2e.claimRatePerMinute,
+        }),
+        ...(userFor !== undefined && { userFor }),
+      });
     }
     if (connectors !== undefined) {
       registerConnectorRoutes(app, {

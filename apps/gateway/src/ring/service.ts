@@ -11,6 +11,7 @@ import {
 } from '@twring/contracts';
 
 import type { Scheduler } from '../calls/scheduler';
+import { PRIVATE_RING_REASON } from '../e2e/guard';
 import { toSafeError } from '../redact';
 import type { CallHistoryRepository } from '../store/repositories';
 
@@ -70,6 +71,11 @@ export interface RingServiceOptions {
   logger: RingLogger;
   newInviteId?: () => string;
   onSettled?: (invite: InviteRecord) => Promise<void>;
+  /**
+   * Whether this person's chat with the agent is private (ADR-044): then the ring, its push and
+   * every record of it carry PRIVATE_RING_REASON, never the agent's own words.
+   */
+  privateChat?: (userId: string, agentId: string) => Promise<boolean>;
 }
 
 export interface RingTarget {
@@ -209,7 +215,7 @@ export class RingService {
       ...(target.localAgent !== undefined && { local_agent: target.localAgent }),
       agent_id: target.agentId,
       agent_name: target.agentName,
-      reason: target.reason,
+      reason: await this.ringReason(target.userId, target.agentId, target.reason),
       ...(target.sessionRef !== undefined && { session_ref: target.sessionRef }),
       ...(target.messageId !== undefined && { message_id: target.messageId }),
       status: 'pending',
@@ -263,6 +269,24 @@ export class RingService {
       ttlSeconds: 86400,
     });
     return devices;
+  }
+
+  /**
+   * The ring's words: fixed for a private chat (ADR-044). A failed check must not stop the ring,
+   * so it rings with the fixed words (never the agent's, which may be private).
+   */
+  private async ringReason(userId: string, agentId: string, reason: string): Promise<string> {
+    const check = this.options.privateChat;
+    if (check === undefined) return reason;
+    try {
+      return (await check(userId, agentId)) ? PRIVATE_RING_REASON : reason;
+    } catch (error) {
+      this.options.logger.warn(
+        { event: 'ring_private_check_failed', err: toSafeError(error) },
+        'ring private check failed',
+      );
+      return PRIVATE_RING_REASON;
+    }
   }
 
   /**

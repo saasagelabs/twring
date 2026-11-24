@@ -12,6 +12,7 @@ import {
   QUEUED_MESSAGE_TTL_MS,
   threadMessageSchema,
   type ThreadMessage,
+  type SealedEnvelopeV1,
   type ThreadSummary,
   type UserMessageStatus,
 } from '@twring/contracts';
@@ -82,6 +83,7 @@ type ThreadRow = {
   read_seq: number;
   next_seq: number;
   next_rev: number;
+  private: number;
 };
 type AppendInput =
   | (Pick<
@@ -157,6 +159,10 @@ export class SqliteThreadStore {
       CREATE INDEX IF NOT EXISTS files_message ON files(message_id);
       CREATE TABLE IF NOT EXISTS file_days(user_id TEXT NOT NULL, day TEXT NOT NULL, count INTEGER NOT NULL, PRIMARY KEY(user_id,day));
     `);
+    // Private chats (ADR-044). Added in place, so an existing database keeps every thread.
+    const columns = this.db.prepare('PRAGMA table_info(threads)').all() as { name: string }[];
+    if (!columns.some((column) => column.name === 'private'))
+      this.db.exec('ALTER TABLE threads ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
   }
 
   private transaction<T>(run: () => T): T {
@@ -211,7 +217,9 @@ export class SqliteThreadStore {
       const sealedFields =
         (row.kind === 'ring' || row.kind === 'approval') && text !== undefined
           ? (JSON.parse(text) as Record<string, unknown>)
-          : {};
+          : row.kind === 'sealed' && text !== undefined
+            ? { sealed: JSON.parse(text) as unknown }
+            : {};
       const { quote_sealed: quoteSealed, ...meta } = JSON.parse(row.meta) as Record<
         string,
         unknown
@@ -243,7 +251,12 @@ export class SqliteThreadStore {
         created_at: row.created_at,
         updated_at: row.updated_at,
         kind: row.kind,
-        ...(text === undefined || row.kind === 'ring' || row.kind === 'approval' ? {} : { text }),
+        ...(text === undefined ||
+        row.kind === 'ring' ||
+        row.kind === 'approval' ||
+        row.kind === 'sealed'
+          ? {}
+          : { text }),
         ...(row.status === null ? {} : { status: row.status }),
         ...(row.client_id === null ? {} : { client_id: row.client_id }),
         ...(row.turn_id === null ? {} : { turn_id: row.turn_id }),
@@ -487,6 +500,7 @@ export class SqliteThreadStore {
       voice?: { duration_s: number };
       attachmentIds?: string[];
       replyTo?: string;
+      serverReadable?: true;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     return this.transaction(() => {
@@ -511,7 +525,8 @@ export class SqliteThreadStore {
           .get(input.replyTo, thread.id, userId) as Row | undefined;
         const decoded = answered && this.tryDecode(answered, agentId);
         quote = decoded ? quoteOf(decoded) : undefined;
-        if (!quote) throw new ThreadStoreError('reply_to_not_found');
+        // A sealed message can be answered, but the server has no text to quote (ADR-044).
+        if (!quote && decoded?.kind !== 'sealed') throw new ThreadStoreError('reply_to_not_found');
       }
       const message = this.insert(userId, thread, 'user_text', {
         text: input.text,
@@ -519,6 +534,7 @@ export class SqliteThreadStore {
         clientId: input.clientId,
         meta: {
           ...(input.voice && { voice: input.voice }),
+          ...(input.serverReadable && { server_readable: true }),
           ...(input.attachmentIds && { attachment_ids: input.attachmentIds }),
           ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
         },
@@ -526,6 +542,153 @@ export class SqliteThreadStore {
         quote,
       });
       return { message, created: true };
+    });
+  }
+
+  /** Whether this person's chat with the agent is private (ADR-044). */
+  async isPrivate(userId: string, agentId: string): Promise<boolean> {
+    return this.thread(userId, agentId)?.private === 1;
+  }
+
+  /** Makes the chat private. One way: nothing turns a private chat back. */
+  async setPrivate(userId: string, agentId: string): Promise<void> {
+    this.transaction(() => {
+      const thread = this.ensureThread(userId, agentId);
+      this.db
+        .prepare('UPDATE threads SET private=1 WHERE id=? AND user_id=?')
+        .run(thread.id, userId);
+    });
+  }
+
+  /**
+   * Stores a sealed message as an opaque blob (still sealed at rest by the server cipher, so the
+   * envelope's ids and wrapped keys are not left in plain on disk). A user message dedupes by
+   * client id, like text; an agent reply is new each time (see `upsertSealedReply`).
+   */
+  async appendSealedMessage(
+    userId: string,
+    agentId: string,
+    input: {
+      author: 'user' | 'agent';
+      sealed: SealedEnvelopeV1;
+      clientId?: string;
+      status?: UserMessageStatus;
+      turnId?: string;
+      replyTo?: string;
+    },
+  ): Promise<{ message: ThreadMessage; created: boolean }> {
+    return this.transaction(() => {
+      const thread = this.ensureThread(userId, agentId);
+      if (input.clientId !== undefined) {
+        const existing = this.db
+          .prepare('SELECT * FROM messages WHERE thread_id=? AND user_id=? AND client_id=?')
+          .get(thread.id, userId, input.clientId) as Row | undefined;
+        if (existing) return { message: this.decode(existing, agentId), created: false };
+      }
+      if (input.status === 'queued') {
+        const count = this.db
+          .prepare(
+            "SELECT count(*) AS n FROM messages WHERE thread_id=? AND user_id=? AND status='queued'",
+          )
+          .get(thread.id, userId) as { n: number };
+        if (count.n >= MAX_QUEUED_PER_THREAD) throw new ThreadStoreError('queue_full');
+      }
+      if (input.replyTo !== undefined) {
+        const answered = this.db
+          .prepare('SELECT id FROM messages WHERE id=? AND thread_id=? AND user_id=?')
+          .get(input.replyTo, thread.id, userId);
+        if (!answered) throw new ThreadStoreError('reply_to_not_found');
+      }
+      const message = this.insert(userId, thread, 'sealed', {
+        text: JSON.stringify(input.sealed),
+        ...(input.status !== undefined && { status: input.status }),
+        ...(input.clientId !== undefined && { clientId: input.clientId }),
+        ...(input.turnId !== undefined && { turnId: input.turnId }),
+        meta: {
+          author: input.author,
+          ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
+        },
+      });
+      return { message, created: true };
+    });
+  }
+
+  /** A message of this person's, in any chat, with the chat's agent. */
+  async findMessageForUser(
+    userId: string,
+    messageId: string,
+  ): Promise<{ agentId: string; message: ThreadMessage } | undefined> {
+    const row = this.db
+      .prepare(
+        'SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.id=? AND m.user_id=?',
+      )
+      .get(messageId, userId) as (Row & { agent_id: string }) | undefined;
+    if (!row) return undefined;
+    const message = this.tryDecode(row, row.agent_id);
+    return message ? { agentId: row.agent_id, message } : undefined;
+  }
+
+  /**
+   * Stores a computer's sealed reply to one turn: the first frame adds the agent message, later
+   * ones replace its envelope while it is not final. `ignored` once the reply was final.
+   */
+  async upsertSealedReply(
+    userId: string,
+    agentId: string,
+    input: { turnId: string; sealed: SealedEnvelopeV1; final: boolean },
+  ): Promise<{ message: ThreadMessage; created: boolean } | 'ignored'> {
+    return this.transaction(() => {
+      const thread = this.ensureThread(userId, agentId);
+      const existing = this.db
+        .prepare(
+          "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND kind='sealed' AND turn_id=? AND client_id IS NULL",
+        )
+        .get(thread.id, userId, input.turnId) as Row | undefined;
+      const meta = { author: 'agent', final: input.final };
+      if (!existing) {
+        const message = this.insert(userId, thread, 'sealed', {
+          text: JSON.stringify(input.sealed),
+          turnId: input.turnId,
+          meta,
+        });
+        return { message, created: true };
+      }
+      if ((JSON.parse(existing.meta) as { final?: boolean }).final === true) return 'ignored';
+      this.db
+        .prepare('UPDATE messages SET body=?,meta=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
+        .run(
+          JSON.stringify(
+            this.cipher.seal(
+              JSON.stringify(input.sealed),
+              messageAad(userId, thread.id, existing.id),
+            ),
+          ),
+          JSON.stringify(meta),
+          thread.next_rev,
+          this.now().toISOString(),
+          existing.id,
+          userId,
+        );
+      this.db
+        .prepare('UPDATE threads SET next_rev=next_rev+1 WHERE id=? AND user_id=?')
+        .run(thread.id, userId);
+      const row = this.db
+        .prepare('SELECT * FROM messages WHERE id=? AND user_id=?')
+        .get(existing.id, userId) as Row;
+      return { message: this.decode(row, agentId), created: false };
+    });
+  }
+
+  /** Sealed user messages waiting for their computer, oldest first. */
+  async queuedSealed(): Promise<{ userId: string; agentId: string; message: ThreadMessage }[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.kind='sealed' AND m.status='queued' ORDER BY m.seq",
+      )
+      .all() as (Row & { agent_id: string })[];
+    return rows.flatMap((row) => {
+      const message = this.tryDecode(row, row.agent_id);
+      return message ? [{ userId: row.user_id, agentId: row.agent_id, message }] : [];
     });
   }
 
@@ -600,7 +763,9 @@ export class SqliteThreadStore {
   ): Promise<ThreadMessage | undefined> {
     return this.transaction(() => {
       const row = this.db
-        .prepare("SELECT * FROM messages WHERE id=? AND user_id=? AND kind='user_text'")
+        .prepare(
+          "SELECT * FROM messages WHERE id=? AND user_id=? AND (kind='user_text' OR (kind='sealed' AND client_id IS NOT NULL))",
+        )
         .get(messageId, userId) as Row | undefined;
       if (!row) return undefined;
       const thread = this.db
@@ -688,6 +853,7 @@ export class SqliteThreadStore {
         unread: unread.n,
         last_message_at: last?.created_at ?? null,
         read_seq: thread.read_seq,
+        ...(thread.private === 1 && { private: true }),
       };
     });
   }
@@ -731,7 +897,8 @@ export class SqliteThreadStore {
     limit = 20,
   ): Promise<Extract<ThreadMessage, { kind: 'user_text' }>[]> {
     const thread = this.thread(userId, agentId);
-    if (!thread) return [];
+    // A private chat is never read out to an agent through the server (ADR-044).
+    if (!thread || thread.private === 1) return [];
     const rows =
       since === undefined
         ? (this.db
@@ -751,7 +918,7 @@ export class SqliteThreadStore {
 
   async ownerReplyCount(userId: string, agentId: string, since?: string): Promise<number> {
     const thread = this.thread(userId, agentId);
-    if (!thread) return 0;
+    if (!thread || thread.private === 1) return 0;
     const row = this.db
       .prepare(
         "SELECT COUNT(*) AS count FROM messages WHERE thread_id=? AND user_id=? AND kind='user_text' AND created_at>?",
@@ -1005,7 +1172,7 @@ export class SqliteThreadStore {
 
   async interruptInFlight(): Promise<number> {
     return this.changeStatuses(
-      "m.kind='user_text' AND m.status IN ('sent','working')",
+      "m.kind IN ('user_text','sealed') AND m.status IN ('sent','working')",
       [],
       'interrupted',
     ).count;
@@ -1014,7 +1181,7 @@ export class SqliteThreadStore {
   /** Queued too long (the computer stayed offline): `expired`. Returns the changed messages. */
   async expireQueued(): Promise<ThreadMessage[]> {
     return this.changeStatuses(
-      "m.kind='user_text' AND m.status='queued' AND m.created_at<?",
+      "m.kind IN ('user_text','sealed') AND m.status='queued' AND m.created_at<?",
       [new Date(this.now().getTime() - QUEUED_MESSAGE_TTL_MS).toISOString()],
       'expired',
     ).messages;
