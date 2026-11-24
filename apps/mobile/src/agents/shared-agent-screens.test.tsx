@@ -94,6 +94,7 @@ vi.mock('@/platform/voice-preview', () => ({
   voicePreview: {},
 }));
 vi.mock('@/threads/chats', () => ({
+  chatController: () => undefined,
   useChatList: () => ({ available: true, refresh: () => undefined }),
 }));
 vi.mock('@/threads/useChatExport', () => ({

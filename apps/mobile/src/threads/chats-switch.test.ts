@@ -5,6 +5,10 @@ const h = vi.hoisted(() => ({
   url: 'http://build.example',
 }));
 
+vi.mock('./search-store', () => ({
+  sqliteSearchStore: () => undefined,
+  deleteSearchDatabase: () => Promise.resolve(),
+}));
 vi.mock('expo-router', () => ({ useFocusEffect: () => undefined }));
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },

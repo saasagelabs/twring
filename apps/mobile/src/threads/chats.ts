@@ -15,6 +15,8 @@ import { DraftStore } from './drafts';
 import { Outbox, systemTimers, type OutboxTimers, type PendingMessage } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
+import { SearchIndex, memorySearchStore } from './search-index';
+import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
 
 export class ChatController {
@@ -35,11 +37,14 @@ export class ChatController {
   private socket?: ReturnType<typeof connectThreadSocket>;
   private appSubscription?: { remove(): void };
   private listPromise?: Promise<void>;
+  private readonly search: SearchIndex;
+  /** Aborted on clear(): a fill in progress stops when the person signs out or switches. */
+  private filling = new AbortController();
 
   constructor(
     private readonly api: TwringApi,
     private readonly socketOptions?: { url: string; requireSecureMedia: boolean },
-    stores: { outbox?: JsonStore; drafts?: JsonStore } = {},
+    stores: { outbox?: JsonStore; drafts?: JsonStore; search?: SearchIndex } = {},
     timers: OutboxTimers = systemTimers,
   ) {
     this.outbox = new Outbox(
@@ -70,6 +75,7 @@ export class ChatController {
       },
       stores.outbox && { store: stores.outbox },
     );
+    this.search = stores.search ?? new SearchIndex(memorySearchStore());
     this.drafts = new DraftStore(stores.drafts ?? memoryStore(), timers);
   }
 
@@ -88,9 +94,58 @@ export class ChatController {
     for (const listener of this.listeners) listener();
   }
   private put(agentId: string, state: ChatState): void {
+    this.keepSearchable(this.chats.get(agentId), state);
     this.chats.set(agentId, state);
     this.emit();
     this.scheduleRead(agentId);
+  }
+
+  /** Copies new or changed text to the phone's search, and drops messages that were deleted. */
+  private keepSearchable(before: ChatState | undefined, after: ChatState): void {
+    if (before?.messages === after.messages) return;
+    const old = new Map(before?.messages.map((message) => [message.id, message]));
+    const changed = after.messages.filter((message) => old.get(message.id) !== message);
+    for (const message of after.messages) old.delete(message.id);
+    void this.search.record(changed);
+    void this.search.forget([...old.keys()]);
+  }
+
+  /** Words to find in chats kept on this phone, newest first. */
+  searchChats(query: string) {
+    return this.search.search(query);
+  }
+
+  /** Fills in older messages of every chat for search; see SearchIndex.fill. */
+  fillSearch(signal: AbortSignal, onProgress?: (busy: boolean) => void): Promise<void> {
+    // Either the screen closing or a sign-out stops it (AbortSignal.any is not on every engine).
+    const both = new AbortController();
+    for (const source of [signal, this.filling.signal]) {
+      if (source.aborted) both.abort();
+      else source.addEventListener('abort', () => both.abort(), { once: true });
+    }
+    const stop = both.signal;
+    return this.search.fill(
+      this.summaries.map((summary) => summary.agent_id),
+      (agentId, beforeSeq, pageSignal) =>
+        this.api.listMessages(
+          agentId,
+          { ...(beforeSeq !== undefined && { beforeSeq }), limit: 100 },
+          pageSignal,
+        ),
+      stop,
+      onProgress,
+    );
+  }
+
+  /** After an agent is deleted: its chat text leaves the phone too. */
+  forgetAgent(agentId: string): Promise<void> {
+    this.chats.delete(agentId);
+    return this.search.forgetAgent(agentId);
+  }
+
+  /** After "Delete my data": nothing of the chats stays on the phone. */
+  forgetSearch(): Promise<void> {
+    return this.search.wipe();
   }
 
   private ensureSocket(): void {
@@ -309,6 +364,7 @@ export class ChatController {
   frame(frame: ThreadSocketFrame): void {
     const agentId = frame.type === 'message.upserted' ? frame.message.agent_id : frame.agent_id;
     if (frame.type === 'message.upserted') this.outbox.reconcile(frame.message);
+    if (frame.type === 'thread.cleared') void this.search.forgetAgent(agentId);
     this.put(agentId, applyFrame(this.getChat(agentId), agentId, frame));
     // Progress arrives every 250 ms while a reply streams; only real changes refresh the list.
     if (frame.type !== 'turn.progress') void this.refreshList();
@@ -333,6 +389,8 @@ export class ChatController {
   /** Signing out forgets the saved queue and drafts; switching servers keeps them for later. */
   async clear(options: { forget?: boolean } = {}): Promise<void> {
     this.epoch++;
+    this.filling.abort();
+    this.filling = new AbortController();
     this.socket?.close();
     this.socket = undefined;
     this.socketConnectedBefore = false;
@@ -343,12 +401,13 @@ export class ChatController {
     this.focusCounts.clear();
     this.chats.clear();
     const outbox = options.forget ? this.outbox.clear() : this.outbox.detach();
+    const search = options.forget ? this.search.wipe() : Promise.resolve();
     const drafts = options.forget ? this.drafts.clear() : this.drafts.flush();
     this.summaries = [];
     this.availability = undefined;
     this.filesAvailable = false;
     this.emit();
-    await Promise.all([outbox, drafts]);
+    await Promise.all([outbox, drafts, search]);
   }
 
   getDraft(agentId: string): Promise<string> {
@@ -400,7 +459,13 @@ export function chatController(): ChatController | undefined {
         url: activeServerUrl(),
         requireSecureMedia: mobileEnv.env.CORD_ENV !== 'development',
       },
-      scope ? { outbox: fileStore('outbox', scope), drafts: fileStore('drafts', scope) } : {},
+      scope
+        ? {
+            outbox: fileStore('outbox', scope),
+            drafts: fileStore('drafts', scope),
+            search: new SearchIndex(sqliteSearchStore(scope)),
+          }
+        : {},
     );
     if (!signOutHookRegistered) {
       addBeforeSignOut(async () => {
@@ -413,6 +478,7 @@ export function chatController(): ChatController | undefined {
           await Promise.all([
             fileStore('outbox', signingOut).remove(),
             fileStore('drafts', signingOut).remove(),
+            deleteSearchDatabase(signingOut),
           ]).catch(() => undefined);
       });
       signOutHookRegistered = true;

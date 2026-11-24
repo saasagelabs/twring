@@ -190,6 +190,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       'expo-font',
       // Sign-in session storage (Keychain / Android Keystore). ADR-021.
       'expo-secure-store',
+      // Chat search keeps a copy of chat text on the phone. FTS5 is on by default (enableFTS).
+      'expo-sqlite',
       [
         'expo-image-picker',
         {

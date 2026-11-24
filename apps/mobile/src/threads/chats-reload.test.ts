@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type TwringApi } from '../api/client';
 
 const sockets: { onState: (state: string) => void }[] = [];
+vi.mock('./search-store', () => ({
+  sqliteSearchStore: () => undefined,
+  deleteSearchDatabase: () => Promise.resolve(),
+}));
 vi.mock('./socket', () => ({
   connectThreadSocket: (options: { onState: (state: string) => void }) => {
     sockets.push(options);

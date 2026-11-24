@@ -3,6 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError, type TwringApi } from '../api/client';
 
+vi.mock('./search-store', () => ({
+  sqliteSearchStore: () => undefined,
+  deleteSearchDatabase: () => Promise.resolve(),
+}));
 vi.mock('expo-router', () => ({ useFocusEffect: () => undefined }));
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },

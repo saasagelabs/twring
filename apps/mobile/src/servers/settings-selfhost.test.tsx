@@ -65,7 +65,10 @@ vi.mock('@/privacy/account-deletion', () => ({
 }));
 vi.mock('@/privacy/deletion', () => ({ deletionSummary: () => 'Deleted.' }));
 vi.mock('@/ring/service', () => ({ pushRegistration: { forget: mocks.forget } }));
-vi.mock('@/threads/chats', () => ({ useChatList: () => ({ available: true }) }));
+vi.mock('@/threads/chats', () => ({
+  chatController: () => undefined,
+  useChatList: () => ({ available: true }),
+}));
 vi.mock('@/usage/copy', () => ({ usageResetLine: () => undefined, usageSummary: () => '' }));
 vi.mock('@/servers/active', () => ({
   activeServerUrl: () => 'https://api.example.com',

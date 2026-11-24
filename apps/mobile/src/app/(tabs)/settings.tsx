@@ -28,7 +28,7 @@ import {
 } from '@/privacy/account-deletion';
 import { deletionSummary } from '@/privacy/deletion';
 import { pushRegistration } from '@/ring/service';
-import { useChatList } from '@/threads/chats';
+import { chatController, useChatList } from '@/threads/chats';
 import { type, usePalette } from '@/theme/tokens';
 import { usageResetLine, usageSummary } from '@/usage/copy';
 
@@ -100,6 +100,8 @@ export default function SettingsScreen() {
     setDeletion({ state: 'deleting' });
     api.deleteMyData().then(
       (result) => {
+        // Chat text kept on this phone for search goes too.
+        void chatController()?.forgetSearch();
         // The server removed this phone's push registration too: register again on next start.
         // On your own server the phone then leaves it, the way Leave this server does.
         // Leaving removes the profile here whatever the server says; nothing is left to report.
