@@ -16,7 +16,9 @@ import { ensureDeviceKey, type E2eConfig, type TrustedDevice } from './keys';
 import { openIncoming, ReplayWindow, sealOutgoing, type SealContext } from './sealed';
 import { baseConfig } from './test-fixtures';
 import {
+  CHUNK_INTERVAL_MS,
   helloFeatures,
+  MAX_REPLY_CHUNKS,
   PrivateChats,
   privateTurnText,
   UNKNOWN_SENDER_BUDGET,
@@ -226,6 +228,24 @@ describe('private turns', () => {
     expect(frames.filter((f) => f.final)).toHaveLength(1);
     expect(frames.at(-1)!.sealed.chunk!.final).toBe(true);
     expect(run.phoneReads(message.message_id)).toBe('Hello');
+  });
+
+  it('keeps a reply within the server chunk cap when the agent pauses often', async () => {
+    // 300 one-character events, each more than the flush interval apart.
+    let t = 0;
+    const says = Array.from({ length: 300 }, (_, i) => String.fromCharCode(97 + (i % 26)));
+    const run = fakeRun({
+      agentSays: says,
+      now: () => (t += CHUNK_INTERVAL_MS + 1),
+    });
+    const message = run.sealedFromPhone({ text: 'slow please' });
+    await run.receive(message);
+    const frames = run.sent('sealed.reply');
+    expect(frames.length).toBeLessThanOrEqual(MAX_REPLY_CHUNKS);
+    expect(frames.map((f) => f.sealed.chunk!.index)).toEqual(frames.map((_, i) => i));
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    expect(frames.at(-1)!.final).toBe(true);
+    expect(run.phoneReads(message.message_id)).toBe(says.join(''));
   });
 
   it('splits a long reply so no frame passes the relay limit', async () => {

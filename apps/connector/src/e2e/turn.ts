@@ -26,6 +26,17 @@ type SealedReplyFrame = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>
 export const CHUNK_CHARS = 8_000;
 /** A streamed chunk goes out once this much time passed since the last one. */
 export const CHUNK_INTERVAL_MS = 700;
+/**
+ * Most chunks the server keeps for one reply; it refuses index 64 and above. Mirrors
+ * MAX_SEALED_REPLY_CHUNKS from PR #139 (switch to the contracts constant once it is on main).
+ */
+export const MAX_REPLY_CHUNKS = 64;
+/**
+ * Time-based flushes stop at this index; the rest goes out by size only. The reply cap
+ * (MAX_STORED_AGENT_MESSAGE_CHARS) leaves at most 3 size chunks plus the final, with room for
+ * relay-size halving.
+ */
+const TIME_FLUSH_CHUNKS = MAX_REPLY_CHUNKS - 8;
 
 export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try again.';
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';
@@ -171,13 +182,14 @@ export class PrivateChats {
       await this.reply(frame, async (send) => send({ text: FILES_NOT_OPENED_TEXT }, true));
       return;
     }
-    await this.reply(frame, (send) => this.runAgent(frame, payload, send));
+    await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks));
   }
 
   private async runAgent(
     frame: SealedMessageFrame,
     payload: SealedPayload,
     send: (payload: SealedPayload, final: boolean) => Promise<void>,
+    chunks: () => number,
   ): Promise<void> {
     const { pool } = this.options;
     const adapter = pool.acquire(frame.agent);
@@ -209,7 +221,8 @@ export class PrivateChats {
             if (/[\ud800-\udbff]$/.test(text)) text = text.slice(0, -1);
             total += text.length;
             buffered += text;
-            if (buffered.length >= CHUNK_CHARS || now() - lastSent >= CHUNK_INTERVAL_MS) {
+            const timeUp = now() - lastSent >= CHUNK_INTERVAL_MS && chunks() < TIME_FLUSH_CHUNKS;
+            if (buffered.length >= CHUNK_CHARS || timeUp) {
               const out = buffered;
               buffered = '';
               lastSent = now();
@@ -235,7 +248,10 @@ export class PrivateChats {
    */
   private async reply(
     frame: SealedMessageFrame,
-    body: (send: (payload: SealedPayload, final: boolean) => Promise<void>) => Promise<void>,
+    body: (
+      send: (payload: SealedPayload, final: boolean) => Promise<void>,
+      chunks: () => number,
+    ) => Promise<void>,
   ): Promise<void> {
     const saved = await this.options.persist((current) => ({ ...current, seq: current.seq + 1 }));
     if (saved === undefined) return;
@@ -272,10 +288,13 @@ export class PrivateChats {
       index++;
       push(out);
     };
-    await body((payload, final) => {
-      seal(payload, final);
-      return Promise.resolve();
-    });
+    await body(
+      (payload, final) => {
+        seal(payload, final);
+        return Promise.resolve();
+      },
+      () => index,
+    );
     this.options.log?.(
       `private reply to ${frame.message_id}: ${index} parts${held.length > 0 ? `, ${held.length} held` : ''}`,
     );
