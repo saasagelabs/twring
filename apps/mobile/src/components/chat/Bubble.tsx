@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -23,6 +22,11 @@ export function Bubble({
   agentId,
   attachments,
   pendingFiles,
+  quote,
+  copied,
+  actions,
+  onAction,
+  onLongPress,
 }: {
   text: string;
   time: string;
@@ -34,22 +38,27 @@ export function Bubble({
   agentId?: string;
   attachments?: Attachment[];
   pendingFiles?: PreparedFile[];
+  /** The message this one answers: who wrote it ("You" or the agent's name) and its text. */
+  quote?: { from: string; text: string };
+  /** Shows a short "Copied" note under the bubble. */
+  copied?: boolean;
+  /** The long-press choices, offered to screen readers as actions too. */
+  actions?: { name: string; label: string }[];
+  onAction?: (name: string) => void;
+  onLongPress?: () => void;
 }) {
   const palette = usePalette();
   const [all, setAll] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [height, setHeight] = useState(0);
   const folded = shouldFold(height) && !all;
   return (
     <View style={[styles.wrap, { alignItems: own ? 'flex-end' : 'flex-start' }]}>
       <Pressable
         accessible={!attachments?.length && !pendingFiles?.length}
-        accessibilityLabel={`${sender}, ${time}: ${text}`}
-        onLongPress={() => {
-          void Clipboard.setStringAsync(text);
-          setCopied(true);
-          setTimeout(() => setCopied(false), 2000);
-        }}
+        accessibilityLabel={`${sender}, ${time}: ${quote ? `replying to ${quote.from}, ` : ''}${text}`}
+        accessibilityActions={actions}
+        onAccessibilityAction={(event) => onAction?.(event.nativeEvent.actionName)}
+        onLongPress={onLongPress}
         style={[
           styles.bubble,
           {
@@ -60,6 +69,20 @@ export function Bubble({
           },
         ]}
       >
+        {quote && (
+          <View
+            testID="bubble-quote"
+            style={[styles.quote, { borderLeftColor: palette.accent }]}
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Text numberOfLines={1} style={[styles.quoteFrom, { color: palette.accent }]}>
+              {quote.from}
+            </Text>
+            <Text numberOfLines={2} style={[styles.quoteText, { color: palette.textSecondary }]}>
+              {quote.text}
+            </Text>
+          </View>
+        )}
         {voiceDuration !== undefined && (
           <View style={styles.voice}>
             <Icon name="mic" size={15} color={palette.textSecondary} />
@@ -130,6 +153,9 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   caption: { fontFamily: font.mono, fontSize: type.microLabel.fontSize, marginTop: 3 },
+  quote: { borderLeftWidth: 3, paddingLeft: 8, marginBottom: 6 },
+  quoteFrom: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
+  quoteText: { fontFamily: font.body, fontSize: type.caption.fontSize },
   voice: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 },
   voiceTime: { fontFamily: font.mono, fontSize: type.caption.fontSize },
 });
