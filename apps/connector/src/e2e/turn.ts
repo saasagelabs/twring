@@ -2,6 +2,7 @@ import {
   base64urlDecode,
   MAX_QUOTE_CHARS,
   MAX_RELAY_MESSAGE_BYTES,
+  MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   SCOPED_SESSIONS_FEATURE,
   SEALED_CHAT_FEATURE,
@@ -27,16 +28,11 @@ export const CHUNK_CHARS = 8_000;
 /** A streamed chunk goes out once this much time passed since the last one. */
 export const CHUNK_INTERVAL_MS = 700;
 /**
- * Most chunks the server keeps for one reply; it refuses index 64 and above. Mirrors
- * MAX_SEALED_REPLY_CHUNKS from PR #139 (switch to the contracts constant once it is on main).
+ * Time-based flushes stop at this index; the rest goes out by size only, so a reply stays under
+ * the server's MAX_SEALED_REPLY_CHUNKS. The reply cap (MAX_STORED_AGENT_MESSAGE_CHARS) leaves at
+ * most 3 size chunks plus the final, with room for relay-size halving.
  */
-export const MAX_REPLY_CHUNKS = 64;
-/**
- * Time-based flushes stop at this index; the rest goes out by size only. The reply cap
- * (MAX_STORED_AGENT_MESSAGE_CHARS) leaves at most 3 size chunks plus the final, with room for
- * relay-size halving.
- */
-const TIME_FLUSH_CHUNKS = MAX_REPLY_CHUNKS - 8;
+const TIME_FLUSH_CHUNKS = MAX_SEALED_REPLY_CHUNKS - 8;
 
 export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try again.';
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';

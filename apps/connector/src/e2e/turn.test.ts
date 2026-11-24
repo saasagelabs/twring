@@ -3,6 +3,7 @@ import {
   deviceIdFor,
   generateSealKeyPair,
   MAX_RELAY_MESSAGE_BYTES,
+  MAX_SEALED_REPLY_CHUNKS,
   SCOPED_SESSIONS_FEATURE,
   SEALED_CHAT_FEATURE,
   type RelayConnectorMessage,
@@ -18,7 +19,6 @@ import { baseConfig } from './test-fixtures';
 import {
   CHUNK_INTERVAL_MS,
   helloFeatures,
-  MAX_REPLY_CHUNKS,
   PrivateChats,
   privateTurnText,
   UNKNOWN_SENDER_BUDGET,
@@ -241,7 +241,7 @@ describe('private turns', () => {
     const message = run.sealedFromPhone({ text: 'slow please' });
     await run.receive(message);
     const frames = run.sent('sealed.reply');
-    expect(frames.length).toBeLessThanOrEqual(MAX_REPLY_CHUNKS);
+    expect(frames.length).toBeLessThanOrEqual(MAX_SEALED_REPLY_CHUNKS);
     expect(frames.map((f) => f.sealed.chunk!.index)).toEqual(frames.map((_, i) => i));
     expect(frames.filter((f) => f.final)).toHaveLength(1);
     expect(frames.at(-1)!.final).toBe(true);
