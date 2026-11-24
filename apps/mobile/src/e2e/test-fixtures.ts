@@ -2,9 +2,9 @@
 export function memoryStore() {
   const m = new Map<string, string>();
   return {
-    getItemAsync: async (k: string) => m.get(k) ?? null,
-    setItemAsync: async (k: string, v: string) => void m.set(k, v),
-    deleteItemAsync: async (k: string) => void m.delete(k),
+    getItemAsync: (k: string) => Promise.resolve(m.get(k) ?? null),
+    setItemAsync: (k: string, v: string) => Promise.resolve(void m.set(k, v)),
+    deleteItemAsync: (k: string) => Promise.resolve(void m.delete(k)),
     m,
   };
 }

@@ -34,15 +34,15 @@ function fakeApi(
   answer: { status?: number; body?: unknown; throws?: boolean } = {},
 ): PairApi & { claim: ReturnType<typeof vi.fn> } {
   return {
-    claim: vi.fn(async () => {
-      if (answer.throws) throw new Error('offline');
-      return {
+    claim: vi.fn(() => {
+      if (answer.throws) return Promise.reject(new Error('offline'));
+      return Promise.resolve({
         status: answer.status ?? 200,
         body: answer.body ?? {
           connector_public_key: K,
           connector_device_id: deviceIdFor(computer.publicKey),
         },
-      };
+      });
     }),
   };
 }
@@ -71,7 +71,7 @@ describe('pairing client', () => {
     const d = deps(api);
     await claimPairing(d, input());
     const phone = await loadOrCreateDeviceKey(d.store);
-    const [offerId, body] = api.claim.mock.calls[0]! as [string, Record<string, string>];
+    const [offerId, body] = api.claim.mock.calls[0] as [string, Record<string, string>];
     expect(offerId).toBe(OFFER);
     expect(body.phone_device_id).toBe(phone.deviceId);
     expect(body.mac).toBe(
@@ -153,7 +153,7 @@ describe('pairing client', () => {
       kind: 'computer',
       public_key: K,
     });
-    expect(base64urlDecode(list[0]!.public_key)).toEqual(computer.publicKey);
+    expect(base64urlDecode(list[0].public_key)).toEqual(computer.publicKey);
   });
 
   it('reads a damaged trusted list as empty', async () => {

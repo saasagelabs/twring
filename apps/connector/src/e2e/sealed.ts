@@ -4,6 +4,7 @@ import {
   messageAad,
   newMessageKey,
   openBody,
+  ReplayWindow,
   sealBody,
   SEALED_FORMAT_VERSION,
   unwrapKey,
@@ -13,6 +14,9 @@ import {
 } from '@twring/contracts';
 
 import type { TrustedDevice } from './keys';
+
+/** Shared with the phone (contracts); re-exported for this package's callers. */
+export { ReplayWindow };
 
 /**
  * Opening and sealing private chat messages on this computer (ADR-044).
@@ -36,50 +40,6 @@ export interface SealContext {
 export type OpenResult =
   | { ok: true; payload: SealedPayload }
   | { ok: false; reason: 'not_for_me' | 'unknown_sender' | 'replay' | 'bad_ciphertext' };
-
-const WINDOW = 64n;
-const FULL = (1n << WINDOW) - 1n;
-
-/**
- * Per sender device: the highest seq seen and which of the 63 before it were seen, so each seq
- * opens once. Seeded with the highest seq saved before a restart (all older ones count as seen).
- */
-export class ReplayWindow {
-  private readonly senders = new Map<string, { highest: number; bits: bigint }>();
-
-  constructor(saved: Record<string, number> = {}) {
-    for (const [sender, highest] of Object.entries(saved))
-      this.senders.set(sender, { highest, bits: FULL });
-  }
-
-  /** Whether `accept` would take it; changes nothing. */
-  fresh(sender: string, seq: number): boolean {
-    const entry = this.senders.get(sender);
-    if (entry === undefined || seq > entry.highest) return true;
-    const back = BigInt(entry.highest - seq);
-    return back < WINDOW && (entry.bits & (1n << back)) === 0n;
-  }
-
-  accept(sender: string, seq: number): boolean {
-    if (!this.fresh(sender, seq)) return false;
-    const entry = this.senders.get(sender);
-    if (entry === undefined) {
-      this.senders.set(sender, { highest: seq, bits: 1n });
-    } else if (seq > entry.highest) {
-      const shift = BigInt(seq - entry.highest);
-      entry.bits = shift >= WINDOW ? 1n : ((entry.bits << shift) | 1n) & FULL;
-      entry.highest = seq;
-    } else {
-      entry.bits |= 1n << BigInt(entry.highest - seq);
-    }
-    return true;
-  }
-
-  /** Highest seq per sender, to save. */
-  highest(): Record<string, number> {
-    return Object.fromEntries([...this.senders].map(([sender, e]) => [sender, e.highest]));
-  }
-}
 
 function aadFor(ctx: SealContext, sender: string, seq: number, chunk?: number): Uint8Array {
   return messageAad({

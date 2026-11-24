@@ -21,3 +21,4 @@ export * from './ring';
 export * from './speech-keys';
 export * from './threads';
 export * from './waitlist';
+export * from './replay-window';
