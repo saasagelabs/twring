@@ -7,7 +7,7 @@ import {
   relayAudioSessionResponseSchema,
 } from '@twring/contracts';
 import { AccessToken, TokenVerifier } from 'livekit-server-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 
 import { buildApp } from './app';
 import { loadRelayEnv } from './config';
@@ -177,6 +177,13 @@ const verify = (token: string) =>
 
 describe('POST /v1/audio/sessions', () => {
   it('names the room under the install and limits both tokens to it for 10 minutes', async () => {
+    // livekit-server-sdk reads the clock twice per token (once for exp, once for nbf), so a
+    // real clock that crosses a second boundary between them gives 599. Freeze it at the
+    // worst instant, a millisecond before the next second.
+    vi.useFakeTimers({ toFake: ['Date'], now: START + 999 });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     const ctx = await setup();
     const install = ctx.newInstall();
     const res = await ctx.start(install.key, 'call_abc');
@@ -199,16 +206,16 @@ describe('POST /v1/audio/sessions', () => {
     expect(caller.video?.roomCreate).toBeUndefined();
     expect(caller.video?.roomList).toBeUndefined();
     expect(caller.roomConfig).toMatchObject({ name: session.room, maxParticipants: 2 });
-    // The LiveKit SDK reads the real clock twice (expiry, then not-before): 599 when a second ticks between.
-    expect([599, 600]).toContain(caller.exp! - caller.nbf!);
+    expect(caller.nbf).toBe(START / 1000);
+    expect(caller.exp).toBe(Date.parse(session.expires_at) / 1000);
 
     const server = await verify(session.server_token);
     expect(server.sub).toBe(GATEWAY_IDENTITY);
     expect(server.video).toMatchObject({ room: session.room, roomJoin: true, agent: true });
     expect(server.video?.roomAdmin).toBeUndefined();
     expect(server.roomConfig).toMatchObject({ name: session.room, maxParticipants: 2 });
-    // The LiveKit SDK reads the real clock twice (expiry, then not-before): 599 when a second ticks between.
-    expect([599, 600]).toContain(server.exp! - server.nbf!);
+    expect(server.nbf).toBe(START / 1000);
+    expect(server.exp).toBe(Date.parse(session.expires_at) / 1000);
   });
 
   it('refuses a call id that is not room-safe', async () => {
