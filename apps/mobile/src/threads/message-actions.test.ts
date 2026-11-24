@@ -78,7 +78,7 @@ describe('copy', () => {
     expect(deleteFailureCopy(new ApiError('network'))).not.toContain('working on this message');
   });
   it('has no em dash and takes the first line of a quote', () => {
-    expect(DELETE_CONFIRM).not.toContain('2014');
+    expect(DELETE_CONFIRM).not.toContain(String.fromCharCode(0x2014));
     expect(quoteLine('\n first line\nsecond')).toBe('first line');
     expect(quoteLine('')).toBe('Voice note');
   });
