@@ -22,6 +22,7 @@ import { FileStoreError, ThreadStoreError, type SqliteThreadStore } from './stor
 import type { FileService } from '../files/service';
 import { fetchAgentFile, FetchAgentFileError } from '../files/fetch-agent-file';
 import { sniffFile } from '../files/sniff';
+import { withQuote } from './quote';
 
 export interface ThreadTurnTimeouts {
   connectMs: number;
@@ -62,7 +63,9 @@ export class ThreadServiceError extends Error {
       | 'queue_full'
       | 'bad_attachment'
       | 'approval_conflict'
-      | 'approval_not_found',
+      | 'approval_not_found'
+      | 'reply_to_not_found'
+      | 'message_in_progress',
     readonly current?: ThreadMessage,
   ) {
     super(code);
@@ -477,6 +480,7 @@ export class ThreadService {
       text: string;
       voice?: { duration_s: number };
       attachmentIds?: string[];
+      replyTo?: string;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const key = keyOf(userId, agentId);
@@ -503,6 +507,7 @@ export class ThreadService {
       text: string;
       voice?: { duration_s: number };
       attachmentIds?: string[];
+      replyTo?: string;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const record = await this.options.agents.get(userId, agentId);
@@ -536,6 +541,8 @@ export class ThreadService {
     } catch (error) {
       if (error instanceof ThreadStoreError && error.code === 'queue_full')
         throw new ThreadServiceError('queue_full');
+      if (error instanceof ThreadStoreError && error.code === 'reply_to_not_found')
+        throw new ThreadServiceError('reply_to_not_found');
       if (error instanceof FileStoreError && error.code === 'bad_attachment')
         throw new ThreadServiceError('bad_attachment');
       throw error;
@@ -612,6 +619,31 @@ export class ThreadService {
     const result = await this.options.store.deleteAllForUser(userId);
     await this.options.files?.deleteBlobs(result.fileIds);
     return result.messages;
+  }
+
+  /**
+   * Deletes one message from Twring only; the agent is never told and may still remember it.
+   * Idempotent: a message that is already gone (or never was in this thread) is a success.
+   */
+  async deleteMessage(userId: string, agentId: string, messageId: string): Promise<void> {
+    const deleted = await this.options.store.deleteMessage(userId, agentId, messageId);
+    if (deleted.result === 'in_progress') throw new ThreadServiceError('message_in_progress');
+    if (deleted.result === 'missing') return;
+    await this.options.files?.deleteBlobs(deleted.fileIds);
+    this.options.notify(userId, {
+      type: 'message.deleted',
+      agent_id: agentId,
+      message_id: messageId,
+    });
+    this.options.log?.info(
+      {
+        event: 'thread_message_deleted',
+        agent_id: agentId,
+        message_id: messageId,
+        files: deleted.fileIds.length,
+      },
+      'thread_message_deleted',
+    );
   }
 
   async clear(userId: string, agentId: string): Promise<number> {
@@ -757,7 +789,8 @@ export class ThreadService {
         turnId: run.turnId,
       });
       if (updated && !run.discarded) this.upsert(userId, updated);
-      if (run.discarded || run.stopped) return;
+      // Deleted before its turn began: nothing is left to send.
+      if (!updated || run.discarded || run.stopped) return;
       const adapterPromise = this.options.agentFactory(userId, record)(message.id);
       void adapterPromise.then(
         (adapter) => {
@@ -804,8 +837,8 @@ export class ThreadService {
           role: 'user',
           text:
             message.kind === 'user_text' && message.voice
-              ? `[Voice note, transcribed: some words may be wrong]\n${visibleText}`
-              : visibleText,
+              ? `[Voice note, transcribed: some words may be wrong]\n${withQuote(message, visibleText)}`
+              : withQuote(message, visibleText),
           ...(links.length && { attachments: links }),
           startedAt: at,
           committedAt: at,

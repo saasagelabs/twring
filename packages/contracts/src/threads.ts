@@ -10,6 +10,9 @@ export const MAX_MESSAGES_PER_THREAD = 2_000;
 export const MAX_QUEUED_PER_THREAD = 5;
 export const QUEUED_MESSAGE_TTL_MS = 24 * 60 * 60_000;
 export const APPROVAL_HOLD_MS = 10 * 60_000;
+/** A reply's quote of the message it answers, cut to this many characters (plus an ellipsis). */
+export const MAX_QUOTE_CHARS = 280;
+export const MAX_MEDIA_PAGE = 50;
 
 export const threadMessageIdSchema = z.string().regex(/^msg_[a-z2-7]{20}$/);
 export const userMessageStatusSchema = z.enum([
@@ -50,6 +53,18 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       attachments,
       turn_id: z.string().max(128).optional(),
       error_code: z.string().max(64).optional(),
+      /** The message this one answers, in the same thread. */
+      reply_to: threadMessageIdSchema.optional(),
+      /**
+       * Server-made snapshot of the answered message when it was sent: its text as plain text
+       * (markdown is not rendered), cut to MAX_QUOTE_CHARS. `from` says who wrote it.
+       */
+      quote: z
+        .object({
+          text: z.string().max(MAX_QUOTE_CHARS + 1),
+          from: z.enum(['owner', 'agent']),
+        })
+        .optional(),
     })
     .refine(textOrFiles, textOrFilesError),
   z
@@ -103,6 +118,12 @@ export const threadSocketFrameSchema = z.discriminatedUnion('type', [
     activity: z.string().max(MAX_ACTIVITY_LABEL_CHARS).optional(),
   }),
   z.object({ type: z.literal('thread.cleared'), agent_id: agentIdSchema }),
+  /** One message was deleted on any of the person's devices; drop it from the chat. */
+  z.object({
+    type: z.literal('message.deleted'),
+    agent_id: agentIdSchema,
+    message_id: threadMessageIdSchema,
+  }),
 ]);
 export type ThreadSocketFrame = z.infer<typeof threadSocketFrameSchema>;
 
@@ -139,6 +160,8 @@ export const sendMessageRequestSchema = z
       ),
     /** Files uploaded first with `POST /v1/agents/:agentId/files`, in display order. */
     attachment_ids: z.array(fileIdSchema).min(1).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
+    /** A message in the same thread this one answers; the server adds its quote. */
+    reply_to: threadMessageIdSchema.optional(),
   })
   .strict()
   .refine((request) => request.text.length > 0 || request.attachment_ids !== undefined, {
@@ -155,6 +178,7 @@ export const voiceNoteQuerySchema = z
   .object({
     client_id: z.uuid(),
     duration_ms: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().safe()),
+    reply_to: threadMessageIdSchema.optional(),
   })
   .strict();
 export const approvalDecisionRequestSchema = z
@@ -167,3 +191,36 @@ export const messagePageResponseSchema = z.object({
 export type MessagePageResponse = z.infer<typeof messagePageResponseSchema>;
 export const readMarkerRequestSchema = z.object({ seq: z.number().int().nonnegative() }).strict();
 export type ReadMarkerRequest = z.infer<typeof readMarkerRequestSchema>;
+
+/** `GET /v1/agents/:agentId/media?cursor=&limit=`: newest first. */
+export const mediaQuerySchema = z
+  .object({
+    cursor: z
+      .string()
+      .max(200)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
+    limit: z
+      .string()
+      .regex(/^\d+$/)
+      .transform(Number)
+      .pipe(z.number().int().min(1).max(MAX_MEDIA_PAGE))
+      .default(30),
+  })
+  .strict();
+/**
+ * A file sent (`sent`, by the person) or received (`received`, from the agent) in a chat. Download
+ * it as any chat attachment: `GET /v1/agents/:agentId/files/:id` with the app's sign-in.
+ */
+export const mediaItemSchema = attachmentSchema.extend({
+  message_id: threadMessageIdSchema,
+  direction: z.enum(['sent', 'received']),
+  created_at: z.iso.datetime(),
+});
+export type MediaItem = z.infer<typeof mediaItemSchema>;
+export const mediaPageResponseSchema = z.object({
+  items: z.array(mediaItemSchema),
+  /** Pass back as `cursor` for older items; null at the end. */
+  next_cursor: z.string().nullable(),
+});
+export type MediaPageResponse = z.infer<typeof mediaPageResponseSchema>;

@@ -49,6 +49,12 @@ export function applyFrame(state: ChatState, agentId: string, frame: ThreadSocke
     return frame.message.agent_id === agentId ? upsert(state, [frame.message]) : state;
   if (frame.agent_id !== agentId) return state;
   if (frame.type === 'thread.cleared') return { ...emptyChat(), maxRev: state.maxRev };
+  if (frame.type === 'message.deleted')
+    return {
+      ...state,
+      messages: state.messages.filter((message) => message.id !== frame.message_id),
+      ...(state.progress?.messageId === frame.message_id && { progress: undefined }),
+    };
   const user = state.messages.find((message) => message.id === frame.message_id);
   if (
     user?.kind === 'user_text' &&
