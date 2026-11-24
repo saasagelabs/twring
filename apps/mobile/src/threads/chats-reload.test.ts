@@ -95,3 +95,15 @@ describe('missed deletes', () => {
     expect(controller.getChat(agent).messages.map((entry) => entry.seq)).toEqual([2]);
   });
 });
+
+describe('delete failures', () => {
+  it('a network failure leaves the message in place', async () => {
+    const controller = new ChatController({
+      deleteMessage: vi.fn().mockRejectedValue(new ApiError('network')),
+      listMessages: vi.fn().mockResolvedValue({ messages: [message(1)], hasMore: false }),
+    } as unknown as TwringApi);
+    await controller.catchUp(agent);
+    await expect(controller.deleteMessage(agent, message(1).id)).rejects.toBeInstanceOf(ApiError);
+    expect(controller.getChat(agent).messages.map((entry) => entry.seq)).toEqual([1]);
+  });
+});

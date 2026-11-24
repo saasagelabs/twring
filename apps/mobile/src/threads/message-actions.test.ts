@@ -78,7 +78,7 @@ describe('copy', () => {
     expect(deleteFailureCopy(new ApiError('network'))).not.toContain('working on this message');
   });
   it('has no em dash and takes the first line of a quote', () => {
-    expect(DELETE_CONFIRM).not.toContain('—');
+    expect(DELETE_CONFIRM).not.toContain('2014');
     expect(quoteLine('\n first line\nsecond')).toBe('first line');
     expect(quoteLine('')).toBe('Voice note');
   });
@@ -177,5 +177,47 @@ describe('replies in the outbox', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(send).toHaveBeenCalledTimes(2);
     expect(outbox.list(agent)[0].state).toBe('failed');
+  });
+});
+
+describe('reload of the newest page: edges', () => {
+  const three = () =>
+    upsert(emptyChat(), [user('answered', 1), user('answered', 2), user('answered', 3)]);
+  it('an empty full page means every known message was deleted, but keeps newer arrivals', () => {
+    const next = replaceLatest(three(), { messages: [], hasMore: false }, 2);
+    expect(next.messages.map((message) => message.seq)).toEqual([3]);
+  });
+  it('an empty partial page changes nothing', () => {
+    const state = three();
+    expect(replaceLatest(state, { messages: [], hasMore: true }, 3)).toBe(state);
+  });
+  it('the same page applied twice (overlapping reloads) is stable', () => {
+    const page = { messages: [user('answered', 2), user('answered', 3)], hasMore: true };
+    const once = replaceLatest(three(), page, 3);
+    const twice = replaceLatest(once, page, 3);
+    expect(twice.messages.map((message) => message.seq)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('replies in the outbox: voice', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+  it('a voice reply whose quote was deleted resends once without it', async () => {
+    const calls: { replyTo?: string }[] = [];
+    const send = vi.fn((_agent: string, request: { clientId: string; replyTo?: string }) => {
+      calls.push({ replyTo: request.replyTo });
+      return calls.length === 1
+        ? Promise.reject(new ApiError('http', 'reply_to_not_found', undefined, undefined, 400))
+        : Promise.resolve({ ...user('sent'), client_id: request.clientId } as ThreadMessage);
+    });
+    const outbox = new Outbox(send, () => undefined, {
+      setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms),
+      clearTimeout: (id: unknown) => clearTimeout(id as ReturnType<typeof setTimeout>),
+      now: () => Date.now(),
+    });
+    outbox.sendVoice(agent, 'file:///a.m4a', 2000, 'msg_bbbbbbbbbbbbbbbbbbbb');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(calls).toEqual([{ replyTo: 'msg_bbbbbbbbbbbbbbbbbbbb' }, { replyTo: undefined }]);
+    expect(outbox.list(agent)).toEqual([]);
   });
 });
