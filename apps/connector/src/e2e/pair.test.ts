@@ -38,13 +38,13 @@ function fakeServer(options: FakeServerOptions = {}) {
       status,
       headers: { 'content-type': 'application/json' },
     });
-  const fetchImpl = (async (input: string | URL, init?: RequestInit) => {
+  const handle = (input: string | URL, init?: RequestInit): Response => {
     const url = new URL(String(input));
     const method = init?.method ?? 'GET';
     const auth = new Headers(init?.headers).get('authorization') ?? undefined;
     requests.push({ method, path: url.pathname, ...(auth !== null && { auth }) });
     if (method === 'POST' && url.pathname === '/v1/e2e/pairings') {
-      const body = JSON.parse(String(init?.body)) as Record<string, string>;
+      const body = JSON.parse(init?.body as string) as Record<string, string>;
       offered = { key: body.connector_public_key!, device: body.connector_device_id! };
       return json(200, { offer_id: OFFER, expires_at: '2026-11-25T00:10:00.000Z' });
     }
@@ -68,7 +68,9 @@ function fakeServer(options: FakeServerOptions = {}) {
       return json(200, { devices: [] });
     }
     return json(404, { error: { code: 'not_found', message: 'x' } });
-  }) as typeof fetch;
+  };
+  const fetchImpl = ((input: string | URL, init?: RequestInit) =>
+    Promise.resolve(handle(input, init))) as typeof fetch;
   return {
     fetchImpl,
     addedDevices,
@@ -208,6 +210,7 @@ describe('pairPhone', () => {
       s: 'https://api.twring.com',
       o: OFFER,
       k: run.options.config.e2e!.public_key,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest matcher
       x: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/),
     });
   });

@@ -168,7 +168,8 @@ describe('private chat pairing routes', () => {
       connectorPublicKey: key(1),
       expiresAt: new Date(Date.now() - 1),
     }).id;
-    const { offer_id: _offer, ...claim } = claimBody(offerId);
+    const { phone_device_id, phone_public_key, phone_name, mac } = claimBody(offerId);
+    const claim = { phone_device_id, phone_public_key, phone_name, mac };
     expect(g.e2e.claimOffer('u1', offerId, claim)).toBe('claimed');
     const res = await g.send('POST', '/v1/e2e/computer/devices', {
       headers: bearer(token),

@@ -32,7 +32,7 @@ interface FakeRunOptions {
   agentThrows?: boolean;
 }
 
-async function fakeRun(options: FakeRunOptions = {}) {
+function fakeRun(options: FakeRunOptions = {}) {
   const phoneKeys = generateSealKeyPair();
   const phone: TrustedDevice = {
     id: deviceIdFor(phoneKeys.publicKey),
@@ -133,7 +133,7 @@ async function fakeRun(options: FakeRunOptions = {}) {
 
 describe('private turns', () => {
   it('gives the agent the opened text with the phone-built quote', async () => {
-    const run = await fakeRun();
+    const run = fakeRun();
     await run.receive(
       run.sealedFromPhone({
         text: 'yes',
@@ -156,7 +156,7 @@ describe('private turns', () => {
   });
 
   it('streams sealed chunks and a final reply', async () => {
-    const run = await fakeRun({ agentSays: ['Hel', 'lo'] });
+    const run = fakeRun({ agentSays: ['Hel', 'lo'] });
     const message = run.sealedFromPhone({ text: 'hi' });
     await run.receive(message);
     const frames = run.sent('sealed.reply');
@@ -170,7 +170,7 @@ describe('private turns', () => {
 
   it('splits a long reply so no frame passes the relay limit', async () => {
     // 20,000 characters of a 4-byte character: 80,000 bytes, more than one frame can carry.
-    const run = await fakeRun({ agentSays: ['😀'.repeat(5_000), '😀'.repeat(5_000)] });
+    const run = fakeRun({ agentSays: ['😀'.repeat(5_000), '😀'.repeat(5_000)] });
     const message = run.sealedFromPhone({ text: 'long please' });
     await run.receive(message);
     const frames = run.sent('sealed.reply');
@@ -183,7 +183,7 @@ describe('private turns', () => {
   });
 
   it('seals every chunk of a reply with one seq it never used before', async () => {
-    const run = await fakeRun({ agentSays: ['a'] });
+    const run = fakeRun({ agentSays: ['a'] });
     await run.receive(run.sealedFromPhone({ text: 'one' }));
     await run.receive(run.sealedFromPhone({ text: 'two' }));
     const seqs = run.sent('sealed.reply').map((f) => f.sealed.sender_seq);
@@ -192,7 +192,7 @@ describe('private turns', () => {
   });
 
   it('does not run the agent on a replayed message', async () => {
-    const run = await fakeRun();
+    const run = fakeRun();
     const m = run.sealedFromPhone({ text: 'hi' });
     await run.receive(m);
     await run.receive(m);
@@ -201,7 +201,7 @@ describe('private turns', () => {
   });
 
   it('runs nothing and says so when a message cannot be opened', async () => {
-    const run = await fakeRun();
+    const run = fakeRun();
     const m = run.sealedFromPhone({ text: 'hi' });
     const tampered = { ...m, sealed: { ...m.sealed, body: `A${m.sealed.body.slice(1)}` } };
     if (tampered.sealed.body === m.sealed.body) tampered.sealed.body = `B${m.sealed.body.slice(1)}`;
@@ -216,7 +216,7 @@ describe('private turns', () => {
   });
 
   it('retries a sealed reply through the outbox after a drop', async () => {
-    const run = await fakeRun({ dropSocketOnce: true });
+    const run = fakeRun({ dropSocketOnce: true });
     const message = run.sealedFromPhone({ text: 'hi' });
     await run.receive(message);
     expect(run.sent('sealed.reply').filter((f) => f.final)).toHaveLength(0);
@@ -226,7 +226,7 @@ describe('private turns', () => {
   });
 
   it('says something went wrong when the agent fails', async () => {
-    const run = await fakeRun({ agentThrows: true });
+    const run = fakeRun({ agentThrows: true });
     const message = run.sealedFromPhone({ text: 'hi' });
     await run.receive(message);
     const frames = run.sent('sealed.reply');
