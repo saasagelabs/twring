@@ -29,6 +29,7 @@ export const iconNames = [
   'send',
   'info',
   'pencil',
+  'search',
 ] as const;
 
 export type IconName = (typeof iconNames)[number];
@@ -150,6 +151,12 @@ export function Icon({ name, size = 24, color = '#FFFFFF', strokeWidth = 1.6 }: 
         </>
       )}
       {name === 'pencil' && <Path d="m15 5 4 4M4 20l4.5-1 11-11a2.1 2.1 0 0 0-3-3l-11 11L4 20Z" />}
+      {name === 'search' && (
+        <>
+          <Circle cx="11" cy="11" r="7" />
+          <Path d="m20 20-4-4" />
+        </>
+      )}
     </Svg>
   );
 }

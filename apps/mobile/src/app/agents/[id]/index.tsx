@@ -95,7 +95,13 @@ export default function AgentDetailScreen() {
             setDeleteError(undefined);
             twringApi()
               ?.deleteAgent(agent.id)
-              .then(goBack, (reason: unknown) => setDeleteError(apiErrorCopy(reason)))
+              .then(
+                () => {
+                  void chatController()?.forgetAgent(agent.id);
+                  goBack();
+                },
+                (reason: unknown) => setDeleteError(apiErrorCopy(reason)),
+              )
               .finally(() => setDeleting(false));
           },
         },

@@ -7,9 +7,11 @@ import { homeRow } from '@/agents/home-rows';
 import { twringApi } from '@/api';
 import { startCall } from '@/call/start';
 import { Avatar } from '@/components/Avatar';
+import { TwringLockup } from '@/components/Brand';
 import { CallButton } from '@/components/CallButton';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { Icon } from '@/components/Icon';
+import { IconButton } from '@/components/IconButton';
 import { ListRow } from '@/components/ListRow';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
@@ -77,6 +79,18 @@ export default function AgentsScreen() {
     <Screen
       brand
       title="Agents"
+      headerRight={
+        chats.available && sorted.length > 0 ? (
+          <View style={styles.header}>
+            <IconButton
+              icon="search"
+              accessibilityLabel="Search your chats"
+              onPress={() => router.push('/chats/search')}
+            />
+            <TwringLockup size={18} glow={false} />
+          </View>
+        ) : undefined
+      }
       refreshing={agents.refreshing}
       onRefresh={() => {
         agents.reload({ refresh: true });
@@ -173,6 +187,7 @@ export default function AgentsScreen() {
 
 const styles = StyleSheet.create({
   loading: { gap: space.sm },
+  header: { flexDirection: 'row', alignItems: 'center', gap: space.md },
   add: {
     width: 48,
     height: 48,
