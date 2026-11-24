@@ -93,6 +93,11 @@ export class SearchIndex {
     if (!rows.length) return Promise.resolve();
     return this.safely('save failed', rows.length, () => this.store.upsert(rows));
   }
+  /** Opened text of a private chat (Task 23): kept on this phone like any other chat text. */
+  recordRows(rows: readonly SearchRow[]): Promise<void> {
+    if (!rows.length) return Promise.resolve();
+    return this.safely('save failed', rows.length, () => this.store.upsert(rows));
+  }
   forget(ids: readonly string[]): Promise<void> {
     if (!ids.length) return Promise.resolve();
     return this.safely('remove failed', ids.length, () => this.store.remove(ids));

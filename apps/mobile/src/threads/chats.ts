@@ -1,4 +1,4 @@
-import type { ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
+import type { ThreadMessage, ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -26,7 +26,7 @@ import {
 } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
-import { SearchIndex, memorySearchStore } from './search-index';
+import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
 
@@ -159,8 +159,40 @@ export class ChatController {
       return undefined;
     }
     this.opened.set(agentId, { from: messages, list });
+    this.keepOpenedSearchable(agentId, messages, list);
     return list;
   };
+
+  /** Opened text goes to the phone's search; a message that could not be opened never does. */
+  private keepOpenedSearchable(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+    list: readonly OpenedMessage[],
+  ): void {
+    const byId = new Map(messages.map((message) => [message.id, message]));
+    const rows: SearchRow[] = [];
+    for (const message of list) {
+      if (message.state !== 'ok' || message.partial || !message.text.trim()) continue;
+      const source = byId.get(message.id);
+      rows.push({
+        id: message.id,
+        agentId,
+        role: message.author === 'user' ? 'you' : 'agent',
+        text: message.text,
+        createdAt: source?.created_at ?? '',
+        seq: source?.seq ?? 0,
+      });
+    }
+    void this.search.recordRows(rows);
+  }
+
+  /** A private chat's whole history opened on this phone for "Export chat" (Task 23). */
+  openForExport(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+  ): Promise<OpenedMessage[] | undefined> {
+    return this.privacy?.openForExport(agentId, messages) ?? Promise.resolve(undefined);
+  }
 
   /** A private chat with no computer to send to: "Pair your computer again" (P3b ruling 3). */
   getPairAgain = (agentId: string): boolean =>

@@ -173,6 +173,20 @@ export class PrivateChats {
     return opened.state === 'ok' ? opened.text : undefined;
   }
 
+  /** The whole chat for an export, opened in a throwaway context so the chat's window stays. */
+  async openForExport(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+  ): Promise<OpenedMessage[] | undefined> {
+    const ctx = await this.context(agentId);
+    if (ctx === undefined) return undefined;
+    const scratch = createPhoneContext({ ...ctx, seen: undefined });
+    return openMessages(
+      scratch,
+      messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed'),
+    );
+  }
+
   /** Opens a chat's sealed messages in order; undefined until the chat's context is loaded. */
   open(agentId: string, messages: readonly ThreadMessage[]): OpenedMessage[] | undefined {
     const ctx = this.contexts.get(agentId);

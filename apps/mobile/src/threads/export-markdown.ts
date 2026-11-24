@@ -1,5 +1,7 @@
 import type { ThreadMessage } from '@twring/contracts';
 
+import type { OpenedMessage } from '../e2e/sealed-thread';
+
 /** The most messages one export holds; the server keeps fewer per thread today. */
 export const EXPORT_MESSAGE_CAP = 20_000;
 const PAGE_SIZE = 100;
@@ -102,7 +104,10 @@ function attachmentLine(message: ThreadMessage): string | undefined {
   return `_Files: ${message.attachments.map((file) => escapeInline(file.name)).join(', ')}_`;
 }
 
-function body(message: ThreadMessage): string {
+/** A private message the phone could not open, in an export (Task 23). */
+export const COULDNT_OPEN_EXPORT = "(Couldn't open this message)";
+
+function body(message: ThreadMessage, opened?: ReadonlyMap<string, OpenedMessage>): string {
   switch (message.kind) {
     case 'user_text':
       if (message.voice) return quote(`Voice note (transcript): ${message.text}`);
@@ -117,12 +122,17 @@ function body(message: ThreadMessage): string {
       return `_Asked to approve: ${escapeInline(message.title)} (${message.status})_`;
     case 'notice':
       return '_New conversation started_';
-    case 'sealed':
-      return '_Private message (not exported)_';
+    case 'sealed': {
+      // Opened on this phone only; the server never sees the text.
+      const found = opened?.get(message.id);
+      if (found?.state !== 'ok') return COULDNT_OPEN_EXPORT;
+      return found.text.length ? quote(found.text) : '';
+    }
   }
 }
 
 function speaker(message: ThreadMessage, agentName: string): string {
+  if (message.kind === 'sealed') return message.author === 'user' ? 'You' : agentName;
   return message.kind === 'user_text' || message.kind === 'call' ? 'You' : agentName;
 }
 
@@ -132,6 +142,8 @@ export interface MarkdownOptions {
   capped?: boolean;
   /** Formats a message time; defaults to the phone's local date and time. */
   formatTime?: (iso: string) => string;
+  /** A private chat's messages as opened on this phone, by message id. */
+  opened?: ReadonlyMap<string, OpenedMessage>;
 }
 
 export function renderChatMarkdown(messages: ThreadMessage[], options: MarkdownOptions): string {
@@ -150,7 +162,7 @@ export function renderChatMarkdown(messages: ThreadMessage[], options: MarkdownO
   }
   for (const message of messages) {
     lines.push(`**${speaker(message, name)}** (${stamp(message.created_at)}):`, '');
-    const text = body(message);
+    const text = body(message, options.opened);
     if (text) lines.push(text, '');
     const files = attachmentLine(message);
     if (files) lines.push(files, '');

@@ -1,7 +1,9 @@
+import type { ThreadMessage } from '@twring/contracts';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
 
+import { chatController } from './chats';
 import { exportChat, SharingUnavailableError } from './export-chat';
 import { EXPORT_MESSAGE_CAP } from './export-markdown';
 
@@ -37,7 +39,10 @@ export function useChatExport(agent: { id: string; name: string } | undefined): 
     setError(undefined);
     setNote(undefined);
     setProgress(0);
-    exportChat(api, agent, { signal: current.signal, onProgress: setProgress })
+    // A private chat is opened on this phone; there is no server export (Task 23).
+    const open = (messages: ThreadMessage[]) =>
+      chatController()?.openForExport(agent.id, messages) ?? Promise.resolve(undefined);
+    exportChat(api, agent, { signal: current.signal, onProgress: setProgress, open })
       .then(({ capped }) => {
         if (capped && !current.signal.aborted)
           setNote(
