@@ -604,14 +604,19 @@ export class RingService {
   private async phones(userId: string): Promise<RingPhone[]> {
     if (this.options.phones !== undefined) return this.options.phones(userId);
     const { devices } = this.options.stores;
-    return (await devices.list(userId)).map((device) => ({
-      target: {
-        token: device.fcm_token,
-        platform: device.platform,
-        ...(device.apns_token !== undefined && { apnsToken: device.apns_token }),
-      },
-      forget: () => devices.deleteToken(device.fcm_token),
-    }));
+    return (await devices.list(userId)).map((device) => {
+      // The one place a hosted message push is chosen sealed (phone sent a key) or redacted.
+      const sealMessage = devices.messageSealer(device);
+      return {
+        target: {
+          token: device.fcm_token,
+          platform: device.platform,
+          ...(device.apns_token !== undefined && { apnsToken: device.apns_token }),
+          ...(sealMessage !== undefined && { sealMessage }),
+        },
+        forget: () => devices.deleteToken(device.fcm_token),
+      };
+    });
   }
 
   private async sendPush(

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { decodeJwt, decodeProtectedHeader } from 'jose';
-import { afterEach, describe, expect, it } from 'vitest';
+import type { SealedEnvelope } from '@twring/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   FCM_SCOPE,
@@ -55,6 +56,70 @@ afterEach(async () => {
 });
 
 describe('FCM push', () => {
+  const message = {
+    type: 'cord.message' as const,
+    user_ref: 'a'.repeat(16),
+    agent_id: RING.agent_id,
+    agent_name: RING.agent_name,
+    message_id: `msg_${'a'.repeat(20)}`,
+    preview: 'Done',
+    silent: '0' as const,
+  };
+
+  it('sends a sealed message data-only, in the relay format, when the phone has a key', async () => {
+    const f = fcm();
+    const sender = new FcmPushSender({ account: ACCOUNT, fetch: f.fetch, retryDelayMs: 0 });
+    const envelope = { v: 1, nonce: 'n', ciphertext: 'c' } as unknown as SealedEnvelope;
+    const seen: unknown[] = [];
+    const outcome = await sender.send(
+      {
+        token: 'device-token',
+        sealMessage: (data) => {
+          seen.push(data);
+          return envelope;
+        },
+      },
+      message,
+    );
+    expect(outcome).toBe('sent');
+    expect(seen).toEqual([message]);
+    const body = JSON.parse(f.calls[1]!.init.body as string) as {
+      message: { data: Record<string, string> };
+    };
+    expect(body.message.data).toEqual({
+      type: 'cord.sealed',
+      kind: 'message',
+      sealed: JSON.stringify(envelope),
+    });
+    expect(f.calls[1]!.init.body as string).not.toContain(RING.agent_name);
+  });
+
+  it('falls back to the redacted message when sealing fails', async () => {
+    const f = fcm();
+    const sender = new FcmPushSender({ account: ACCOUNT, fetch: f.fetch, retryDelayMs: 0 });
+    await sender.send(
+      {
+        token: 'device-token',
+        sealMessage: () => {
+          throw new Error('cipher');
+        },
+      },
+      message,
+    );
+    const body = JSON.parse(f.calls[1]!.init.body as string) as {
+      message: { data: Record<string, string> };
+    };
+    expect(body.message.data).toMatchObject({ type: 'cord.message', preview: 'New message' });
+  });
+
+  it('never seals a ring', async () => {
+    const f = fcm();
+    const sender = new FcmPushSender({ account: ACCOUNT, fetch: f.fetch, retryDelayMs: 0 });
+    const sealMessage = vi.fn(() => undefined);
+    await sender.send({ token: 'device-token', sealMessage }, RING);
+    expect(sealMessage).not.toHaveBeenCalled();
+  });
+
   it('sends message data at NORMAL priority with a one-day TTL', async () => {
     const f = fcm();
     const sender = new FcmPushSender({ account: ACCOUNT, fetch: f.fetch, retryDelayMs: 0 });
