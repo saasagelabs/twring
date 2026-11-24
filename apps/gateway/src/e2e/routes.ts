@@ -7,8 +7,6 @@ import {
   pairOfferIdSchema,
   publicKeySchema,
   type E2eDevice,
-  type ErrorCode,
-  type ErrorResponse,
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -18,6 +16,7 @@ import { hashConnectorToken } from '../connectors/pairing';
 import type { ConnectorRecord, ConnectorRepository } from '../connectors/store';
 import { FixedWindowLimiter } from '../rate-limit';
 import { E2eDeviceError, type E2eDeviceStore } from './devices-store';
+import type { GatewayErrorCode } from './guard';
 import { privateChatsAllowed } from './flag';
 
 /** How long a pairing offer can be claimed. */
@@ -56,7 +55,7 @@ const waitQuerySchema = z
 
 const CONNECTOR_BEARER = /^Bearer +(cct_[A-Za-z0-9_-]{43})$/i;
 
-const MESSAGES: Partial<Record<ErrorCode, string>> = {
+const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
   private_chats_off: 'Private chats are not available for this account.',
   device_cap: 'This account already has 5 devices for private chats. Remove one first.',
   device_conflict: 'This device is already set up differently. Set it up again.',
@@ -68,8 +67,8 @@ const MESSAGES: Partial<Record<ErrorCode, string>> = {
   connector_invalid: 'This computer is not paired any more. Pair it again from the Twring app.',
 };
 
-function sendError(reply: FastifyReply, status: number, code: ErrorCode): FastifyReply {
-  const body: ErrorResponse = {
+function sendError(reply: FastifyReply, status: number, code: GatewayErrorCode): FastifyReply {
+  const body = {
     error: { code, message: MESSAGES[code] ?? 'Request refused.', request_id: reply.request.id },
   };
   return reply.code(status).send(body);

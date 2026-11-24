@@ -9,7 +9,9 @@ import {
   RELAY_PROTOCOL,
   relayConnectorMessageSchema,
   SCOPED_SESSIONS_FEATURE,
+  SEALED_CHAT_FEATURE,
   type LocalAgent,
+  type RelayConnectorMessage,
   type RelayGatewayMessage,
 } from '@twring/contracts';
 import type WebSocket from 'ws';
@@ -188,8 +190,15 @@ interface LiveConnector extends ConnectorIdentity {
   endReason?: string;
 }
 
+/** A private chat reply from a computer (ADR-044), with who sent it. */
+export type SealedReplyListener = (
+  from: { connectorId: string; userId: string },
+  frame: Extract<RelayConnectorMessage, { type: 'sealed.reply' }>,
+) => void;
+
 export class ConnectorHub {
   private readonly live = new Map<string, LiveConnector>();
+  private onSealedReply?: SealedReplyListener;
   /** When each computer last dropped, since this server started (re-link staleness). */
   private readonly dropped = new Map<string, number>();
   private readonly heartbeatMs: number;
@@ -280,6 +289,31 @@ export class ConnectorHub {
    */
   setReplacedListener(listener: (identity: ConnectorIdentity) => void): void {
     this.onReplaced = listener;
+  }
+
+  /** Told of each `sealed.reply` from a computer; none set means they are ignored. */
+  setSealedReplyListener(listener: SealedReplyListener): void {
+    this.onSealedReply = listener;
+  }
+
+  /**
+   * Sends a private chat message (ADR-044) unchanged to the user's own computer. False when it is
+   * not connected, not theirs, or did not say `sealed_chat` in its latest hello.
+   */
+  sendSealed(
+    userId: string,
+    connectorId: string,
+    frame: Extract<RelayGatewayMessage, { type: 'sealed.message' }>,
+  ): boolean {
+    const entry = this.live.get(connectorId);
+    if (entry === undefined || !entry.ready || entry.userId !== userId) return false;
+    if (!entry.features.has(SEALED_CHAT_FEATURE)) return false;
+    try {
+      entry.ws.send(JSON.stringify(frame));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Takes over an authenticated socket. A second socket for the same connector replaces the first. */
@@ -481,7 +515,9 @@ export class ConnectorHub {
         entry.channels.get(message.channel)?.remoteClosed();
         return;
       case 'sealed.reply':
-        // Private chats (ADR-044) are not relayed yet; ignore.
+        // Private chats (ADR-044): the chat service checks the thread is this account's and
+        // private; the hub only says which computer and account it came from.
+        this.onSealedReply?.({ connectorId: entry.connectorId, userId: entry.userId }, message);
         return;
     }
   }

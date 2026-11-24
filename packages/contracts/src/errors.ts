@@ -130,24 +130,6 @@ export const errorCodeSchema = z.enum([
   'audio_limit_reached',
   /** Relay: it sees a non-public caller address, so its proxy setting is wrong (503). */
   'relay_misconfigured',
-  /** Private chats (ADR-044) are not switched on for this account (404). */
-  'private_chats_off',
-  /** The account already has the most paired devices for private chats (409). */
-  'device_cap',
-  /** A device id or key is already used on this account in another way (409). */
-  'device_conflict',
-  /** A pairing offer is past its 10 minutes (410). */
-  'offer_expired',
-  /** A pairing offer was already claimed by a phone (409). */
-  'offer_claimed',
-  /** The chat is private: the server cannot read or do this with it (409). */
-  'private_thread',
-  /** A sealed message was sent to a chat that is not private (409). */
-  'not_private',
-  /** The app, the computer or the agent cannot keep this chat private yet (409). */
-  'private_unsupported',
-  /** A private chat stays private; start a new chat instead (409). */
-  'private_is_one_way',
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 

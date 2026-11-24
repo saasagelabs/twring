@@ -17,13 +17,12 @@ import {
   threadMessageIdSchema,
   threadMessageSchema,
   voiceNoteQuerySchema,
-  type ErrorCode,
-  type ErrorResponse,
   type ThreadMessage,
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
+import type { GatewayErrorCode } from '../e2e/guard';
 import { devUserResolver, type UserResolver } from '../auth';
 import { FixedWindowLimiter } from '../rate-limit';
 import { toSafeError } from '../redact';
@@ -113,10 +112,10 @@ const pageQuery = z
 function error(
   reply: FastifyReply,
   status: number,
-  code: ErrorCode,
+  code: GatewayErrorCode,
   message: string,
 ): FastifyReply {
-  const body: ErrorResponse = { error: { code, message, request_id: reply.request.id } };
+  const body = { error: { code, message, request_id: reply.request.id } };
   return reply.code(status).send(body);
 }
 

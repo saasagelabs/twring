@@ -50,14 +50,14 @@ describe('private thread guard', () => {
 });
 
 describe('server features skip private chats', () => {
-  async function store() {
+  function store() {
     const s = new SqliteThreadStore(':memory:', new CredentialCipher(messageKeys(TEST_KEYS)));
     closers.push(() => s.close());
     return s;
   }
 
   it('check_replies and twring_status read nothing from a private thread', async () => {
-    const s = await store();
+    const s = store();
     await s.appendUserMessage('u1', AGENT, {
       clientId: randomUUID(),
       text: 'said before it went private',
@@ -94,7 +94,7 @@ describe('server features skip private chats', () => {
 
   async function voiceApp() {
     const stores = createMemoryStores(TEST_KEYS);
-    const s = await store();
+    const s = store();
     const agentId = `agt_${'a'.repeat(20)}`;
     const now = new Date().toISOString();
     await stores.agents.create({

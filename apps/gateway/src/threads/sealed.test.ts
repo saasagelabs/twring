@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
 import { randomUUID } from 'node:crypto';
 
 import {
@@ -71,9 +72,7 @@ async function thread(
         }),
       ),
     list: async () =>
-      (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json() as {
-        messages: ThreadMessage[];
-      },
+      (await g.send('GET', `/v1/agents/${agentId}/messages`, { user: 'u1' })).json(),
   };
 }
 
@@ -143,9 +142,7 @@ describe('private threads', () => {
   it('marks the thread private in the thread list', async () => {
     const t = await privateThread();
     await t.postMessage({ client_id: randomUUID(), sealed: envelope() });
-    const list = (await t.g.send('GET', '/v1/threads', { user: 'u1' })).json() as {
-      threads: { agent_id: string; private?: boolean; last_message: ThreadMessage }[];
-    };
+    const list = (await t.g.send('GET', '/v1/threads', { user: 'u1' })).json();
     const summary = list.threads.find((entry) => entry.agent_id === t.agentId)!;
     expect(summary.private).toBe(true);
     expect(summary.last_message.kind).toBe('sealed');

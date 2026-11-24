@@ -551,6 +551,21 @@ threadService =
       })
     : undefined;
 if (threadService) await threadService.start();
+// Private chats (ADR-044): computers' sealed replies reach the chats only with the flag on.
+if (threadService && env.PRIVATE_CHATS_ENABLED) {
+  const service = threadService;
+  connectorHub.setSealedReplyListener(
+    (from, frame) =>
+      void service
+        .receiveSealedReply(from, frame)
+        .catch((error: unknown) =>
+          connectorLogger.warn(
+            { event: 'e2e_reply_failed', error: error instanceof Error ? error.name : 'unknown' },
+            'e2e_reply_failed',
+          ),
+        ),
+  );
+}
 if (fileService) await fileService.sweep();
 const fileSweepTimer =
   fileService &&

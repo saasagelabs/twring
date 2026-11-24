@@ -15,6 +15,7 @@ import {
 import { base64urlDecode, base64urlEncode, generateSealKeyPair, SealError } from './seal-core';
 import {
   MAX_PAIRED_DEVICES,
+  MAX_SEALED_AGENT_BODY_CHARS,
   MAX_SEALED_BODY_CHARS,
   publicKeySchema,
   sealedEnvelopeV1Schema,
@@ -174,7 +175,7 @@ describe('sealed chat schema edge cases', () => {
         type: 'sealed.reply',
         agent: 'x',
         turn_id: 't',
-        sealed: big,
+        sealed: env({ body: 'A'.repeat(MAX_SEALED_AGENT_BODY_CHARS + 1) }),
         final: true,
       }).success,
     ).toBe(false);

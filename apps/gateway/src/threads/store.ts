@@ -613,6 +613,85 @@ export class SqliteThreadStore {
     });
   }
 
+  /** A message of this person's, in any chat, with the chat's agent. */
+  async findMessageForUser(
+    userId: string,
+    messageId: string,
+  ): Promise<{ agentId: string; message: ThreadMessage } | undefined> {
+    const row = this.db
+      .prepare(
+        'SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.id=? AND m.user_id=?',
+      )
+      .get(messageId, userId) as (Row & { agent_id: string }) | undefined;
+    if (!row) return undefined;
+    const message = this.tryDecode(row, row.agent_id);
+    return message ? { agentId: row.agent_id, message } : undefined;
+  }
+
+  /**
+   * Stores a computer's sealed reply to one turn: the first frame adds the agent message, later
+   * ones replace its envelope while it is not final. `ignored` once the reply was final.
+   */
+  async upsertSealedReply(
+    userId: string,
+    agentId: string,
+    input: { turnId: string; sealed: SealedEnvelopeV1; final: boolean },
+  ): Promise<{ message: ThreadMessage; created: boolean } | 'ignored'> {
+    return this.transaction(() => {
+      const thread = this.ensureThread(userId, agentId);
+      const existing = this.db
+        .prepare(
+          "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND kind='sealed' AND turn_id=? AND client_id IS NULL",
+        )
+        .get(thread.id, userId, input.turnId) as Row | undefined;
+      const meta = { author: 'agent', final: input.final };
+      if (!existing) {
+        const message = this.insert(userId, thread, 'sealed', {
+          text: JSON.stringify(input.sealed),
+          turnId: input.turnId,
+          meta,
+        });
+        return { message, created: true };
+      }
+      if ((JSON.parse(existing.meta) as { final?: boolean }).final === true) return 'ignored';
+      this.db
+        .prepare('UPDATE messages SET body=?,meta=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
+        .run(
+          JSON.stringify(
+            this.cipher.seal(
+              JSON.stringify(input.sealed),
+              messageAad(userId, thread.id, existing.id),
+            ),
+          ),
+          JSON.stringify(meta),
+          thread.next_rev,
+          this.now().toISOString(),
+          existing.id,
+          userId,
+        );
+      this.db
+        .prepare('UPDATE threads SET next_rev=next_rev+1 WHERE id=? AND user_id=?')
+        .run(thread.id, userId);
+      const row = this.db
+        .prepare('SELECT * FROM messages WHERE id=? AND user_id=?')
+        .get(existing.id, userId) as Row;
+      return { message: this.decode(row, agentId), created: false };
+    });
+  }
+
+  /** Sealed user messages waiting for their computer, oldest first. */
+  async queuedSealed(): Promise<{ userId: string; agentId: string; message: ThreadMessage }[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.kind='sealed' AND m.status='queued' ORDER BY m.seq",
+      )
+      .all() as (Row & { agent_id: string })[];
+    return rows.flatMap((row) => {
+      const message = this.tryDecode(row, row.agent_id);
+      return message ? [{ userId: row.user_id, agentId: row.agent_id, message }] : [];
+    });
+  }
+
   async appendMessage(
     userId: string,
     agentId: string,
@@ -684,7 +763,9 @@ export class SqliteThreadStore {
   ): Promise<ThreadMessage | undefined> {
     return this.transaction(() => {
       const row = this.db
-        .prepare("SELECT * FROM messages WHERE id=? AND user_id=? AND kind='user_text'")
+        .prepare(
+          "SELECT * FROM messages WHERE id=? AND user_id=? AND (kind='user_text' OR (kind='sealed' AND client_id IS NOT NULL))",
+        )
         .get(messageId, userId) as Row | undefined;
       if (!row) return undefined;
       const thread = this.db
@@ -1091,7 +1172,7 @@ export class SqliteThreadStore {
 
   async interruptInFlight(): Promise<number> {
     return this.changeStatuses(
-      "m.kind='user_text' AND m.status IN ('sent','working')",
+      "m.kind IN ('user_text','sealed') AND m.status IN ('sent','working')",
       [],
       'interrupted',
     ).count;
@@ -1100,7 +1181,7 @@ export class SqliteThreadStore {
   /** Queued too long (the computer stayed offline): `expired`. Returns the changed messages. */
   async expireQueued(): Promise<ThreadMessage[]> {
     return this.changeStatuses(
-      "m.kind='user_text' AND m.status='queued' AND m.created_at<?",
+      "m.kind IN ('user_text','sealed') AND m.status='queued' AND m.created_at<?",
       [new Date(this.now().getTime() - QUEUED_MESSAGE_TTL_MS).toISOString()],
       'expired',
     ).messages;

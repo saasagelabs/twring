@@ -1,9 +1,4 @@
-import {
-  agentIdSchema,
-  threadMessageIdSchema,
-  type ErrorCode,
-  type ErrorResponse,
-} from '@twring/contracts';
+import { agentIdSchema, threadMessageIdSchema } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import {
@@ -14,6 +9,7 @@ import {
   cartesiaVoice,
   xaiVoice,
 } from '../agents/voices';
+import type { GatewayErrorCode } from '../e2e/guard';
 import { devUserResolver, type UserResolver } from '../auth';
 import { SpeechTextFilter } from '../conversation/speech-text';
 import { FixedWindowLimiter } from '../rate-limit';
@@ -279,10 +275,10 @@ export class MessageSpeech {
 function error(
   reply: FastifyReply,
   status: number,
-  code: ErrorCode,
+  code: GatewayErrorCode,
   message?: string,
 ): FastifyReply {
-  const body: ErrorResponse = {
+  const body = {
     error: {
       code,
       message:

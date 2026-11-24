@@ -1,4 +1,21 @@
+import type { ErrorCode } from '@twring/contracts';
 import { MESSAGE_PUSH_TEXT } from '@twring/push';
+
+/**
+ * Stable refusal codes for private chats. Kept on the gateway side until the app learns them
+ * (P3): adding them to `errorCodeSchema` now would need an app change in the same release.
+ */
+export type PrivateChatErrorCode =
+  | 'private_chats_off'
+  | 'device_cap'
+  | 'device_conflict'
+  | 'offer_expired'
+  | 'offer_claimed'
+  | 'private_thread'
+  | 'not_private'
+  | 'private_unsupported'
+  | 'private_is_one_way';
+export type GatewayErrorCode = ErrorCode | PrivateChatErrorCode;
 
 /**
  * Private chats (ADR-044): every server feature that would need a chat's text (quotes, Listen,

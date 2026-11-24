@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
 import { Writable } from 'node:stream';
 
 import { afterEach, describe, expect, it } from 'vitest';
