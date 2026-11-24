@@ -50,4 +50,4 @@ GoogleService-Info.plist
 .superpowers/
 
 # Twring's private notes and operations checkout (not part of this repository)
-private/
+/private/

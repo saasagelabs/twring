@@ -1,0 +1,224 @@
+import { router } from 'expo-router';
+import { useState } from 'react';
+import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
+
+import { ErrorNotice } from '@/components/ErrorNotice';
+import { GhostButton } from '@/components/GhostButton';
+import { PrimaryButton } from '@/components/PrimaryButton';
+import { QrScanner } from '@/components/QrScanner';
+import { Screen } from '@/components/Screen';
+import { pairApi } from '@/e2e/pair-api';
+import { claimPairing, confirmPairing, parsePairInput } from '@/e2e/pairing';
+import type { PairFailure, TrustedDevice } from '@/e2e/pairing';
+import { playCallFeedback } from '@/platform/haptics';
+import { deviceOnlyStore } from '@/platform/secure-store';
+import { activeServerUrl } from '@/servers/active';
+import { font } from '@/theme/fonts';
+import { space, type, usePalette } from '@/theme/tokens';
+
+const HELP = 'Ask your agent on the computer to show the pairing code.';
+const NOT_A_CODE = `That is not a pairing code from your computer. ${HELP}`;
+const STOPPED =
+  'Pairing stopped. The numbers did not match, so nothing was saved. Ask your agent on the computer to show a new pairing code.';
+
+const FAILURE_COPY: Record<PairFailure, string> = {
+  expired: 'This code has expired. Ask your agent on the computer to show a new pairing code.',
+  claimed: 'This code was already used. Ask your agent on the computer to show a new pairing code.',
+  mismatch: STOPPED,
+  cap: 'You already have 5 devices. Remove one in Private chats first.',
+  network: 'Twring could not reach the server. Check your connection and try again.',
+  wrong_server:
+    'This code is for a different Twring server. Sign in to that server on this phone, or pair a computer that uses the same server as this phone.',
+};
+
+const SCAN_COPY = {
+  needCamera: 'Twring needs the camera to scan the code on your computer.',
+  cameraOff: 'Camera access is off for Twring. Turn it on in your phone settings, then try again.',
+  viewfinder: 'Camera viewfinder. Point it at the code on your computer.',
+  typeInstead: 'Not now',
+};
+
+type Step =
+  | { kind: 'start' }
+  | { kind: 'scan' }
+  | { kind: 'compare'; safety: string; connector: TrustedDevice }
+  | { kind: 'done' }
+  | { kind: 'error'; message: string };
+
+const deps = () => ({
+  api: pairApi(),
+  store: deviceOnlyStore,
+  activeServer: activeServerUrl(),
+  phoneName: Platform.OS === 'ios' ? 'iPhone' : 'Android phone',
+});
+
+/** "Safety code 1 2 3 4 5 6": a screen reader reads each digit, not "one hundred twenty three". */
+function spoken(code: string): string {
+  return `Safety code ${code.replace(/\D/g, '').split('').join(' ')}`;
+}
+
+/**
+ * Pair this phone with a computer for private chats (ADR-044): scan the code the computer shows,
+ * compare a 6-digit number on both screens, and only a "Yes" saves the computer. Not linked from
+ * any screen yet (PRIVATE_CHATS_ENABLED).
+ */
+export default function PrivatePairScreen() {
+  const palette = usePalette();
+  const [step, setStep] = useState<Step>({ kind: 'start' });
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | undefined>();
+  // Changes on every failed try, so the scanner listens again even for the same message.
+  const [failures, setFailures] = useState(0);
+
+  const fail = (message: string) => {
+    playCallFeedback('error');
+    setStep({ kind: 'error', message });
+  };
+
+  const onScanned = async (data: string) => {
+    if (busy) return;
+    const input = parsePairInput(data);
+    if (input === undefined) {
+      setNotice(NOT_A_CODE);
+      setFailures((n) => n + 1);
+      return;
+    }
+    setNotice(undefined);
+    setBusy(true);
+    try {
+      const result = await claimPairing(deps(), input);
+      if (result.ok)
+        setStep({ kind: 'compare', safety: result.safety, connector: result.connector });
+      else fail(FAILURE_COPY[result.code]);
+    } catch {
+      fail(FAILURE_COPY.network);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onSame = async (connector: TrustedDevice) => {
+    setBusy(true);
+    try {
+      await confirmPairing({ store: deviceOnlyStore }, connector);
+      playCallFeedback('connected');
+      setStep({ kind: 'done' });
+    } catch {
+      fail('Twring could not save this pairing on your phone. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const heading = (text: string) => (
+    <Text accessibilityRole="header" style={[styles.heading, { color: palette.textPrimary }]}>
+      {text}
+    </Text>
+  );
+  const support = (text: string) => (
+    <Text style={[styles.support, { color: palette.textSecondary }]}>{text}</Text>
+  );
+
+  if (step.kind === 'compare') {
+    return (
+      <Screen
+        title="Private chats"
+        back
+        footer={
+          <View style={styles.actions}>
+            <PrimaryButton
+              label="Yes, same number"
+              disabled={busy}
+              onPress={() => void onSame(step.connector)}
+            />
+            <GhostButton label="No" disabled={busy} onPress={() => fail(STOPPED)} />
+          </View>
+        }
+      >
+        <View style={styles.step}>
+          {heading(`Does your computer show ${step.safety}?`)}
+          <Text
+            accessible
+            accessibilityLabel={spoken(step.safety)}
+            style={[styles.code, { color: palette.textPrimary }]}
+          >
+            {step.safety}
+          </Text>
+          {support('Only say yes if the number on your computer is exactly the same.')}
+          {busy && <ActivityIndicator accessibilityLabel="Saving" />}
+        </View>
+      </Screen>
+    );
+  }
+
+  if (step.kind === 'done') {
+    return (
+      <Screen
+        title="Private chats"
+        footer={<PrimaryButton label="Done" onPress={() => router.back()} />}
+      >
+        <View style={styles.step}>
+          {heading('Paired')}
+          {support('Private: only your phone and your computer can read this')}
+        </View>
+      </Screen>
+    );
+  }
+
+  if (step.kind === 'error') {
+    return (
+      <Screen
+        title="Private chats"
+        back
+        footer={<PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />}
+      >
+        <View style={styles.step}>
+          {heading('Not paired')}
+          <ErrorNotice error={{ message: step.message, retryable: true }} />
+        </View>
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen
+      title="Private chats"
+      back
+      footer={
+        step.kind === 'start' ? (
+          <PrimaryButton
+            label="Scan the code on your computer"
+            accessibilityHint="Opens the camera"
+            onPress={() => setStep({ kind: 'scan' })}
+          />
+        ) : undefined
+      }
+    >
+      <View style={styles.step}>
+        {heading('Pair with your computer')}
+        {support(HELP)}
+        {notice !== undefined && <ErrorNotice error={{ message: notice, retryable: true }} />}
+        {step.kind === 'scan' && (
+          <QrScanner
+            copy={SCAN_COPY}
+            busy={busy}
+            attempt={failures}
+            onScanned={(data) => void onScanned(data)}
+            onTypeInstead={() => {
+              setNotice(undefined);
+              setStep({ kind: 'start' });
+            }}
+          />
+        )}
+      </View>
+    </Screen>
+  );
+}
+
+const styles = StyleSheet.create({
+  step: { gap: space.lg },
+  actions: { gap: space.md },
+  heading: { fontFamily: font.display, fontSize: type.screenTitle.fontSize, letterSpacing: -0.8 },
+  support: { fontFamily: font.body, fontSize: type.body.fontSize },
+  code: { fontFamily: font.display, fontSize: 40, letterSpacing: 4, textAlign: 'center' },
+});
