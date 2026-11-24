@@ -11,8 +11,10 @@ vi.mock('@/api', async () => {
   };
 });
 
+vi.mock('@/servers/profiles', () => ({ profileStore: { active: () => ({ kind: 'hosted' }) } }));
+
 import { ApiError } from '@/api';
-import { MediaPager, type ListMedia } from './media';
+import { MediaPager, unavailableList, type ListMedia } from './media';
 
 const item = (id: string, extra: Partial<MediaItem> = {}): MediaItem => ({
   id,
@@ -73,9 +75,9 @@ describe('MediaPager', () => {
     expect(seen).not.toHaveBeenCalled();
   });
 
-  it('maps a 404 to the calm "not yet" state', async () => {
+  it('on a self-hosted server a 404 is the calm "not yet" note', async () => {
     const { calls, list } = deferred();
-    const pager = new MediaPager('a1', list);
+    const pager = new MediaPager('a1', list, () => true);
     pager.refresh();
     calls[0].reject(new ApiError('http', 'not_found', undefined, undefined, 404));
     await flush();
@@ -185,15 +187,43 @@ describe('MediaPager', () => {
     expect(pager.current.status).toBe('error');
   });
 
-  it('a 404 on refresh (agent deleted elsewhere) clears the list to the "not yet" note', async () => {
+  it('on the hosted server a 404 on refresh means the agent is gone and clears the list', async () => {
     const { calls, list } = deferred();
-    const pager = new MediaPager('a1', list);
+    const pager = new MediaPager('a1', list, () => false);
     pager.refresh();
     calls[0].resolve({ items: [item('f1')], next_cursor: null });
     await flush();
     pager.refresh();
     calls[1].reject(new ApiError('http', 'not_found', undefined, undefined, 404));
     await flush();
-    expect(pager.current).toMatchObject({ status: 'not_yet', items: [] });
+    expect(pager.current).toMatchObject({ status: 'gone', items: [] });
+  });
+
+  it('on the hosted server a first-load 404 is "gone", never "not yet"', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list, () => false);
+    pager.refresh();
+    calls[0].reject(new ApiError('http', 'not_found', undefined, undefined, 404));
+    await flush();
+    expect(pager.current.status).toBe('gone');
+  });
+
+  it('a 404 while loading older items is also "gone" on the hosted server', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list, () => false);
+    pager.refresh();
+    calls[0].resolve({ items: [item('f1')], next_cursor: 'c1' });
+    await flush();
+    pager.loadMore();
+    calls[1].reject(new ApiError('http', 'not_found', undefined, undefined, 404));
+    await flush();
+    expect(pager.current).toMatchObject({ status: 'gone', items: [] });
+  });
+
+  it('with no list call (signed out) the first load is the general error', async () => {
+    const pager = new MediaPager('a1', unavailableList, () => true);
+    pager.refresh();
+    await flush();
+    expect(pager.current.status).toBe('error');
   });
 });

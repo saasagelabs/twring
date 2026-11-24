@@ -13,6 +13,7 @@ vi.mock('react', async (importOriginal) => {
   return {
     ...actual,
     useEffect: () => undefined,
+    useRef: (initial: unknown) => ({ current: initial }),
     useState: (initial: unknown) => {
       const slot = mocks.cursor++;
       if (!(slot in mocks.state)) mocks.state[slot] = initial;
@@ -36,7 +37,7 @@ vi.mock('@/components/chat/Attachments', () => ({ shareAttachment: vi.fn() }));
 vi.mock('@/components/chat/ImageViewer', () => ({ ImageViewer: 'ImageViewer' }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
-vi.mock('@/components/Screen', () => ({ Screen: 'Screen' }));
+vi.mock('@/components/Screen', () => ({ Screen: 'Screen', goBack: vi.fn() }));
 vi.mock('@/theme/fonts', () => ({ font: {} }));
 vi.mock('@/theme/tokens', () => ({
   usePalette: () => ({}),
@@ -47,7 +48,12 @@ vi.mock('@/theme/tokens', () => ({
 vi.mock('@/threads/files', () => ({ humanSize: (bytes: number) => `${bytes} B` }));
 vi.mock('@/threads/media', () => ({ useMedia: () => mocks.media }));
 
-import MediaScreen, { MEDIA_EMPTY_COPY, MEDIA_NOT_YET_COPY } from '../app/agents/[id]/media';
+import { goBack } from '@/components/Screen';
+import MediaScreen, {
+  MEDIA_EMPTY_COPY,
+  MEDIA_GONE_COPY,
+  MEDIA_NOT_YET_COPY,
+} from '../app/agents/[id]/media';
 
 type Props = { label?: string; accessibilityLabel?: string; children?: ReactNode };
 function elements(node: ReactNode): ReactElement<Props>[] {
@@ -86,6 +92,20 @@ describe('Photos and files screen', () => {
     const tree = render();
     expect(text(tree)).toContain(MEDIA_NOT_YET_COPY);
     expect(elements(tree).some((e) => e.type === 'ErrorNotice')).toBe(false);
+  });
+
+  it('says the agent is gone with one Back button', () => {
+    mocks.media = { ...base, status: 'gone' };
+    const tree = render();
+    expect(text(tree)).toContain(MEDIA_GONE_COPY);
+    expect(MEDIA_GONE_COPY).toBe('This agent is no longer here.');
+    const back = elements(tree).find((e) => e.props.label === 'Back');
+    expect(back?.props).toMatchObject({ onPress: goBack });
+    expect(text(tree)).not.toContain(MEDIA_NOT_YET_COPY);
+  });
+
+  it('words the self-hosted note plainly', () => {
+    expect(MEDIA_NOT_YET_COPY).toBe('Photos and files will show here once this server is updated.');
   });
 
   it('shows the empty state', () => {

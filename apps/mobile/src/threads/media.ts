@@ -2,16 +2,18 @@ import type { MediaItem, MediaPageResponse } from '@twring/contracts';
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiError, apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
+import { profileStore } from '@/servers/profiles';
 
 /** Items per request; the server allows up to 50. */
 export const MEDIA_PAGE_SIZE = 30;
 
 export interface MediaState {
   /**
-   * `not_yet`: this server has no photos-and-files list yet (a 404), shown as a calm note.
+   * `not_yet`: a self-hosted server without this list yet (a 404), shown as a calm note.
+   * `gone`: on Twring's hosted server a 404 means the agent was removed (say, on another phone).
    * `error`: the first load failed; `items` stay empty.
    */
-  status: 'loading' | 'ready' | 'error' | 'not_yet';
+  status: 'loading' | 'ready' | 'error' | 'not_yet' | 'gone';
   items: MediaItem[];
   hasMore: boolean;
   refreshing: boolean;
@@ -35,7 +37,14 @@ const INITIAL: MediaState = {
   loadingMore: false,
 };
 
-/** A 404 means the server predates this list (the agent itself was just shown). */
+/** True on a self-hosted server, which may run a version without this list. */
+export type IsSelfHosted = () => boolean;
+const activeIsSelfHosted: IsSelfHosted = () => profileStore.active().kind === 'selfhost';
+
+/** Stands in when signed out or the build has no list call: the general error, never a 404. */
+export const unavailableList: ListMedia = () =>
+  Promise.reject(new Error('Photos and files are unavailable.'));
+
 export function isMissingRoute(error: unknown): boolean {
   return error instanceof ApiError && error.kind === 'http' && error.status === 404;
 }
@@ -65,6 +74,7 @@ export class MediaPager {
   constructor(
     private readonly agentId: string,
     private readonly list: ListMedia,
+    private readonly selfHosted: IsSelfHosted = activeIsSelfHosted,
   ) {}
 
   get current(): MediaState {
@@ -137,7 +147,10 @@ export class MediaPager {
       (reason: unknown) => {
         if (controller.signal.aborted) return;
         this.inflight = undefined;
-        if (cursor !== undefined) {
+        if (isMissingRoute(reason) && !this.selfHosted()) {
+          this.cursor = null;
+          this.set({ ...INITIAL, status: 'gone' });
+        } else if (cursor !== undefined) {
           this.set({ ...this.state, loadingMore: false, moreError: apiErrorCopy(reason) });
         } else if (isMissingRoute(reason)) {
           this.set({ ...INITIAL, status: 'not_yet' });
@@ -170,18 +183,20 @@ export interface Media extends MediaState {
 }
 
 /** One agent's photos and files; loads on mount and cancels its request on unmount. */
-export function useMedia(agentId: string, list: ListMedia | undefined = defaultList()): Media {
+export function useMedia(
+  agentId: string,
+  list: ListMedia | undefined = defaultList(),
+  selfHosted: IsSelfHosted = activeIsSelfHosted,
+): Media {
   const pager = useRef<MediaPager | undefined>(undefined);
   const [state, setState] = useState<MediaState>(INITIAL);
   useEffect(() => {
-    const listMedia: ListMedia =
-      list ?? (() => Promise.reject(new ApiError('http', 'not_found', undefined, undefined, 404)));
-    const next = new MediaPager(agentId, listMedia);
+    const next = new MediaPager(agentId, list ?? unavailableList, selfHosted);
     next.subscribe(setState);
     pager.current = next;
     next.refresh();
     return () => next.dispose();
-    // `list` is read once per agent: a new function identity must not restart the load.
+    // `list` and `selfHosted` are read once per agent: a new function identity must not restart the load.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
   return {

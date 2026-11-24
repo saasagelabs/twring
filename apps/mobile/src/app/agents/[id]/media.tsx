@@ -1,7 +1,7 @@
 import type { MediaItem } from '@twring/contracts';
 import { Image } from 'expo-image';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { twringApi } from '@/api';
@@ -9,13 +9,14 @@ import { shareAttachment } from '@/components/chat/Attachments';
 import { ImageViewer } from '@/components/chat/ImageViewer';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { GhostButton } from '@/components/GhostButton';
-import { Screen } from '@/components/Screen';
+import { goBack, Screen } from '@/components/Screen';
 import { font } from '@/theme/fonts';
 import { radius, space, type, usePalette } from '@/theme/tokens';
 import { humanSize } from '@/threads/files';
 import { useMedia } from '@/threads/media';
 
-export const MEDIA_NOT_YET_COPY = 'Photos and files will show here after the next server update.';
+export const MEDIA_NOT_YET_COPY = 'Photos and files will show here once this server is updated.';
+export const MEDIA_GONE_COPY = 'This agent is no longer here.';
 export const MEDIA_EMPTY_COPY = 'No photos or files yet.';
 
 type Source = { uri: string; headers?: Record<string, string> };
@@ -54,35 +55,37 @@ export default function MediaScreen() {
   const photos = media.items.filter((item) => item.mime_type.startsWith('image/'));
   const files = media.items.filter((item) => !item.mime_type.startsWith('image/'));
 
-  // Same signed source the chat uses for its photos; resolved once per photo.
+  // Photos already asked for (answered or in flight); a new page never asks again.
+  const requested = useRef(new Set<string>());
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  // Same signed source the chat uses for its photos; resolved once per photo, each on its own.
   const missing = photos
-    .filter((item) => sources[item.id] === undefined)
+    .filter((item) => sources[item.id] === undefined && !failed[item.id])
     .map((item) => item.id)
     .join(',');
   useEffect(() => {
     if (missing === '') return;
-    let cancelled = false;
     const api = twringApi();
     if (!api?.fileSource) return;
-    void Promise.all(
-      missing
-        .split(',')
-        .map(async (fileId) => [fileId, await api.fileSource!(id, fileId)] as const),
-    ).then(
-      (entries) => {
-        if (!cancelled) setSources((previous) => ({ ...previous, ...Object.fromEntries(entries) }));
-      },
-      () => {
-        if (!cancelled)
-          setFailed((previous) => ({
-            ...previous,
-            ...Object.fromEntries(missing.split(',').map((fileId) => [fileId, true])),
-          }));
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
+    const fileSource = api.fileSource.bind(api);
+    for (const fileId of missing.split(',')) {
+      if (requested.current.has(fileId)) continue;
+      requested.current.add(fileId);
+      fileSource(id, fileId).then(
+        (source) => {
+          if (alive.current) setSources((previous) => ({ ...previous, [fileId]: source }));
+        },
+        () => {
+          if (alive.current) setFailed((previous) => ({ ...previous, [fileId]: true }));
+        },
+      );
+    }
   }, [id, missing]);
 
   const openFile = async (item: MediaItem) => {
@@ -98,6 +101,13 @@ export default function MediaScreen() {
   let body;
   if (media.status === 'loading') {
     body = <ActivityIndicator color={palette.accent} accessibilityLabel="Loading" />;
+  } else if (media.status === 'gone') {
+    body = (
+      <>
+        <Text style={[type.body, { color: palette.textSecondary }]}>{MEDIA_GONE_COPY}</Text>
+        <GhostButton label="Back" onPress={goBack} />
+      </>
+    );
   } else if (media.status === 'not_yet') {
     body = <Text style={[type.body, { color: palette.textSecondary }]}>{MEDIA_NOT_YET_COPY}</Text>;
   } else if (media.status === 'error' && media.error !== undefined) {
