@@ -58,6 +58,7 @@ import { pairPhone } from './e2e/pair';
 import { updateE2e } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
+import { DEVICE_SYNC_MS, syncDevices } from './e2e/sync';
 import {
   cancelLastRing,
   deliverBackgroundResult,
@@ -545,6 +546,7 @@ function run(config: ConnectorConfig): Promise<number> {
         case 'connected':
           report(true);
           void outbox.flush();
+          void syncPrivate().catch(() => undefined);
           print(`Connected as "${status.name}". Your phone can call: ${labels}.`);
           if (!inService) print('Keep this window open. Press Ctrl+C to disconnect.');
           return;
@@ -571,6 +573,23 @@ function run(config: ConnectorConfig): Promise<number> {
       }
     },
   });
+  // Private chats: read the account's devices after each connect and every 10 minutes, so a
+  // removed phone stops getting messages, and a phone paired meanwhile turns private chats on.
+  const syncPrivate = async () => {
+    const before = helloFeatures(e2e).join();
+    if ((await persistE2e((current) => current)) === undefined) return;
+    const result = await syncDevices({
+      server: config.server,
+      token: config.token,
+      fetch,
+      persist: persistE2e,
+      signal: client.stopSignal,
+    });
+    if (result !== undefined && result.revoked > 0)
+      log(`private chats: ${result.revoked} removed devices forgotten`);
+    if (helloFeatures(e2e).join() !== before) client.rehello();
+  };
+  setInterval(() => void syncPrivate().catch(() => undefined), DEVICE_SYNC_MS).unref();
   process.once('SIGINT', () => {
     print('Disconnecting…');
     client.stop();
