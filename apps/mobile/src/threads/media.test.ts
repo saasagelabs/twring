@@ -139,4 +139,61 @@ describe('MediaPager', () => {
     await flush();
     expect(pager.current.status).toBe('error');
   });
+
+  it('ignores a late load of older items that a refresh replaced', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list);
+    pager.refresh();
+    calls[0].resolve({ items: [item('f1')], next_cursor: 'c1' });
+    await flush();
+    pager.loadMore();
+    pager.refresh();
+    calls[1].resolve({ items: [item('old')], next_cursor: 'c2' });
+    calls[2].resolve({ items: [item('f0'), item('f1')], next_cursor: null });
+    await flush();
+    expect(pager.current.items.map((entry) => entry.id)).toEqual(['f0', 'f1']);
+    expect(pager.current).toMatchObject({ hasMore: false, loadingMore: false, refreshing: false });
+    pager.loadMore();
+    expect(calls).toHaveLength(3);
+  });
+
+  it('a second refresh wins over a slower first one', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list);
+    pager.refresh();
+    pager.refresh();
+    expect(calls[0].signal.aborted).toBe(true);
+    calls[1].resolve({ items: [item('new')], next_cursor: null });
+    calls[0].resolve({ items: [item('stale')], next_cursor: 'c9' });
+    await flush();
+    expect(pager.current.items.map((entry) => entry.id)).toEqual(['new']);
+    expect(pager.current.hasMore).toBe(false);
+  });
+
+  it('asks for the first page without a cursor', () => {
+    const { calls, list } = deferred();
+    new MediaPager('a1', list).refresh();
+    expect(calls[0].options).toEqual({ limit: 30 });
+  });
+
+  it('a signed-out 401 is an error, not the "not yet" note', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list);
+    pager.refresh();
+    calls[0].reject(new ApiError('http', 'auth_required', undefined, undefined, 401));
+    await flush();
+    expect(pager.current.status).toBe('error');
+  });
+
+  it('a 404 on refresh (agent deleted elsewhere) clears the list to the "not yet" note', async () => {
+    const { calls, list } = deferred();
+    const pager = new MediaPager('a1', list);
+    pager.refresh();
+    calls[0].resolve({ items: [item('f1')], next_cursor: null });
+    await flush();
+    pager.refresh();
+    calls[1].reject(new ApiError('http', 'not_found', undefined, undefined, 404));
+    await flush();
+    expect(pager.current).toMatchObject({ status: 'not_yet', items: [] });
+  });
 });
