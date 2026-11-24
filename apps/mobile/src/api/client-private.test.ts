@@ -86,10 +86,35 @@ describe('private chats in the api client', () => {
     await expect(api.setPrivate!(AGENT_ID)).rejects.toBeInstanceOf(ApiError);
   });
 
-  it('reads the server features, and none from an older server', async () => {
-    const newer = client(() => json(200, { member: true, features: ['sealed_chat'] }));
-    await expect(newer.api.serverFeatures!()).resolves.toEqual(['sealed_chat']);
-    const older = client(() => json(200, { member: true }));
-    await expect(older.api.serverFeatures!()).resolves.toEqual([]);
+  it('learns private chats are on from a 200 on /v1/e2e/devices', async () => {
+    const { api, calls } = client(() => json(200, { devices: [] }));
+    await expect(api.privateChatsStatus!()).resolves.toBe('on');
+    expect(calls[0]?.url).toBe('https://api.cord.invalid/v1/e2e/devices');
+    expect(calls[0]?.init.method).toBe('GET');
+  });
+
+  it('reads any 404 as off: private_chats_off or a bare 404', async () => {
+    const coded = client(() =>
+      json(404, { error: { code: 'private_chats_off', message: 'x', request_id: 'r' } }),
+    );
+    await expect(coded.api.privateChatsStatus!()).resolves.toBe('off');
+    const bare = client(() => new Response('Not Found', { status: 404 }));
+    await expect(bare.api.privateChatsStatus!()).resolves.toBe('off');
+    const route = client(() => json(404, { message: 'Route GET:/v1/e2e/devices not found' }));
+    await expect(route.api.privateChatsStatus!()).resolves.toBe('off');
+  });
+
+  it('reads a 5xx, a 429 or a network error as unknown', async () => {
+    const down = client(() => json(503, { error: { code: 'x', message: 'x', request_id: 'r' } }));
+    await expect(down.api.privateChatsStatus!()).resolves.toBe('unknown');
+    const busy = client(() =>
+      json(429, { error: { code: 'rate_limited', message: 'x', request_id: 'r' } }),
+    );
+    await expect(busy.api.privateChatsStatus!()).resolves.toBe('unknown');
+    const offline = createTwringApi({
+      baseUrl: 'https://api.cord.invalid',
+      fetch: () => Promise.reject(new TypeError('Network request failed')),
+    });
+    await expect(offline.privateChatsStatus!()).resolves.toBe('unknown');
   });
 });

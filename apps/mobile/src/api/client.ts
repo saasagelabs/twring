@@ -151,8 +151,11 @@ export interface TwringApi {
   ): Promise<ThreadMessage>;
   /** `PUT /v1/agents/:agentId/private { on: true }`; refusals keep their machine code. */
   setPrivate?(agentId: string, signal?: AbortSignal): Promise<void>;
-  /** What the server offers (`sealed_chat` for private chats); empty on an older server. */
-  serverFeatures?(signal?: AbortSignal): Promise<string[]>;
+  /**
+   * Whether private chats are on for this account, from `GET /v1/e2e/devices`: 200 is on, any 404
+   * is off, anything else (network, 5xx, 429) is unknown and worth asking again later.
+   */
+  privateChatsStatus?(signal?: AbortSignal): Promise<'on' | 'off' | 'unknown'>;
   sendVoiceNote(
     agentId: string,
     clientId: string,
@@ -697,10 +700,14 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         features: true,
       });
     },
-    async serverFeatures(signal) {
-      const body = await request('GET', '/v1/me/access', { signal });
-      const parsed = z.object({ features: z.array(z.string().max(32)).max(32) }).safeParse(body);
-      return parsed.success ? parsed.data.features : [];
+    async privateChatsStatus(signal) {
+      try {
+        await request('GET', '/v1/e2e/devices', { signal });
+        return 'on';
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return 'off';
+        return 'unknown';
+      }
     },
     async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo) {
       let rawBody: Blob;

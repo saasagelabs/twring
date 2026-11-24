@@ -1,17 +1,22 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import type * as ReactModule from 'react';
 import type * as PrivateStateModule from '../e2e/private-state';
+import type * as AvailabilityModule from '../e2e/private-availability';
+import { PrivateAvailabilityCache } from '../e2e/private-availability';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   state: [] as unknown[],
   cursor: 0,
-  features: ['sealed_chat'] as string[],
+  status: 'on' as 'on' | 'off' | 'unknown',
+  statusCalls: 0,
+  scope: 'user-1',
   trusted: [] as unknown[],
   setPrivate: vi.fn(),
   turnOnPrivate: vi.fn(),
   push: vi.fn(),
   feedback: vi.fn(),
+  cache: undefined as unknown,
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -40,7 +45,10 @@ vi.mock('react-native', () => ({
 vi.mock('expo-router', () => ({ router: { push: mocks.push } }));
 vi.mock('@/api', () => ({
   twringApi: () => ({
-    serverFeatures: () => Promise.resolve(mocks.features),
+    privateChatsStatus: () => {
+      mocks.statusCalls++;
+      return Promise.resolve(mocks.status);
+    },
     setPrivate: mocks.setPrivate,
   }),
 }));
@@ -56,6 +64,17 @@ vi.mock('@/e2e/private-state', async () => {
   const actual = await vi.importActual<typeof PrivateStateModule>('../e2e/private-state');
   return { ...actual, turnOnPrivate: mocks.turnOnPrivate };
 });
+vi.mock('@/e2e/private-availability', async () => {
+  const actual = await vi.importActual<typeof AvailabilityModule>('../e2e/private-availability');
+  return {
+    get privateAvailability() {
+      return mocks.cache;
+    },
+    PrivateAvailabilityCache: actual.PrivateAvailabilityCache,
+  };
+});
+vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.invalid' }));
+vi.mock('@/threads/chats', () => ({ currentScope: () => mocks.scope }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/platform/secure-store', () => ({ deviceOnlyStore: {} }));
 vi.mock('@/theme/tokens', () => ({
@@ -98,7 +117,10 @@ async function loaded(...args: Parameters<typeof render>) {
 
 beforeEach(() => {
   mocks.state = [];
-  mocks.features = ['sealed_chat'];
+  mocks.status = 'on';
+  mocks.statusCalls = 0;
+  mocks.scope = 'user-1';
+  mocks.cache = new PrivateAvailabilityCache();
   mocks.trusted = [];
   mocks.turnOnPrivate.mockReset().mockResolvedValue({ status: 'on' });
   mocks.feedback.mockReset();
@@ -106,9 +128,39 @@ beforeEach(() => {
 });
 
 describe('Make chats private row', () => {
-  it('is hidden while the server does not offer private chats', async () => {
-    mocks.features = [];
+  it('is hidden while private chats are off for this account (any 404)', async () => {
+    mocks.status = 'off';
     expect(await loaded()).toBeNull();
+  });
+
+  it('shows once /v1/e2e/devices answers 200, asking once per session', async () => {
+    expect(await loaded()).not.toBeNull();
+    mocks.state = [];
+    expect(await loaded()).not.toBeNull();
+    expect(mocks.statusCalls).toBe(1);
+  });
+
+  it('treats unknown as off for now and asks again next time', async () => {
+    mocks.status = 'unknown';
+    expect(await loaded()).toBeNull();
+    await flush();
+    mocks.status = 'on';
+    mocks.state = [];
+    expect(await loaded()).not.toBeNull();
+    expect(mocks.cache).toBeInstanceOf(PrivateAvailabilityCache);
+    expect(
+      (mocks.cache as PrivateAvailabilityCache).peek('https://api.twring.invalid|user-1'),
+    ).toBe('on');
+  });
+
+  it('asks again for another account, never reusing its answer', async () => {
+    mocks.status = 'off';
+    expect(await loaded()).toBeNull();
+    mocks.scope = 'user-2';
+    mocks.status = 'on';
+    mocks.state = [];
+    expect(await loaded()).not.toBeNull();
+    expect(mocks.statusCalls).toBe(2);
   });
 
   it('is hidden for an AI app connected online', async () => {

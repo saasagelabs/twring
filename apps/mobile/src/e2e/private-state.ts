@@ -1,4 +1,4 @@
-import { SEALED_CHAT_FEATURE, type Agent } from '@twring/contracts';
+import type { Agent } from '@twring/contracts';
 
 import { ApiError } from '../api/client';
 import { apiErrorCopy } from '../api/errors';
@@ -7,7 +7,7 @@ import type { TrustedDevice } from './pairing';
 /**
  * Turning private chats on for one computer agent (ADR-044, opt-in per agent). Only an agent on
  * the person's own computer can be private, never an AI app connected online, and only while the
- * server offers it (`sealed_chat`, behind PRIVATE_CHATS_ENABLED).
+ * server has it on for this account (PRIVATE_CHATS_ENABLED and its allowlist).
  */
 
 export const PRIVATE_ROW_LABEL = 'Make chats private';
@@ -15,11 +15,12 @@ export const UPDATE_COMPUTER = 'Update Twring on your computer first, then try a
 /** Shown in a private chat that has no paired computer to send to (P3b ruling 3). */
 export const PAIR_AGAIN = 'Pair your computer again';
 
+/** `available`: the account's private chats answered "on" (`GET /v1/e2e/devices`). */
 export function showPrivateRow(input: {
-  features: readonly string[];
+  available: boolean;
   agent: Pick<Agent, 'protocol'>;
 }): boolean {
-  return input.features.includes(SEALED_CHAT_FEATURE) && input.agent.protocol === 'cord-connector';
+  return input.available && input.agent.protocol === 'cord-connector';
 }
 
 export function hasComputer(trusted: readonly TrustedDevice[]): boolean {

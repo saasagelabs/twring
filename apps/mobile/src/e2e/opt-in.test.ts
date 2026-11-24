@@ -27,15 +27,13 @@ const fakeNav = () => {
 
 describe('turning on private chats for one computer agent', () => {
   it('hides the option when the server flag is off', () => {
-    expect(showPrivateRow({ features: [], agent: computerAgent })).toBe(false);
-    expect(showPrivateRow({ features: ['sealed_chat'], agent: computerAgent })).toBe(true);
+    expect(showPrivateRow({ available: false, agent: computerAgent })).toBe(false);
+    expect(showPrivateRow({ available: true, agent: computerAgent })).toBe(true);
   });
 
   it('hides the option for an online AI app and any other agent', () => {
-    expect(showPrivateRow({ features: ['sealed_chat'], agent: mcpAgent })).toBe(false);
-    expect(showPrivateRow({ features: ['sealed_chat'], agent: { protocol: 'openai-chat' } })).toBe(
-      false,
-    );
+    expect(showPrivateRow({ available: true, agent: mcpAgent })).toBe(false);
+    expect(showPrivateRow({ available: true, agent: { protocol: 'openai-chat' } })).toBe(false);
   });
 
   it('pairs first, then turns on', async () => {

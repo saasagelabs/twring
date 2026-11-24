@@ -514,7 +514,7 @@ export class ChatController {
 }
 
 /** The signed-in account on the active server, or undefined (nothing is then saved). */
-function currentScope(): string | undefined {
+export function currentScope(): string | undefined {
   const active = profileStore.active();
   if (active.kind === 'selfhost')
     return storageScope(

@@ -15,13 +15,16 @@ import {
   showPrivateRow,
   turnOnPrivate,
 } from '@/e2e/private-state';
+import { privateAvailability } from '@/e2e/private-availability';
 import { playCallFeedback } from '@/platform/haptics';
 import { deviceOnlyStore } from '@/platform/secure-store';
+import { activeServerUrl } from '@/servers/active';
+import { currentScope } from '@/threads/chats';
 import { type, usePalette } from '@/theme/tokens';
 
 /**
- * "Make chats private" on a computer agent (ADR-044). Hidden unless the server offers private
- * chats; with no paired computer it pairs first, and pairing returns here with `ask` set.
+ * "Make chats private" on a computer agent (ADR-044). Hidden unless private chats are on for this
+ * account (asked once per session per server and account); with no paired computer it pairs first, and pairing returns here with `ask` set.
  */
 export function PrivateChatsRow({
   agent,
@@ -36,7 +39,10 @@ export function PrivateChatsRow({
   onTurnedOn: () => void;
 }) {
   const palette = usePalette();
-  const [features, setFeatures] = useState<string[]>([]);
+  const availabilityKey = `${activeServerUrl()}|${currentScope() ?? ''}`;
+  const [available, setAvailable] = useState(
+    () => privateAvailability.peek(availabilityKey) === 'on',
+  );
   const [trusted, setTrusted] = useState<TrustedDevice[]>([]);
   // Back from pairing: the question opens at once.
   const [visible, setVisible] = useState(ask && !isPrivate);
@@ -45,12 +51,14 @@ export function PrivateChatsRow({
 
   useEffect(() => {
     let current = true;
-    void twringApi()
-      ?.serverFeatures?.()
-      .then((found) => {
-        if (current) setFeatures(found);
-      })
-      .catch(() => undefined);
+    const api = twringApi();
+    if (api?.privateChatsStatus !== undefined)
+      void privateAvailability
+        .ask(availabilityKey, () => api.privateChatsStatus!())
+        .then((status) => {
+          // Unknown (offline, a server error) reads as off for now and is asked again later.
+          if (current) setAvailable(status === 'on');
+        });
     void loadTrusted(deviceOnlyStore)
       .then((found) => {
         if (current) setTrusted(found);
@@ -59,9 +67,9 @@ export function PrivateChatsRow({
     return () => {
       current = false;
     };
-  }, [ask]);
+  }, [ask, availabilityKey]);
 
-  if (!showPrivateRow({ features, agent })) return null;
+  if (!showPrivateRow({ available, agent })) return null;
   const copy = confirmPrivateCopy(agent.name);
 
   const confirm = async () => {
