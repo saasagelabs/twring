@@ -316,7 +316,7 @@ export default function AgentDetailScreen() {
           agent={agent}
           isPrivate={chats.threads.some((t) => t.agent_id === agent.id && t.private === true)}
           ask={params.private === 'ask'}
-          onTurnedOn={chats.refresh}
+          onTurnedOn={() => chats.refresh()}
         />
       )}
 

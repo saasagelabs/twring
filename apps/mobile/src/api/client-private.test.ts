@@ -61,7 +61,7 @@ describe('private chats in the api client', () => {
       clientId: message.client_id,
       sealed: ENVELOPE as never,
     });
-    const body = JSON.parse(String(calls[0]?.init.body)) as Record<string, unknown>;
+    const body = JSON.parse(calls[0]?.init.body as string) as Record<string, unknown>;
     expect(body).toEqual({ client_id: message.client_id, sealed: ENVELOPE });
     expect(body).not.toHaveProperty('text');
   });
@@ -71,7 +71,7 @@ describe('private chats in the api client', () => {
     await api.setPrivate!(AGENT_ID);
     expect(calls[0]?.url).toBe(`https://api.cord.invalid/v1/agents/${AGENT_ID}/private`);
     expect(calls[0]?.init.method).toBe('PUT');
-    expect(JSON.parse(String(calls[0]?.init.body))).toEqual({ on: true });
+    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({ on: true });
     expect(headers(0)['x-twring-features']).toBe('sealed_chat');
   });
 

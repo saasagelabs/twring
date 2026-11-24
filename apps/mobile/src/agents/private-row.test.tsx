@@ -1,5 +1,6 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
 import type * as ReactModule from 'react';
+import type * as PrivateStateModule from '../e2e/private-state';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
@@ -52,8 +53,7 @@ vi.mock('@/components/SettingsGroup', () => ({
 vi.mock('@/components/Sheet', () => ({ Sheet: 'Sheet' }));
 vi.mock('@/e2e/pairing', () => ({ loadTrusted: () => Promise.resolve(mocks.trusted) }));
 vi.mock('@/e2e/private-state', async () => {
-  const actual =
-    await vi.importActual<typeof import('../e2e/private-state')>('../e2e/private-state');
+  const actual = await vi.importActual<typeof PrivateStateModule>('../e2e/private-state');
   return { ...actual, turnOnPrivate: mocks.turnOnPrivate };
 });
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));

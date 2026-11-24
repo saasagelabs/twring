@@ -38,7 +38,8 @@ export function PrivateChatsRow({
   const palette = usePalette();
   const [features, setFeatures] = useState<string[]>([]);
   const [trusted, setTrusted] = useState<TrustedDevice[]>([]);
-  const [visible, setVisible] = useState(false);
+  // Back from pairing: the question opens at once.
+  const [visible, setVisible] = useState(ask && !isPrivate);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
 
@@ -59,10 +60,6 @@ export function PrivateChatsRow({
       current = false;
     };
   }, [ask]);
-
-  useEffect(() => {
-    if (ask && !isPrivate) setVisible(true);
-  }, [ask, isPrivate]);
 
   if (!showPrivateRow({ features, agent })) return null;
   const copy = confirmPrivateCopy(agent.name);

@@ -2,17 +2,20 @@ import { Children, isValidElement, type ReactElement, type ReactNode } from 'rea
 import type * as ReactModule from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-  state: [] as unknown[],
-  cursor: 0,
-  back: vi.fn(),
-  dismissTo: vi.fn(),
-  params: {} as Record<string, string>,
-  feedback: vi.fn(),
-  parsePairInput: vi.fn(),
-  claimPairing: vi.fn(),
-  confirmPairing: vi.fn(),
-}));
+const mocks = vi.hoisted(() => {
+  const params: { agentId?: string } = {};
+  return {
+    state: [] as unknown[],
+    cursor: 0,
+    back: vi.fn(),
+    dismissTo: vi.fn(),
+    params,
+    feedback: vi.fn(),
+    parsePairInput: vi.fn(),
+    claimPairing: vi.fn(),
+    confirmPairing: vi.fn(),
+  };
+});
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
