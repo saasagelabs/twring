@@ -60,7 +60,7 @@ export async function addWords(
       return WORDS_EXIT.error;
     }
     deps.print(
-      `From the next call or voice note, Twring will listen for: ${parsed.data.words.join(', ')}.`,
+      `Twring will listen for these right away, even on a live call: ${parsed.data.words.join(', ')}.`,
     );
     if (parsed.data.not_added.length > 0) {
       deps.print(

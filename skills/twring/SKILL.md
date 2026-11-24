@@ -2,7 +2,7 @@
 name: twring
 description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as ring_me, message_me or add_words, or when you are deciding whether to message, send a file to, or ring your owner.
 metadata:
-  version: 0.6.2
+  version: 0.6.3
   homepage: https://twring.com
 ---
 
@@ -95,7 +95,7 @@ Speech recognition can mishear names: your owner's, the people they work with, t
 twring-connect words "Gowri" "Lightsail"
 ```
 
-Or use the `add_words` tool. Write each word the way it's spelled. Up to 40 per agent; the owner's own words come first, and they can change the list on your page in the Twring app. New words apply from the next call or voice note. Add only words you've seen misheard or know you'll need, never common words.
+Or use the `add_words` tool. Write each word the way it's spelled. Up to 40 per agent; the owner's own words come first, and they can change the list on your page in the Twring app. New words apply right away, even on a live call, and to later calls and voice notes. Add only words you've seen misheard or know you'll need, never common words.
 
 ## Approvals by voice
 
