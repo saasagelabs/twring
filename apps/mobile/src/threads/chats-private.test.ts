@@ -263,4 +263,39 @@ describe('private chats in the chat data layer', () => {
     });
     await vi.waitFor(() => expect(again.getPending(privateAgent)[0]?.text).toBe('kept'));
   });
+
+  it('signing out forgets the device key, its counter and the trusted computers', async () => {
+    const t = await setup();
+    t.controller.send(privateAgent, 'hello');
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalled());
+    expect(t.store.m.size).toBeGreaterThan(0);
+    await t.controller.clear({ forget: true });
+    // The next account on this phone must never seal to this account's computer.
+    expect([...t.store.m.keys()]).toEqual([]);
+  });
+
+  it('two messages sent at once get two seqs', async () => {
+    const t = await setup();
+    t.controller.send(privateAgent, 'one');
+    t.controller.send(privateAgent, 'two');
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalledTimes(2));
+    const seqs = (t.posts as { sealed: SealedEnvelopeV1 }[]).map((p) => p.sealed.sender_seq);
+    expect(new Set(seqs).size).toBe(2);
+  });
+
+  it('a corrupt replay file opens the chat anyway, with no crash', async () => {
+    const t = await setup();
+    const replay = memoryStore();
+    replay.value = { [privateAgent]: { floor: 'bad' } };
+    const privacy = new PrivateChats({
+      store: t.store,
+      replay,
+      addressOf: () => Promise.resolve(`cord-connector://${ACCOUNT}/${LOCAL}`),
+    });
+    const controller = new ChatController(t.api as unknown as TwringApi, undefined, { privacy });
+    await controller.refreshList();
+    await controller.open(privateAgent);
+    await vi.waitFor(() => expect(controller.getOpened(privateAgent)).toBeDefined());
+    expect(controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'ok' });
+  });
 });

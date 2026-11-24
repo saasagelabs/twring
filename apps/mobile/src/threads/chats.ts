@@ -11,7 +11,7 @@ import { profileStore } from '../servers/profiles';
 import { STATUS_POLL_MS } from '@/hooks/useResource';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
-import { PrivateChats } from '../e2e/private-chats';
+import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
 import type { SecureKeyValue } from '../auth/storage';
 import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
 import { DraftStore } from './drafts';
@@ -583,6 +583,7 @@ export function chatController(): ChatController | undefined {
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
             deleteSearchDatabase(signingOut),
+            forgetPrivateDevice(keychain),
           ]).catch(() => undefined);
       });
       signOutHookRegistered = true;

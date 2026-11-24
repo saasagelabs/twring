@@ -7,8 +7,8 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import type { JsonStore } from '../threads/outbox-storage';
-import { loadOrCreateDeviceKey, nextSeq } from './device-key';
-import { loadTrusted, type TrustedDevice } from './pairing';
+import { forgetDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
+import { forgetTrusted, loadTrusted, type TrustedDevice } from './pairing';
 import {
   aadIdsFor,
   createPhoneContext,
@@ -191,11 +191,26 @@ export class PrivateChats {
       .catch(() => undefined);
   }
 
-  /** Signing out: the replay state goes with the chats. */
+  /**
+   * Signing out: the replay state goes with the chats, and the device key, its counter and the
+   * trusted computers go too, so the next account never seals to this account's computer.
+   */
   async forget(): Promise<void> {
     this.contexts.clear();
+    this.trusted = [];
     this.saved = Promise.resolve({});
     await this.saving;
-    await this.deps.replay.remove().catch(() => undefined);
+    await Promise.all([
+      this.deps.replay.remove().catch(() => undefined),
+      forgetPrivateDevice(this.deps.store),
+    ]);
   }
+}
+
+/** The phone's private chat keys in the keychain, removed on sign-out. */
+export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> {
+  await Promise.all([
+    forgetDeviceKey(store).catch(() => undefined),
+    forgetTrusted(store).catch(() => undefined),
+  ]);
 }
