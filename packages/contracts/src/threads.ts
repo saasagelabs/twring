@@ -3,7 +3,11 @@ import { z } from 'zod';
 import { agentIdSchema } from './agents';
 import { MAX_ACTIVITY_LABEL_CHARS } from './agent';
 import { attachmentSchema, fileIdSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './files';
-import { sealedEnvelopeV1Schema } from './sealed-chat';
+import {
+  MAX_SEALED_BODY_CHARS,
+  sealedAgentEnvelopeV1Schema,
+  sealedEnvelopeV1Schema,
+} from './sealed-chat';
 
 export const MAX_USER_MESSAGE_CHARS = 4_000;
 export const MAX_STORED_AGENT_MESSAGE_CHARS = 20_000;
@@ -51,6 +55,11 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       status: userMessageStatusSchema,
       client_id: z.uuid(),
       voice: z.object({ duration_s: z.number().int().min(1).max(120) }).optional(),
+      /**
+       * A voice note in a private chat (ADR-044): the person agreed the server hears and reads
+       * it, so it is stored as text. Absent everywhere else.
+       */
+      server_readable: z.literal(true).optional(),
       attachments,
       turn_id: z.string().max(128).optional(),
       error_code: z.string().max(64).optional(),
@@ -110,15 +119,23 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
    * A private chat message (ADR-044): only the paired phone and computer can open `sealed`.
    * There is no text field, so nothing readable can leak through the server.
    */
-  z.object({
-    ...common,
-    kind: z.literal('sealed'),
-    author: z.enum(['user', 'agent']),
-    client_id: z.uuid().optional(),
-    sealed: sealedEnvelopeV1Schema,
-    status: userMessageStatusSchema.optional(),
-    turn_id: z.string().max(128).optional(),
-  }),
+  z
+    .object({
+      ...common,
+      kind: z.literal('sealed'),
+      author: z.enum(['user', 'agent']),
+      client_id: z.uuid().optional(),
+      sealed: sealedAgentEnvelopeV1Schema,
+      status: userMessageStatusSchema.optional(),
+      turn_id: z.string().max(128).optional(),
+      /** The message this one answers; the quote itself is inside `sealed`, never on the server. */
+      reply_to: threadMessageIdSchema.optional(),
+    })
+    .refine(
+      (message) =>
+        message.author === 'agent' || message.sealed.body.length <= MAX_SEALED_BODY_CHARS,
+      { message: 'sealed body too long', path: ['sealed', 'body'] },
+    ),
 ]);
 export type ThreadMessage = z.infer<typeof threadMessageSchema>;
 
@@ -152,6 +169,8 @@ export const threadSummarySchema = z.object({
   unread: z.number().int().nonnegative(),
   last_message_at: z.iso.datetime().nullable(),
   read_seq: z.number().int().nonnegative(),
+  /** A private chat (ADR-044): its messages are sealed; older servers leave this out. */
+  private: z.boolean().optional(),
 });
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export const threadListResponseSchema = z.object({
@@ -188,11 +207,26 @@ export const sendMessageRequestSchema = z
     { message: 'attachment_ids must be distinct', path: ['attachment_ids'] },
   );
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+/** `POST /v1/agents/:agentId/messages` in a private chat: a sealed body instead of text. */
+export const sendSealedMessageRequestSchema = z
+  .object({
+    client_id: z.uuid(),
+    sealed: sealedEnvelopeV1Schema,
+    reply_to: threadMessageIdSchema.optional(),
+  })
+  .strict();
+export type SendSealedMessageRequest = z.infer<typeof sendSealedMessageRequestSchema>;
+/** `PUT /v1/agents/:agentId/private`: makes a chat private. Turning it off is refused. */
+export const setPrivateRequestSchema = z.object({ on: z.boolean() }).strict();
+/** Header the app sends to say it can seal and open messages. */
+export const CLIENT_FEATURES_HEADER = 'x-twring-features';
 export const voiceNoteQuerySchema = z
   .object({
     client_id: z.uuid(),
     duration_ms: z.string().regex(/^\d+$/).transform(Number).pipe(z.number().int().safe()),
     reply_to: threadMessageIdSchema.optional(),
+    /** `1`: the person agreed this note is heard and read by the server in a private chat. */
+    server_readable: z.literal('1').optional(),
   })
   .strict();
 export const approvalDecisionRequestSchema = z

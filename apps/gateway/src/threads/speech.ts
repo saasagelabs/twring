@@ -1,9 +1,4 @@
-import {
-  agentIdSchema,
-  threadMessageIdSchema,
-  type ErrorCode,
-  type ErrorResponse,
-} from '@twring/contracts';
+import { agentIdSchema, threadMessageIdSchema } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import {
@@ -14,6 +9,7 @@ import {
   cartesiaVoice,
   xaiVoice,
 } from '../agents/voices';
+import type { GatewayErrorCode } from '../e2e/guard';
 import { devUserResolver, type UserResolver } from '../auth';
 import { SpeechTextFilter } from '../conversation/speech-text';
 import { FixedWindowLimiter } from '../rate-limit';
@@ -279,10 +275,10 @@ export class MessageSpeech {
 function error(
   reply: FastifyReply,
   status: number,
-  code: ErrorCode,
+  code: GatewayErrorCode,
   message?: string,
 ): FastifyReply {
-  const body: ErrorResponse = {
+  const body = {
     error: {
       code,
       message:
@@ -318,6 +314,9 @@ export function registerMessageSpeechRoute(
       const agent = await options.agents.get(userId, agentId);
       if (!agent) return error(reply, 404, 'not_found');
       const message = await options.store.findMessageById(userId, agentId, messageId);
+      // A private chat's message is sealed: the server has nothing it could speak (ADR-044).
+      if (message?.kind === 'sealed')
+        return error(reply, 409, 'private_thread', 'This chat is private. Listen is off in it.');
       if (message?.kind !== 'agent_text') return error(reply, 404, 'not_found');
       const text = spokenText(message.text);
       if (!text) return error(reply, 404, 'not_found');

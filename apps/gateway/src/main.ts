@@ -8,6 +8,7 @@ import {
   loadGatewayEnv,
   type GatewayEnv,
 } from '@twring/config/gateway';
+import { SEALED_CHAT_FEATURE } from '@twring/contracts';
 
 import { statfs, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -26,6 +27,8 @@ import { buildSelfhost, ringPushWiring } from './selfhost/wiring';
 import { createBetaMembers } from './beta/members';
 import { createInviteService, redemptionRecordSchema } from './beta/invites';
 import { ConnectorHub } from './connectors/hub';
+import { E2eDeviceStore } from './e2e/devices-store';
+import { privateChatAccess } from './e2e/flag';
 import { PairingBook } from './connectors/pairing';
 import { connectorCallStatus } from './connectors/routes';
 import { agentFactoryFor } from './calls/agents';
@@ -252,7 +255,12 @@ const dailyLimits = new DailyLimits(
 // Computers paired with `cord-connect` dial in here (ADR-023); only with saved agents configured.
 const connectorLogger = pino(createLoggerOptions(env)).child({ component: 'connectors' });
 const connectorHub = new ConnectorHub({
-  ...(env.THREADS_ENABLED && keys && stores && { features: ['messages'] }),
+  ...(env.THREADS_ENABLED &&
+    keys &&
+    stores && {
+      // Computers learn the server relays private chats (ADR-044); each account is still checked.
+      features: env.PRIVATE_CHATS_ENABLED ? ['messages', SEALED_CHAT_FEATURE] : ['messages'],
+    }),
   logger: connectorLogger,
   onHello: async (connectorId, agents) =>
     stores !== undefined &&
@@ -484,6 +492,9 @@ const ringService = new RingService({
   inCall: (userId) => calls?.registry.hasCallInUse(userId) ?? false,
   scheduler: systemScheduler,
   logger: ringLogger,
+  // Private chats (ADR-044): rings carry fixed words. The store is created below.
+  privateChat: (userId, agentId) =>
+    threadStore ? threadStore.isPrivate(userId, agentId) : Promise.resolve(false),
   onSettled: async (invite) => {
     if (threadService && invite.status !== 'pending') {
       await threadService.recordRing({ ...invite, status: invite.status });
@@ -501,6 +512,12 @@ const auth = createRequestAuth(
 const threadStore =
   env.THREADS_ENABLED && keys && stores
     ? new SqliteThreadStore(threadDbPath, new CredentialCipher(messageKeys(keys)))
+    : undefined;
+// Private chats (ADR-044): device keys and pairing offers. Only with the flag, so no file appears
+// on a server that has not turned them on.
+const e2eDevices =
+  env.PRIVATE_CHATS_ENABLED && threadStore
+    ? new E2eDeviceStore(join(env.CORD_DATA_DIR, 'e2e.db'))
     : undefined;
 const fileService =
   env.FILES_ENABLED && threadStore && keys
@@ -532,10 +549,28 @@ threadService =
         ring: ringService,
         isFocused: (userId, agentId) => phoneSocketHub?.isFocused(userId, agentId) ?? false,
         notify: (userId, frame) => phoneSocketHub?.publish(userId, frame),
+        ...(env.PRIVATE_CHATS_ENABLED && {
+          privateChats: privateChatAccess(env, connectorHub),
+        }),
         log: pino(createLoggerOptions(env)).child({ component: 'threads' }),
       })
     : undefined;
 if (threadService) await threadService.start();
+// Private chats (ADR-044): computers' sealed replies reach the chats only with the flag on.
+if (threadService && env.PRIVATE_CHATS_ENABLED) {
+  const service = threadService;
+  connectorHub.setSealedReplyListener(
+    (from, frame) =>
+      void service
+        .receiveSealedReply(from, frame)
+        .catch((error: unknown) =>
+          connectorLogger.warn(
+            { event: 'e2e_reply_failed', error: error instanceof Error ? error.name : 'unknown' },
+            'e2e_reply_failed',
+          ),
+        ),
+  );
+}
 if (fileService) await fileService.sweep();
 const fileSweepTimer =
   fileService &&
@@ -880,6 +915,9 @@ const app = buildApp({
     ...(env.CORD_OPERATOR_URL !== undefined && { operatorUrl: env.CORD_OPERATOR_URL }),
     supportEmail: env.CORD_SUPPORT_EMAIL,
   },
+  ...(e2eDevices && {
+    e2e: { devices: e2eDevices, writeRatePerMinute: env.THREAD_WRITE_RATE_PER_MINUTE },
+  }),
   connectors: {
     hub: connectorHub,
     pairings,
@@ -957,6 +995,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
         threadService?.stop();
         if (fileSweepTimer) clearInterval(fileSweepTimer);
         await threadStore?.close();
+        e2eDevices?.close();
         ringService.close();
         if (adminServer) await adminServer.close();
         await flushSentry();

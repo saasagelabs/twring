@@ -317,6 +317,19 @@ export const gatewayEnvSchema = z
     PHONE_SOCKET_RATE_PER_MINUTE: ratePerMinute(20),
     THREADS_ENABLED: envBoolean.default(false),
     FILES_ENABLED: envBoolean.default(false),
+    /** Private chats with computer agents (ADR-044): sealed messages relayed as opaque blobs. */
+    PRIVATE_CHATS_ENABLED: envBoolean.default(false),
+    /** Account ids allowed private chats, comma-separated; unset means everyone once enabled. */
+    PRIVATE_CHATS_USERS: z
+      .string()
+      .optional()
+      .transform((value) => {
+        const ids = (value ?? '')
+          .split(',')
+          .map((id) => id.trim())
+          .filter(Boolean);
+        return ids.length === 0 ? undefined : ids;
+      }),
     /** People can save their own voice account keys (BYOK phase 1). */
     SPEECH_KEYS_ENABLED: envBoolean.optional(),
     SPEECH_KEY_WRITE_RATE_PER_MINUTE: ratePerMinute(5),
@@ -571,6 +584,12 @@ export const gatewayEnvSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['FILES_ENABLED'],
+        message: 'requires THREADS_ENABLED=true',
+      });
+    if (env.PRIVATE_CHATS_ENABLED && !env.THREADS_ENABLED)
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PRIVATE_CHATS_ENABLED'],
         message: 'requires THREADS_ENABLED=true',
       });
     if (env.FILES_ENABLED && env.CORD_ENV !== 'development' && !env.CORD_PUBLIC_URL)
