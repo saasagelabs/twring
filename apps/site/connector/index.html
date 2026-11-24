@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Let Claude, ChatGPT or another AI app ring your phone | Twring</title>
-<meta name="description" content="Add Twring to Claude, ChatGPT, Grok, Cursor or another AI app, so it can ring you and message you.">
+<meta name="description" content="Add Twring to Claude, ChatGPT, Grok Bot, Cursor or another AI app, so it can ring you and message you.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://twring.com/connector/">
@@ -12,7 +12,7 @@
 <meta property="og:url" content="https://twring.com/connector/">
 <meta property="og:site_name" content="Twring">
 <meta property="og:title" content="Let Claude, ChatGPT or another AI app ring your phone | Twring">
-<meta property="og:description" content="Add Twring to Claude, ChatGPT, Grok, Cursor or another AI app, so it can ring you and message you.">
+<meta property="og:description" content="Add Twring to Claude, ChatGPT, Grok Bot, Cursor or another AI app, so it can ring you and message you.">
 <meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="720">
@@ -31,7 +31,7 @@
    "@id": "https://twring.com/connector/",
    "url": "https://twring.com/connector/",
    "name": "Let Claude, ChatGPT or another AI app ring your phone | Twring",
-   "description": "Add Twring to Claude, ChatGPT, Grok, Cursor or another AI app, so it can ring you and message you.",
+   "description": "Add Twring to Claude, ChatGPT, Grok Bot, Cursor or another AI app, so it can ring you and message you.",
    "isPartOf": {
     "@id": "https://twring.com/#site"
    },
@@ -89,7 +89,7 @@
      "name": "Which AI apps can use the Twring connector?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok and Cursor. They all use the same address, https://api.twring.com/mcp."
+      "text": "Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok Bot and Cursor. They all use the same address, https://api.twring.com/mcp."
      }
     },
     {
@@ -147,7 +147,7 @@
 <main id="main" class="page">
   <div class="wrap">
     <h1>Let your AI ring your phone.</h1>
-    <p class="lead">Add Twring to Claude, ChatGPT or another AI app that lets you add a custom connector in its settings. When it needs you, it can ring your phone or send you a message in Twring, and read your reply.</p>
+    <p class="lead">Add Twring to Claude, ChatGPT or another AI app that lets you add a custom connector in its settings. When it needs you, it can ring your phone or send you a message in Twring, and read your reply. AI apps can ring you and message you, but you can't hold a live voice call with them; for that, connect Claude Code, Codex or Hermes on your computer.</p>
     <div class="addr"><span id="url">https://api.twring.com/mcp</span><button class="btn btn-primary" type="button" id="copy">Copy</button></div>
     <p class="form-note" id="copied" aria-live="polite"></p>
     <div class="prose prose-tight">
@@ -165,7 +165,7 @@
       <ol>
         <li><strong>Claude.</strong> Settings, Connectors, Add custom connector. Paste the address above, then sign in and allow.</li>
         <li><strong>ChatGPT.</strong> Settings, Apps and Connectors (or Developer mode, Create). Paste the address above, then sign in and allow.</li>
-        <li><strong>Grok, Cursor and other apps.</strong> Look for Connectors in the app's settings, add a custom connector with the address above, then sign in and allow.</li>
+        <li><strong>Grok Bot, Cursor and other apps.</strong> Look for Connectors in the app's settings, add a custom connector with the address above, then sign in and allow.</li>
       </ol>
       <p>Sign in the same way you sign in to the Twring app (Google, or Apple), with the same account. Rings go to the account, not to whichever phone is in your hand, so if the connector uses a different account than your phone, the ring has nowhere to go.</p>
 
@@ -182,7 +182,7 @@
       <p>A connected AI app gets only what you write or say in its own Twring chat. It can't read your other chats, your agents or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.</p>
 
       <h2>What it doesn't do</h2>
-      <p>You can't place a live voice call <em>to</em> Claude or ChatGPT from Twring: chat apps don't take incoming calls. The connector is for the AI reaching you, and for you replying in its chat. For live two-way calls, connect an agent you run yourself, such as <a href="/claude-code/">Claude Code</a>, <a href="/codex/">Codex</a>, <a href="/gemini-cli/">Gemini CLI</a> or <a href="/hermes/">Hermes</a>. Those can ring you too, and you can call them back: <a href="/agent-calls-you/">how each agent rings you</a>.</p>
+      <p>You can't place a live voice call <em>to</em> Claude or ChatGPT from Twring: chat apps don't take incoming calls. The connector is for the AI reaching you, and for you replying in its chat. For live two-way calls, connect an agent you run yourself, such as <a href="/claude-code/">Claude Code</a>, <a href="/codex/">Codex</a> or <a href="/hermes/">Hermes</a>. Those can ring you too, and you can call them back: <a href="/agent-calls-you/">how each agent rings you</a>.</p>
 
       <h2>What's a connector?</h2>
       <p>A connector is how you add tools to an AI app. Most use MCP, the standard way AI apps add tools. Twring's connector is an MCP server at one address, <code>https://api.twring.com/mcp</code>, and it's listed in the official MCP Registry.</p>
@@ -207,7 +207,7 @@
       <details><summary>Can I call Claude from Twring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Not the Claude or ChatGPT app itself: AI chat apps don't take incoming calls. Your connected AI can ring you, and you can reply in its Twring chat. For live calls, connect an agent you run, such as Claude Code, Codex or Hermes.</p></div></details>
       <details><summary>What do I hear when it rings?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Twring reads the reason it gave, then opens its chat so you can answer by voice or text. It reads your answer the next time it checks.</p></div></details>
       <details><summary>Does my phone need a phone number for this?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. The ring reaches the Twring app over the internet, so there is no phone number or telephony account involved.</p></div></details>
-      <details><summary>Which AI apps can use the Twring connector?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok and Cursor. They all use the same address, https://api.twring.com/mcp.</p></div></details>
+      <details><summary>Which AI apps can use the Twring connector?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok Bot and Cursor. They all use the same address, https://api.twring.com/mcp.</p></div></details>
       <details><summary>Why didn't my phone ring?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Most often the connector was signed in with a different account than your phone, or Do Not Disturb or quiet hours are on in Twring. Rings go to the account, not the device.</p></div></details>
       <details><summary>How do I remove it?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>In Twring: Settings, Connected AI apps, Remove. It can't reach you again unless you allow it.</p></div></details>
       <details><summary>What data does it get?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Only what you write or say in its own Twring chat. Not your other chats, agents or calls. See the <a href="/privacy">privacy notice</a>.</p></div></details>
@@ -224,7 +224,7 @@
       </div>
       <nav class="foot-links" aria-label="Footer">
         <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/#faq">FAQ</a><a href="/blog/">Blog</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/beta/">Get an invite</a></div>
-        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/gemini-cli/">Gemini CLI</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT and other AI apps</a></div>
+        <div><b>Works with</b><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><a href="/connector/">Claude, ChatGPT, Grok Bot and other AI apps</a></div>
         <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a></div>
         <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
       </nav>

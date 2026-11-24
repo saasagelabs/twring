@@ -1,6 +1,6 @@
 # Twring
 
-> Twring is a phone app (Android and iPhone) that lets you call the AI agents you already run and talk to them in a live, real-time voice call: Claude Code, Codex, Gemini CLI, Hermes, or an agent server you can reach at its own web address, such as OpenClaw. Your agent can also ring your phone, full screen even when it is locked, when a job is done or needs your OK. No phone number or phone service account is needed. Twring handles the voice: speech recognition, speech, turn-taking and interruptions. Your agent keeps its own brain, memory, tools and permissions; Twring never runs its tools.
+> Twring is a phone app (Android and iPhone) that lets you call the AI agents you already run and talk to them in a live, real-time voice call: Claude Code, Codex, Hermes, or an agent server you can reach at its own web address, such as OpenClaw. Your agent can also ring your phone, full screen even when it is locked, when a job is done or needs your OK. No phone number or phone service account is needed. Twring handles the voice: speech recognition, speech, turn-taking and interruptions. Your agent keeps its own brain, memory, tools and permissions; Twring never runs its tools.
 
 Twring is made by SaaSage Labs. It is free while it launches, and access is by invite. It does not record or keep call audio. The source is public on GitHub, and Twring can run on your own server.
 
@@ -8,7 +8,7 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 
 - What it is: a voice layer for existing AI agents, not a new agent or chatbot.
 - Platforms: Android (APK from twring.com, not yet on Google Play) and iPhone (TestFlight, not yet on the App Store). Sign in with Google, or Apple on iPhone.
-- Works with: agents you run yourself on a computer or server (Claude Code, Codex, Gemini CLI, Hermes); agents reachable at their own web address, including OpenClaw and other agent servers that work like the ChatGPT API; and AI apps such as Claude, ChatGPT, Grok or Cursor through the Twring connector, so they can ring and message you.
+- Works with: agents you run yourself on a computer or server (Claude Code, Codex, Hermes); agents reachable at their own web address, including OpenClaw and other agent servers that work like the ChatGPT API; and AI apps such as Claude, ChatGPT, Grok Bot or Cursor through the Twring connector, so they can ring and message you (but not hold a live voice call).
 - Calls: press Call and talk; your agent answers with its own model and tools, and Twring speaks the reply as it streams in. Talk over it at any time and it stops speaking.
 - Rings: your agent can call your phone full screen, even when it is locked, with the reason it called. You can decline with a short reply, and set quiet hours.
 - Approvals: when your agent needs permission, it can ask you on the call. For Hermes, you answer its approval request by voice or tap, and silence means no.
@@ -27,13 +27,12 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 ## Pages
 
 - [Home](https://twring.com/): what Twring does, how calls and rings work, FAQ
-- [Let your agent call you](https://twring.com/agent-calls-you/): how Claude Code, Codex, Gemini CLI, Hermes and AI apps ring your phone, full screen even when locked; setup per agent, quiet hours, limits
+- [Let your agent call you](https://twring.com/agent-calls-you/): how Claude Code, Codex, Hermes and AI apps ring your phone, full screen even when locked; setup per agent, quiet hours, limits
 - [Get an invite](https://twring.com/beta/): ask for access on iPhone or Android
 - [Claude Code](https://twring.com/claude-code/): talk to Claude Code from your phone; it can ring you when a job is done or it needs your OK
 - [Codex](https://twring.com/codex/): talk to Codex from your phone; it can ring you when a job is done
-- [Gemini CLI](https://twring.com/gemini-cli/): talk to Gemini CLI from your phone
 - [Hermes](https://twring.com/hermes/): the Twring plugin for Hermes: calls, voice approvals, rings for scheduled jobs
-- [Connect an AI app](https://twring.com/connector/): let Claude, ChatGPT, Grok, Cursor or another AI app ring and message you
+- [Connect an AI app](https://twring.com/connector/): let Claude, ChatGPT, Grok Bot, Cursor or another AI app ring and message you
 - [Downloads](https://twring.com/downloads/): the app, the computer link, the agent guide, your own server
 - [Self-hosting](https://twring.com/self-hosting/): run Twring on your own server
 - [Server guide](https://twring.com/self-hosting/guide/): install, update, back up and fix a self-hosted server
@@ -53,9 +52,8 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 - [Every way to reach your coding agent from your phone, compared](https://twring.com/blog/reach-your-coding-agent-from-your-phone/): Type, dictate, talk live or get rung: the ways to reach Claude Code, Codex and other coding agents from your phone as of November 2026, and which to pick.
 - [Make Claude Code ring your phone when it needs you](https://twring.com/blog/claude-code-call-me-when-done/): A Claude Code notification hook that rings your phone, full screen even when it's locked, when Claude Code needs permission or is waiting for you. Setup, what rings, and limits.
 - [How to talk to Codex by voice from your phone](https://twring.com/blog/codex-voice-from-your-phone/): Talk to Codex by voice from your phone with ChatGPT Voice in the ChatGPT app, or call the Codex CLI on your own computer with Twring. Here is how each works.
-- [How to talk to Gemini CLI with your voice](https://twring.com/blog/gemini-cli-voice/): Gemini CLI has no voice mode of its own. Twring lets you call the Gemini CLI on your computer from your phone and hear its answers. Here is how, and the options.
 - [Call your Hermes agent from your phone, and let its scheduled jobs ring you](https://twring.com/blog/hermes-agent-phone-call/): Install the Twring plugin in Hermes to talk to your own Hermes agent in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.
-- [Approving your agent's risky actions by voice, away from your desk](https://twring.com/blog/approve-agent-actions-by-voice/): How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code, Codex and Gemini CLI run with safe limits you set in advance.
+- [Approving your agent's risky actions by voice, away from your desk](https://twring.com/blog/approve-agent-actions-by-voice/): How approvals work on a Twring call, agent by agent: Hermes asks and you answer by voice or tap, while Claude Code and Codex run with safe limits you set in advance.
 - [How a live voice call with your AI agent works](https://twring.com/blog/how-a-voice-call-with-your-agent-works/): A Twring call turns your speech into text, sends it to the agent you already run, and speaks its answer as it streams, so you can talk and interrupt naturally.
 - [Run your own Twring server: a voice for your agents, on your machine](https://twring.com/blog/self-host-voice-for-your-agents/): One command installs Twring on the Linux machine where your agents run, with your own speech key. Chats, files and agents stay on your server; rings use Twring's ring service.
 
