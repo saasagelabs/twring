@@ -16,6 +16,7 @@ vi.mock('@/theme/tokens', () => ({
   usePalette: () => ({ accent: '#0ff', textPrimary: '#fff' }),
 }));
 vi.mock('@/threads/presentation', () => import('../../threads/presentation'));
+vi.mock('./CopyCodeButton', () => ({ CopyCodeButton: 'CopyCodeButton' }));
 
 import { MessageText } from './MessageText';
 

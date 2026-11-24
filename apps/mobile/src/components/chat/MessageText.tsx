@@ -3,6 +3,8 @@ import { font } from '@/theme/fonts';
 import { usePalette, radius, type } from '@/theme/tokens';
 import { segmentText, type TextSegment } from '@/threads/presentation';
 
+import { CopyCodeButton } from './CopyCodeButton';
+
 export function MessageText({ text, onLink }: { text: string; onLink: (url: string) => void }) {
   const palette = usePalette();
   const blocks: TextSegment[][] = [];
@@ -25,6 +27,7 @@ export function MessageText({ text, onLink }: { text: string; onLink: (url: stri
               marginVertical: 4,
             }}
           >
+            <CopyCodeButton code={parts[0].value} />
             <Text
               selectable
               style={{
