@@ -9,7 +9,7 @@ Static pages, no build step.
 | Support | `support/index.html` (twring.com/support) |
 | Terms of service | `terms/index.html` (twring.com/terms) |
 | Connect AI apps | `connector/index.html` (twring.com/connector) |
-| One page per agent | `claude-code/`, `codex/`, `gemini-cli/`, `hermes/` (what a call is like and how to connect that agent) |
+| One page per agent | `claude-code/`, `codex/`, `hermes/` (what a call is like and how to connect that agent) |
 | Page not found | `404.html` (the web server shows it for any missing page) |
 | Sign-in consent for AI apps | `oauth/consent/index.html` |
 | Connector registry proof | `.well-known/mcp-registry-auth` |
