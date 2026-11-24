@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { LogBox, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 
 import { useAuth } from '@/auth';
 import { checkAccess, useAccess, useAccessIdentity } from '@/access/store';
@@ -81,66 +82,68 @@ function RootLayout() {
   if (loading || accessPending || !fontsReady) return null;
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider value={DarkTheme}>
-        <View style={{ flex: 1 }}>
-          <Stack screenOptions={{ headerShown: false }}>
-            {/*
+      <KeyboardProvider>
+        <ThemeProvider value={DarkTheme}>
+          <View style={{ flex: 1 }}>
+            <Stack screenOptions={{ headerShown: false }}>
+              {/*
           Every app screen is listed here: a screen left out would be reachable while signed out.
           Signed out, the only screens are Sign in, Pair with your own server and Privacy. Pair is
           also open signed in, so a pair link always lands: it asks to sign out first.
         */}
-            <Stack.Protected guard={member}>
-              <Stack.Screen name="(tabs)" />
-              <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="connect" />
-              <Stack.Screen name="dev-components" />
-              <Stack.Screen name="agents/[id]/index" />
-              <Stack.Screen name="agents/[id]/edit" />
-              <Stack.Screen name="agents/[id]/connection" />
-              <Stack.Screen name="chats/[agentId]" />
-              <Stack.Screen name="settings/connected-apps" />
-              <Stack.Screen name="settings/feedback" />
-              <Stack.Screen name="settings/voice-accounts" />
-              <Stack.Screen name="language" />
-              <Stack.Screen name="agents/[id]/voice" />
-              <Stack.Screen name="agents/[id]/words" />
-              {/*
+              <Stack.Protected guard={member}>
+                <Stack.Screen name="(tabs)" />
+                <Stack.Screen name="onboarding" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="connect" />
+                <Stack.Screen name="dev-components" />
+                <Stack.Screen name="agents/[id]/index" />
+                <Stack.Screen name="agents/[id]/edit" />
+                <Stack.Screen name="agents/[id]/connection" />
+                <Stack.Screen name="chats/[agentId]" />
+                <Stack.Screen name="settings/connected-apps" />
+                <Stack.Screen name="settings/feedback" />
+                <Stack.Screen name="settings/voice-accounts" />
+                <Stack.Screen name="language" />
+                <Stack.Screen name="agents/[id]/voice" />
+                <Stack.Screen name="agents/[id]/words" />
+                {/*
             The active call resists accidental dismissal: no swipe-to-close. It fades in over a dark
             background (the call is always dark); other pushes keep the platform default.
           */}
-              <Stack.Screen
-                name="call"
-                options={{
-                  presentation: 'fullScreenModal',
-                  animation: 'fade',
-                  gestureEnabled: false,
-                  contentStyle: { backgroundColor: callPalette.background },
-                }}
-              />
-              {/* An agent ringing: over everything, and over the lock screen while it rings. */}
-              <Stack.Screen
-                name="incoming/[inviteId]"
-                options={{
-                  presentation: 'fullScreenModal',
-                  animation: 'fade',
-                  gestureEnabled: false,
-                  contentStyle: { backgroundColor: callPalette.background },
-                }}
-              />
-            </Stack.Protected>
-            <Stack.Protected guard={signedIn && !member}>
-              <Stack.Screen name="waitlist" options={{ gestureEnabled: false }} />
-            </Stack.Protected>
-            <Stack.Protected guard={!signedIn}>
-              <Stack.Screen name="sign-in" options={{ gestureEnabled: false }} />
-              <Stack.Screen name="test-sign-in" />
-            </Stack.Protected>
-            <Stack.Screen name="pair" />
-            <Stack.Screen name="privacy" />
-          </Stack>
-        </View>
-        <StatusBar style="light" />
-      </ThemeProvider>
+                <Stack.Screen
+                  name="call"
+                  options={{
+                    presentation: 'fullScreenModal',
+                    animation: 'fade',
+                    gestureEnabled: false,
+                    contentStyle: { backgroundColor: callPalette.background },
+                  }}
+                />
+                {/* An agent ringing: over everything, and over the lock screen while it rings. */}
+                <Stack.Screen
+                  name="incoming/[inviteId]"
+                  options={{
+                    presentation: 'fullScreenModal',
+                    animation: 'fade',
+                    gestureEnabled: false,
+                    contentStyle: { backgroundColor: callPalette.background },
+                  }}
+                />
+              </Stack.Protected>
+              <Stack.Protected guard={signedIn && !member}>
+                <Stack.Screen name="waitlist" options={{ gestureEnabled: false }} />
+              </Stack.Protected>
+              <Stack.Protected guard={!signedIn}>
+                <Stack.Screen name="sign-in" options={{ gestureEnabled: false }} />
+                <Stack.Screen name="test-sign-in" />
+              </Stack.Protected>
+              <Stack.Screen name="pair" />
+              <Stack.Screen name="privacy" />
+            </Stack>
+          </View>
+          <StatusBar style="light" />
+        </ThemeProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }
