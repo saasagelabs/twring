@@ -244,7 +244,7 @@
         }
       }
     }
-    function tick(ts) {
+    function tick() {
       running = 0;
       pull += (want - pull) * 0.12;
       if (Math.abs(want - pull) < 0.005) pull = want;
