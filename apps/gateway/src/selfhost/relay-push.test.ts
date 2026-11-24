@@ -281,6 +281,27 @@ describe('RelayPushSender through the ring service', () => {
     );
   });
 
+  it('a sealed message keeps its preview and agent name (only the phone can open it)', async () => {
+    const { push, sent, openFor, phones } = await setup();
+    const message: MessagePush = {
+      type: 'cord.message',
+      user_ref: '0123456789abcdef',
+      agent_id: `agt_${'a'.repeat(20)}`,
+      agent_name: 'Hermes',
+      message_id: `msg_${'d'.repeat(26)}`,
+      preview: 'Done. All tests pass.',
+      silent: '0',
+    };
+    await push.send({ token: phones[0]!.device.id, platform: 'android' }, message, {
+      priority: 'normal',
+      ttlSeconds: 86400,
+    });
+    expect(openFor(sent[0]!)).toMatchObject({
+      preview: 'Done. All tests pass.',
+      agent_name: 'Hermes',
+    });
+  });
+
   it('a removed phone loses its handle and gets no more sealed pushes', async () => {
     const { stores, ring, sent, phones } = await setup();
     await stores.devices.remove(phones[0]!.device.id);

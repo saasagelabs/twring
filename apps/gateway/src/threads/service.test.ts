@@ -5,9 +5,11 @@ import {
   APPROVAL_HOLD_MS,
   type AgentEvent,
   type CallHistoryItem,
+  type MessagePush,
   type ThreadSocketFrame,
   type UserTurn,
 } from '@twring/contracts';
+import { apnsRequestFor, redactMessagePush } from '@twring/push';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentRecord } from '../store/repositories';
@@ -523,6 +525,23 @@ describe('detached results', () => {
       preview: 'Here is the answer.',
       silent: '0',
     });
+    // What Google and Apple carry for that real message: no agent name, none of its text.
+    const pushed = f.pushes[0] as MessagePush;
+    const hosted = [
+      JSON.stringify(redactMessagePush(pushed)),
+      JSON.stringify(
+        apnsRequestFor(
+          { token: 'voip', platform: 'ios', apnsToken: 'alert' },
+          pushed,
+          'com.twring.app',
+        )?.body,
+      ),
+    ];
+    for (const sent of hosted) {
+      expect(sent).not.toContain('Here is the answer');
+      expect(sent).not.toContain('agent_name');
+      expect(sent).toContain(pushed.message_id);
+    }
     f.setFocused(true);
     await send(f.service, agent, 'another', randomUUID());
     await until(async () =>

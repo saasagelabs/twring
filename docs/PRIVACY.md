@@ -2,7 +2,7 @@
 
 **Operator:** {{OPERATOR}}\
 **Contact:** {{CONTACT_EMAIL}}\
-**Effective:** 1 August 2026
+**Effective:** 24 November 2026
 
 Twring is a voice layer for an AI agent you already use. You connect your agent, then call it or type to it in a chat. Twring handles the audio and the chat; your agent does the thinking.
 
@@ -23,7 +23,7 @@ Speech providers: **Deepgram** (speech-to-text and text-to-speech). Some deploym
 - **Agent settings:** name, endpoint address, protocol, chosen voice, and the words to listen for.
 - **Agent credential (API key):** encrypted with AES-256-GCM on the Twring server. It is never shown again, never logged, and decrypted only in the server process when a call or connection test connects to your agent.
 - **Your own voice account keys (optional):** if you add a Deepgram, Cartesia or xAI key, it is encrypted with AES-256-GCM on the Twring server, never shown again (only its last four characters), never logged, and used only for your own calls, voice notes, replies read aloud and previews of voices Twring doesn't offer itself. Delete it any time in Settings; Delete my data removes it.
-- **Chats with your agents:** the messages you type to an agent and its written replies, plus short entries for calls and rings (when, how long, the outcome, an agent's ring reason, and your decline note). They are encrypted on the Twring server (AES-256-GCM), never written to logs, and only your account can read them. A call appears in the chat as a card only: Twring keeps no audio and no transcript of what was said on a call. At most 2,000 messages per agent are kept; older ones are removed. When a new message arrives, the notification shows its first line; it passes through Google's push service (Firebase Cloud Messaging), and the lock screen shows only that a message arrived.
+- **Chats with your agents:** the messages you type to an agent and its written replies, plus short entries for calls and rings (when, how long, the outcome, an agent's ring reason, and your decline note). They are encrypted on the Twring server (AES-256-GCM), never written to logs, and only your account can read them. A call appears in the chat as a card only: Twring keeps no audio and no transcript of what was said on a call. At most 2,000 messages per agent are kept; older ones are removed. When a new message arrives, the notification says only "New message": the agent's name and the message text are not sent through Google's or Apple's push services (Firebase Cloud Messaging, Apple Push Notification service), and you read the message in the app. Rings are different: a ring still shows which agent is calling (see Ringing below).
 - **Call summaries:** agent, start time, duration, outcome, end reason, and usage counts (seconds of speech, characters spoken, interruptions, reconnects, an optional cost estimate). No audio, no transcript. Only your most recent 200 calls are kept.
 - **Call ratings:** if you rate a call, the stars, the issues you picked and your optional note, kept with that call to improve Twring. A note, or a rating of 3 stars or fewer, is also emailed to our support inbox so a person reads it (without your account details). Deleted with your data.
 - **Notes you send from Settings (Send feedback):** your note, your account's email address (so we can reply) and the app version. Emailed to our support inbox so a person reads it. Deleted with your data.
