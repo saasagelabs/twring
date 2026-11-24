@@ -1,7 +1,7 @@
 import { open, rm, stat } from 'node:fs/promises';
 
 import { loadConfig, saveConfig } from '../config';
-import type { E2eConfig } from './keys';
+import { e2eConfigSchema, type E2eConfig } from './keys';
 
 /** How long a change waits for another process's lock before giving up. */
 export const LOCK_WAIT_MS = 10_000;
@@ -31,7 +31,8 @@ export function updateE2e(
     withFileLock(`${path}.lock`, options.waitMs ?? LOCK_WAIT_MS, async () => {
       const config = await loadConfig(path);
       if (config?.e2e === undefined) return undefined;
-      const e2e = change(config.e2e);
+      // Never write what the next load would call damaged: a bad change throws instead.
+      const e2e = e2eConfigSchema.parse(change(config.e2e));
       await saveConfig(path, { ...config, e2e });
       return e2e;
     }),

@@ -69,6 +69,12 @@ describe('updateE2e across processes', () => {
     expect(await readFile(`${path}.lock`, 'utf8')).toBe('busy');
   });
 
+  it('refuses a change the next load would call damaged, and keeps the file readable', async () => {
+    await expect(updateE2e(path, (current) => ({ ...current, seq: -1 }))).rejects.toThrow();
+    expect((await loadConfig(path))?.e2e?.seq).toBe(0);
+    await expect(stat(`${path}.lock`)).rejects.toThrow();
+  });
+
   it('frees the lock when the change throws', async () => {
     await expect(
       updateE2e(path, () => {

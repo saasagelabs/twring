@@ -8,7 +8,7 @@ import {
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
 
-import { ensureDeviceKey, type E2eConfig } from './keys';
+import { e2eConfigSchema, ensureDeviceKey, type E2eConfig } from './keys';
 import { pairPhone, parsePairLink, type PairPhoneOptions } from './pair';
 import { baseConfig } from './test-fixtures';
 
@@ -203,6 +203,33 @@ describe('pairPhone', () => {
     expect(run.saved()!.devices).toEqual([]);
     // The next device sync trusts it (sync.test.ts): both sides then agree.
     expect(run.saved()!.pending!.map((d) => d.id)).toEqual([server.phoneId]);
+  });
+
+  it('never saves more pending phones than the config allows (the file would read as damaged)', async () => {
+    const server = fakeServer();
+    const stale = Array.from({ length: 4 }, () => {
+      const key = generateSealKeyPair().publicKey;
+      return {
+        id: deviceIdFor(key),
+        kind: 'phone' as const,
+        name: 'Old',
+        public_key: base64urlEncode(key),
+        verified_at: '2026-11-24T00:00:00.000Z',
+      };
+    });
+    let e2e: E2eConfig = { ...ensureDeviceKey(baseConfig).config.e2e!, pending: stale };
+    let calls = 0;
+    const run = deps(server, {
+      update: (change) => {
+        // The last save fails, so the new phone stays pending next to the four old ones.
+        if (++calls === 2) return Promise.reject(new Error('disk full'));
+        e2e = change(e2e);
+        return Promise.resolve();
+      },
+    });
+    await expect(pairPhone(run.options)).rejects.toThrow();
+    expect(e2eConfigSchema.safeParse(e2e).success).toBe(true);
+    expect(e2e.pending!.map((d) => d.id)).toContain(server.phoneId);
   });
 
   it('shows the same safety code the phone computes', async () => {

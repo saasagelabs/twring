@@ -248,6 +248,25 @@ describe('private turns', () => {
     expect(run.phoneReads(message.message_id)).toBe(says.join(''));
   });
 
+  it('keeps a reply within the chunk cap when slow chunks are followed by control-character bursts', async () => {
+    // 60 slow one-character events, then bursts of escaped control characters each just past a
+    // size flush, so every size flush is split and every piece may be halved for the relay limit.
+    let t = 0;
+    const slow = Array.from({ length: 60 }, () => '\u0001');
+    const burst = Array.from({ length: 3 }, () => '\u0001'.repeat(8_001));
+    const says = [...slow, ...burst, '\u0001'.repeat(20_000)];
+    const run = fakeRun({ agentSays: says, now: () => (t += CHUNK_INTERVAL_MS + 1) });
+    const message = run.sealedFromPhone({ text: 'slow then big' });
+    await run.receive(message);
+    const frames = run.sent('sealed.reply');
+    expect(frames.length).toBeLessThanOrEqual(MAX_SEALED_REPLY_CHUNKS);
+    expect(frames.filter((f) => f.final)).toHaveLength(1);
+    for (const frame of frames)
+      expect(Buffer.byteLength(JSON.stringify(frame), 'utf8')).toBeLessThanOrEqual(
+        MAX_RELAY_MESSAGE_BYTES,
+      );
+  });
+
   it('splits a long reply so no frame passes the relay limit', async () => {
     // 20,000 characters of a 4-byte character: 80,000 bytes, more than one frame can carry.
     const run = fakeRun({ agentSays: ['😀'.repeat(5_000), '😀'.repeat(5_000)] });

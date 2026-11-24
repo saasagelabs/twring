@@ -85,6 +85,8 @@ type Claim = z.infer<typeof claimResponseSchema>;
 const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
 
 const RETRY_MS = 2_000;
+/** The most pending phones the saved config allows (`e2eConfigSchema`). */
+const MAX_PENDING = 4;
 
 class PairStop extends Error {
   constructor(readonly outcome: Exclude<PairOutcome, 'paired'>) {
@@ -186,7 +188,8 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     // Saved before the server adds it: a failed save leaves nothing on either side.
     await options.update((current) => ({
       ...current,
-      pending: [...(current.pending ?? []).filter(other), phone],
+      // The config holds at most MAX_PENDING: the oldest give way (a sync re-lists them if added).
+      pending: [...(current.pending ?? []).filter(other), phone].slice(-MAX_PENDING),
     }));
     const forget = () => options.update(dropPending).catch(() => undefined);
     let added: Response | undefined;
