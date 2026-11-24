@@ -8,7 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   state: [] as unknown[],
   cursor: 0,
-  status: 'on' as 'on' | 'off' | 'unknown',
+  status: 'on',
   statusCalls: 0,
   scope: 'user-1',
   trusted: [] as unknown[],
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
   turnOnPrivate: vi.fn(),
   push: vi.fn(),
   feedback: vi.fn(),
-  cache: undefined as unknown,
+  cache: undefined,
 }));
 
 vi.mock('react', async (importOriginal) => {

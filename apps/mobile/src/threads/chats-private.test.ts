@@ -304,7 +304,7 @@ describe('private chats in the chat data layer', () => {
     t.controller.send(privateAgent, 'again');
     await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
     const sent = t.posts.length;
-    const clientId = t.controller.getPending(privateAgent)[0]!.clientId;
+    const clientId = t.controller.getPending(privateAgent)[0].clientId;
     t.controller.retry(clientId);
     await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
     const all = t.posts as { clientId: string; sealed: SealedEnvelopeV1 }[];
