@@ -13,6 +13,7 @@ export * from './mcp';
 export * from './realtime';
 export * from './rest-protocol';
 export * from './seal';
+export * from './sealed-chat';
 export * from './selfhost';
 export * from './server-proof';
 export * from './ring';
