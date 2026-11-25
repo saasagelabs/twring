@@ -11,6 +11,7 @@ export type PrivateChatErrorCode =
   | 'device_conflict'
   | 'offer_expired'
   | 'offer_claimed'
+  | 'handle_taken'
   | 'private_thread'
   | 'not_private'
   | 'private_unsupported'

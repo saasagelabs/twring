@@ -159,6 +159,7 @@ export interface ConnectorGatewayOptions {
   env?: Record<string, string>;
   /** Private chat pairing claims per account per minute. */
   e2eClaimRatePerMinute?: number;
+  e2eLookupRatePerMinute?: number;
 }
 
 const fileDirs: string[] = [];
@@ -311,6 +312,7 @@ export async function startConnectorGateway(
       devices: e2e,
       writeRatePerMinute: 1000,
       claimRatePerMinute: options.e2eClaimRatePerMinute ?? 1000,
+      lookupRatePerMinute: options.e2eLookupRatePerMinute ?? 1000,
     },
     ...(ring !== undefined && {
       ring: {

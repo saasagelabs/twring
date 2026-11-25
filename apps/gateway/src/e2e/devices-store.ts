@@ -15,7 +15,7 @@ import {
  */
 
 export class E2eDeviceError extends Error {
-  constructor(readonly code: 'device_cap' | 'duplicate_key' | 'device_conflict') {
+  constructor(readonly code: 'device_cap' | 'duplicate_key' | 'device_conflict' | 'handle_taken') {
     super(code);
     this.name = 'E2eDeviceError';
   }
@@ -31,6 +31,10 @@ export interface PairOfferRecord {
   connectorDeviceId: string;
   connectorPublicKey: string;
   expiresAt: string;
+  /** The typed code's lookup handle (C3 #11); absent for an older computer's offer. */
+  handle?: string;
+  /** The computer's key commitment for the typed code (`offerKeyMac`), registered with it. */
+  keyMac?: string;
   claim?: OfferClaim;
 }
 
@@ -52,6 +56,8 @@ type OfferRow = {
   connector_public_key: string;
   expires_at: string;
   claim: string | null;
+  handle: string | null;
+  key_mac: string | null;
 };
 
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
@@ -77,6 +83,17 @@ export class E2eDeviceStore {
         expires_at TEXT NOT NULL, claim TEXT);
       CREATE INDEX IF NOT EXISTS e2e_pair_offers_expiry ON e2e_pair_offers(expires_at);
     `);
+    // Typed pairing codes (C3 #11). Added in place, so an existing database keeps its offers.
+    const columns = this.db.prepare('PRAGMA table_info(e2e_pair_offers)').all() as {
+      name: string;
+    }[];
+    if (!columns.some((column) => column.name === 'handle'))
+      this.db.exec('ALTER TABLE e2e_pair_offers ADD COLUMN handle TEXT');
+    if (!columns.some((column) => column.name === 'key_mac'))
+      this.db.exec('ALTER TABLE e2e_pair_offers ADD COLUMN key_mac TEXT');
+    this.db.exec(
+      'CREATE INDEX IF NOT EXISTS e2e_pair_offers_handle ON e2e_pair_offers(user_id, handle)',
+    );
   }
 
   private transaction<T>(run: () => T): T {
@@ -186,25 +203,51 @@ export class E2eDeviceStore {
     return Number(result.changes) > 0;
   }
 
+  /**
+   * A new offer. A typed handle must be unique among the account's live offers: one already held
+   * throws `handle_taken` so the computer picks another code (checked and inserted in one step).
+   */
   createOffer(
     userId: string,
     input: Omit<PairOfferRecord, 'id' | 'userId' | 'expiresAt' | 'claim'> & { expiresAt: Date },
   ): PairOfferRecord {
-    this.db.prepare('DELETE FROM e2e_pair_offers WHERE expires_at<?').run(this.now().toISOString());
+    const now = this.now().toISOString();
+    this.db.prepare('DELETE FROM e2e_pair_offers WHERE expires_at<?').run(now);
     const id = newOfferId();
-    this.db
-      .prepare(
-        'INSERT INTO e2e_pair_offers(id,user_id,connector_id,connector_device_id,connector_public_key,expires_at) VALUES(?,?,?,?,?,?)',
+    this.transaction(() => {
+      if (
+        input.handle !== undefined &&
+        this.db
+          .prepare('SELECT 1 FROM e2e_pair_offers WHERE user_id=? AND handle=? AND expires_at>?')
+          .get(userId, input.handle, now) !== undefined
       )
-      .run(
-        id,
-        userId,
-        input.connectorId,
-        input.connectorDeviceId,
-        input.connectorPublicKey,
-        input.expiresAt.toISOString(),
-      );
+        throw new E2eDeviceError('handle_taken');
+      this.db
+        .prepare(
+          'INSERT INTO e2e_pair_offers(id,user_id,connector_id,connector_device_id,connector_public_key,expires_at,handle,key_mac) VALUES(?,?,?,?,?,?,?,?)',
+        )
+        .run(
+          id,
+          userId,
+          input.connectorId,
+          input.connectorDeviceId,
+          input.connectorPublicKey,
+          input.expiresAt.toISOString(),
+          input.handle ?? null,
+          input.keyMac ?? null,
+        );
+    });
     return this.offer(userId, id)!;
+  }
+
+  /** This account's live, unclaimed offer with this typed handle; never another account's. */
+  offerByHandle(userId: string, handle: string): PairOfferRecord | undefined {
+    const row = this.db
+      .prepare(
+        'SELECT * FROM e2e_pair_offers WHERE user_id=? AND handle=? AND key_mac IS NOT NULL AND claim IS NULL AND expires_at>?',
+      )
+      .get(userId, handle, this.now().toISOString()) as OfferRow | undefined;
+    return row && this.record(row);
   }
 
   /** This account's offer, expired or not; never another account's. */
@@ -212,7 +255,10 @@ export class E2eDeviceStore {
     const row = this.db
       .prepare('SELECT * FROM e2e_pair_offers WHERE id=? AND user_id=?')
       .get(offerId, userId) as OfferRow | undefined;
-    if (!row) return undefined;
+    return row && this.record(row);
+  }
+
+  private record(row: OfferRow): PairOfferRecord {
     return {
       id: row.id,
       userId: row.user_id,
@@ -220,6 +266,8 @@ export class E2eDeviceStore {
       connectorDeviceId: row.connector_device_id,
       connectorPublicKey: row.connector_public_key,
       expiresAt: row.expires_at,
+      ...(row.handle !== null && { handle: row.handle }),
+      ...(row.key_mac !== null && { keyMac: row.key_mac }),
       ...(row.claim !== null && { claim: JSON.parse(row.claim) as OfferClaim }),
     };
   }
