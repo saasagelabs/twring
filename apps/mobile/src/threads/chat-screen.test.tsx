@@ -320,6 +320,41 @@ describe('a private chat', () => {
     expect(plain.props.caption).toBe('Sent through Twring');
   });
 
+  it("shows one quiet row per gap in the computer's messages, with the exact copy", () => {
+    setChat({
+      private: true,
+      messages: [sealed('s1', 1, 'agent'), sealed('s5', 5, 'agent'), sealed('s9', 9, 'agent')],
+      opened: [
+        { id: 's1', author: 'agent', state: 'ok', text: 'one' },
+        { id: 's5:gap', state: 'missing_before', missing: 3 },
+        { id: 's5', author: 'agent', state: 'ok', text: 'five' },
+        { id: 's9:gap', state: 'missing_before', missing: 1 },
+        { id: 's9', author: 'agent', state: 'ok', text: 'nine' },
+      ],
+    });
+    const { items } = render();
+    const copy = 'A message from your computer is missing here.';
+    expect(of(items, 'Notice').map((n) => n.props.text)).toEqual([copy, copy]);
+    expect(items.filter((e) => e.props.accessibilityLabel === copy)).toHaveLength(2);
+    // The row sits just before (above) the message that follows the gap.
+    const order = items
+      .filter((e) => e.type === 'Notice' || e.type === 'Bubble')
+      .map((e) => (e.type === 'Notice' ? 'gap' : e.props.text));
+    expect(order).toEqual(['gap', 'nine', 'gap', 'five', 'one']);
+  });
+
+  it("shows no gap row for the phone's own messages", () => {
+    setChat({
+      private: true,
+      messages: [sealed('s1', 1, 'user'), sealed('s4', 4, 'user')],
+      opened: [
+        { id: 's1', author: 'user', state: 'ok', text: 'mine' },
+        { id: 's4', author: 'user', state: 'ok', text: 'mine too' },
+      ],
+    });
+    expect(of(render().items, 'Notice')).toHaveLength(0);
+  });
+
   it('holds a voice note until "Send anyway"', () => {
     setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
     composer(render().all).onVoiceSend('file:///v.m4a', 3000);
