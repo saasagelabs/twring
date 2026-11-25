@@ -1,10 +1,35 @@
-import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 /** The TestFlight build script's secrets check (the macOS-only steps are proven on GitHub). */
+
+/**
+ * Git Bash on Windows, or null. A bare `bash` there is often WSL's launcher (System32 or
+ * WindowsApps), which never runs this script, so look next to Git for Windows instead.
+ */
+function findGitBash() {
+  const roots = [];
+  try {
+    // <git root>/mingw64/libexec/git-core
+    const execPath = execFileSync('git', ['--exec-path'], { encoding: 'utf8' }).trim();
+    roots.push(join(execPath, '..', '..', '..'));
+  } catch {
+    // git is not on PATH: try the default install below.
+  }
+  if (process.env.ProgramFiles) roots.push(join(process.env.ProgramFiles, 'Git'));
+  const candidates = roots.flatMap((root) => [
+    join(root, 'bin', 'bash.exe'),
+    join(root, 'usr', 'bin', 'bash.exe'),
+  ]);
+  return candidates.find((path) => existsSync(path)) ?? null;
+}
+
+const bash = process.platform === 'win32' ? findGitBash() : 'bash';
+// Windows without Git for Windows has no bash that can run the script: skip, never fake a pass.
+const itRunsScript = it.skipIf(bash === null);
 
 const script = join(import.meta.dirname, 'ios-testflight.sh');
 const ALL = {
@@ -19,17 +44,17 @@ const ALL = {
   EXPO_PUBLIC_SENTRY_DSN: 'https://dsn',
 };
 const run = (env) =>
-  spawnSync('bash', [script, 'check-env'], {
+  spawnSync(bash, [script, 'check-env'], {
     env: { PATH: process.env.PATH ?? '', ...env },
     encoding: 'utf8',
   });
 
 describe('ios-testflight.sh check-env', () => {
-  it('passes when every secret is set', () => {
+  itRunsScript('passes when every secret is set', () => {
     expect(run(ALL).status).toBe(0);
   });
 
-  it('lists every missing or empty secret and never prints a value', () => {
+  itRunsScript('lists every missing or empty secret and never prints a value', () => {
     const { status, stderr, stdout } = run({ ...ALL, ASC_KEY_ID: '', IOS_DIST_CERT_PASSWORD: '' });
     expect(status).toBe(1);
     expect(stderr).toContain('ASC_KEY_ID');
@@ -51,7 +76,7 @@ describe('ios-testflight.sh check-env', () => {
     expect(text).toMatch(/unless others\.empty\?\s*\n\s*abort/);
   });
 
-  it('requires the extension profile and never prints it', () => {
+  itRunsScript('requires the extension profile and never prints it', () => {
     const { status, stderr, stdout } = run({ ...ALL, IOS_APPSTORE_NSE_PROFILE_BASE64: '' });
     expect(status).toBe(1);
     expect(stderr).toContain('IOS_APPSTORE_NSE_PROFILE_BASE64');
@@ -76,8 +101,8 @@ describe('ios-testflight.sh check-env', () => {
     expect(cleanup.match(/IOS_NSE_PROFILE_UUID:-none/g)).toHaveLength(2);
   });
 
-  it('rejects an unknown command', () => {
-    const result = spawnSync('bash', [script, 'nope'], { encoding: 'utf8' });
+  itRunsScript('rejects an unknown command', () => {
+    const result = spawnSync(bash, [script, 'nope'], { encoding: 'utf8' });
     expect(result.status).toBe(2);
   });
 });
