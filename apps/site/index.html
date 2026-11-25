@@ -23,7 +23,7 @@
 <link rel="manifest" href="/site.webmanifest">
 <link rel="preload" href="/assets/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="/assets/home.css?v=4">
+<link rel="stylesheet" href="/assets/home.css?v=5">
 <script type="application/ld+json">
 {
  "@context": "https://schema.org",
@@ -209,33 +209,56 @@
           </svg>
         </div>
         <h1><span>Call your agents.</span> <span class="you">Let them call you.</span></h1>
-        <p class="lead">Twring is a phone app for the AI agents you already run. Press Call to talk to Claude Code, Codex or Hermes in a live call. When a job is done or needs your OK, your agent rings your phone. AI apps (Claude, ChatGPT and Grok Bot) can ring and message you too.</p>
+        <p class="lead">Twring is a phone app for the AI agents you already run. Press Call to talk to <span class="brand"><img src="/assets/logos/claude-code.webp" alt="" width="20" height="20">Claude Code</span>, <span class="brand"><img src="/assets/logos/codex.webp" alt="" width="20" height="20">Codex</span> or <span class="brand"><img src="/assets/logos/hermes.webp" alt="" width="20" height="20">Hermes</span> in a live call. When a job is done or needs your OK, your agent rings your phone. AI apps (<span class="brand"><img src="/assets/logos/claude.webp" alt="" width="20" height="20">Claude</span>, <span class="brand"><img src="/assets/logos/chatgpt.svg" alt="" width="20" height="20">ChatGPT</span> and <span class="brand"><img src="/assets/logos/grok.svg" alt="" width="20" height="20">Grok Bot</span>) can ring and message you too.</p>
         <div class="hero-ctas">
           <a class="btn btn-primary" href="/beta/">Get an invite</a>
           <a class="btn btn-quiet" href="#how">How it works</a>
         </div>
         <p class="hero-note">Invite only for now. We email you the setup steps for iPhone or Android.</p>
+
+        <div class="works-with">
+          <div class="ww-row talk">
+            <h2 class="ww-label">Talk live</h2>
+            <p class="ww-list">
+              <a class="brand lg" href="/claude-code/"><img src="/assets/logos/claude-code.webp" alt="" width="24" height="24">Claude Code</a>
+              <a class="brand lg" href="/codex/"><img src="/assets/logos/codex.webp" alt="" width="24" height="24">Codex</a>
+              <a class="brand lg" href="/hermes/"><img src="/assets/logos/hermes.webp" alt="" width="24" height="24">Hermes</a>
+            </p>
+            <p class="ww-note">Agents on your computer, or any agent with its own web address. Call them, and they can ring you.</p>
+          </div>
+          <div class="ww-row">
+            <h2 class="ww-label">Rings and messages</h2>
+            <p class="ww-list">
+              <span class="brand lg"><img src="/assets/logos/claude.webp" alt="" width="24" height="24">Claude</span>
+              <span class="brand lg"><img src="/assets/logos/chatgpt.svg" alt="" width="24" height="24">ChatGPT</span>
+              <span class="brand lg"><img src="/assets/logos/grok.svg" alt="" width="24" height="24">Grok Bot</span>
+            </p>
+            <p class="ww-note">AI apps that connect online. They message you and ring your phone, without live calls. <a href="/connector/">Connect an AI app</a></p>
+          </div>
+        </div>
       </div>
 
       <div class="stage" id="try">
         <fieldset class="agents js-only" id="agents">
           <legend>Choose an agent</legend>
-          <label><input type="radio" name="agent" value="claude-code" data-name="Claude Code" data-where="on your computer" data-href="/claude-code/" data-link="Twring with Claude Code" checked><span>Claude Code</span></label>
-          <label><input type="radio" name="agent" value="codex" data-name="Codex" data-where="on your computer" data-href="/codex/" data-link="Twring with Codex"><span>Codex</span></label>
-          <label><input type="radio" name="agent" value="hermes" data-name="Hermes" data-where="on your computer" data-href="/hermes/" data-link="Twring with Hermes"><span>Hermes</span></label>
-          <label><input type="radio" name="agent" value="apps" data-name="Claude" data-where="AI app" data-href="/connector/" data-link="Connect an AI app" data-ring-only><span>AI apps <small>rings only</small></span></label>
+          <label><input type="radio" name="agent" value="claude-code" data-name="Claude Code" data-logo="/assets/logos/claude-code.webp" data-where="on your computer" data-href="/claude-code/" data-link="Twring with Claude Code" checked><span><img src="/assets/logos/claude-code.webp" alt="" width="20" height="20">Claude Code</span></label>
+          <label><input type="radio" name="agent" value="codex" data-name="Codex" data-logo="/assets/logos/codex.webp" data-where="on your computer" data-href="/codex/" data-link="Twring with Codex"><span><img src="/assets/logos/codex.webp" alt="" width="20" height="20">Codex</span></label>
+          <label><input type="radio" name="agent" value="hermes" data-name="Hermes" data-logo="/assets/logos/hermes.webp" data-where="on your computer" data-href="/hermes/" data-link="Twring with Hermes"><span><img src="/assets/logos/hermes.webp" alt="" width="20" height="20">Hermes</span></label>
+          <label><input type="radio" name="agent" value="apps" data-name="Claude" data-logo="/assets/logos/claude.webp" data-where="AI app" data-href="/connector/" data-link="Connect an AI app" data-ring-only><span><span class="stack" aria-hidden="true"><img src="/assets/logos/claude.webp" alt="" width="20" height="20"><img src="/assets/logos/chatgpt.svg" alt="" width="20" height="20"><img src="/assets/logos/grok.svg" alt="" width="20" height="20"></span>AI apps <small>rings only</small></span></label>
         </fieldset>
 
         <figure class="device">
           <span class="tag">Demo</span>
           <div class="phone" id="callPhone" data-view="call">
+            <i class="glare" aria-hidden="true"></i>
             <div class="screen">
+              <div class="sb" aria-hidden="true"><span class="sb-time">9:41</span><span class="island"></span><span class="sb-icons"><svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="currentColor"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="currentColor"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="currentColor"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg><svg width="15" height="11" viewBox="0 0 15 11"><path d="M7.5 2.2c2.1 0 4 .8 5.5 2.1l1.1-1.2A9.6 9.6 0 0 0 7.5.5 9.6 9.6 0 0 0 .9 3.1L2 4.3a8 8 0 0 1 5.5-2.1zm0 3.3c1.2 0 2.3.4 3.2 1.2l1.1-1.2a6.4 6.4 0 0 0-8.6 0l1.1 1.2c.9-.8 2-1.2 3.2-1.2zm0 3.2c-.4 0-.8.2-1.1.5l1.1 1.3 1.1-1.3c-.3-.3-.7-.5-1.1-.5z" fill="currentColor"/></svg><svg width="25" height="12" viewBox="0 0 25 12"><rect x=".5" y=".5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="15" height="8" rx="2" fill="currentColor"/><path d="M23 4v4c.8-.3 1.4-1.1 1.4-2S23.8 4.3 23 4z" fill="currentColor" opacity=".45"/></svg></span></div>
               <div class="cv" data-state="speaking" data-voice="agent" data-talk="1">
                 <div class="cv-top" aria-hidden="true"><span class="cv-lbl">TWRING CALL</span><span class="cv-time mono">00:09</span></div>
                 <div class="orb" aria-hidden="true">
                   <i class="halo"></i><i class="halo"></i><i class="halo"></i>
                   <span class="orbit"><i></i><i></i><i></i></span>
-                  <span class="orb-core" data-initial>C</span>
+                  <span class="orb-core"><img class="orb-logo" data-logo src="/assets/logos/claude-code.webp" alt="" width="88" height="88"></span>
                 </div>
                 <p class="cv-name" data-agent>Claude Code</p>
                 <p class="cv-where" data-where>on your computer</p>
@@ -276,26 +299,33 @@
     <canvas id="signalCanvas"></canvas>
   </div>
 
-  <div class="works">
-    <div class="wrap groups">
-      <div class="group talk">
-        <h2>Talk live</h2>
-        <p class="names"><a href="/claude-code/"><b>Claude Code</b></a> <a href="/codex/"><b>Codex</b></a> <a href="/hermes/"><b>Hermes</b></a></p>
-        <p>Agents that run on your computer. Press Call and have a live voice conversation. They can ring you too. Any agent that has its own web address also works.</p>
-      </div>
-      <div class="group">
-        <h2>Rings and messages</h2>
-        <p class="names"><b>Claude</b> <b>ChatGPT</b> <b>Grok Bot</b></p>
-        <p>AI apps that connect online. They message you or ring your phone when something needs you. They do not take live calls. <a href="/connector/">Connect an AI app</a></p>
-      </div>
-    </div>
-  </div>
-
   <section class="band" id="how">
+    <div class="glow" aria-hidden="true"></div>
     <div class="wrap">
-      <div class="how-head">
-        <h2>Your agent stays the same. Twring adds the voice.</h2>
-        <p class="lead">A live call with Claude Code, Codex or Hermes works like a chat, spoken aloud. Your agent keeps its own model, memory, tools and permissions, and it runs where it runs today.</p>
+      <div class="how-top">
+        <div class="how-head">
+          <h2>Your agent stays the same. <span class="you">Twring adds the voice.</span></h2>
+          <p class="lead">A live call with <span class="brand"><img src="/assets/logos/claude-code.webp" alt="" width="20" height="20">Claude Code</span>, <span class="brand"><img src="/assets/logos/codex.webp" alt="" width="20" height="20">Codex</span> or <span class="brand"><img src="/assets/logos/hermes.webp" alt="" width="20" height="20">Hermes</span> works like a chat, spoken aloud. Your agent keeps its own model, memory, tools and permissions, and it runs where it runs today.</p>
+        </div>
+        <div class="layers" aria-hidden="true">
+          <div class="layer l-you">
+            <span class="l-ico"><svg width="22" height="22" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="l-txt"><b>You</b><span>Speak like on a call</span></span>
+            <span class="l-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+          </div>
+          <div class="l-link"><i class="pulse down"></i><i class="pulse up"></i></div>
+          <div class="layer l-twring">
+            <span class="l-ico"><svg viewBox="8 9 84 48" width="30" height="18"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="currentColor" stroke-width="5" stroke-linejoin="miter"/></svg></span>
+            <span class="l-txt"><b>Twring</b><span>Speech in, voice out</span></span>
+            <span class="l-tag">Voice layer</span>
+          </div>
+          <div class="l-link"><i class="pulse down"></i><i class="pulse up"></i></div>
+          <div class="layer l-agent">
+            <span class="l-ico l-logos"><img src="/assets/logos/claude-code.webp" alt="" width="40" height="40"><img src="/assets/logos/codex.webp" alt="" width="40" height="40"><img src="/assets/logos/hermes.webp" alt="" width="40" height="40"></span>
+            <span class="l-txt"><b>Your agent</b><span>Its own model, memory and tools</span></span>
+            <span class="l-tag same">Unchanged</span>
+          </div>
+        </div>
       </div>
       <ol class="path">
         <li><h3>You talk</h3><p>Twring turns your speech into text and passes it to your agent, like a chat message.</p></li>
@@ -325,13 +355,15 @@
         <figure class="device">
           <span class="tag">Demo</span>
           <div class="phone" id="ringPhone" data-view="ring">
+            <i class="glare" aria-hidden="true"></i>
             <div class="screen">
+              <div class="sb" aria-hidden="true"><span class="sb-time">9:41</span><span class="island"></span><span class="sb-icons"><svg width="17" height="11" viewBox="0 0 17 11"><rect x="0" y="7" width="3" height="4" rx="1" fill="currentColor"/><rect x="4.5" y="5" width="3" height="6" rx="1" fill="currentColor"/><rect x="9" y="2.5" width="3" height="8.5" rx="1" fill="currentColor"/><rect x="13.5" y="0" width="3" height="11" rx="1" fill="currentColor"/></svg><svg width="15" height="11" viewBox="0 0 15 11"><path d="M7.5 2.2c2.1 0 4 .8 5.5 2.1l1.1-1.2A9.6 9.6 0 0 0 7.5.5 9.6 9.6 0 0 0 .9 3.1L2 4.3a8 8 0 0 1 5.5-2.1zm0 3.3c1.2 0 2.3.4 3.2 1.2l1.1-1.2a6.4 6.4 0 0 0-8.6 0l1.1 1.2c.9-.8 2-1.2 3.2-1.2zm0 3.2c-.4 0-.8.2-1.1.5l1.1 1.3 1.1-1.3c-.3-.3-.7-.5-1.1-.5z" fill="currentColor"/></svg><svg width="25" height="12" viewBox="0 0 25 12"><rect x=".5" y=".5" width="21" height="11" rx="3.2" fill="none" stroke="currentColor" opacity=".4"/><rect x="2" y="2" width="15" height="8" rx="2" fill="currentColor"/><path d="M23 4v4c.8-.3 1.4-1.1 1.4-2S23.8 4.3 23 4z" fill="currentColor" opacity=".45"/></svg></span></div>
               <div class="rv" data-state="idle">
                 <p class="sr">The phone ringing with a call from <span data-agent>Claude Code</span>.</p>
                 <div class="cv-lbl" aria-hidden="true">TWRING CALL</div>
                 <div class="orb" aria-hidden="true">
                   <i class="halo"></i><i class="halo"></i><i class="halo"></i>
-                  <span class="orb-core" data-initial>C</span>
+                  <span class="orb-core"><img class="orb-logo" data-logo src="/assets/logos/claude-code.webp" alt="" width="88" height="88"></span>
                 </div>
                 <p class="rv-name" data-agent>Claude Code</p>
                 <p class="rv-why" id="ringWhy">Deploy is blocked on your approval for the production branch.</p>
@@ -459,6 +491,6 @@
   </div>
 </footer>
 
-<script src="/assets/home.js?v=2"></script>
+<script src="/assets/home.js?v=3"></script>
 </body>
 </html>
