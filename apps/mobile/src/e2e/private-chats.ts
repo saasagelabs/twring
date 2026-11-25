@@ -21,6 +21,7 @@ import {
   type SavedReplay,
   type SealedThreadMessage,
 } from './sealed-thread';
+import type { PhoneQuote } from './private-quote';
 import { hasComputer } from './private-state';
 
 /**
@@ -127,7 +128,7 @@ export class PrivateChats {
    * Seals one message. The seq comes from the keychain counter and is saved there before the
    * post goes out (P3b ruling 2): a failed send uses a seq, never reuses one.
    */
-  async seal(agentId: string, text: string): Promise<SealedEnvelopeV1> {
+  async seal(agentId: string, text: string, quote?: PhoneQuote): Promise<SealedEnvelopeV1> {
     if (text.length > MAX_USER_MESSAGE_CHARS) throw new SealError('too_long');
     let ctx: PhoneSealContext | undefined;
     try {
@@ -148,7 +149,10 @@ export class PrivateChats {
       throw new SealError('seal_failed');
     }
     try {
-      return sealOutgoing({ ...ctx, nextSeq: () => seq }, { text });
+      return sealOutgoing(
+        { ...ctx, nextSeq: () => seq },
+        { text, ...(quote !== undefined && { quote }) },
+      );
     } catch {
       throw new SealError('seal_failed');
     }
@@ -167,6 +171,20 @@ export class PrivateChats {
       sealed: [sealed],
     } as unknown as SealedThreadMessage);
     return opened.state === 'ok' ? opened.text : undefined;
+  }
+
+  /** The whole chat for an export, opened in a throwaway context so the chat's window stays. */
+  async openForExport(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+  ): Promise<OpenedMessage[] | undefined> {
+    const ctx = await this.context(agentId);
+    if (ctx === undefined) return undefined;
+    const scratch = createPhoneContext({ ...ctx, seen: undefined });
+    return openMessages(
+      scratch,
+      messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed'),
+    );
   }
 
   /** Opens a chat's sealed messages in order; undefined until the chat's context is loaded. */

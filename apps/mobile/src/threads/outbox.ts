@@ -41,7 +41,8 @@ export interface OutboxSealer {
   known(agentId: string): boolean;
   isPrivate(agentId: string): Promise<boolean>;
   /** Throws an error with a stable `code` when it cannot seal. */
-  seal(agentId: string, text: string): Promise<SealedEnvelopeV1>;
+  /** `replyTo`: the answered message, quoted inside the sealed payload. */
+  seal(agentId: string, text: string, replyTo?: string): Promise<SealedEnvelopeV1>;
   openOwn(agentId: string, sealed: SealedEnvelopeV1): Promise<string | undefined>;
 }
 /** Files in a private chat are not sealed yet: refused before anything goes out. */
@@ -432,7 +433,7 @@ export class Outbox {
     if (item.voice) return true;
     if (item.privateChat !== true) this.items.set(clientId, { ...item, privateChat: true });
     try {
-      const sealed = await this.sealer.seal(item.agentId, item.text);
+      const sealed = await this.sealer.seal(item.agentId, item.text, item.replyTo);
       const current = this.items.get(clientId);
       if (!current) return false;
       this.items.set(clientId, { ...current, privateChat: true, sealed });

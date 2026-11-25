@@ -17,9 +17,8 @@ import {
 } from '@/e2e/private-state';
 import { privateAvailability } from '@/e2e/private-availability';
 import { playCallFeedback } from '@/platform/haptics';
-import { deviceOnlyStore } from '@/platform/secure-store';
 import { activeServerUrl } from '@/servers/active';
-import { currentScope } from '@/threads/chats';
+import { currentScope, privateKeychain } from '@/threads/chats';
 import { type, usePalette } from '@/theme/tokens';
 
 /**
@@ -59,7 +58,7 @@ export function PrivateChatsRow({
           // Unknown (offline, a server error) reads as off for now and is asked again later.
           if (current) setAvailable(status === 'on');
         });
-    void loadTrusted(deviceOnlyStore)
+    void loadTrusted(privateKeychain())
       .then((found) => {
         if (current) setTrusted(found);
       })
@@ -79,7 +78,7 @@ export function PrivateChatsRow({
     setError(undefined);
     const result = await turnOnPrivate({
       agentId: agent.id,
-      trusted: await loadTrusted(deviceOnlyStore).catch(() => trusted),
+      trusted: await loadTrusted(privateKeychain()).catch(() => trusted),
       nav: router,
       api: { setPrivate: (id) => api.setPrivate!(id) },
     });

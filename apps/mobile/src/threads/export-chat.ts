@@ -1,6 +1,8 @@
+import type { ThreadMessage } from '@twring/contracts';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
+import type { OpenedMessage } from '../e2e/sealed-thread';
 import {
   collectThread,
   exportFileName,
@@ -22,12 +24,27 @@ export class SharingUnavailableError extends Error {
 export async function exportChat(
   api: ExportPageSource,
   agent: { id: string; name: string },
-  options: { signal: AbortSignal; onProgress: (count: number) => void },
+  options: {
+    signal: AbortSignal;
+    onProgress: (count: number) => void;
+    /** A private chat: opens its sealed messages on this phone (never a server export). */
+    open?: (messages: ThreadMessage[]) => Promise<OpenedMessage[] | undefined>;
+  },
 ): Promise<{ capped: boolean }> {
   if (!(await Sharing.isAvailableAsync())) throw new SharingUnavailableError();
   const { messages, capped } = await collectThread(api, agent.id, options);
   const now = new Date();
-  const markdown = renderChatMarkdown(messages, { agentName: agent.name, exportedAt: now, capped });
+  const open = messages.some((message) => message.kind === 'sealed') ? options.open : undefined;
+  const opened = open ? await open(messages).catch(() => undefined) : undefined;
+  if (options.signal.aborted) return { capped };
+  const markdown = renderChatMarkdown(messages, {
+    agentName: agent.name,
+    exportedAt: now,
+    capped,
+    ...(open && {
+      opened: new Map((opened ?? []).map((message) => [message.id, message])),
+    }),
+  });
   if (options.signal.aborted) return { capped };
   const file = new File(Paths.cache, exportFileName(agent.name, now));
   try {

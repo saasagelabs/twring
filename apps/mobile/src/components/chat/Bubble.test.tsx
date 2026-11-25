@@ -151,3 +151,34 @@ it('offers its long-press choices to screen readers', () => {
   });
   expect(onAction).toHaveBeenCalledWith('reply');
 });
+
+it('draws "Couldn\'t open this message" as a plain muted line, never as message text', () => {
+  const all = elements(
+    Bubble({
+      text: "Couldn't open this message",
+      time: '10:00',
+      sender: 'Hermes',
+      own: false,
+      onLink: vi.fn(),
+      muted: true,
+    }),
+  );
+  expect(all.some((item) => item.type === 'MessageText')).toBe(false);
+  const line = all.find((item) => item.props.children === "Couldn't open this message");
+  expect(line?.type).toBe('Text');
+  expect((line?.props.style as { fontStyle?: string }[])[1]).toMatchObject({ fontStyle: 'italic' });
+});
+
+it('marks a message the server could read with its caption', () => {
+  const all = elements(
+    Bubble({
+      text: 'hi',
+      time: '10:00',
+      sender: 'You',
+      own: true,
+      onLink: vi.fn(),
+      caption: 'Sent through Twring',
+    }),
+  );
+  expect(textsOf(all)).toContain('Sent through Twring');
+});

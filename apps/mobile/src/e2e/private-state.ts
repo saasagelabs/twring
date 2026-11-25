@@ -1,8 +1,9 @@
-import type { Agent } from '@twring/contracts';
+import type { Agent, ThreadMessage } from '@twring/contracts';
 
 import { ApiError } from '../api/client';
 import { apiErrorCopy } from '../api/errors';
 import type { TrustedDevice } from './pairing';
+import type { OpenedMessage } from './sealed-thread';
 
 /**
  * Turning private chats on for one computer agent (ADR-044, opt-in per agent). Only an agent on
@@ -68,4 +69,65 @@ export async function turnOnPrivate(deps: {
       return { status: 'failed', message: UPDATE_COMPUTER };
     return { status: 'failed', message: apiErrorCopy(error).message };
   }
+}
+
+/** Shown in a private chat only when it is true (Task 24, word for word from the plan). */
+export const PRIVATE_LABEL = 'Private: only your phone and your computer can read this';
+export const PRIVATE_LABEL_EXCEPT = 'Private, except messages marked as sent through Twring';
+/** Under a message the server could read (a voice note, or one sent before the chat was private). */
+export const SERVER_READABLE_MARK = 'Sent through Twring';
+export const VOICE_WARNING =
+  "Voice notes are turned into text on Twring's server, so this one won't be private. Send it anyway?";
+/** Calls and Listen stay; their speech goes through the server. */
+export const SPEECH_NOTE = "Speech goes through Twring's server.";
+export const COULDNT_OPEN = "Couldn't open this message";
+
+/** A message with text the server holds: a voice note, an older message, or one that slipped in. */
+export function serverReadable(message: ThreadMessage): boolean {
+  return message.kind === 'user_text' || message.kind === 'agent_text';
+}
+
+/**
+ * The header label of a chat, or undefined. Only a private chat gets one (never an AI app), and
+ * it claims "only your phone and your computer" only while no message there was server-readable.
+ * Calls, rings, approvals and notices are cards, not messages, and do not change it.
+ */
+export function labelFor(input: {
+  private: boolean;
+  messages: readonly ThreadMessage[];
+}): { text: string } | undefined {
+  if (!input.private) return undefined;
+  return {
+    text: input.messages.some(serverReadable) ? PRIVATE_LABEL_EXCEPT : PRIVATE_LABEL,
+  };
+}
+
+export interface SealedBubble {
+  text: string;
+  own: boolean;
+  /** False for "Couldn't open this message": no reply, copy or share. */
+  opened: boolean;
+  quote?: { from: string; text: string };
+  actions: ('reply' | 'copy' | 'share')[];
+}
+
+/** How a private message is drawn; undefined while the keys load (nothing is drawn yet). */
+export function sealedBubble(
+  message: ThreadMessage,
+  opened: ReadonlyMap<string, OpenedMessage> | undefined,
+  agentName: string,
+): SealedBubble | undefined {
+  if (message.kind !== 'sealed' || opened === undefined) return undefined;
+  const found = opened.get(message.id);
+  const own = message.author === 'user';
+  if (found?.state !== 'ok') return { text: COULDNT_OPEN, own, opened: false, actions: [] };
+  return {
+    text: found.text,
+    own,
+    opened: true,
+    ...(found.quote !== undefined && {
+      quote: { from: found.quote.from === 'agent' ? agentName : 'You', text: found.quote.text },
+    }),
+    actions: found.text ? ['reply', 'copy', 'share'] : ['reply'],
+  };
 }

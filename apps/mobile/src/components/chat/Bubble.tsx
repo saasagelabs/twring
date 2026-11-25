@@ -27,6 +27,7 @@ export function Bubble({
   actions,
   onAction,
   onLongPress,
+  muted,
 }: {
   text: string;
   time: string;
@@ -46,6 +47,8 @@ export function Bubble({
   actions?: { name: string; label: string }[];
   onAction?: (name: string) => void;
   onLongPress?: () => void;
+  /** A private message this phone could not open: a plain line, never rendered as markdown. */
+  muted?: boolean;
 }) {
   const palette = usePalette();
   const [all, setAll] = useState(false);
@@ -98,7 +101,12 @@ export function Bubble({
             pending={!!pendingFiles}
           />
         )}
-        {!!text && (
+        {!!text && muted && (
+          <Text style={[styles.muted, { color: palette.textSecondary, fontStyle: 'italic' }]}>
+            {text}
+          </Text>
+        )}
+        {!!text && !muted && (
           // Clipped until Show all, so a tall message never flashes full height before it is
           // measured; the inner view keeps its full height, which decides the fold.
           <View style={all ? undefined : styles.fold}>
@@ -156,6 +164,7 @@ const styles = StyleSheet.create({
   quote: { borderLeftWidth: 3, paddingLeft: 8, marginBottom: 6 },
   quoteFrom: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
   quoteText: { fontFamily: font.body, fontSize: type.caption.fontSize },
+  muted: { fontFamily: font.body, fontSize: type.body.fontSize },
   voice: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 },
   voiceTime: { fontFamily: font.mono, fontSize: type.caption.fontSize },
 });

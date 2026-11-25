@@ -1,0 +1,350 @@
+import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
+import type * as ReactModule from 'react';
+import type { ThreadMessage } from '@twring/contracts';
+import { beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+
+import type { OpenedMessage } from '../e2e/sealed-thread';
+
+/**
+ * The chat screen's wiring (C3 #11 P3c): an ordinary chat must look and behave as before, and a
+ * private chat must show its label, hold a voice note for "Send anyway" and draw sealed bubbles.
+ */
+const mocks = vi.hoisted(() => {
+  const chat: Record<string, unknown> & { sendVoice: Mock; send: Mock } = {
+    sendVoice: vi.fn(),
+    send: vi.fn(),
+  };
+  return { state: [] as unknown[], cursor: 0, deleted: [] as string[], chat };
+});
+
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof ReactModule>();
+  return {
+    ...actual,
+    useCallback: (fn: unknown) => fn,
+    useMemo: (fn: () => unknown) => fn(),
+    useRef: (current: unknown) => {
+      const slot = mocks.cursor++;
+      if (!(slot in mocks.state)) mocks.state[slot] = { current };
+      return mocks.state[slot];
+    },
+    useEffect: () => undefined,
+    useState: (initial: unknown) => {
+      const slot = mocks.cursor++;
+      if (!(slot in mocks.state))
+        mocks.state[slot] = typeof initial === 'function' ? (initial as () => unknown)() : initial;
+      return [
+        mocks.state[slot],
+        (next: unknown) => {
+          mocks.state[slot] =
+            typeof next === 'function'
+              ? (next as (v: unknown) => unknown)(mocks.state[slot])
+              : next;
+        },
+      ];
+    },
+  };
+});
+vi.mock('react-native', () => ({
+  StyleSheet: { create: (styles: unknown) => styles },
+  AccessibilityInfo: { announceForAccessibilityWithOptions: vi.fn() },
+  Alert: { alert: vi.fn() },
+  FlatList: 'FlatList',
+  Share: { share: vi.fn() },
+  Pressable: 'Pressable',
+  Text: 'Text',
+  View: 'View',
+}));
+vi.mock('react-native-keyboard-controller', () => ({
+  KeyboardAvoidingView: 'KeyboardAvoidingView',
+  KeyboardGestureArea: 'KeyboardGestureArea',
+}));
+vi.mock('react-native-safe-area-context', () => ({ SafeAreaView: 'SafeAreaView' }));
+vi.mock('expo-router', () => ({
+  router: { push: vi.fn(), back: vi.fn(), setParams: vi.fn() },
+  useLocalSearchParams: () => ({ agentId: 'agt_a' }),
+  useFocusEffect: () => undefined,
+}));
+vi.mock('expo-clipboard', () => ({ setStringAsync: vi.fn() }));
+vi.mock('expo-haptics', () => ({ selectionAsync: vi.fn(() => Promise.resolve()) }));
+vi.mock('expo-file-system', () => ({
+  File: class {
+    constructor(private uri: string) {}
+    delete() {
+      mocks.deleted.push(this.uri);
+    }
+  },
+}));
+vi.mock('@/agents/labels', () => ({
+  agentStatusFor: () => ({ label: 'Online' }),
+  callRefusal: () => undefined,
+}));
+vi.mock('@/agents/ai-app', () => ({
+  aiAppEmptyChat: () => '',
+  canCall: () => true,
+  isAiApp: () => false,
+  showComputerCallHint: () => false,
+}));
+vi.mock('@/threads/auto-listen', () => ({ autoListenTarget: () => undefined }));
+vi.mock('@/api', () => ({ ApiError: class {}, twringApi: () => undefined }));
+vi.mock('@/api/errors', () => ({ apiErrorCopy: () => ({ message: '' }) }));
+vi.mock('@/call/call-agent', () => ({ callAgent: vi.fn() }));
+vi.mock('@/call/session', () => ({
+  callController: () => undefined,
+  useCallView: () => ({ call: undefined }),
+}));
+vi.mock('@/call/on-call', () => ({ useOnCall: () => ({ active: false }) }));
+vi.mock('@twring/contracts', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  isActive: () => false,
+}));
+for (const [path, name] of [
+  ['Avatar', 'Avatar'],
+  ['ComputerCallHint', 'ComputerCallHint'],
+  ['chat/Bubble', 'Bubble'],
+  ['chat/ChatApproval', 'ChatApproval'],
+  ['chat/CallCard', 'CallCard'],
+  ['chat/Composer', 'Composer'],
+  ['chat/DateSeparator', 'DateSeparator'],
+  ['chat/LinkSheet', 'LinkSheet'],
+  ['chat/Notice', 'Notice'],
+  ['chat/StatusLine', 'StatusLine'],
+  ['chat/WorkingRow', 'StreamingReply'],
+  ['CallButton', 'CallButton'],
+  ['OnCallChip', 'OnCallChip'],
+  ['ErrorNotice', 'ErrorNotice'],
+  ['GhostButton', 'GhostButton'],
+  ['IconButton', 'IconButton'],
+  ['Skeleton', 'Skeleton'],
+] as const)
+  vi.doMock(`@/components/${path}`, () => ({ [name]: name }));
+vi.mock('@/components/chat/NewReplyPill', () => ({
+  NewReplyPill: 'NewReplyPill',
+  UnreadDivider: 'UnreadDivider',
+}));
+vi.mock('@/components/chat/MessageActions', () => ({
+  MessageActionSheet: 'MessageActionSheet',
+  ReplyBar: 'ReplyBar',
+}));
+vi.mock('@/components/chat/ListenButton', () => ({
+  ListenButton: 'ListenButton',
+  stopMessageSpeech: vi.fn(),
+}));
+vi.mock('@/components/chat/PrivateChat', () => ({
+  PrivateBanner: 'PrivateBanner',
+  VoiceNoteWarning: 'VoiceNoteWarning',
+}));
+vi.mock('@/components/chat/status-line', () => ({ statusLineContent: () => undefined }));
+vi.mock('@/e2e/private-state', () => import('../e2e/private-state'));
+vi.mock('@/hooks/useNow', () => ({ useNow: () => Date.parse('2026-11-25T12:00:00Z') }));
+vi.mock('@/platform/ring', () => ({ ringPlatform: { clearMessages: vi.fn() } }));
+vi.mock('@/hooks/useResource', () => ({
+  STATUS_POLL_MS: 1,
+  useResource: () => ({
+    data: { id: 'agt_a', name: 'Hermes', messages: [] },
+    loading: false,
+    error: undefined,
+    reload: () => undefined,
+  }),
+}));
+vi.mock('@/theme/fonts', () => ({ font: {} }));
+vi.mock('@/theme/tokens', () => ({
+  type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
+  usePalette: () => ({}),
+}));
+vi.mock('@/threads/chats', () => ({
+  chatController: () => undefined,
+  useChat: () => mocks.chat,
+  useDraft: () => ['', () => undefined],
+}));
+vi.mock('@/threads/scroll-state', () => ({
+  firstUnreadSeq: () => undefined,
+  initialPill: { show: false, count: 0 },
+  nextPill: (p: unknown) => p,
+  pillLabel: () => '',
+  replyIds: () => [],
+  shouldAnnounce: () => false,
+}));
+vi.mock('@/threads/presentation', () => ({
+  callDuration: () => '0:05',
+  dateLabel: () => 'Today',
+  messageStatus: () => '',
+}));
+vi.mock('@/threads/message-actions', () => import('./message-actions'));
+
+let ChatScreen: () => ReactElement;
+beforeAll(async () => {
+  ChatScreen = (await import('../app/chats/[agentId]')).default;
+});
+
+type Props = Record<string, unknown> & { children?: ReactNode };
+function elements(node: ReactNode): ReactElement<Props>[] {
+  if (Array.isArray(node)) return node.flatMap(elements);
+  if (!isValidElement<Props>(node)) return [];
+  return [node, ...Children.toArray(node.props.children).flatMap(elements)];
+}
+const at = '2026-11-25T10:00:00.000Z';
+const base = { agent_id: 'agt_a', created_at: at, updated_at: at };
+const userText = (id: string, seq: number, text: string): ThreadMessage =>
+  ({
+    ...base,
+    id,
+    seq,
+    rev: seq,
+    kind: 'user_text',
+    text,
+    status: 'answered',
+  }) as unknown as ThreadMessage;
+const agentText = (id: string, seq: number, text: string): ThreadMessage =>
+  ({ ...base, id, seq, rev: seq, kind: 'agent_text', text }) as ThreadMessage;
+const sealed = (id: string, seq: number, author: 'user' | 'agent'): ThreadMessage =>
+  ({ ...base, id, seq, rev: seq, kind: 'sealed', author, sealed: [] }) as unknown as ThreadMessage;
+
+function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: OpenedMessage[] }) {
+  mocks.chat = {
+    state: { messages: input.messages, maxRev: 0, progress: undefined },
+    pending: [],
+    private: input.private,
+    opened: input.opened,
+    pairAgain: false,
+    filesAvailable: true,
+    send: vi.fn(),
+    sendFiles: vi.fn(),
+    sendVoice: vi.fn(),
+    retry: vi.fn(),
+    stop: vi.fn(),
+    loadOlder: vi.fn(),
+    deleteMessage: vi.fn(),
+    decideApproval: vi.fn(),
+  };
+}
+function render() {
+  mocks.cursor = 0;
+  const all = elements(ChatScreen());
+  const list = all.find((e) => e.type === 'FlatList');
+  const rows = (list?.props.data ?? []) as { kind: string }[];
+  const renderItem = list?.props.renderItem as (arg: { item: unknown }) => ReactNode;
+  const items = rows.flatMap((item) => elements(renderItem({ item })));
+  return { all, items };
+}
+const of = (all: ReactElement<Props>[], type: string) => all.filter((e) => e.type === type);
+const composer = (all: ReactElement<Props>[]) =>
+  of(all, 'Composer')[0].props as { onVoiceSend: (uri: string, ms: number) => void };
+
+beforeEach(() => {
+  mocks.state = [];
+  mocks.deleted = [];
+});
+
+describe('an ordinary chat (flag on or off) is unchanged', () => {
+  beforeEach(() =>
+    setChat({
+      private: false,
+      messages: [userText('m1', 1, 'hello'), agentText('m2', 2, 'hi there')],
+    }),
+  );
+
+  it('shows no Private banner and no "Sent through Twring" mark', () => {
+    const { all, items } = render();
+    expect(of(all, 'PrivateBanner')).toHaveLength(0);
+    for (const bubble of of(items, 'Bubble')) expect(bubble.props.caption).toBeUndefined();
+    expect(JSON.stringify(all)).not.toContain('Private');
+  });
+
+  it('renders the messages as before, with Listen on the agent reply', () => {
+    const { items } = render();
+    expect(of(items, 'Bubble').map((b) => [b.props.text, b.props.sender, b.props.muted])).toEqual([
+      ['hi there', 'Hermes', undefined],
+      ['hello', 'You', undefined],
+    ]);
+    expect(of(items, 'ListenButton').map((b) => b.props.messageId)).toEqual(['m2']);
+  });
+
+  it('sends a voice note at once, with no warning', () => {
+    const first = render();
+    composer(first.all).onVoiceSend('file:///v.m4a', 4000);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 4000, undefined);
+    expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
+  });
+
+  it('a reply still sends only the message id: the server builds the quote', () => {
+    const { items } = render();
+    const agentBubble = of(items, 'Bubble').find((b) => b.props.text === 'hi there')!;
+    (agentBubble.props.onAction as (name: string) => void)('reply');
+    const again = render();
+    expect(of(again.all, 'ReplyBar')[0]?.props).toMatchObject({ text: 'hi there' });
+    mocks.chat.send = vi.fn();
+    // The draft is empty in this mock; send a voice note in reply instead, by id only.
+    composer(again.all).onVoiceSend('file:///r.m4a', 1000);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///r.m4a', 1000, 'm2');
+  });
+});
+
+describe('a private chat', () => {
+  it('shows exactly the full label while every message is sealed', () => {
+    setChat({
+      private: true,
+      messages: [sealed('s1', 1, 'user'), sealed('s2', 2, 'agent')],
+      opened: [
+        { id: 's1', author: 'user', state: 'ok', text: 'secret question' },
+        { id: 's2', author: 'agent', state: 'couldnt_open' },
+      ],
+    });
+    const { all, items } = render();
+    expect(of(all, 'PrivateBanner').map((b) => b.props.label)).toEqual([
+      'Private: only your phone and your computer can read this',
+    ]);
+    const bubbles = of(items, 'Bubble').map((b) => [b.props.text, b.props.muted, b.props.own]);
+    expect(bubbles).toEqual([
+      ["Couldn't open this message", true, false],
+      ['secret question', false, true],
+    ]);
+    // No Listen on sealed bubbles (builder ruling).
+    expect(of(items, 'ListenButton')).toHaveLength(0);
+    // An unopenable message offers no actions.
+    const muted = of(items, 'Bubble').find((b) => b.props.muted)!;
+    expect(muted.props.actions).toEqual([]);
+  });
+
+  it('switches the label and marks a plain message when one is present', () => {
+    setChat({
+      private: true,
+      messages: [userText('m1', 1, 'old plain'), sealed('s2', 2, 'agent')],
+      opened: [{ id: 's2', author: 'agent', state: 'ok', text: 'opened' }],
+    });
+    const { all, items } = render();
+    expect(of(all, 'PrivateBanner')[0]?.props.label).toBe(
+      'Private, except messages marked as sent through Twring',
+    );
+    const plain = of(items, 'Bubble').find((b) => b.props.text === 'old plain')!;
+    expect(plain.props.caption).toBe('Sent through Twring');
+  });
+
+  it('holds a voice note until "Send anyway"', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    composer(render().all).onVoiceSend('file:///v.m4a', 3000);
+    expect(mocks.chat.sendVoice).not.toHaveBeenCalled();
+    const warning = of(render().all, 'VoiceNoteWarning')[0];
+    (warning.props.onSend as () => void)();
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined);
+    expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
+    expect(mocks.deleted).toEqual([]);
+  });
+
+  it('"Don\'t send" deletes the recording and sends nothing', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    composer(render().all).onVoiceSend('file:///v.m4a', 3000);
+    const warning = of(render().all, 'VoiceNoteWarning')[0];
+    (warning.props.onCancel as () => void)();
+    expect(mocks.chat.sendVoice).not.toHaveBeenCalled();
+    expect(mocks.deleted).toEqual(['file:///v.m4a']);
+    expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
+  });
+
+  it('a second recording while one is held does not leak the first file', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    composer(render().all).onVoiceSend('file:///one.m4a', 3000);
+    composer(render().all).onVoiceSend('file:///two.m4a', 3000);
+    expect(mocks.deleted).toContain('file:///one.m4a');
+  });
+});

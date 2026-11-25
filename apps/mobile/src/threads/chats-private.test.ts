@@ -68,6 +68,10 @@ function fromComputer(phoneId: string, phoneKey: Uint8Array, text: string, seq: 
 
 /** The computer opening what the phone sent. */
 function openAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array): string {
+  return openPayloadAsComputer(env, phoneKey).text;
+}
+
+function openPayloadAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array) {
   const aad = messageAad({
     accountId: ACCOUNT,
     agentId: LOCAL,
@@ -76,7 +80,7 @@ function openAsComputer(env: SealedEnvelopeV1, phoneKey: Uint8Array): string {
   });
   const mine = env.keys.find((k) => k.device === COMPUTER_ID)!;
   const key = unwrapKey(mine.wrapped, computer.privateKey, phoneKey, aad);
-  return openBody(key, env.nonce, env.body, aad).text;
+  return openBody(key, env.nonce, env.body, aad);
 }
 
 let ids = 0;
@@ -192,11 +196,8 @@ describe('private chats in the chat data layer', () => {
     t.controller.send(privateAgent, 'hello there');
     await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
     await (t.controller as unknown as { outbox: { flush(): Promise<void> } }).outbox.flush();
-    const saved = JSON.stringify([
-      t.outbox.value,
-      t.replay.value,
-      [...t.searchStore.rows.values()],
-    ]);
+    // The search copy is the one place opened text is kept (Task 23), removed on sign-out.
+    const saved = JSON.stringify([t.outbox.value, t.replay.value]);
     expect(saved).not.toContain('hello from computer');
     expect(saved).not.toContain('hello there');
     // The queued message is saved, sealed only.
@@ -312,5 +313,88 @@ describe('private chats in the chat data layer', () => {
     expect(new Set(all.map((p) => JSON.stringify(p.sealed))).size).toBe(1);
     expect(new Set(all.map((p) => p.clientId))).toEqual(new Set([clientId]));
     expect(t.store.m.get(SEQ_KEY_NAME)).toBe('1');
+  });
+
+  it('builds a 280-character reply quote inside the sealed payload', async () => {
+    const t = await setup();
+    const long = sealedMsg(
+      fromComputer(t.me.deviceId, t.me.publicKey, 'x'.repeat(400), 2),
+      'agent',
+    );
+    t.api.listMessages.mockResolvedValue({ messages: [long], hasMore: false });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)?.length).toBe(1));
+    t.controller.send(privateAgent, 'ok', long.id);
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalled());
+    const post = t.posts[0] as { sealed: SealedEnvelopeV1; replyTo?: string };
+    const payload = openPayloadAsComputer(post.sealed, t.me.publicKey);
+    expect(payload.quote).toMatchObject({ message_id: long.id, from: 'agent' });
+    expect(payload.quote!.text).toHaveLength(281);
+    expect(post.replyTo).toBe(long.id);
+    expect(post).not.toHaveProperty('reply_to_text');
+    expect(JSON.stringify(post)).not.toContain('xxxx');
+  });
+
+  it('a reply to a message that could not be opened has no quote', async () => {
+    const t = await setup();
+    const env = fromComputer(t.me.deviceId, t.me.publicKey, 'secret', 2);
+    const body = (env.body.startsWith('A') ? 'B' : 'A') + env.body.slice(1);
+    const broken = sealedMsg({ ...env, body }, 'agent');
+    t.api.listMessages.mockResolvedValue({ messages: [broken], hasMore: false });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() =>
+      expect(t.controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'couldnt_open' }),
+    );
+    t.controller.send(privateAgent, 'what was that?', broken.id);
+    await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalled());
+    const post = t.posts[0] as { sealed: SealedEnvelopeV1 };
+    expect(openPayloadAsComputer(post.sealed, t.me.publicKey).quote).toBeUndefined();
+  });
+
+  it('search finds a private message by its opened text', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(async () =>
+      expect((await t.controller.searchChats('computer')).map((r) => r.agentId)).toContain(
+        privateAgent,
+      ),
+    );
+    const [hit] = await t.controller.searchChats('computer');
+    expect(hit).toMatchObject({ role: 'agent', text: 'hello from computer' });
+  });
+
+  it('a message that could not be opened is never searchable', async () => {
+    const t = await setup();
+    const env = fromComputer(t.me.deviceId, t.me.publicKey, 'secret words', 2);
+    const body = (env.body.startsWith('A') ? 'B' : 'A') + env.body.slice(1);
+    t.api.listMessages.mockResolvedValue({
+      messages: [sealedMsg({ ...env, body }, 'agent')],
+      hasMore: false,
+    });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    expect(t.searchStore.rows.size).toBe(0);
+  });
+
+  it('sign-out removes the private search copy', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(() => expect(t.searchStore.rows.size).toBe(1));
+    await t.controller.clear({ forget: true });
+    expect(t.searchStore.rows.size).toBe(0);
+  });
+
+  it('opens the whole chat for export without moving the replay window', async () => {
+    const t = await setup();
+    const listed = (await t.api.listMessages()) as { messages: ThreadMessage[] };
+    const opened = await t.controller.openForExport(privateAgent, listed.messages);
+    expect(opened).toEqual([expect.objectContaining({ state: 'ok', text: 'hello from computer' })]);
+    // Opening again for the chat still works: export did not use the seq up.
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() =>
+      expect(t.controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'ok' }),
+    );
   });
 });

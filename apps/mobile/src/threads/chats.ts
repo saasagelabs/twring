@@ -1,4 +1,4 @@
-import type { ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
+import type { ThreadMessage, ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
@@ -12,6 +12,8 @@ import { STATUS_POLL_MS } from '@/hooks/useResource';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
+import { phoneQuote } from '../e2e/private-quote';
+import { noKeychain, scopedKeychain } from '../e2e/scoped-keychain';
 import type { SecureKeyValue } from '../auth/storage';
 import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
 import { DraftStore } from './drafts';
@@ -24,7 +26,7 @@ import {
 } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
-import { SearchIndex, memorySearchStore } from './search-index';
+import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
 
@@ -121,10 +123,15 @@ export class ChatController {
         if (this.availability === undefined) await this.refreshList();
         return this.isPrivate(agentId);
       },
-      seal: (agentId, text) => {
+      seal: (agentId, text, replyTo) => {
         if (!this.privacy)
           return Promise.reject(Object.assign(new Error(), { code: 'seal_failed' }));
-        return this.privacy.seal(agentId, text);
+        // The quote is built here from the opened text; the server never sees it (Task 22).
+        const target =
+          replyTo === undefined
+            ? undefined
+            : this.getOpened(agentId)?.find((message) => message.id === replyTo);
+        return this.privacy.seal(agentId, text, phoneQuote(target));
       },
       openOwn: (agentId, sealed) =>
         this.privacy?.openOwn(agentId, sealed) ?? Promise.resolve(undefined),
@@ -152,8 +159,40 @@ export class ChatController {
       return undefined;
     }
     this.opened.set(agentId, { from: messages, list });
+    this.keepOpenedSearchable(agentId, messages, list);
     return list;
   };
+
+  /** Opened text goes to the phone's search; a message that could not be opened never does. */
+  private keepOpenedSearchable(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+    list: readonly OpenedMessage[],
+  ): void {
+    const byId = new Map(messages.map((message) => [message.id, message]));
+    const rows: SearchRow[] = [];
+    for (const message of list) {
+      if (message.state !== 'ok' || message.partial || !message.text.trim()) continue;
+      const source = byId.get(message.id);
+      rows.push({
+        id: message.id,
+        agentId,
+        role: message.author === 'user' ? 'you' : 'agent',
+        text: message.text,
+        createdAt: source?.created_at ?? '',
+        seq: source?.seq ?? 0,
+      });
+    }
+    void this.search.recordRows(rows);
+  }
+
+  /** A private chat's whole history opened on this phone for "Export chat" (Task 23). */
+  openForExport(
+    agentId: string,
+    messages: readonly ThreadMessage[],
+  ): Promise<OpenedMessage[] | undefined> {
+    return this.privacy?.openForExport(agentId, messages) ?? Promise.resolve(undefined);
+  }
 
   /** A private chat with no computer to send to: "Pair your computer again" (P3b ruling 3). */
   getPairAgain = (agentId: string): boolean =>
@@ -533,6 +572,11 @@ const keychain: SecureKeyValue = {
   deleteItemAsync: (key) => deviceKeychain().then((store) => store.deleteItemAsync(key)),
 };
 
+/** This server and account's private chat keys (P3c ruling 1); nothing is kept when signed out. */
+export function privateKeychain(scope = currentScope()): SecureKeyValue {
+  return scope === undefined ? noKeychain : scopedKeychain(keychain, scope);
+}
+
 let controller: ChatController | undefined;
 let controllerScope: string | undefined;
 let signOutHookRegistered = false;
@@ -559,7 +603,7 @@ export function chatController(): ChatController | undefined {
             drafts: fileStore('drafts', scope),
             search: new SearchIndex(sqliteSearchStore(scope)),
             privacy: new PrivateChats({
-              store: keychain,
+              store: privateKeychain(scope),
               replay: fileStore('private', scope),
               addressOf: (agentId) =>
                 api.getAgent(agentId).then(
@@ -583,7 +627,7 @@ export function chatController(): ChatController | undefined {
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
             deleteSearchDatabase(signingOut),
-            forgetPrivateDevice(keychain),
+            forgetPrivateDevice(privateKeychain(signingOut)),
           ]).catch(() => undefined);
       });
       signOutHookRegistered = true;
@@ -652,6 +696,7 @@ export function useChat(agentId: string) {
       active?.decideApproval(agentId, messageId, decision),
     loadOlder: () => active?.loadOlder(agentId),
     /** Private chats: the opened messages (memory only) and whether to pair again. */
+    private: active?.isPrivate(agentId) ?? false,
     opened: active?.getOpened(agentId),
     pairAgain: active?.getPairAgain(agentId) ?? false,
     available: active?.getAvailability() ?? false,

@@ -11,8 +11,8 @@ import { pairApi } from '@/e2e/pair-api';
 import { claimPairing, confirmPairing, parsePairInput } from '@/e2e/pairing';
 import type { PairFailure, TrustedDevice } from '@/e2e/pairing';
 import { playCallFeedback } from '@/platform/haptics';
-import { deviceOnlyStore } from '@/platform/secure-store';
 import { activeServerUrl } from '@/servers/active';
+import { privateKeychain } from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -47,7 +47,7 @@ type Step =
 
 const deps = () => ({
   api: pairApi(),
-  store: deviceOnlyStore,
+  store: privateKeychain(),
   activeServer: activeServerUrl(),
   phoneName: Platform.OS === 'ios' ? 'iPhone' : 'Android phone',
 });
@@ -102,7 +102,7 @@ export default function PrivatePairScreen() {
   const onSame = async (connector: TrustedDevice) => {
     setBusy(true);
     try {
-      await confirmPairing({ store: deviceOnlyStore }, connector);
+      await confirmPairing({ store: privateKeychain() }, connector);
       playCallFeedback('connected');
       setStep({ kind: 'done' });
     } catch {
