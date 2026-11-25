@@ -3,13 +3,14 @@ import { useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { ErrorNotice } from '@/components/ErrorNotice';
+import { Field } from '@/components/Field';
 import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { QrScanner } from '@/components/QrScanner';
 import { Screen } from '@/components/Screen';
 import { pairApi } from '@/e2e/pair-api';
-import { claimPairing, confirmPairing, parsePairInput } from '@/e2e/pairing';
-import type { PairFailure, TrustedDevice } from '@/e2e/pairing';
+import { claimPairing, confirmPairing, parsePairInput, parseTypedPairCode } from '@/e2e/pairing';
+import type { PairFailure, PairInput, TrustedDevice } from '@/e2e/pairing';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
 import { privateKeychain } from '@/threads/chats';
@@ -29,6 +30,8 @@ const FAILURE_COPY: Record<PairFailure, string> = {
   network: 'Twring could not reach the server. Check your connection and try again.',
   wrong_server:
     'This code is for a different Twring server. Sign in to that server on this phone, or pair a computer that uses the same server as this phone.',
+  wrong_code: "That code didn't work. Check it on your computer and try again.",
+  too_many: 'Too many tries. Wait a minute and try again.',
 };
 
 const SCAN_COPY = {
@@ -41,9 +44,10 @@ const SCAN_COPY = {
 type Step =
   | { kind: 'start' }
   | { kind: 'scan' }
+  | { kind: 'type' }
   | { kind: 'compare'; safety: string; connector: TrustedDevice }
   | { kind: 'done' }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string; retry: 'scan' | 'type' };
 
 const deps = () => ({
   api: pairApi(),
@@ -71,10 +75,29 @@ export default function PrivatePairScreen() {
   const [notice, setNotice] = useState<string | undefined>();
   // Changes on every failed try, so the scanner listens again even for the same message.
   const [failures, setFailures] = useState(0);
+  // The code as typed, for people who cannot scan (the QR is on this phone, or the camera fails).
+  const [typed, setTyped] = useState('');
+  const typedInput = parseTypedPairCode(typed);
 
-  const fail = (message: string) => {
+  const fail = (message: string, retry: 'scan' | 'type' = 'scan') => {
     playCallFeedback('error');
-    setStep({ kind: 'error', message });
+    setStep({ kind: 'error', message, retry });
+  };
+
+  const pair = async (input: PairInput) => {
+    const retry = input.kind === 'typed' ? 'type' : 'scan';
+    setNotice(undefined);
+    setBusy(true);
+    try {
+      const result = await claimPairing(deps(), input);
+      if (result.ok)
+        setStep({ kind: 'compare', safety: result.safety, connector: result.connector });
+      else fail(FAILURE_COPY[result.code], retry);
+    } catch {
+      fail(FAILURE_COPY.network, retry);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const onScanned = async (data: string) => {
@@ -85,18 +108,12 @@ export default function PrivatePairScreen() {
       setFailures((n) => n + 1);
       return;
     }
-    setNotice(undefined);
-    setBusy(true);
-    try {
-      const result = await claimPairing(deps(), input);
-      if (result.ok)
-        setStep({ kind: 'compare', safety: result.safety, connector: result.connector });
-      else fail(FAILURE_COPY[result.code]);
-    } catch {
-      fail(FAILURE_COPY.network);
-    } finally {
-      setBusy(false);
-    }
+    await pair(input);
+  };
+
+  const onTyped = async () => {
+    if (busy || typedInput === undefined) return;
+    await pair(typedInput);
   };
 
   const onSame = async (connector: TrustedDevice) => {
@@ -184,11 +201,59 @@ export default function PrivatePairScreen() {
       <Screen
         title="Private chats"
         back
-        footer={<PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />}
+        footer={
+          step.retry === 'type' ? (
+            <PrimaryButton label="Type the code again" onPress={() => setStep({ kind: 'type' })} />
+          ) : (
+            <PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />
+          )
+        }
       >
         <View style={styles.step}>
           {heading('Not paired')}
           <ErrorNotice error={{ message: step.message, retryable: true }} />
+        </View>
+      </Screen>
+    );
+  }
+
+  if (step.kind === 'type') {
+    return (
+      <Screen
+        title="Private chats"
+        back
+        footer={
+          <View style={styles.actions}>
+            <PrimaryButton
+              label="Continue"
+              disabled={busy || typedInput === undefined}
+              onPress={() => void onTyped()}
+            />
+            <GhostButton
+              label="Scan instead"
+              disabled={busy}
+              onPress={() => setStep({ kind: 'scan' })}
+            />
+          </View>
+        }
+      >
+        <View style={styles.step}>
+          {heading('Type the code')}
+          {support('Type the 16 characters your computer shows under the square code.')}
+          <Field
+            label="Code from your computer"
+            hint="For example 7KQ2-M9XD-4HTP-W3RV"
+            value={typed}
+            onChangeText={setTyped}
+            maxLength={24}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            autoComplete="off"
+            autoFocus
+            returnKeyType="go"
+            onSubmitEditing={() => void onTyped()}
+          />
+          {busy && <ActivityIndicator accessibilityLabel="Checking" />}
         </View>
       </Screen>
     );
@@ -200,11 +265,14 @@ export default function PrivatePairScreen() {
       back
       footer={
         step.kind === 'start' ? (
-          <PrimaryButton
-            label="Scan the code on your computer"
-            accessibilityHint="Opens the camera"
-            onPress={() => setStep({ kind: 'scan' })}
-          />
+          <View style={styles.actions}>
+            <PrimaryButton
+              label="Scan the code on your computer"
+              accessibilityHint="Opens the camera"
+              onPress={() => setStep({ kind: 'scan' })}
+            />
+            <GhostButton label="Type the code instead" onPress={() => setStep({ kind: 'type' })} />
+          </View>
         ) : undefined
       }
     >

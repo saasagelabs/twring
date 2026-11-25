@@ -48,11 +48,18 @@ vi.mock('expo-router', () => ({
   router: { back: mocks.back, replace: vi.fn(), dismissTo: mocks.dismissTo },
   useLocalSearchParams: () => mocks.params,
 }));
-vi.mock('@/e2e/pairing', () => ({
-  parsePairInput: mocks.parsePairInput,
-  claimPairing: mocks.claimPairing,
-  confirmPairing: mocks.confirmPairing,
-}));
+vi.mock('@/e2e/pairing', async () => {
+  const { normalizeTypedPairCode } = await import('@twring/contracts');
+  return {
+    parsePairInput: mocks.parsePairInput,
+    parseTypedPairCode: (text: string) => {
+      const code = normalizeTypedPairCode(text);
+      return code === undefined ? undefined : { kind: 'typed', code };
+    },
+    claimPairing: mocks.claimPairing,
+    confirmPairing: mocks.confirmPairing,
+  };
+});
 vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}) }));
 // This server and account's keychain (P3c ruling 1), never the phone-wide one.
 vi.mock('@/threads/chats', () => ({ privateKeychain: () => ({ deviceOnly: true }) }));
@@ -60,6 +67,7 @@ vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
+vi.mock('@/components/Field', () => ({ Field: 'Field' }));
 vi.mock('@/components/PrimaryButton', () => ({ PrimaryButton: 'PrimaryButton' }));
 vi.mock('@/components/QrScanner', () => ({ QrScanner: 'QrScanner' }));
 vi.mock('@/components/Screen', () => ({ Screen: 'Screen' }));
@@ -74,6 +82,10 @@ import PrivatePairScreen from '../app/private/pair';
 
 type Props = {
   label?: string;
+  disabled?: boolean;
+  value?: string;
+  onChangeText?: (text: string) => unknown;
+  onSubmitEditing?: () => unknown;
   accessibilityLabel?: string;
   onPress?: () => unknown;
   onScanned?: (data: string) => unknown;
@@ -127,10 +139,71 @@ beforeEach(() => {
 });
 
 describe('private chat pairing screen', () => {
-  it('offers to scan, with help text and no way to type a code', () => {
+  it('offers to scan, with help text, and to type the code instead', () => {
     const tree = render();
     expect(text(tree)).toContain('Ask your agent on the computer to show the pairing code.');
-    expect(text(tree)).not.toMatch(/type the code|type a code|MCP|connector|twring-connect/i);
+    expect(labelled(tree, 'Type the code instead')).toBeDefined();
+    expect(text(tree).replace(/"key":/g, '')).not.toMatch(
+      /MCP|connector|twring-connect|end-to-end|encryption|handle|\bkey\b/i,
+    );
+  });
+
+  describe('typed code', () => {
+    const field = (tree: ReactElement) => elements(tree).find((e) => e.type === 'Field')!;
+    const typeCode = (code: string): ReactElement => {
+      mocks.state = [];
+      void labelled(render(), 'Type the code instead').props.onPress?.();
+      void field(render()).props.onChangeText?.(code);
+      return render();
+    };
+    const submit = async (code: string): Promise<ReactElement> => {
+      void labelled(typeCode(code), 'Continue').props.onPress?.();
+      await flush();
+      return render();
+    };
+
+    it('shows a labelled field, with no jargon', () => {
+      void labelled(render(), 'Type the code instead').props.onPress?.();
+      const tree = render();
+      expect(field(tree).props.label).toBe('Code from your computer');
+      expect(text(tree).replace(/"key":/g, '')).not.toMatch(
+        /MCP|connector|twring-connect|end-to-end|encryption|handle|\bkey\b/i,
+      );
+    });
+
+    it('keeps Continue off until 16 characters are typed, read the forgiving way', () => {
+      expect(labelled(typeCode('7KQ2-M9XD-4HTP'), 'Continue').props.disabled).toBe(true);
+      expect(labelled(typeCode('7KQ2-M9XD-4HTP-W3RU'), 'Continue').props.disabled).toBe(true);
+      expect(labelled(typeCode('7kq2 m9xd-4htp w3rv'), 'Continue').props.disabled).toBe(false);
+    });
+
+    it('pairs with the typed code and then asks to compare the same number', async () => {
+      const tree = await submit('7kq2-m9xd-4htp-w3rv');
+      expect(mocks.claimPairing.mock.calls[0]?.[1]).toEqual({
+        kind: 'typed',
+        code: '7KQ2M9XD4HTPW3RV',
+      });
+      expect(text(tree)).toContain('Does your computer show 123 456?');
+      void labelled(tree, 'Yes, same number').props.onPress?.();
+      await flush();
+      expect(mocks.confirmPairing).toHaveBeenCalled();
+    });
+
+    it('says exactly that the code did not work, and lets the person try again', async () => {
+      mocks.claimPairing.mockResolvedValue({ ok: false, code: 'wrong_code' });
+      const tree = await submit('7KQ2-M9XD-4HTP-W3RV');
+      expect(text(tree)).toContain(
+        "That code didn't work. Check it on your computer and try again.",
+      );
+      expect(mocks.feedback).toHaveBeenCalledWith('error');
+      void labelled(tree, 'Type the code again').props.onPress?.();
+      expect(elements(render()).some((e) => e.type === 'Field')).toBe(true);
+    });
+
+    it('can go back to scanning', () => {
+      void labelled(typeCode(''), 'Scan instead').props.onPress?.();
+      expect(elements(render()).some((e) => e.type === 'QrScanner')).toBe(true);
+    });
   });
 
   it('asks to compare the code and stores only after yes', async () => {
