@@ -134,7 +134,10 @@ vi.mock('@/components/chat/PrivateChat', () => ({
   PrivateBanner: 'PrivateBanner',
   VoiceNoteWarning: 'VoiceNoteWarning',
 }));
-vi.mock('@/components/chat/status-line', () => ({ statusLineContent: () => undefined }));
+vi.mock('@/components/chat/status-line', () => ({
+  statusLineContent: () => undefined,
+  latestOwn: () => undefined,
+}));
 vi.mock('@/e2e/private-state', () => import('../e2e/private-state'));
 vi.mock('@/hooks/useNow', () => ({ useNow: () => Date.parse('2026-11-25T12:00:00Z') }));
 vi.mock('@/platform/ring', () => ({ ringPlatform: { clearMessages: vi.fn() } }));

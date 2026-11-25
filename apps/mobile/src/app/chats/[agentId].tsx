@@ -36,7 +36,7 @@ import { MessageActionSheet, ReplyBar } from '@/components/chat/MessageActions';
 import { ListenButton, stopMessageSpeech } from '@/components/chat/ListenButton';
 import { Notice } from '@/components/chat/Notice';
 import { StatusLine } from '@/components/chat/StatusLine';
-import { statusLineContent } from '@/components/chat/status-line';
+import { latestOwn, statusLineContent } from '@/components/chat/status-line';
 import { StreamingReply } from '@/components/chat/WorkingRow';
 import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
@@ -238,9 +238,8 @@ export default function ChatScreen() {
     if (autoListenId) router.setParams({ listen: undefined });
   }, [autoListenId]);
   const offline = agent.data ? callRefusal(agent.data) !== undefined : true;
-  const lastUser = [...messages].reverse().find((entry) => entry.kind === 'user_text');
-  const working =
-    !!chat.state.progress || (lastUser?.kind === 'user_text' && lastUser.status === 'working');
+  const lastUser = latestOwn(messages);
+  const working = !!chat.state.progress || lastUser?.working === true;
   const start = () => {
     if (agent.data && canCall(agent.data) && !offline) {
       stopMessageSpeech();
@@ -337,10 +336,7 @@ export default function ChatScreen() {
     working,
     activity: chat.state.progress?.activity,
     pending: latestPending,
-    latest:
-      lastUser?.kind === 'user_text'
-        ? { status: lastUser.status, errorCode: lastUser.error_code }
-        : undefined,
+    latest: lastUser,
   });
   const stop = () => {
     const target = chat.state.progress?.messageId ?? latestId;
