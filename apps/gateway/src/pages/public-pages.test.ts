@@ -50,8 +50,17 @@ describe('public pages', () => {
     );
   });
 
+  it('says what private chats protect and what they do not', () => {
+    expect(PRIVACY_BODY_HTML).toContain('<h2>3. Private chats (agents on your computer)</h2>');
+    expect(PRIVACY_BODY_HTML).toContain('cannot read them');
+    expect(PRIVACY_BODY_HTML).toMatch(/calls, voice notes and Listen/i);
+    expect(PRIVACY_BODY_HTML).toMatch(/AI model provider/);
+    expect(PRIVACY_BODY_HTML).toMatch(/Recovery key/);
+    expect(PRIVACY_BODY_HTML).toMatch(/recovery key backup/);
+  });
+
   it('says what Twring receives from a self-hosted server', () => {
-    expect(PRIVACY_BODY_HTML).toContain('<h2>9. Self-hosted servers</h2>');
+    expect(PRIVACY_BODY_HTML).toContain('<h2>10. Self-hosted servers</h2>');
     expect(PRIVACY_BODY_HTML).toMatch(/sealed/i);
     expect(PRIVACY_BODY_HTML).toMatch(/never stored/i);
     expect(PRIVACY_BODY_HTML).toContain('twring uninstall');
