@@ -308,6 +308,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   '/v1/e2e/pairings',
   '/v1/e2e/pairings/:offerId',
   '/v1/e2e/computer/devices',
+  '/v1/e2e/computer/devices/:id',
 ]);
 
 /** Self-hosted only: the server's identity and pairing, which a phone reaches before it has a token. */

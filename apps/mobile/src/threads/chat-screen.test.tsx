@@ -210,6 +210,7 @@ function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: 
     private: input.private,
     opened: input.opened,
     pairAgain: false,
+    privateNotice: undefined,
     filesAvailable: true,
     send: vi.fn(),
     sendFiles: vi.fn(),
@@ -284,6 +285,16 @@ describe('an ordinary chat (flag on or off) is unchanged', () => {
 });
 
 describe('a private chat', () => {
+  it('a key notice offers "Pair again", which opens pairing, never "Try again"', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.privateNotice = 'Your computer was set up again, scan to continue';
+    const notice = of(render().all, 'ErrorNotice')[0];
+    expect(notice.props).toMatchObject({
+      actionLabel: 'Pair again',
+      error: { message: 'Your computer was set up again, scan to continue' },
+    });
+  });
+
   it('shows exactly the full label while every message is sealed', () => {
     setChat({
       private: true,

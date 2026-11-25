@@ -5,6 +5,7 @@ import {
   MAX_RELAY_MESSAGE_BYTES,
   MAX_SEALED_REPLY_CHUNKS,
   SCOPED_SESSIONS_FEATURE,
+  DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
   type RelayConnectorMessage,
@@ -457,6 +458,11 @@ describe('helloFeatures', () => {
           },
         ],
       }),
-    ).toEqual([SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE]);
+    ).toEqual([
+      SCOPED_SESSIONS_FEATURE,
+      SEALED_CHAT_FEATURE,
+      SEALED_CANCEL_FEATURE,
+      DEVICES_CHANGED_FEATURE,
+    ]);
   });
 });

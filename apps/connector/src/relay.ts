@@ -65,6 +65,8 @@ export interface RelayClientOptions {
       { type: 'sealed.message' | 'sealed.decision' | 'sealed.cancel' }
     >,
   ): void;
+  /** A private chat device was removed (`e2e.devices_changed`): read the device list again. */
+  onDevicesChanged?(): void;
   log?: (line: string) => void;
   delaysMs?: readonly number[];
   silenceTimeoutMs?: number;
@@ -263,6 +265,9 @@ export class RelayClient {
       case 'sealed.cancel':
         // Private chats (ADR-044): opened and answered by `PrivateChats` (e2e/turn.ts).
         this.options.onSealedMessage?.(frame);
+        return;
+      case 'e2e.devices_changed':
+        this.options.onDevicesChanged?.();
         return;
     }
   }

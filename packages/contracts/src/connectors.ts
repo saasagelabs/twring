@@ -280,6 +280,15 @@ export const relaySealedCancelSchema = z
   })
   .strict();
 
+/**
+ * Gateway to connector: a device was removed from the account's private chats (C3 #11), so the
+ * computer reads the device list again now. Not sealed and carries nothing: the server can only
+ * take trust away. Sent only to a computer that said `devices_changed`.
+ */
+export const relayDevicesChangedSchema = z
+  .object({ type: z.literal('e2e.devices_changed') })
+  .strict();
+
 export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayHelloSchema,
   relayChannelMessageSchema,
@@ -314,6 +323,7 @@ export const relayGatewayMessageSchema = z.discriminatedUnion('type', [
   relaySealedMessageSchema,
   relaySealedDecisionSchema,
   relaySealedCancelSchema,
+  relayDevicesChangedSchema,
 ]);
 export type RelayGatewayMessage = z.infer<typeof relayGatewayMessageSchema>;
 

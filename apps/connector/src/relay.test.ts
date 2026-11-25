@@ -281,6 +281,31 @@ describe('relay client', () => {
     expect(sealed[0]).toMatchObject({ message_id: `msg_${'a'.repeat(20)}` });
   });
 
+  it('hands e2e.devices_changed to onDevicesChanged, and a malformed one is dropped', async () => {
+    let changed = 0;
+    const url = await server((ws) => {
+      ws.on('message', () => {
+        ws.send(
+          JSON.stringify({
+            type: 'connector.ready',
+            protocol: 'cord-relay/1',
+            connector_id: `con_${'a'.repeat(20)}`,
+            name: 'Laptop',
+          }),
+        );
+        ws.send(JSON.stringify({ type: 'e2e.devices_changed', extra: 'x' }));
+        ws.send(JSON.stringify({ type: 'e2e.devices_changed' }));
+        ws.send(JSON.stringify({ type: 'e2e.devices_changed' }));
+      });
+    });
+    const statuses: RelayStatus[] = [];
+    const c = client(url, statuses, { onDevicesChanged: () => changed++ });
+    c.start();
+    await waitFor(() => changed === 2);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(changed).toBe(2);
+  });
+
   it('reconnects with backoff after a drop', async () => {
     let connections = 0;
     const url = await server((ws) => {

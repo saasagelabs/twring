@@ -108,6 +108,11 @@ export async function restoreDeviceKey(
   return { deviceId: deviceIdFor(publicKey), publicKey, privateKey };
 }
 
+/** This phone's device id, without making a key when there is none (the devices screen). */
+export async function readDeviceId(store: SecureKeyValue): Promise<string | undefined> {
+  return read(await store.getItemAsync(DEVICE_KEY_NAME))?.deviceId;
+}
+
 /** The next seq this phone seals with, saved before it is handed out: never reused. */
 /** One counter update at a time per keychain, so two quick sends never read the same seq. */
 const seqLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();

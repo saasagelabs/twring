@@ -205,8 +205,21 @@ export class ChatController {
     this.privacy !== undefined &&
     this.isPrivate(agentId) &&
     this.privacy.ready(agentId) !== undefined
-      ? this.privacy.pairAgain()
+      ? this.privacy.pairAgain(agentId)
       : false;
+
+  /** What a private chat says about its keys (pair again, set up again, lost keys), if anything. */
+  getPrivateNotice = (agentId: string): string | undefined =>
+    this.privacy !== undefined && this.isPrivate(agentId)
+      ? this.privacy.notice(agentId)
+      : undefined;
+
+  /** Removing this phone on the devices screen: its private chat keys go (the sign-out path). */
+  async forgetPrivateKeys(): Promise<void> {
+    this.opened.clear();
+    await this.privacy?.forget();
+    this.emit();
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -639,6 +652,9 @@ export function chatController(): ChatController | undefined {
             privacy: new PrivateChats({
               store: privateKeychain(scope),
               replay: fileStore('private', scope),
+              ...(api.privateDevices !== undefined && {
+                devices: () => api.privateDevices!(),
+              }),
               addressOf: (agentId) =>
                 api.getAgent(agentId).then(
                   (found) => found.endpoint_url,
@@ -735,6 +751,7 @@ export function useChat(agentId: string) {
     private: active?.isPrivate(agentId) ?? false,
     opened: active?.getOpened(agentId),
     pairAgain: active?.getPairAgain(agentId) ?? false,
+    privateNotice: active?.getPrivateNotice(agentId),
     available: active?.getAvailability() ?? false,
     filesAvailable: active?.getFilesAvailable() ?? false,
   };
@@ -774,4 +791,11 @@ export function useChatList(): {
       void active?.refreshList();
     },
   };
+}
+
+/** Forgets this phone's private chat keys (removing this phone on the devices screen). */
+export async function forgetThisPhonePrivateKeys(): Promise<void> {
+  const active = chatController();
+  if (active !== undefined) await active.forgetPrivateKeys();
+  else await forgetPrivateDevice(privateKeychain());
 }

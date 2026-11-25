@@ -46,6 +46,8 @@ export interface E2eRoutesOptions {
   writeRatePerMinute: number;
   /** Recovery backup reads per account per minute (each one lets the words be guessed offline). */
   recoveryReadRatePerMinute?: number;
+  /** After a device was removed: tells the account's connected computers (C3 #11). */
+  onDevicesChanged?: (userId: string) => void;
   now?: () => Date;
 }
 
@@ -235,9 +237,12 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
         { event: 'e2e_pair_claimed', offer_id: offerId, device_id: claim.phone_device_id },
         'e2e pairing claimed',
       );
+      // The connector id lets the phone bind this computer to its agents (C3 #11 P4a): a
+      // reply in a chat is taken only from the computer serving that chat's agent.
       return {
         connector_public_key: offer.connectorPublicKey,
         connector_device_id: offer.connectorDeviceId,
+        connector_id: offer.connectorId,
       };
     },
   );
@@ -338,11 +343,34 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     return devicesBody(devices.listWithRevoked(connector.user_id, since));
   });
 
+  // Computer: `private reset` made a new key, so its old device leaves the list (C3 #11 P4a).
+  // A computer may remove only its own computer devices, never a phone or another computer.
+  app.delete<{ Params: { id: string } }>('/v1/e2e/computer/devices/:id', async (request, reply) => {
+    const connector = await connectorFor(request, reply);
+    if (connector === undefined) return reply;
+    const id = request.params.id;
+    if (!e2eDeviceIdSchema.safeParse(id).success) return sendError(reply, 404, 'not_found');
+    const own = devices
+      .list(connector.user_id)
+      .find((d) => d.id === id && d.kind === 'computer' && d.connector_id === connector.id);
+    if (own === undefined || !devices.revoke(connector.user_id, id))
+      return sendError(reply, 404, 'not_found');
+    request.log.info(
+      { event: 'e2e_device_reset', device_id: id, connector_id: connector.id },
+      'e2e computer device reset',
+    );
+    options.onDevicesChanged?.(connector.user_id);
+    return reply.code(204).send();
+  });
+
+  // Phone: the same list as the computer's, revoked ones marked, so the phone also stops
+  // wrapping to a removed device (P4 ruling 3) and its devices screen shows the active ones.
   app.get('/v1/e2e/devices', (request, reply) => {
     const userId = phoneFor(request, reply);
     if (userId === undefined) return reply;
     if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
-    return devicesBody(devices.list(userId));
+    const since = new Date(now().getTime() - REVOKED_SHOWN_MS);
+    return devicesBody(devices.listWithRevoked(userId, since));
   });
 
   app.delete<{ Params: { id: string } }>('/v1/e2e/devices/:id', (request, reply) => {
@@ -356,6 +384,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       { event: 'e2e_device_revoked', device_id: request.params.id },
       'e2e device revoked',
     );
+    options.onDevicesChanged?.(userId);
     return reply.code(204).send();
   });
 
