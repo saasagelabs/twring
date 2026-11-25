@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
+import { twringApi } from '@/api';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { Field } from '@/components/Field';
 import { GhostButton } from '@/components/GhostButton';
@@ -58,6 +59,13 @@ const WORD_INPUT = {
 } as const;
 
 const deps = (account: string) => ({ api: recoveryApi(), store: privateKeychain(), account });
+
+/** The account's device list, so a restore drops computers removed since the backup. */
+function devicesList() {
+  const api = twringApi();
+  if (api?.privateDevices === undefined) return {};
+  return { devices: { list: () => api.privateDevices!() } };
+}
 
 /**
  * The optional recovery key for private chats (C3 #11). `?mode=create` shows 12 words once and
@@ -131,7 +139,7 @@ export default function PrivateRecoveryScreen() {
     setBusy(true);
     setError(undefined);
     try {
-      const result = await restoreFromWords(deps(account), backup, typed);
+      const result = await restoreFromWords({ ...deps(account), ...devicesList() }, backup, typed);
       if (result.ok) {
         playCallFeedback('connected');
         setTyped('');
@@ -180,6 +188,7 @@ export default function PrivateRecoveryScreen() {
             {support(
               'You get 12 words. Write them on paper and keep them safe. Twring never sees them and can not show them again.',
             )}
+            {support(RECOVERY_COPY.replaces)}
           </View>
         </Screen>
       );

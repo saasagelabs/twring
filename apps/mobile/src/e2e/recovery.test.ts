@@ -134,6 +134,64 @@ describe('recovery key on the phone', () => {
     expect(await restoreOffer({ api: server.api, store: newPhone })).toEqual({ kind: 'none' });
   });
 
+  it('a restore drops a computer that was removed while the phone was lost', async () => {
+    const { store } = await pairedPhone();
+    const server = fakeServer();
+    const words = newRecoveryWords();
+    await saveRecoveryKey({ api: server.api, store, account: ACCOUNT }, words);
+
+    const newPhone = memoryStore();
+    const backup = await found(server.api, newPhone);
+    const list = vi.fn(() =>
+      Promise.resolve({
+        devices: [
+          {
+            id: computer.id,
+            kind: 'computer',
+            name: 'Computer',
+            public_key: computer.public_key,
+            added_at: '2026-11-25T10:00:00.000Z',
+            revoked_at: '2026-11-25T11:00:00.000Z',
+          },
+        ],
+      }),
+    );
+    const result = await restoreFromWords(
+      { api: server.api, store: newPhone, account: ACCOUNT, devices: { list } },
+      backup,
+      words.join(' '),
+    );
+    expect(result.ok).toBe(true);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(await loadTrusted(newPhone)).toEqual([]);
+  });
+
+  it('a restore still works when the device list cannot be read', async () => {
+    const { store, me } = await pairedPhone();
+    const server = fakeServer();
+    const words = newRecoveryWords();
+    await saveRecoveryKey({ api: server.api, store, account: ACCOUNT }, words);
+
+    const newPhone = memoryStore();
+    const backup = await found(server.api, newPhone);
+    const log = vi.fn();
+    const result = await restoreFromWords(
+      {
+        api: server.api,
+        store: newPhone,
+        account: ACCOUNT,
+        log,
+        devices: { list: () => Promise.reject(new Error('offline')) },
+      },
+      backup,
+      words.join(' '),
+    );
+    expect(result).toEqual({ ok: true, deviceId: me.deviceId });
+    // The chat list checks again when a chat opens.
+    expect(await loadTrusted(newPhone)).toEqual([computer]);
+    expect(log).toHaveBeenCalledWith('e2e_recovery_sync_failed');
+  });
+
   it('refuses one wrong word before any server call or change', async () => {
     const { store } = await pairedPhone();
     const server = fakeServer();
