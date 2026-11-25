@@ -588,9 +588,12 @@ function run(config: ConnectorConfig): Promise<number> {
       fetch,
       persist: persistE2e,
       signal: client.stopSignal,
+      log,
     });
     if (result !== undefined && result.revoked > 0)
       log(`private chats: ${result.revoked} removed devices forgotten`);
+    if (result !== undefined && result.added > 0)
+      log(`private chats: ${result.added} approved phones added`);
     if (helloFeatures(e2e).join() !== before) client.rehello();
   };
   setInterval(() => void syncPrivate().catch(() => undefined), DEVICE_SYNC_MS).unref();

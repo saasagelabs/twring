@@ -24,7 +24,9 @@ export const trustedDeviceSchema = z
     public_key: publicKeySchema,
     verified_at: z.iso.datetime(),
   })
-  .strict();
+  // Saved by this connector only. A field from a newer version is dropped, not "damaged": a
+  // strict parse would make an older copy refuse the whole config (calls included).
+  .strip();
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>;
 
 export const e2eConfigSchema = z
@@ -38,12 +40,18 @@ export const e2eConfigSchema = z
      * Never wrapped to: they move to `devices` once the add succeeds or the server lists them.
      */
     pending: z.array(trustedDeviceSchema).max(4).optional(),
+    /**
+     * Devices the server has said were removed (newest last, at most MAX_REVOKED_SEEN). A trust
+     * note never brings one of these back, even when the server lists it as active again.
+     */
+    revoked: z.array(e2eDeviceIdSchema).max(32).optional(),
     /** The last seq this computer sealed with; never reused, even across restarts. */
     seq: z.number().int().nonnegative(),
     /** Highest seq opened per sender device, so a restart does not reopen old replays. */
     seen: z.record(e2eDeviceIdSchema, z.number().int().nonnegative()).optional(),
   })
-  .strict();
+  // As above: fields from a newer connector are dropped on load, the key and lists are kept.
+  .strip();
 export type E2eConfig = z.infer<typeof e2eConfigSchema>;
 
 /** The config with a device key, made once per install. */

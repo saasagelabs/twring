@@ -101,9 +101,9 @@ describe('syncDevices', () => {
           { status: 200 },
         ),
     );
-    expect(await env.run()).toEqual({ revoked: 1, unverified: 0 });
+    expect(await env.run()).toEqual({ revoked: 1, unverified: 0, added: 0 });
     expect(env.e2e().devices.map((d) => d.id)).toEqual([id('b')]);
-    expect(env.urls).toEqual(['https://api.twring.com/v1/e2e/computer/devices']);
+    expect(env.urls).toEqual(['https://api.twring.com/v1/e2e/computer/devices?notes=1']);
   });
 
   it('finishes a pairing whose last save failed once the server lists the phone', async () => {

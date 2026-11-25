@@ -39,6 +39,31 @@ describe('private chats in the saved config', () => {
     }
   });
 
+  it('loads private chat settings saved by a newer connector, keeping the key', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'cord-e2e-config-'));
+    try {
+      const path = join(dir, 'config.json');
+      const config = ensureDeviceKey(baseConfig).config;
+      const phone = {
+        id: `dev_${'b'.repeat(20)}`,
+        kind: 'phone',
+        name: 'Pixel',
+        public_key: config.e2e!.public_key,
+        verified_at: '2026-11-25T10:00:00.000Z',
+      };
+      const newer = {
+        ...config,
+        e2e: { ...config.e2e, devices: [{ ...phone, later: 1 }], from_a_later_version: [1] },
+      };
+      await writeFile(path, JSON.stringify(newer));
+      const loaded = await loadConfig(path);
+      expect(loaded?.e2e?.private_key).toBe(config.e2e!.private_key);
+      expect(loaded?.e2e?.devices).toEqual([phone]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('loads a config saved before private chats', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'cord-e2e-config-'));
     try {

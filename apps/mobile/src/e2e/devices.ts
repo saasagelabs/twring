@@ -1,4 +1,11 @@
-import { e2eDeviceSchema, MAX_PAIRED_DEVICES, type E2eDevice } from '@twring/contracts';
+import {
+  checkTrustNote,
+  e2eDeviceWithNoteSchema,
+  MAX_PAIRED_DEVICES,
+  type E2eDevice,
+  type E2eDeviceWithNote,
+  type TrustNoteRefusal,
+} from '@twring/contracts';
 import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
@@ -22,16 +29,19 @@ export function lostKeyMessage(): string {
 
 /** The signed-in phone's device calls; the raw answers, checked here. */
 export interface DevicesApi {
-  /** `GET /v1/e2e/devices`: active devices and those revoked lately (`revoked_at`). */
+  /**
+   * `GET /v1/e2e/devices?notes=1`: active devices and those revoked lately (`revoked_at`), each
+   * with the trust note a phone sealed when it approved it (C3 #11, Task 27).
+   */
   list(): Promise<unknown>;
   /** `DELETE /v1/e2e/devices/:id`; resolves once the server removed it (or it was gone). */
   remove(id: string): Promise<void>;
 }
 
-const listSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
+const listSchema = z.object({ devices: z.array(e2eDeviceWithNoteSchema).max(64) });
 
 /** The server's list, checked; throws on an answer that is not one. */
-export async function listDevices(api: Pick<DevicesApi, 'list'>): Promise<E2eDevice[]> {
+export async function listDevices(api: Pick<DevicesApi, 'list'>): Promise<E2eDeviceWithNote[]> {
   return listSchema.parse(await api.list()).devices;
 }
 
@@ -115,19 +125,105 @@ export function reconcileTrusted(
   return { trusted: kept, dropped: trusted.length - kept.length, bound };
 }
 
-/** Reads the server's list and applies `reconcileTrusted` to this phone's saved list. */
-export async function syncTrusted(
+/**
+ * Phones the server lists that another phone this one trusts approved (C3 #11 P4b ruling 4, the
+ * computer's rule): the note must come from a phone in this phone's own trusted list and name
+ * exactly the listed id and key. Only phones trusted before this pass can vouch.
+ */
+export function applyTrustNotes(
+  trusted: readonly TrustedDevice[],
+  server: readonly E2eDeviceWithNote[],
+  me: { deviceId: string; privateKey: Uint8Array },
+  now: number,
+): { trusted: TrustedDevice[]; added: number; refused: TrustNoteRefusal[] } {
+  const out = [...trusted];
+  const refused: TrustNoteRefusal[] = [];
+  for (const listed of server) {
+    if (
+      listed.trust_note === undefined ||
+      listed.revoked_at !== undefined ||
+      listed.kind !== 'phone' ||
+      listed.id === me.deviceId ||
+      out.some((d) => d.id === listed.id)
+    )
+      continue;
+    const checked = checkTrustNote(listed, trusted, me);
+    if (!checked.ok) {
+      refused.push(checked.reason);
+      continue;
+    }
+    out.push({
+      id: checked.add.id,
+      kind: 'phone',
+      name: checked.add.name,
+      public_key: checked.add.public_key,
+      verified_at: new Date(now).toISOString(),
+    });
+  }
+  return { trusted: out, added: out.length - trusted.length, refused };
+}
+
+/** Device ids the server said were removed, kept so a trust note can never bring one back. */
+export const REMOVED_KEY_NAME = 'twring.e2e.removed.v1';
+export const MAX_REMOVED_SEEN = 32;
+const removedSchema = z.array(z.string().min(1).max(64)).max(MAX_REMOVED_SEEN);
+
+async function rememberRemoved(
   store: SecureKeyValue,
   server: readonly E2eDevice[],
+): Promise<string[]> {
+  let kept: string[] = [];
+  try {
+    const parsed = removedSchema.safeParse(
+      JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]'),
+    );
+    if (parsed.success) kept = parsed.data;
+  } catch {
+    kept = [];
+  }
+  const fresh = server
+    .filter((d) => d.revoked_at !== undefined && !kept.includes(d.id))
+    .map((d) => d.id);
+  if (fresh.length === 0) return kept;
+  const next = [...kept, ...fresh].slice(-MAX_REMOVED_SEEN);
+  await store.setItemAsync(REMOVED_KEY_NAME, JSON.stringify(next));
+  return next;
+}
+
+/**
+ * Reads the server's list and applies `reconcileTrusted` to this phone's saved list, then, with
+ * this phone's key, the trust notes of phones another trusted phone approved.
+ */
+export async function syncTrusted(
+  store: SecureKeyValue,
+  server: readonly E2eDeviceWithNote[],
   log?: (event: string, fields?: Record<string, string | number>) => void,
+  me?: { deviceId: string; privateKey: Uint8Array },
+  now: () => number = Date.now,
 ): Promise<TrustedDevice[]> {
   const current = await loadTrusted(store);
   const out = reconcileTrusted(current, server);
-  if (out.dropped > 0 || out.bound > 0) {
-    await saveTrusted(store, out.trusted);
-    log?.('e2e_trusted_synced', { dropped: out.dropped, bound: out.bound });
+  const removed = await rememberRemoved(store, server);
+  const notedRaw =
+    me === undefined
+      ? { trusted: out.trusted, added: 0, refused: [] as TrustNoteRefusal[] }
+      : applyTrustNotes(
+          out.trusted,
+          server.filter((d) => !removed.includes(d.id)),
+          me,
+          now(),
+        );
+  const blocked = server.filter((d) => d.trust_note !== undefined && removed.includes(d.id));
+  const noted = {
+    ...notedRaw,
+    refused: [...notedRaw.refused, ...blocked.map((): TrustNoteRefusal => 'removed')],
+  };
+  for (const reason of new Set(noted.refused)) log?.('e2e_trust_note_refused', { reason });
+  if (out.dropped > 0 || out.bound > 0 || noted.added > 0) {
+    await saveTrusted(store, noted.trusted);
+    log?.('e2e_trusted_synced', { dropped: out.dropped, bound: out.bound, added: noted.added });
   }
-  return out.trusted;
+  return noted.trusted;
 }
 
 /**

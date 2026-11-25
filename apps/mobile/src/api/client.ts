@@ -721,7 +721,8 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
       }
     },
     async privateDevices(signal) {
-      return request('GET', '/v1/e2e/devices', { signal });
+      // `notes=1`: each approved phone's trust note too (C3 #11, Task 27).
+      return request('GET', '/v1/e2e/devices?notes=1', { signal });
     },
     async removePrivateDevice(deviceId, signal) {
       try {

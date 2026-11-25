@@ -8,6 +8,14 @@ import { randomBytes } from '@noble/hashes/utils.js';
 import { z } from 'zod';
 
 import { base64urlDecode, base64urlEncode, SealError } from './seal-core';
+import {
+  e2eDeviceIdSchema,
+  e2eDeviceKindSchema,
+  MAX_PAIRED_DEVICES,
+  phoneApprovalIdSchema,
+  publicKeySchema,
+  type TrustNote,
+} from './sealed-chat';
 import { MAX_QUOTE_CHARS, MAX_STORED_AGENT_MESSAGE_CHARS, threadMessageIdSchema } from './threads';
 
 /**
@@ -65,6 +73,15 @@ export function messageAad(a: {
       a.chunk ?? null,
     ]),
   );
+}
+
+/**
+ * AAD for a trust note (C3 #11, Task 27): binds the approval and the approving phone. No account
+ * id: `messageAad`'s account id is a computer's connector id, and a note goes to every device of
+ * the account; the wraps already name each recipient's key.
+ */
+export function trustNoteAad(a: { approvalId: string; senderDevice: string }): Uint8Array {
+  return utf8.encode(JSON.stringify(['twring-trust-v1', a.approvalId, a.senderDevice]));
 }
 
 /** AAD for a sealed file: sealed before upload, so no upload id; its key rides the payload. */
@@ -232,6 +249,17 @@ export const sealedApprovalIdSchema = z.string().regex(/^apv_[a-z2-7]{26}$/);
 export const MAX_SEALED_APPROVAL_TITLE_CHARS = 140;
 export const MAX_SEALED_APPROVAL_DESCRIPTION_CHARS = 500;
 
+/** A device as a trust note names it. */
+const trustEntrySchema = z
+  .object({
+    id: e2eDeviceIdSchema,
+    kind: e2eDeviceKindSchema,
+    name: z.string().min(1).max(60),
+    public_key: publicKeySchema,
+    connector_id: z.string().min(1).max(64).optional(),
+  })
+  .strict();
+
 /**
  * Sealed approvals in private chats (C3 #11). Not a chat message: `kind` is required here and
  * absent from `sealedPayloadSchema` (strict), so one can never be opened as the other.
@@ -251,6 +279,15 @@ export const sealedControlPayloadSchema = z.discriminatedUnion('kind', [
       kind: z.literal('approval_decision'),
       approval_id: sealedApprovalIdSchema,
       decision: z.enum(['approve', 'deny']),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('trust_add'),
+      approval_id: phoneApprovalIdSchema,
+      add: trustEntrySchema.extend({ kind: z.literal('phone') }).strict(),
+      /** The approving phone's trusted devices; only the new phone reads these. */
+      known: z.array(trustEntrySchema).max(MAX_PAIRED_DEVICES),
     })
     .strict(),
 ]);
@@ -288,6 +325,54 @@ export function openControl(
   const parsed = sealedControlPayloadSchema.safeParse(json);
   if (!parsed.success) throw new SealError('malformed sealed payload');
   return parsed.data;
+}
+
+export type TrustAddPayload = Extract<SealedControlPayload, { kind: 'trust_add' }>;
+
+/**
+ * Seals a trust note: a fresh key, the payload with `trustNoteAad`, and the key wrapped by the
+ * approving phone (sender-authenticated) to each recipient.
+ */
+export function sealTrustNote(a: {
+  payload: TrustAddPayload;
+  senderDevice: string;
+  senderPrivate: Uint8Array;
+  recipients: { id: string; publicKey: Uint8Array }[];
+}): TrustNote {
+  if (a.recipients.length === 0 || a.recipients.length > MAX_PAIRED_DEVICES)
+    throw new SealError('bad recipient count');
+  const aad = trustNoteAad({ approvalId: a.payload.approval_id, senderDevice: a.senderDevice });
+  const key = newMessageKey();
+  const sealed = sealControl(key, a.payload, aad);
+  return {
+    approval_id: a.payload.approval_id,
+    sender_device: a.senderDevice,
+    ...sealed,
+    keys: a.recipients.map((r) => ({
+      device: r.id,
+      wrapped: wrapKey(key, a.senderPrivate, r.publicKey, aad),
+    })),
+  };
+}
+
+/**
+ * Opens a trust note for this device. Throws SealError when no key is wrapped to it, the wrap or
+ * body does not open with `senderPublic` (which must come from the opener's own trusted list), or
+ * the payload is not a `trust_add` for the note's approval.
+ */
+export function openTrustNote(
+  note: TrustNote,
+  me: { deviceId: string; privateKey: Uint8Array },
+  senderPublic: Uint8Array,
+): TrustAddPayload {
+  const wrapped = note.keys.find((k) => k.device === me.deviceId);
+  if (wrapped === undefined) throw new SealError('no key for this device');
+  const aad = trustNoteAad({ approvalId: note.approval_id, senderDevice: note.sender_device });
+  const key = unwrapKey(wrapped.wrapped, me.privateKey, senderPublic, aad);
+  const payload = openControl(key, note.nonce, note.body, aad);
+  if (payload.kind !== 'trust_add' || payload.approval_id !== note.approval_id)
+    throw new SealError('not a trust note');
+  return payload;
 }
 
 /** What the phone's pairing MAC covers: everything the computer saves about the pair. */
@@ -463,4 +548,51 @@ export function offerKeyMacMatches(
   let diff = 0;
   for (let i = 0; i < expected.length; i++) diff |= expected[i]! ^ given[i]!;
   return diff === 0;
+}
+
+/** Why a listed device's trust note was not applied (logged as a reason only). */
+export type TrustNoteRefusal =
+  | 'no_note'
+  | 'sender_not_trusted'
+  | 'not_for_me'
+  | 'unopenable'
+  | 'wrong_device'
+  /** The server said this device was removed before; a note never brings it back. */
+  | 'removed';
+
+/**
+ * The rule both the computer and the phone apply to a device the server lists with a trust note
+ * (C3 #11 P4b ruling 4): the note's sender must be a phone in my own trusted list, the note must
+ * open with that phone's key, and it must name exactly the listed id and key, the id being the
+ * key's. The caller passes only listed, active devices it does not trust yet.
+ */
+export function checkTrustNote(
+  listed: { id: string; public_key: string; trust_note?: TrustNote },
+  trusted: readonly { id: string; kind: string; public_key: string }[],
+  me: { deviceId: string; privateKey: Uint8Array },
+): { ok: true; add: TrustAddPayload['add'] } | { ok: false; reason: TrustNoteRefusal } {
+  const note = listed.trust_note;
+  if (note === undefined) return { ok: false, reason: 'no_note' };
+  const sender = trusted.find((d) => d.id === note.sender_device && d.kind === 'phone');
+  if (sender === undefined) return { ok: false, reason: 'sender_not_trusted' };
+  if (!note.keys.some((k) => k.device === me.deviceId)) return { ok: false, reason: 'not_for_me' };
+  let payload: TrustAddPayload;
+  try {
+    payload = openTrustNote(note, me, base64urlDecode(sender.public_key));
+  } catch {
+    return { ok: false, reason: 'unopenable' };
+  }
+  const { add } = payload;
+  if (add.id !== listed.id || add.public_key !== listed.public_key || !keyMatchesId(add))
+    return { ok: false, reason: 'wrong_device' };
+  return { ok: true, add };
+}
+
+/** `deviceIdFor(public_key) === id`, false for a malformed key. */
+export function keyMatchesId(device: { id: string; public_key: string }): boolean {
+  try {
+    return deviceIdFor(base64urlDecode(device.public_key)) === device.id;
+  } catch {
+    return false;
+  }
 }
