@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => {
     save: vi.fn(),
     restore: vi.fn(),
     restoreOffer: vi.fn(),
+    privateDevices: vi.fn(),
   };
 });
 
@@ -71,6 +72,7 @@ vi.mock('@/e2e/recovery', async () => {
   };
 });
 vi.mock('@/e2e/pair-api', () => ({ recoveryApi: () => ({}) }));
+vi.mock('@/api', () => ({ twringApi: () => ({ privateDevices: mocks.privateDevices }) }));
 vi.mock('@/threads/chats', () => ({
   privateKeychain: () => ({}),
   currentScope: () => 'hosted_u1',
@@ -219,6 +221,12 @@ describe('recovery key screen: create', () => {
     });
   });
 
+  it('says a new key replaces the words saved before', () => {
+    expect(text(render())).toContain(
+      'Saving a new key replaces any recovery key you saved before, on any phone.',
+    );
+  });
+
   it('Not now leaves without saving', () => {
     void labelled(render(), 'Not now').props.onPress?.();
     expect(mocks.back).toHaveBeenCalled();
@@ -249,6 +257,18 @@ describe('recovery key screen: restore', () => {
     const tree = await typeAndRestore('words');
     expect(mocks.restore).toHaveBeenCalledWith(expect.anything(), { device_id: 'dev_x' }, 'words');
     expect(text(tree)).toContain('Restored');
+  });
+
+  it('reads the device list on restore, so removed computers are dropped', async () => {
+    mocks.restoreOffer.mockResolvedValue({ kind: 'found', backup: { device_id: 'dev_x' } });
+    mocks.restore.mockResolvedValue({ ok: true, deviceId: 'dev_x' });
+    mocks.privateDevices.mockResolvedValue({ devices: [] });
+    await typeAndRestore('words');
+    const deps = mocks.restore.mock.calls[0][0] as {
+      devices?: { list: () => Promise<unknown> };
+    };
+    expect(await deps.devices?.list()).toEqual({ devices: [] });
+    expect(mocks.privateDevices).toHaveBeenCalledTimes(1);
   });
 
   it('says the words do not match', async () => {

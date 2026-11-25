@@ -1,3 +1,4 @@
+import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
@@ -131,6 +132,15 @@ export default function PrivateDevicesScreen() {
             {state.hint !== undefined && (
               <Text style={[type.body, { color: palette.textSecondary }]}>{state.hint}</Text>
             )}
+            <SettingsGroup title="Recovery key">
+              <SettingsRow
+                label="Save a recovery key"
+                value="Lets a new phone read old private messages"
+                layout="stacked"
+                accessibilityHint="Shows 12 words to write down"
+                onPress={() => router.push('/private/recovery')}
+              />
+            </SettingsGroup>
           </>
         )}
       </View>

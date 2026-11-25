@@ -20,6 +20,7 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import { loadDeviceKey, restoreDeviceKey, TRUSTED_KEY_NAME } from './device-key';
+import { listDevices, syncTrusted, type DevicesApi } from './devices';
 import { loadTrusted, trustedDeviceSchema } from './pairing';
 
 /**
@@ -35,6 +36,7 @@ export const RECOVERY_CHECK_POSITIONS = [3, 9] as const;
 
 export const RECOVERY_COPY = {
   offer: "Save a recovery key? Without it, a new phone can't read old private messages.",
+  replaces: 'Saving a new key replaces any recovery key you saved before, on any phone.',
   wrongWords: "Those words don't match. Check them and try again.",
   damaged:
     "This recovery key can't be opened here, so nothing was changed. Pair this phone with your computer instead.",
@@ -61,6 +63,8 @@ export interface RecoveryDeps {
   store: SecureKeyValue;
   /** This server and account (`currentScope`): bound into the backup. */
   account: string;
+  /** The account's device list: a restore drops computers removed since the backup was saved. */
+  devices?: Pick<DevicesApi, 'list'>;
   now?: () => number;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
@@ -185,6 +189,15 @@ export async function restoreFromWords(
   const restored = await restoreDeviceKey(deps.store, privateKey, deps.now);
   await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(payload.trusted));
   deps.log?.('e2e_recovery_restored', { trusted: payload.trusted.length });
+  // A computer removed while this phone was lost leaves the restored list at once. If the list
+  // can't be read now, opening a private chat reads it again.
+  if (deps.devices !== undefined) {
+    try {
+      await syncTrusted(deps.store, await listDevices(deps.devices), deps.log);
+    } catch {
+      deps.log?.('e2e_recovery_sync_failed');
+    }
+  }
   return { ok: true, deviceId: restored.deviceId };
 }
 

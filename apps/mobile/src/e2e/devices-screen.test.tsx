@@ -6,7 +6,7 @@ import { devicesStateFrom } from './devices';
 
 /** The devices screen as rendered (C3 #11, Task 26): hooks are stubbed, state is set directly. */
 
-const mocks = vi.hoisted(() => ({ state: [] as unknown[], cursor: 0 }));
+const mocks = vi.hoisted(() => ({ state: [] as unknown[], cursor: 0, push: vi.fn() }));
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
@@ -32,6 +32,7 @@ vi.mock('react-native', () => ({
   View: 'View',
   ActivityIndicator: 'ActivityIndicator',
 }));
+vi.mock('expo-router', () => ({ router: { push: mocks.push } }));
 vi.mock('@/api', () => ({ twringApi: () => undefined }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
@@ -93,6 +94,7 @@ const REMOVING = 2;
 
 beforeEach(() => {
   mocks.state = [];
+  mocks.push.mockReset();
 });
 
 describe('devices screen', () => {
@@ -104,7 +106,7 @@ describe('devices screen', () => {
     const all = render();
     expect(all.find((e) => e.type === 'SettingsGroup')?.props.title).toBe('2 of 5 devices');
     const rows = all
-      .filter((e) => e.type === 'SettingsRow')
+      .filter((e) => e.type === 'SettingsRow' && e.props.label !== 'Save a recovery key')
       .map((e) => [e.props.label, e.props.value]);
     expect(rows).toEqual([
       ['Pixel (This phone)', 'Phone, added 2026-11-20'],
@@ -133,6 +135,19 @@ describe('devices screen', () => {
       'Remove computer',
       'Cancel',
     ]);
+  });
+
+  it('offers the recovery key below the devices', () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')], dev(0, 'phone', 'Pixel').id);
+    const all = render();
+    const groups = all.filter((e) => e.type === 'SettingsGroup').map((e) => e.props.title);
+    expect(groups).toEqual(['1 of 5 devices', 'Recovery key']);
+    const row = all.find(
+      (e) => e.type === 'SettingsRow' && e.props.label === 'Save a recovery key',
+    )!;
+    expect(row.props.value).toBe('Lets a new phone read old private messages');
+    (row.props.onPress as () => void)();
+    expect(mocks.push).toHaveBeenCalledWith('/private/recovery');
   });
 
   it('a list that failed to load says so and offers to try again', () => {
