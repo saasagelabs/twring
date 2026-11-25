@@ -81,6 +81,8 @@ export function snippet(text: string, terms: readonly string[]): string {
 export class SearchIndex {
   /** Chats tried this session: a failed fill is not retried until a reset. */
   private readonly tried = new Set<string>();
+  /** Opened private text: in memory only, merged into every search. */
+  private readonly privateRows = memorySearchStore();
 
   constructor(
     private readonly store: SearchStore,
@@ -93,21 +95,34 @@ export class SearchIndex {
     if (!rows.length) return Promise.resolve();
     return this.safely('save failed', rows.length, () => this.store.upsert(rows));
   }
-  /** Opened text of a private chat (Task 23): kept on this phone like any other chat text. */
-  recordRows(rows: readonly SearchRow[]): Promise<void> {
+  /**
+   * Opened text of a private chat (C3 #11): kept in memory only, never written to the phone, so
+   * no device backup can copy it. Rows an earlier version saved on disk are removed.
+   */
+  recordPrivate(rows: readonly SearchRow[]): Promise<void> {
     if (!rows.length) return Promise.resolve();
-    return this.safely('save failed', rows.length, () => this.store.upsert(rows));
+    void this.privateRows.upsert(rows);
+    return this.safely('remove failed', rows.length, () =>
+      this.store.remove(rows.map((row) => row.id)),
+    );
+  }
+  /** Private rows live until the app closes, a sign-out or an account switch. */
+  forgetPrivate(): void {
+    void this.privateRows.wipe();
   }
   forget(ids: readonly string[]): Promise<void> {
     if (!ids.length) return Promise.resolve();
+    void this.privateRows.remove(ids);
     return this.safely('remove failed', ids.length, () => this.store.remove(ids));
   }
   forgetAgent(agentId: string): Promise<void> {
     this.tried.delete(agentId);
+    void this.privateRows.removeAgent(agentId);
     return this.safely('remove chat failed', 1, () => this.store.removeAgent(agentId));
   }
   wipe(): Promise<void> {
     this.tried.clear();
+    this.forgetPrivate();
     return this.safely('wipe failed', 1, () => this.store.wipe());
   }
 
@@ -115,7 +130,14 @@ export class SearchIndex {
     const terms = searchTerms(query);
     if (!terms.length) return [];
     try {
-      const rows = await this.store.search(terms, limit);
+      const [saved, held] = await Promise.all([
+        this.store.search(terms, limit),
+        this.privateRows.search(terms, limit),
+      ]);
+      const heldIds = new Set(held.map((row) => row.id));
+      const rows = [...held, ...saved.filter((row) => !heldIds.has(row.id))]
+        .sort(newestFirst)
+        .slice(0, limit);
       return rows.map((row) => ({ ...row, snippet: snippet(row.text, terms) }));
     } catch {
       this.log('search failed', { terms: terms.length });
