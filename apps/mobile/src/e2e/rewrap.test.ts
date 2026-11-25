@@ -13,9 +13,13 @@ import {
 } from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
-import { loadOrCreateDeviceKey, type DeviceKey } from './device-key';
+import { DEVICE_KEY_NAME, loadOrCreateDeviceKey, type DeviceKey } from './device-key';
+import { LOST_KEYS } from './devices';
 import { saveTrusted, type TrustedDevice } from './pairing';
+import { PrivateChats } from './private-chats';
+import { PAIR_AGAIN } from './private-state';
 import {
+  hasRewrapWork,
   queueRewrap,
   readRewraps,
   REWRAP_JOBS_KEY,
@@ -104,7 +108,11 @@ function reply(
 async function approvingPhone() {
   const store = memoryStore();
   const me = await loadOrCreateDeviceKey(store);
-  await saveTrusted(store, [device('computer', computer.publicKey)]);
+  // The approve step trusts the new phone (`approveWaiting`).
+  await saveTrusted(store, [
+    device('computer', computer.publicKey),
+    device('phone', newPhone.publicKey),
+  ]);
   return { store, me };
 }
 
@@ -293,5 +301,164 @@ describe('the new phone opening re-wraps', () => {
         NEW_ID,
       ),
     ).toBeUndefined();
+  });
+});
+
+vi.mock('./pair-api', () => ({
+  rewrapApi: () => ({ upload: async () => ({ status: 204, body: undefined }) }),
+}));
+
+describe('verification edges (PR #158)', () => {
+  it('never wraps for a phone this phone no longer trusts', async () => {
+    const { store, me } = await approvingPhone();
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    // The new phone was removed here since: no longer trusted.
+    await saveTrusted(store, [device('computer', computer.publicKey)]);
+    const upload = vi.fn(async () => ({ status: 204, body: undefined }));
+    await runRewrapJobs(deps(store, [reply(1, [me.publicKey])], upload));
+    expect(upload).not.toHaveBeenCalled();
+    expect(await hasRewrapWork(store)).toBe(false);
+  });
+
+  it('never wraps for a trusted id under a key other than the approved one', async () => {
+    const { store, me } = await approvingPhone();
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(stranger.publicKey) });
+    const upload = vi.fn(async () => ({ status: 204, body: undefined }));
+    await runRewrapJobs(deps(store, [reply(1, [me.publicKey])], upload));
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('keeps the job when a chat address could not be read (offline)', async () => {
+    const { store } = await approvingPhone();
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    const { shareHistory } = await import('./share-history');
+    const api = {
+      getAgent: vi.fn(async () => {
+        throw new Error('offline');
+      }),
+      listMessages: vi.fn(async () => ({ messages: [], hasMore: false })),
+    };
+    await shareHistory(api, store, [AGENT_ID]);
+    expect(await hasRewrapWork(store)).toBe(true);
+  });
+
+  async function shared() {
+    const { store, me } = await approvingPhone();
+    const old = reply(7, [me.publicKey]);
+    const chunked = reply(8, [me.publicKey], ['a', 'b']);
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    const items = new Map<string, string>();
+    await runRewrapJobs(
+      deps(store, [old, chunked], async (_a, body) => {
+        for (const i of body.items) items.set(i.message_id, i.wrapped);
+        return { status: 204, body: undefined };
+      }),
+    );
+    return { me, old, chunked, items };
+  }
+
+  it('refuses a re-wrap whose by is this phone itself', async () => {
+    const { old, items } = await shared();
+    const ctx = newPhoneCtx(
+      [device('computer', computer.publicKey), device('phone', newPhone.publicKey)],
+      new Map([[old.id, { by: NEW_ID, wrapped: items.get(old.id)! }]]),
+    );
+    expect(openMessage(ctx, old).state).toBe('couldnt_open');
+  });
+
+  it('refuses a re-wrap moved to another chat, account or chunked message', async () => {
+    const { me, old, chunked, items } = await shared();
+    const trusted = [device('computer', computer.publicKey), device('phone', me.publicKey)];
+    for (const ids of [
+      { accountId: ACCOUNT, agentId: 'other-agent' },
+      { accountId: 'con_' + 'b'.repeat(20), agentId: AGENT },
+    ]) {
+      const ctx = createPhoneContext({
+        ...ids,
+        me: { deviceId: NEW_ID, publicKey: newPhone.publicKey, privateKey: newPhone.privateKey },
+        trusted,
+        nextSeq: () => 1,
+        rewraps: new Map([[old.id, { by: me.deviceId, wrapped: items.get(old.id)! }]]),
+      });
+      expect(openMessage(ctx, old).state).toBe('couldnt_open');
+    }
+    const moved = newPhoneCtx(
+      trusted,
+      new Map([[old.id, { by: me.deviceId, wrapped: items.get(chunked.id)! }]]),
+    );
+    expect(openMessage(moved, old).state).toBe('couldnt_open');
+    const ok = newPhoneCtx(
+      trusted,
+      new Map([[chunked.id, { by: me.deviceId, wrapped: items.get(chunked.id)! }]]),
+    );
+    expect(openMessage(ok, chunked)).toMatchObject({ state: 'ok', text: 'ab' });
+  });
+
+  async function newPhoneChats(
+    trusted: TrustedDevice[],
+    read: () => Promise<{ status: number; body: unknown }>,
+  ) {
+    const store = memoryStore();
+    await store.setItemAsync(
+      DEVICE_KEY_NAME,
+      JSON.stringify({
+        v: 1,
+        public_key: base64urlEncode(newPhone.publicKey),
+        private_key: base64urlEncode(newPhone.privateKey),
+      }),
+    );
+    await saveTrusted(store, trusted);
+    return new PrivateChats({
+      store,
+      replay: {
+        load: () => Promise.resolve({}),
+        save: () => Promise.resolve(),
+        remove: () => Promise.resolve(),
+      },
+      addressOf: () => Promise.resolve(ADDRESS),
+      rewraps: { read },
+    });
+  }
+
+  it('lost keys notice: re-wrapped messages count as readable', async () => {
+    const { me, old, items } = await shared();
+    const read = vi.fn(async () => ({
+      status: 200,
+      body: { items: [{ message_id: old.id, by: me.deviceId, wrapped: items.get(old.id)! }] },
+    }));
+    const c = await newPhoneChats(
+      [device('computer', computer.publicKey), device('phone', me.publicKey)],
+      read,
+    );
+    await c.context(AGENT_ID);
+    expect(c.open(AGENT_ID, [old])).toBeUndefined();
+    await c.context(AGENT_ID);
+    expect(c.open(AGENT_ID, [old])).toMatchObject([{ state: 'ok', text: 'reply 7' }]);
+    // Without a computer: pair again, not "keys lost".
+    const noComputer = await newPhoneChats([device('phone', me.publicKey)], read);
+    await noComputer.context(AGENT_ID);
+    noComputer.open(AGENT_ID, [old]);
+    await noComputer.context(AGENT_ID);
+    noComputer.open(AGENT_ID, [old]);
+    expect(noComputer.notice(AGENT_ID)).toBe(PAIR_AGAIN);
+  });
+
+  it('lost keys notice still shows when no re-wrap can be had, and reads only once', async () => {
+    const { me, old } = await shared();
+    for (const answer of [
+      { status: 200, body: { items: [] } },
+      { status: 500, body: undefined },
+    ]) {
+      const read = vi.fn(async () => answer);
+      const c = await newPhoneChats([device('phone', me.publicKey)], read);
+      await c.context(AGENT_ID);
+      c.open(AGENT_ID, [old]);
+      await c.context(AGENT_ID);
+      c.open(AGENT_ID, [old]);
+      expect(c.notice(AGENT_ID)).toBe(LOST_KEYS);
+      c.open(AGENT_ID, [old]);
+      await c.context(AGENT_ID);
+      expect(read).toHaveBeenCalledTimes(1);
+    }
   });
 });

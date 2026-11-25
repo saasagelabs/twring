@@ -133,8 +133,21 @@ async function runAll(deps: RewrapDeps): Promise<void> {
     return ids === undefined ? [] : [{ agentId: c.agentId, ids }];
   });
   const finished = (j: Job) => chats.every((c) => j.chats[c.agentId]?.done === true);
+  const trusted = await loadTrusted(deps.store);
   for (const job of jobs) {
     if (job.stopped) continue;
+    // Only for a phone this phone still trusts, under the key it approved: a phone removed
+    // since (or a job naming another key) is never shared with.
+    if (
+      !trusted.some(
+        (d) => d.id === job.for && d.kind === 'phone' && d.public_key === job.public_key,
+      )
+    ) {
+      job.stopped = true;
+      await saveJob(deps.store, job);
+      deps.log?.('e2e_rewrap_stopped', { device_id: job.for });
+      continue;
+    }
     for (const chat of chats) {
       if (job.chats[chat.agentId]?.done === true) continue;
       if ((await runChat(deps, me, job, chat.agentId, chat.ids)) === 'stopped') break;

@@ -1426,6 +1426,17 @@ can't come back with its old note (it can come back only by pairing with a code)
 drops fields it doesn't know from its saved private chat settings instead of refusing the whole
 file, so an older copy keeps working next to a newer one.
 
+History for an approved phone: after a phone approves a new one, it opens each older private
+message key meant for itself and wraps it again for the new phone. These wraps live in their own
+store on the server (one per message and phone), never inside a message's `sealed.keys`, which
+older apps read strictly. Each wrap uses the associated data of the message's first envelope (its
+account, agent, sender, sequence and chunk 0), so it opens only that message; the new phone then
+opens every chunk with the one key under each chunk's own associated data. The new phone takes a
+wrap only when its `by` is a phone it trusts, never itself and never a computer, and the approving
+phone wraps only for a phone it still trusts under the key it approved. The server deletes a
+device's wraps (made by it or for it) when the device is removed, with the message or chat, and
+with delete my data, and never hands out a wrap whose maker is no longer active.
+
 ### Consequences
 
 Server-side quotes, export, transcription, MCP reads and ring text do not work for private

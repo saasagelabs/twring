@@ -21,18 +21,15 @@ export async function shareHistory(
   await runRewrapJobs({
     store,
     api: rewrapApi(),
-    privateChats: async () =>
-      (
-        await Promise.all(
-          privateAgentIds.map(async (agentId) => {
-            const address = await api.getAgent(agentId).then(
-              (agent) => agent.endpoint_url,
-              () => undefined,
-            );
-            return address === undefined ? [] : [{ agentId, address }];
-          }),
-        )
-      ).flat(),
+    // A chat whose address cannot be read (offline) fails the run, so the job waits for the
+    // next open instead of finishing without that chat.
+    privateChats: () =>
+      Promise.all(
+        privateAgentIds.map(async (agentId) => ({
+          agentId,
+          address: (await api.getAgent(agentId)).endpoint_url,
+        })),
+      ),
     messages: (agentId, beforeSeq) =>
       api.listMessages(agentId, { ...(beforeSeq !== undefined && { beforeSeq }), limit: 100 }),
   });

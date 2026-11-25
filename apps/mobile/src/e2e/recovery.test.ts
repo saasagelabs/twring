@@ -105,7 +105,12 @@ describe('recovery key on the phone', () => {
     expect(sent).not.toContain(words.join(' '));
     for (const value of Object.values(body)) expect(words).not.toContain(value);
     const logged = JSON.stringify(log.mock.calls);
-    for (const word of words) expect(logged).not.toContain(word);
+    // Whole words, in the logged fields: fixed event names such as `e2e_recovery_saved` hold
+    // word-list letters ("save") by chance, and were flaky as substrings.
+    expect(logged).not.toContain(words.join(' '));
+    const fields = JSON.stringify(log.mock.calls.map((call: unknown[]) => call.slice(1)));
+    const tokens = new Set(fields.toLowerCase().split(/[^a-z0-9]+/));
+    for (const word of words) expect(tokens.has(word)).toBe(false);
     // Nor are they kept on the phone.
     const kept = JSON.stringify([...store.m.values()]);
     expect(kept).not.toContain(words.join(' '));

@@ -135,6 +135,36 @@ describe('re-wrapped keys for an approved phone (C3 #11, Task 28)', () => {
     expect(store.deleteRewrapsForDevice('u1', N)).toBe(0);
   });
 
+  it('one bad id in a batch stores nothing', async () => {
+    const { sealed, post, read } = await setup();
+    const m = await sealed();
+    const other = await sealed('u2', `agt_${'o'.repeat(20)}`);
+    const res = await post([
+      { message_id: m.id, wrapped: 'YQ' },
+      { message_id: other.id, wrapped: 'Yg' },
+    ]);
+    expect(res.statusCode).toBe(409);
+    expect((await read()).json().items).toEqual([]);
+  });
+
+  it('the foreign key cascade really deletes the row (not only hides it)', async () => {
+    const { sealed, post, store, agentId } = await setup();
+    const a = await sealed();
+    await post([{ message_id: a.id, wrapped: 'YQ' }]);
+    await store.deleteMessage('u1', agentId, a.id);
+    // Counts rows directly, without the join to messages.
+    expect(store.deleteRewrapsForDevice('u1', N)).toBe(0);
+  });
+
+  it('GET hides a row whose by device is no longer active', async () => {
+    const { g, sealed, post, read } = await setup();
+    const m = await sealed();
+    await post([{ message_id: m.id, wrapped: 'YQ' }]);
+    // Revoked in the store directly: the route hook did not run, so the row lingers.
+    expect(g.e2e.revoke('u1', T)).toBe(true);
+    expect((await read()).json().items).toEqual([]);
+  });
+
   it('caps an upload at 2,000 items', async () => {
     const { sealed, post } = await setup();
     const m = await sealed();
