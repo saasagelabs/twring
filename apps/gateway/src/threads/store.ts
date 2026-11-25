@@ -174,6 +174,87 @@ export class SqliteThreadStore {
     const columns = this.db.prepare('PRAGMA table_info(threads)').all() as { name: string }[];
     if (!columns.some((column) => column.name === 'private'))
       this.db.exec('ALTER TABLE threads ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
+    // Re-wrapped message keys for a phone approved later (C3 #11 Task 28). They go with their
+    // message (and so with the thread and with delete my data) through the foreign key.
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS e2e_sealed_rewraps(message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL, agent_id TEXT NOT NULL, for_device TEXT NOT NULL, by_device TEXT NOT NULL,
+        wrapped TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(message_id, for_device));
+      CREATE INDEX IF NOT EXISTS e2e_rewraps_for ON e2e_sealed_rewraps(user_id, agent_id, for_device);
+      CREATE INDEX IF NOT EXISTS e2e_rewraps_by ON e2e_sealed_rewraps(user_id, by_device);
+    `);
+  }
+
+  /**
+   * Stores re-wrapped keys made by `by` for `forDevice` (C3 #11 Task 28). Every message must be a
+   * sealed message of this person's thread with this agent, or nothing is stored. A repeat for
+   * the same (message, for) replaces the earlier one. The message itself is never touched.
+   */
+  addRewraps(
+    userId: string,
+    agentId: string,
+    input: { by: string; forDevice: string; items: { message_id: string; wrapped: string }[] },
+  ): 'stored' | 'unknown_message' {
+    return this.transaction(() => {
+      const thread = this.thread(userId, agentId);
+      if (!thread) return 'unknown_message' as const;
+      const exists = this.db.prepare(
+        "SELECT 1 FROM messages WHERE id=? AND thread_id=? AND user_id=? AND kind='sealed'",
+      );
+      for (const item of input.items)
+        if (!exists.get(item.message_id, thread.id, userId)) return 'unknown_message' as const;
+      const upsert = this.db.prepare(
+        `INSERT INTO e2e_sealed_rewraps(message_id,user_id,agent_id,for_device,by_device,wrapped,created_at)
+          VALUES(?,?,?,?,?,?,?) ON CONFLICT(message_id,for_device)
+          DO UPDATE SET by_device=excluded.by_device, wrapped=excluded.wrapped, created_at=excluded.created_at`,
+      );
+      const at = this.now().toISOString();
+      for (const item of input.items)
+        upsert.run(item.message_id, userId, agentId, input.forDevice, input.by, item.wrapped, at);
+      return 'stored' as const;
+    });
+  }
+
+  /** Re-wraps for one device in a thread, in message order, after message seq `after`. */
+  listRewraps(
+    userId: string,
+    agentId: string,
+    forDevice: string,
+    options: { after: number; limit: number },
+  ): { items: { message_id: string; by: string; wrapped: string }[]; next?: number } {
+    const thread = this.thread(userId, agentId);
+    if (!thread) return { items: [] };
+    const rows = this.db
+      .prepare(
+        `SELECT r.message_id, r.by_device, r.wrapped, m.seq FROM e2e_sealed_rewraps r
+          JOIN messages m ON m.id=r.message_id AND m.user_id=r.user_id
+          WHERE r.user_id=? AND r.agent_id=? AND r.for_device=? AND m.thread_id=? AND m.seq>?
+          ORDER BY m.seq LIMIT ?`,
+      )
+      .all(userId, agentId, forDevice, thread.id, options.after, options.limit + 1) as {
+      message_id: string;
+      by_device: string;
+      wrapped: string;
+      seq: number;
+    }[];
+    const page = rows.slice(0, options.limit);
+    return {
+      items: page.map((row) => ({
+        message_id: row.message_id,
+        by: row.by_device,
+        wrapped: row.wrapped,
+      })),
+      ...(rows.length > options.limit && { next: page[page.length - 1]!.seq }),
+    };
+  }
+
+  /** A device left the account: every re-wrap it made or was given goes. Returns the count. */
+  deleteRewrapsForDevice(userId: string, deviceId: string): number {
+    return Number(
+      this.db
+        .prepare('DELETE FROM e2e_sealed_rewraps WHERE user_id=? AND (for_device=? OR by_device=?)')
+        .run(userId, deviceId, deviceId).changes,
+    );
   }
 
   private transaction<T>(run: () => T): T {
@@ -1230,6 +1311,7 @@ export class SqliteThreadStore {
       ).map((row) => row.id);
       this.db.prepare('DELETE FROM files WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM file_days WHERE user_id=?').run(userId);
+      this.db.prepare('DELETE FROM e2e_sealed_rewraps WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM threads WHERE user_id=?').run(userId);
       return { messages: count.n, fileIds };
     });

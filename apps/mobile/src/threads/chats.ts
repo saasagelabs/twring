@@ -54,6 +54,7 @@ export class ChatController {
   /** Aborted on clear(): a fill in progress stops when the person signs out or switches. */
   private filling = new AbortController();
   private readonly privacy?: PrivateChats;
+  private shareHistory?: (privateAgentIds: string[]) => void;
   /** Opened private messages per chat, in memory only, for the messages list they came from. */
   private readonly opened = new Map<
     string,
@@ -68,10 +69,13 @@ export class ChatController {
       drafts?: JsonStore;
       search?: SearchIndex;
       privacy?: PrivateChats;
+      /** Runs re-wrap jobs for these private chats (C3 #11 Task 28); once per controller. */
+      shareHistory?: (privateAgentIds: string[]) => void;
     } = {},
     timers: OutboxTimers = systemTimers,
   ) {
     this.privacy = stores.privacy;
+    this.shareHistory = stores.shareHistory;
     this.outbox = new Outbox(
       async (agentId, message, signal) => {
         if (message.sealed !== undefined && !this.api.sendSealedMessage)
@@ -329,6 +333,10 @@ export class ChatController {
         this.availability = true;
         this.listLoaded = true;
         this.drafts.privacyChanged();
+        // Older private messages for a phone approved here: once, when the app opens.
+        const share = this.shareHistory;
+        this.shareHistory = undefined;
+        share?.(threads.filter((t) => t.private === true).map((t) => t.agent_id));
         this.emit();
         this.ensureSocket();
       })
@@ -655,12 +663,24 @@ export function chatController(): ChatController | undefined {
               ...(api.privateDevices !== undefined && {
                 devices: () => api.privateDevices!(),
               }),
+              // Loaded when first used, like the keychain: the server calls need the app's auth.
+              rewraps: {
+                read: (agentId, deviceId, after) =>
+                  import('../e2e/pair-api').then((m) =>
+                    m.rewrapApi().read(agentId, deviceId, after),
+                  ),
+              },
               addressOf: (agentId) =>
                 api.getAgent(agentId).then(
                   (found) => found.endpoint_url,
                   () => undefined,
                 ),
             }),
+            shareHistory: (agentIds) => {
+              void import('../e2e/share-history')
+                .then((m) => m.shareHistory(api, privateKeychain(scope), agentIds))
+                .catch(() => undefined);
+            },
           }
         : {},
     );

@@ -5,6 +5,7 @@ import { withAuth } from '../auth/controller';
 import type { ApproveApi } from './approve';
 import type { PairApi } from './pairing';
 import type { RecoveryApi } from './recovery';
+import type { RewrapApi } from './rewrap';
 
 const TIMEOUT_MS = 15_000;
 const AUTH_CODES = ['auth_invalid', 'auth_required', 'device_removed'] as const;
@@ -60,6 +61,21 @@ export function approveApi(): ApproveApi {
     claim: (id, deviceId) => post(`${at(id)}/claim`, { device_id: deviceId }),
     accept: (id, deviceId, note) => post(`${at(id)}/accept`, { device_id: deviceId, note }),
     deny: (id, deviceId) => post(`${at(id)}/deny`, { device_id: deviceId }),
+  };
+}
+
+/** Re-wrapped keys for a phone approved later (C3 #11, Task 28); `rewrap.ts` validates them. */
+export function rewrapApi(): RewrapApi {
+  const at = (agentId: string) => `/v1/agents/${encodeURIComponent(agentId)}/sealed-keys`;
+  return {
+    upload: (agentId, body) => post(at(agentId), body),
+    read: (agentId, deviceId, after) =>
+      request(
+        'GET',
+        `${at(agentId)}?device_id=${encodeURIComponent(deviceId)}${
+          after === undefined ? '' : `&after=${encodeURIComponent(after)}`
+        }`,
+      ),
   };
 }
 

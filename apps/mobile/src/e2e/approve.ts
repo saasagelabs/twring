@@ -16,6 +16,7 @@ import { z } from 'zod';
 import type { SecureKeyValue } from '../auth/storage';
 import { loadDeviceKey, loadOrCreateDeviceKey, type DeviceKey } from './device-key';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
+import { queueRewrap } from './rewrap';
 
 /**
  * Approving a second phone from a phone that already has private chats (C3 #11, Task 27). The
@@ -27,7 +28,8 @@ import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
 
 export const APPROVE_PATH = 'Approve from my other phone';
 export const APPROVE_ASK = 'On your other phone, open Devices and approve this phone.';
-export const APPROVE_DONE = 'This phone can read new private messages.';
+export const APPROVE_DONE =
+  'This phone can read new private messages. Older ones appear after your other phone shares them, the next time Twring is open there.';
 export const WAITING_TITLE = 'Waiting for approval';
 export const APPROVE_BUTTON = 'Codes match, approve';
 export const DENY_BUTTON = 'Deny';
@@ -365,6 +367,10 @@ export async function approveWaiting(
         verified_at: new Date((deps.now ?? Date.now)()).toISOString(),
       },
     ]);
+  // Older private messages: this phone shares them next (`rewrap.ts`), now and on later opens.
+  await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
+    () => undefined,
+  );
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
 }

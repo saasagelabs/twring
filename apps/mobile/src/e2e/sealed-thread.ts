@@ -77,6 +77,16 @@ export interface PhoneSealOptions {
   nextSeq: () => number;
   /** Replay state saved before a restart (`seenToSave`). */
   seen?: SavedReplay;
+  /**
+   * Keys another phone of this person wrapped again for this phone (C3 #11 Task 28), by message
+   * id. Used only for a message with no key for this phone, and only from a trusted phone.
+   */
+  rewraps?: Map<string, Rewrap>;
+}
+
+export interface Rewrap {
+  by: string;
+  wrapped: string;
 }
 
 /** At most this many (sender, seq) to message id entries are saved per thread: one per message. */
@@ -110,6 +120,7 @@ export function createPhoneContext(options: PhoneSealOptions): PhoneSealContext 
     me: options.me,
     trusted: options.trusted,
     nextSeq: options.nextSeq,
+    ...(options.rewraps !== undefined && { rewraps: options.rewraps }),
     window: new ReplayWindow(options.seen?.floor ?? {}),
     owners: new Map(),
     shown: new Map(Object.entries(options.seen?.floor ?? {})),
@@ -137,6 +148,31 @@ function senderKey(ctx: PhoneSealContext, device: string): Uint8Array | undefine
   if (device === ctx.me.deviceId) return ctx.me.publicKey;
   const found = ctx.trusted.find((d) => d.id === device);
   return found && base64urlDecode(found.public_key);
+}
+
+/**
+ * The message key from a re-wrap: made by a phone this phone trusts (never a computer, never
+ * itself), under the message's own AAD (its first envelope's), so it cannot move to another one.
+ */
+function rewrappedKey(
+  ctx: PhoneSealContext,
+  m: SealedThreadMessage,
+  first: SealedEnvelopeV1,
+): Uint8Array | undefined {
+  const rewrap = ctx.rewraps?.get(m.id);
+  if (rewrap === undefined || rewrap.by === ctx.me.deviceId) return undefined;
+  const by = ctx.trusted.find((d) => d.id === rewrap.by && d.kind === 'phone');
+  if (by === undefined) return undefined;
+  try {
+    return unwrapKey(
+      rewrap.wrapped,
+      ctx.me.privateKey,
+      base64urlDecode(by.public_key),
+      aadFor(ctx, first.sender_device, first.sender_seq, first.chunk?.index),
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 const replayKey = (sender: string, seq: number, chunk?: number) =>
@@ -187,15 +223,22 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   }
   const payloads: SealedPayload[] = [];
   let control: SealedControlPayload | undefined;
+  // Chunks share one message key, so one re-wrap opens every chunk (each under its own AAD).
+  let rewrapped: Uint8Array | undefined;
   for (const e of envelopes) {
     const mine = e.keys.find((k) => k.device === ctx.me.deviceId);
-    if (mine === undefined) return { ok: false, replay: false };
     const aad = aadFor(ctx, sender, seq, e.chunk?.index);
     let key: Uint8Array;
-    try {
-      key = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, aad);
-    } catch {
-      return { ok: false, replay: false };
+    if (mine === undefined) {
+      rewrapped ??= rewrappedKey(ctx, m, first);
+      if (rewrapped === undefined) return { ok: false, replay: false };
+      key = rewrapped;
+    } else {
+      try {
+        key = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, aad);
+      } catch {
+        return { ok: false, replay: false };
+      }
     }
     try {
       payloads.push(openBody(key, e.nonce, e.body, aad));

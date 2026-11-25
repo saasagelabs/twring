@@ -20,7 +20,9 @@ export type PrivateChatErrorCode =
   | 'already_added'
   | 'approval_cap'
   | 'approval_closed'
-  | 'expired';
+  | 'expired'
+  | 'unknown_device'
+  | 'unknown_message';
 export type GatewayErrorCode = ErrorCode | PrivateChatErrorCode;
 
 /**
