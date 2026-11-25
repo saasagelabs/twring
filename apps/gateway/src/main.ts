@@ -562,7 +562,7 @@ if (threadService && env.PRIVATE_CHATS_ENABLED) {
   connectorHub.setSealedReplyListener(
     (from, frame) =>
       void service
-        .receiveSealedReply(from, frame)
+        .receiveSealed(from, frame)
         .catch((error: unknown) =>
           connectorLogger.warn(
             { event: 'e2e_reply_failed', error: error instanceof Error ? error.name : 'unknown' },

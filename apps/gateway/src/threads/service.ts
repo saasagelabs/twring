@@ -67,6 +67,8 @@ export interface ThreadServiceOptions {
     computerSupports(record: AgentRecord): boolean;
     /** Sends a sealed message unchanged to the agent's computer; false when it cannot. */
     deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
+    /** Sends the phone's sealed approval answer unchanged to the computer (C3 #11). */
+    deliverDecision(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
   };
 }
 export class ThreadServiceError extends Error {
@@ -82,7 +84,8 @@ export class ThreadServiceError extends Error {
       | 'private_chats_off'
       | 'private_unsupported'
       | 'private_thread'
-      | 'not_private',
+      | 'not_private'
+      | 'computer_offline',
     readonly current?: ThreadMessage,
   ) {
     super(code);
@@ -692,6 +695,149 @@ export class ThreadService {
     }
   }
 
+  /** A sealed frame from a computer (ADR-044): a reply chunk or an approval request. */
+  async receiveSealed(
+    from: { connectorId: string; userId: string },
+    frame:
+      | {
+          type: 'sealed.reply';
+          agent: string;
+          turn_id: string;
+          sealed: SealedEnvelopeV1;
+          final: boolean;
+        }
+      | {
+          type: 'sealed.approval';
+          agent: string;
+          turn_id: string;
+          sealed: SealedEnvelopeV1;
+          expires_at: string;
+        },
+  ): Promise<void> {
+    switch (frame.type) {
+      case 'sealed.reply':
+        return this.receiveSealedReply(from, frame);
+      case 'sealed.approval':
+        return this.receiveSealedApproval(from, frame);
+      default: {
+        const never: never = frame;
+        return never;
+      }
+    }
+  }
+
+  /**
+   * The private turn `turn_id` of the sending computer's account, in a private chat with an agent
+   * on that same computer; undefined (and rejected) otherwise.
+   */
+  private async sealedTurn(
+    from: { connectorId: string; userId: string },
+    frame: { agent: string; turn_id: string },
+    reject: (reason: string) => void,
+  ): Promise<
+    | { agentId: string; record: AgentRecord; message: Extract<ThreadMessage, { kind: 'sealed' }> }
+    | undefined
+  > {
+    const found = await this.options.store.findMessageForUser(from.userId, frame.turn_id);
+    if (found?.message.kind !== 'sealed' || found.message.author !== 'user') {
+      reject('unknown_turn');
+      return undefined;
+    }
+    const { agentId } = found;
+    const record = await this.options.agents.get(from.userId, agentId);
+    const endpoint =
+      record?.protocol === 'cord-connector'
+        ? parseConnectorEndpoint(record.endpoint_url)
+        : undefined;
+    if (
+      !record ||
+      record.user_id !== from.userId ||
+      endpoint?.connectorId !== from.connectorId ||
+      endpoint.localAgent !== frame.agent
+    ) {
+      reject('wrong_computer');
+      return undefined;
+    }
+    if (!(await this.options.store.isPrivate(from.userId, agentId))) {
+      reject('not_private');
+      return undefined;
+    }
+    return { agentId, record, message: found.message };
+  }
+
+  /**
+   * A computer's sealed approval request (C3 #11). Stored as an opaque sealed message the phone
+   * opens into an approval card; the server keeps only that it is pending and when it expires, and
+   * pushes the fixed private text, never the title.
+   */
+  async receiveSealedApproval(
+    from: { connectorId: string; userId: string },
+    frame: { agent: string; turn_id: string; sealed: SealedEnvelopeV1; expires_at: string },
+  ): Promise<void> {
+    const reject = (reason: string) => {
+      this.sealedRepliesRejected++;
+      this.options.log?.warn(
+        { event: 'e2e_approval_rejected', connector_id: from.connectorId, reason },
+        'e2e_approval_rejected',
+      );
+    };
+    // Never held longer than a plain approval card (a minute of clock skew allowed).
+    if (!(Date.parse(frame.expires_at) <= Date.now() + APPROVAL_HOLD_MS + 60_000))
+      return reject('bad_expiry');
+    const turn = await this.sealedTurn(from, frame, reject);
+    if (turn === undefined) return;
+    const saved = await this.options.store.appendSealedMessage(from.userId, turn.agentId, {
+      author: 'agent',
+      sealed: frame.sealed,
+      approvalExpiresAt: frame.expires_at,
+    });
+    this.upsert(from.userId, saved.message);
+    this.options.log?.info(
+      {
+        event: 'thread_sealed_approval',
+        agent_id: turn.agentId,
+        message_id: saved.message.id,
+        turn_id: frame.turn_id,
+      },
+      'thread_sealed_approval',
+    );
+    void this.notifySealedReply(from.userId, turn.agentId, turn.record.name, saved.message);
+  }
+
+  /**
+   * The phone's sealed answer to a sealed approval (C3 #11), relayed unchanged to the computer,
+   * which alone opens and checks it. The server marks the request answered, never how.
+   */
+  async decideSealedApproval(
+    userId: string,
+    agentId: string,
+    messageId: string,
+    sealed: SealedEnvelopeV1,
+  ): Promise<ThreadMessage> {
+    const record = await this.options.agents.get(userId, agentId);
+    if (!record) throw new ThreadServiceError('approval_not_found');
+    const found = await this.options.store.findMessageForUser(userId, messageId);
+    const current = found?.agentId === agentId ? found.message : undefined;
+    if (current?.kind !== 'sealed' || current.approval === undefined)
+      throw new ThreadServiceError('approval_not_found');
+    if (
+      current.approval.state !== 'pending' ||
+      Date.parse(current.approval.expires_at) <= Date.now()
+    )
+      throw new ThreadServiceError('approval_conflict', current);
+    if (!this.options.privateChats?.deliverDecision(record, messageId, sealed))
+      throw new ThreadServiceError('computer_offline');
+    const updated = await this.options.store.answerSealedApproval(userId, agentId, messageId);
+    if (updated === undefined) throw new ThreadServiceError('approval_not_found');
+    if (updated === 'answered') throw new ThreadServiceError('approval_conflict', current);
+    this.upsert(userId, updated);
+    this.options.log?.info(
+      { event: 'thread_sealed_decision', agent_id: agentId, message_id: messageId },
+      'thread_sealed_decision',
+    );
+    return updated;
+  }
+
   /**
    * A computer's sealed reply (ADR-044). Kept only when `turn_id` names a sealed message of the
    * computer's own account, in a private chat with an agent on that same computer; anything else
@@ -711,23 +857,10 @@ export class ThreadService {
     if (!/^msg_[a-z2-7]{20}$/.test(frame.turn_id)) return reject('bad_turn');
     if (frame.sealed.chunk !== undefined && frame.sealed.chunk.final !== frame.final)
       return reject('bad_chunk');
-    const found = await this.options.store.findMessageForUser(from.userId, frame.turn_id);
-    if (found?.message.kind !== 'sealed' || found.message.author !== 'user')
-      return reject('unknown_turn');
-    const { agentId } = found;
-    const record = await this.options.agents.get(from.userId, agentId);
-    const endpoint =
-      record?.protocol === 'cord-connector'
-        ? parseConnectorEndpoint(record.endpoint_url)
-        : undefined;
-    if (
-      !record ||
-      record.user_id !== from.userId ||
-      endpoint?.connectorId !== from.connectorId ||
-      endpoint.localAgent !== frame.agent
-    )
-      return reject('wrong_computer');
-    if (!(await this.options.store.isPrivate(from.userId, agentId))) return reject('not_private');
+    const turn = await this.sealedTurn(from, frame, reject);
+    if (turn === undefined) return;
+    const { agentId, record } = turn;
+    const found = { message: turn.message };
     const saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
       turnId: frame.turn_id,
       sealed: frame.sealed,
