@@ -488,16 +488,21 @@ export default function ChatScreen() {
             }
           />
         );
+      // Messages from the computer that never reached this phone: one quiet row per gap.
+      const gap = openedById?.get(`${message.id}:gap`)?.state === 'missing_before';
+      const gapRow = gap ? (
+        <View accessible accessibilityLabel={MISSING_MESSAGE}>
+          <Notice text={MISSING_MESSAGE} />
+        </View>
+      ) : null;
       const bubble = sealedBubble(message, openedById, name);
-      if (bubble === undefined) return null;
+      if (bubble === undefined) return gapRow;
       const sealedTarget: ActionTarget = {
         id: message.id,
         text: bubble.opened ? bubble.text : '',
         from: bubble.own ? 'yourself' : name,
         actions: bubble.actions,
       };
-      // Messages from the computer that never reached this phone: one quiet row per gap.
-      const gap = openedById?.get(`${message.id}:gap`)?.state === 'missing_before';
       const bubbleView = (
         <Bubble
           {...actionProps(sealedTarget, message.id)}
@@ -513,9 +518,7 @@ export default function ChatScreen() {
       if (!gap) return bubbleView;
       return (
         <View>
-          <View accessible accessibilityLabel={MISSING_MESSAGE}>
-            <Notice text={MISSING_MESSAGE} />
-          </View>
+          {gapRow}
           {bubbleView}
         </View>
       );

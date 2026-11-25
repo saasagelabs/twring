@@ -346,6 +346,23 @@ describe('a private chat', () => {
     expect(order).toEqual(['gap', 'nine', 'gap', 'five', 'one']);
   });
 
+  it('a reply stopped before the agent said anything draws no bubble but keeps its gap row', () => {
+    setChat({
+      private: true,
+      messages: [sealed('s1', 1, 'agent'), sealed('s5', 5, 'agent')],
+      opened: [
+        { id: 's1', author: 'agent', state: 'ok', text: 'one' },
+        { id: 's5:gap', state: 'missing_before', missing: 3 },
+        { id: 's5', author: 'agent', state: 'ok', text: '' },
+      ],
+    });
+    const { items } = render();
+    expect(of(items, 'Bubble').map((b) => b.props.text)).toEqual(['one']);
+    expect(of(items, 'Notice').map((n) => n.props.text)).toEqual([
+      'A message from your computer is missing here.',
+    ]);
+  });
+
   it("shows no gap row for the phone's own messages", () => {
     setChat({
       private: true,
