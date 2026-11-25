@@ -71,6 +71,44 @@ describe('twring-connect private reset', () => {
     expect(text).not.toContain('npx');
   });
 
+  it('a crash while saving never reaches the server: the old device stays until the next try', async () => {
+    let called = false;
+    await expect(
+      resetPrivateKey({
+        config: paired(),
+        save: () => Promise.reject(new Error('disk full')),
+        fetch: () => {
+          called = true;
+          return Promise.resolve(new Response(null, { status: 204 }));
+        },
+      }),
+    ).rejects.toThrow('disk full');
+    expect(called).toBe(false);
+  });
+
+  it('private chats off on the server is not a removal', async () => {
+    const out = await resetPrivateKey({
+      config: paired(),
+      save: () => Promise.resolve(),
+      fetch: () =>
+        Promise.resolve(Response.json({ error: { code: 'private_chats_off' } }, { status: 404 })),
+    });
+    expect(out.server).toBe('not_removed');
+  });
+
+  it('prints no key, old or new', async () => {
+    const before = paired();
+    const out = await resetPrivateKey({
+      config: before,
+      save: () => Promise.resolve(),
+      fetch: () => Promise.resolve(new Response(null, { status: 500 })),
+    });
+    expect(out.server).toBe('not_removed');
+    const text = resetLines(out.server, 'twring-connect').join('\n');
+    for (const secret of [before.e2e!.private_key, out.config.e2e!.private_key, before.token])
+      expect(text).not.toContain(secret);
+  });
+
   it('asks the server nothing when there was no key yet', async () => {
     let called = false;
     const out = await resetPrivateKey({

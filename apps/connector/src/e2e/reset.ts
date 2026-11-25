@@ -38,8 +38,13 @@ export async function resetPrivateKey(options: {
         ...(options.signal !== undefined && { signal: options.signal }),
       },
     );
-    // 404: never listed (never paired) or already removed; either way it is gone.
-    return { config, server: res.ok || res.status === 404 ? 'removed' : 'not_removed' };
+    if (res.ok) return { config, server: 'removed' };
+    // 404 `not_found`: never listed (never paired) or already removed; either way it is gone.
+    // Any other 404 (`private_chats_off`) removed nothing: the old device may still be listed.
+    if (res.status !== 404) return { config, server: 'not_removed' };
+    const body = (await res.json().catch(() => undefined)) as
+      { error?: { code?: unknown } } | undefined;
+    return { config, server: body?.error?.code === 'not_found' ? 'removed' : 'not_removed' };
   } catch {
     return { config, server: 'not_removed' };
   }
