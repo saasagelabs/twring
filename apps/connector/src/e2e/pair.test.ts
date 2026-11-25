@@ -3,8 +3,12 @@ import {
   base64urlEncode,
   deviceIdFor,
   generateSealKeyPair,
+  normalizeTypedPairCode,
+  offerKeyMacMatches,
   pairingMac,
   safetyCode,
+  splitTypedPairCode,
+  typedPairKey,
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
 
@@ -26,6 +30,14 @@ interface FakeServerOptions {
   addFails?: 'refused' | 'network' | 'network-after-add';
   /** 204s before the claim arrives. */
   waits?: number;
+  /** The phone pairs with the typed code instead of the QR. */
+  typed?: boolean;
+  /** The server rewrites which key the claim says it used. */
+  flipKey?: boolean;
+  /** Offers answered 409 handle_taken before one is taken. */
+  handleTaken?: number;
+  /** A server from before typed codes: the new offer fields are refused with 400. */
+  oldServer?: boolean;
 }
 
 /** In-memory gateway pairing routes; the "phone" claims with the secret it read from the QR. */
@@ -34,9 +46,12 @@ function fakeServer(options: FakeServerOptions = {}) {
   const phoneId = deviceIdFor(phone.publicKey);
   const addedDevices: string[] = [];
   const requests: { method: string; path: string; auth?: string }[] = [];
-  let offered: { key: string; device: string } | undefined;
+  let offered: { key: string; device: string; handle?: string; keyMac?: string } | undefined;
+  const handles: string[] = [];
+  let taken = 0;
   let polls = 0;
   let qr: string | undefined;
+  let typedCode: string | undefined;
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), {
       status,
@@ -49,7 +64,17 @@ function fakeServer(options: FakeServerOptions = {}) {
     requests.push({ method, path: url.pathname, ...(auth !== null && { auth }) });
     if (method === 'POST' && url.pathname === '/v1/e2e/pairings') {
       const body = JSON.parse(init?.body as string) as Record<string, string>;
-      offered = { key: body.connector_public_key!, device: body.connector_device_id! };
+      if (body.handle !== undefined) handles.push(body.handle);
+      if (options.oldServer && body.handle !== undefined)
+        return json(400, { error: { code: 'bad_request', message: 'x' } });
+      if (taken++ < (options.handleTaken ?? 0))
+        return json(409, { error: { code: 'handle_taken', message: 'x' } });
+      offered = {
+        key: body.connector_public_key!,
+        device: body.connector_device_id!,
+        ...(body.handle !== undefined && { handle: body.handle }),
+        ...(body.key_mac !== undefined && { keyMac: body.key_mac }),
+      };
       // Ten minutes from the real clock: pairing compares it with Date.now().
       return json(200, {
         offer_id: OFFER,
@@ -59,8 +84,23 @@ function fakeServer(options: FakeServerOptions = {}) {
     if (method === 'GET' && url.pathname === `/v1/e2e/pairings/${OFFER}`) {
       if (options.expired) return json(410, { error: { code: 'offer_expired', message: 'x' } });
       if (polls++ < (options.waits ?? 0)) return new Response(null, { status: 204 });
-      const link = parsePairLink(qr!)!;
-      const secret = base64urlDecode(link.x);
+      let secret = base64urlDecode(parsePairLink(qr!)!.x);
+      let key: 'qr' | 'typed' | undefined;
+      if (options.typed) {
+        // The phone: the handle it typed finds this offer; it checks the commitment first.
+        const parts = splitTypedPairCode(normalizeTypedPairCode(typedCode!)!);
+        if (parts.handle !== offered!.handle) throw new Error('handle not registered');
+        secret = typedPairKey(parts.secret);
+        const ok = offerKeyMacMatches(
+          secret,
+          base64urlDecode(offered!.key),
+          offered!.device,
+          offered!.keyMac!,
+        );
+        if (!ok) throw new Error('key_mac does not verify');
+        key = 'typed';
+      }
+      if (options.flipKey) key = key === 'typed' ? 'qr' : 'typed';
       const claimedKey = options.swapPhoneKey ? generateSealKeyPair().publicKey : phone.publicKey;
       const mac = pairingMac(secret, {
         connectorPublic: base64urlDecode(offered!.key),
@@ -74,6 +114,7 @@ function fakeServer(options: FakeServerOptions = {}) {
         phone_public_key: base64urlEncode(claimedKey),
         phone_name: options.swapName ?? 'Pixel',
         mac: options.tamperMac ? `${mac.slice(0, -2)}AA` : mac,
+        ...(key !== undefined && { key }),
       });
     }
     if (method === 'POST' && url.pathname === '/v1/e2e/computer/devices') {
@@ -115,7 +156,9 @@ function fakeServer(options: FakeServerOptions = {}) {
     requests,
     phone,
     phoneId,
+    handles,
     setQr: (text: string) => (qr = text),
+    setTyped: (text: string) => (typedCode = text),
   };
 }
 
@@ -132,7 +175,11 @@ function deps(
   const options: PairPhoneOptions = {
     config,
     fetch: server.fetchImpl,
-    print: (line) => lines.push(line),
+    print: (line) => {
+      lines.push(line);
+      // What a person reads off the terminal and types into the phone.
+      if (/^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/.test(line.trim())) server.setTyped(line.trim());
+    },
     qr: (text) => {
       server.setQr(text);
       return '[qr]';
@@ -318,6 +365,72 @@ describe('pairPhone', () => {
     expect(text).not.toMatch(/secret|private key|\bkeys?\b|connector|\bmac\b|mcp|e2e/i);
     expect(text).not.toContain(run.options.config.e2e!.private_key);
     expect(text).not.toContain(parsePairLink(link)!.x);
+  });
+
+  it('pairs with the typed code: the claim names the typed key and its mac verifies', async () => {
+    const server = fakeServer({ typed: true, waits: 1 });
+    const run = deps(server);
+    expect(await pairPhone(run.options)).toBe('paired');
+    expect(server.addedDevices).toHaveLength(2);
+    const at = run.lines.indexOf('Or type this code in the app:');
+    expect(at).toBeGreaterThan(-1);
+    expect(run.lines[at + 1]).toMatch(/^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$/);
+  });
+
+  it('refuses a claim whose key kind the server changed, either way', async () => {
+    for (const typed of [true, false]) {
+      const server = fakeServer({ typed, flipKey: true });
+      const run = deps(server);
+      expect(await pairPhone(run.options)).toBe('mismatch');
+      expect(server.addedDevices).toHaveLength(0);
+      expect(run.saved()).toBeUndefined();
+    }
+  });
+
+  it('picks a new code when the server says the handle is taken', async () => {
+    const server = fakeServer({ typed: true, handleTaken: 2 });
+    const run = deps(server);
+    expect(await pairPhone(run.options)).toBe('paired');
+    expect(server.handles).toHaveLength(3);
+    // The code shown is the one the server finally took.
+    const shown = run.lines[run.lines.indexOf('Or type this code in the app:') + 1]!;
+    expect(shown.slice(0, 4)).toBe(server.handles[2]);
+  });
+
+  it('still pairs by QR with a server from before typed codes, showing no typed code', async () => {
+    const server = fakeServer({ oldServer: true });
+    const run = deps(server);
+    expect(await pairPhone(run.options)).toBe('paired');
+    expect(run.lines).not.toContain('Or type this code in the app:');
+    // A typed claim cannot verify when no typed code was offered.
+    const flipped = deps(fakeServer({ oldServer: true, flipKey: true }));
+    expect(await pairPhone(flipped.options)).toBe('mismatch');
+  });
+
+  it('gives up after a few taken handles', async () => {
+    const server = fakeServer({ handleTaken: 100 });
+    await expect(pairPhone(deps(server).options)).rejects.toThrow();
+    expect(server.handles.length).toBeGreaterThan(1);
+    expect(server.handles.length).toBeLessThanOrEqual(5);
+  });
+
+  it('shows the typed code once and never sends its secret part to the server', async () => {
+    const server = fakeServer({ typed: true });
+    const seen: string[] = [];
+    const run = deps(server, {
+      fetch: ((input: string | URL, init?: RequestInit) => {
+        seen.push(String(input), JSON.stringify(init?.body ?? ''));
+        return server.fetchImpl(input, init);
+      }) as typeof fetch,
+    });
+    expect(await pairPhone(run.options)).toBe('paired');
+    const shown = run.lines[run.lines.indexOf('Or type this code in the app:') + 1]!;
+    const { handle, secret } = splitTypedPairCode(normalizeTypedPairCode(shown)!);
+    const all = seen.join(' ');
+    expect(all).toContain(handle);
+    expect(all).not.toContain(secret);
+    expect(all).not.toContain(base64urlEncode(typedPairKey(secret)));
+    expect(run.lines.filter((line) => line.replace(/-/g, '').includes(secret))).toHaveLength(1);
   });
 
   it('puts the server, offer, this computer and the secret in the QR', async () => {
