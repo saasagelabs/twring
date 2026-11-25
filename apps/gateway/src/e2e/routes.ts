@@ -6,6 +6,7 @@ import {
   pairClaimSchema,
   pairOfferIdSchema,
   publicKeySchema,
+  typedPairHandleSchema,
   type E2eDevice,
 } from '@twring/contracts';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
@@ -34,6 +35,8 @@ export interface E2eRoutesOptions {
   userFor?: UserResolver;
   /** Phone claims per account per minute (pairing guesses). */
   claimRatePerMinute?: number;
+  /** Phone typed-code lookups per account per minute (handle guesses). */
+  lookupRatePerMinute?: number;
   /** Connector requests per address per minute, as for the other connector routes. */
   connectorRatePerMinute: number;
   /** Phone reads and writes per account per minute. */
@@ -41,9 +44,20 @@ export interface E2eRoutesOptions {
   now?: () => Date;
 }
 
+/** An older computer sends no `handle` and `key_mac`; a newer one sends both (typed code). */
 const offerRequestSchema = z
-  .object({ connector_public_key: publicKeySchema, connector_device_id: e2eDeviceIdSchema })
-  .strict();
+  .object({
+    connector_public_key: publicKeySchema,
+    connector_device_id: e2eDeviceIdSchema,
+    handle: typedPairHandleSchema.optional(),
+    key_mac: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .optional(),
+  })
+  .strict()
+  .refine((body) => (body.handle === undefined) === (body.key_mac === undefined));
+const lookupRequestSchema = z.object({ handle: typedPairHandleSchema }).strict();
 const addDevicesRequestSchema = z.object({ offer_id: pairOfferIdSchema }).strict();
 const waitQuerySchema = z
   .object({
@@ -64,6 +78,7 @@ const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
   offer_expired: 'This code expired. Make a new one on your computer.',
   offer_claimed: 'This code was already used. Make a new one on your computer.',
   not_found: 'No such pairing.',
+  handle_taken: 'This code is in use. Make a new one.',
   rate_limited: 'Too many tries. Wait a minute and try again.',
   bad_request: 'Invalid request.',
   connector_invalid: 'This computer is not paired any more. Pair it again from the Twring app.',
@@ -88,6 +103,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
   const userFor = options.userFor ?? devUserResolver;
   const now = options.now ?? (() => new Date());
   const claims = new FixedWindowLimiter(options.claimRatePerMinute ?? 5, 60_000);
+  const lookups = new FixedWindowLimiter(options.lookupRatePerMinute ?? 5, 60_000);
   const writes = new FixedWindowLimiter(options.writeRatePerMinute, 60_000);
   const connectorLimiter = new FixedWindowLimiter(options.connectorRatePerMinute, 60_000);
   const claimed = new EventEmitter();
@@ -139,17 +155,48 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     if (connector === undefined) return reply;
     const body = offerRequestSchema.safeParse(request.body);
     if (!body.success) return sendError(reply, 400, 'bad_request');
-    const offer = devices.createOffer(connector.user_id, {
-      connectorId: connector.id,
-      connectorDeviceId: body.data.connector_device_id,
-      connectorPublicKey: body.data.connector_public_key,
-      expiresAt: new Date(now().getTime() + PAIR_OFFER_TTL_MS),
-    });
+    let offer;
+    try {
+      offer = devices.createOffer(connector.user_id, {
+        connectorId: connector.id,
+        connectorDeviceId: body.data.connector_device_id,
+        connectorPublicKey: body.data.connector_public_key,
+        expiresAt: new Date(now().getTime() + PAIR_OFFER_TTL_MS),
+        ...(body.data.handle !== undefined && { handle: body.data.handle }),
+        ...(body.data.key_mac !== undefined && { keyMac: body.data.key_mac }),
+      });
+    } catch (cause) {
+      // The computer picks another code and offers again.
+      if (cause instanceof E2eDeviceError && cause.code === 'handle_taken')
+        return sendError(reply, 409, 'handle_taken');
+      throw cause;
+    }
     request.log.info(
       { event: 'e2e_pair_offered', offer_id: offer.id, connector_id: connector.id },
       'e2e pairing offered',
     );
     return { offer_id: offer.id, expires_at: offer.expiresAt };
+  });
+
+  // Phone: find the offer a typed code names (C3 #11), in this account only. The handle is the
+  // code's first group; the rest never reaches the server. Answers the computer key with the
+  // computer's commitment to it, which the phone checks with the secret before trusting the key.
+  app.post('/v1/e2e/pairings/lookup', { bodyLimit: BODY_LIMIT }, (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!lookups.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    const body = lookupRequestSchema.safeParse(request.body);
+    if (!body.success) return sendError(reply, 400, 'bad_request');
+    // Unknown, expired, claimed and another account's all answer the same 404.
+    const offer = devices.offerByHandle(userId, body.data.handle);
+    if (offer?.keyMac === undefined) return sendError(reply, 404, 'not_found');
+    request.log.info({ event: 'e2e_pair_looked_up', offer_id: offer.id }, 'e2e pairing looked up');
+    return {
+      offer_id: offer.id,
+      connector_public_key: offer.connectorPublicKey,
+      connector_device_id: offer.connectorDeviceId,
+      key_mac: offer.keyMac,
+    };
   });
 
   // Phone: claim the offer it scanned. Answers the computer key the server holds, so the phone
@@ -165,7 +212,10 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       if (!body.success || body.data.offer_id !== request.params.offerId)
         return sendError(reply, 400, 'bad_request');
       const offer = devices.offer(userId, body.data.offer_id);
-      if (offer === undefined) return sendError(reply, 404, 'not_found');
+      // A typed claim names a key the offer never registered: no such typed code, and the
+      // offer stays open for its QR.
+      if (offer === undefined || (body.data.key === 'typed' && offer.keyMac === undefined))
+        return sendError(reply, 404, 'not_found');
       if (offer.claim !== undefined) return sendError(reply, 409, 'offer_claimed');
       if (Date.parse(offer.expiresAt) <= now().getTime())
         return sendError(reply, 410, 'offer_expired');

@@ -152,7 +152,12 @@ export interface BuildAppOptions {
    * Private chats (ADR-044): device keys and pairing. Mounted only with `PRIVATE_CHATS_ENABLED`
    * (and `connectors`); each route also checks the account against `PRIVATE_CHATS_USERS`.
    */
-  e2e?: { devices: E2eDeviceStore; claimRatePerMinute?: number; writeRatePerMinute: number };
+  e2e?: {
+    devices: E2eDeviceStore;
+    claimRatePerMinute?: number;
+    lookupRatePerMinute?: number;
+    writeRatePerMinute: number;
+  };
   /** Mounts rings, devices, ring settings, and invites when provided (ADR-024). */
   ring?: {
     stores: RingStores;
@@ -554,6 +559,9 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         writeRatePerMinute: e2e.writeRatePerMinute,
         ...(e2e.claimRatePerMinute !== undefined && {
           claimRatePerMinute: e2e.claimRatePerMinute,
+        }),
+        ...(e2e.lookupRatePerMinute !== undefined && {
+          lookupRatePerMinute: e2e.lookupRatePerMinute,
         }),
         ...(userFor !== undefined && { userFor }),
       });

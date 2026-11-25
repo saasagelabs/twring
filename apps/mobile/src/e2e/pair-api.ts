@@ -32,39 +32,43 @@ function authCodeIn(body: unknown): AuthCode | undefined {
  */
 export function pairApi(): PairApi {
   return {
-    async claim(offerId, body) {
-      const base = activeServerUrl().replace(/\/+$/, '');
-      const send = async (headers: Record<string, string>) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-        try {
-          const res = await fetch(`${base}/v1/e2e/pairings/${encodeURIComponent(offerId)}/claim`, {
-            method: 'POST',
-            headers: {
-              accept: 'application/json',
-              'content-type': 'application/json',
-              ...headers,
-            },
-            body: JSON.stringify(body),
-            signal: controller.signal,
-          });
-          const json: unknown = await res.json().catch(() => undefined);
-          const answer = { status: res.status, body: json };
-          const code = res.status === 401 || res.status === 403 ? authCodeIn(json) : undefined;
-          if (code !== undefined) throw new AuthRefused(code, answer);
-          return answer;
-        } finally {
-          clearTimeout(timer);
-        }
-      };
-      try {
-        return await withAuth(apiAuth(), send, (error) =>
-          error instanceof AuthRefused ? error.code : undefined,
-        );
-      } catch (error) {
-        if (error instanceof AuthRefused) return error.answer;
-        throw error;
-      }
-    },
+    claim: (offerId, body) => post(`/v1/e2e/pairings/${encodeURIComponent(offerId)}/claim`, body),
+    // Only the typed code's first group: the rest never leaves the phone.
+    lookup: (handle) => post('/v1/e2e/pairings/lookup', { handle }),
   };
+}
+
+async function post(path: string, body: unknown): Promise<{ status: number; body: unknown }> {
+  const base = activeServerUrl().replace(/\/+$/, '');
+  const send = async (headers: Record<string, string>) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const res = await fetch(`${base}${path}`, {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'content-type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const json: unknown = await res.json().catch(() => undefined);
+      const answer = { status: res.status, body: json };
+      const code = res.status === 401 || res.status === 403 ? authCodeIn(json) : undefined;
+      if (code !== undefined) throw new AuthRefused(code, answer);
+      return answer;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  try {
+    return await withAuth(apiAuth(), send, (error) =>
+      error instanceof AuthRefused ? error.code : undefined,
+    );
+  } catch (error) {
+    if (error instanceof AuthRefused) return error.answer;
+    throw error;
+  }
 }

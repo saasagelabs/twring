@@ -74,6 +74,89 @@ describe('E2eDeviceStore', () => {
     expect(store.claimOffer('u1', offer.id, claim)).toBe('already_claimed');
     expect(store.offer('u1', offer.id)?.claim).toEqual(claim);
   });
+  it('finds a live unclaimed offer by its typed handle, in its own account only', () => {
+    const base = {
+      connectorId: 'con_1',
+      connectorDeviceId: dev(2).id,
+      connectorPublicKey: key(2),
+      expiresAt: new Date(Date.now() + 60_000),
+    };
+    const offer = store.createOffer('u1', { ...base, handle: '7KQ2', keyMac: 'km' });
+    expect(store.offerByHandle('u1', '7KQ2')).toMatchObject({ id: offer.id, keyMac: 'km' });
+    expect(store.offerByHandle('u2', '7KQ2')).toBeUndefined();
+    expect(store.offerByHandle('u1', '7KQ3')).toBeUndefined();
+    // Another account may hold the same handle; this one may not while the first is live.
+    expect(store.createOffer('u2', { ...base, handle: '7KQ2', keyMac: 'km' }).id).toBeTruthy();
+    expect(() => store.createOffer('u1', { ...base, handle: '7KQ2', keyMac: 'km' })).toThrow(
+      'handle_taken',
+    );
+    store.claimOffer('u1', offer.id, {
+      phone_device_id: dev(3).id,
+      phone_public_key: key(3),
+      phone_name: 'P',
+      mac: 'm',
+    });
+    expect(store.offerByHandle('u1', '7KQ2')).toBeUndefined();
+  });
+
+  it('never finds an expired offer or one without a typed code', () => {
+    const base = { connectorId: 'con_1', connectorDeviceId: dev(2).id, connectorPublicKey: key(2) };
+    store.createOffer('u1', {
+      ...base,
+      handle: 'AAAA',
+      keyMac: 'km',
+      expiresAt: new Date(Date.now() - 1),
+    });
+    expect(store.offerByHandle('u1', 'AAAA')).toBeUndefined();
+    // An expired offer does not hold its handle.
+    store.createOffer('u1', {
+      ...base,
+      handle: 'AAAA',
+      keyMac: 'km',
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    const old = store.createOffer('u1', { ...base, expiresAt: new Date(Date.now() + 60_000) });
+    expect(old.handle).toBeUndefined();
+    expect(store.offerByHandle('u1', 'AAAA')).toBeDefined();
+  });
+
+  it('adds the typed code columns to an older database in place', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'twring-e2e-'));
+    try {
+      const path = join(dir, 'e2e.db');
+      const { DatabaseSync } = await import('node:sqlite');
+      const old = new DatabaseSync(path);
+      old.exec(`CREATE TABLE e2e_pair_offers(id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+        connector_id TEXT NOT NULL, connector_device_id TEXT NOT NULL, connector_public_key TEXT NOT NULL,
+        expires_at TEXT NOT NULL, claim TEXT)`);
+      old
+        .prepare('INSERT INTO e2e_pair_offers VALUES(?,?,?,?,?,?,NULL)')
+        .run(
+          `off_${'a'.repeat(20)}`,
+          'u1',
+          'con_1',
+          dev(2).id,
+          key(2),
+          new Date(Date.now() + 60_000).toISOString(),
+        );
+      old.close();
+      const b = new E2eDeviceStore(path);
+      expect(b.offer('u1', `off_${'a'.repeat(20)}`)?.connectorId).toBe('con_1');
+      const fresh = b.createOffer('u1', {
+        connectorId: 'con_1',
+        connectorDeviceId: dev(2).id,
+        connectorPublicKey: key(2),
+        expiresAt: new Date(Date.now() + 60_000),
+        handle: 'BBBB',
+        keyMac: 'km',
+      });
+      expect(b.offerByHandle('u1', 'BBBB')?.id).toBe(fresh.id);
+      b.close();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('migrates twice without losing rows', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'twring-e2e-'));
     try {

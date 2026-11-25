@@ -5,10 +5,16 @@ import {
   base64urlEncode,
   e2eDeviceIdSchema,
   e2eDeviceSchema,
+  formatTypedPairCode,
+  newTypedPairCode,
+  offerKeyMac,
+  pairKeyKindSchema,
   pairOfferIdSchema,
   pairingMac,
   publicKeySchema,
   safetyCode,
+  splitTypedPairCode,
+  typedPairKey,
 } from '@twring/contracts';
 import { z } from 'zod';
 
@@ -80,11 +86,14 @@ const claimResponseSchema = z.object({
   phone_public_key: publicKeySchema,
   phone_name: z.string().min(1).max(60),
   mac: z.string().min(1).max(64),
+  key: pairKeyKindSchema.optional(),
 });
 type Claim = z.infer<typeof claimResponseSchema>;
 const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
 
 const RETRY_MS = 2_000;
+/** Offers tried with a fresh typed code when the server says the handle is in use. */
+const MAX_HANDLE_TRIES = 5;
 /** The most pending phones the saved config allows (`e2eConfigSchema`). */
 const MAX_PENDING = 4;
 
@@ -130,14 +139,39 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     }
   };
   try {
-    const offered = await call('/v1/e2e/pairings', {
-      method: 'POST',
-      body: JSON.stringify({
-        connector_public_key: e2e.public_key,
-        connector_device_id: e2e.device_id,
-      }),
-    });
-    if (!offered.ok) throw new Error(await refusal(offered));
+    const mine = base64urlDecode(e2e.public_key);
+    // The typed code (C3 #11): its handle and the computer's key commitment go to the server,
+    // its secret never does. A handle already live in the account gets a fresh code.
+    let typed: { code: string; key: Uint8Array } | undefined;
+    let offered: Response | undefined;
+    for (let tries = 0; tries < MAX_HANDLE_TRIES; tries++) {
+      const code = newTypedPairCode();
+      const { handle, secret: typedSecret } = splitTypedPairCode(code);
+      typed = { code, key: typedPairKey(typedSecret) };
+      offered = await call('/v1/e2e/pairings', {
+        method: 'POST',
+        body: JSON.stringify({
+          connector_public_key: e2e.public_key,
+          connector_device_id: e2e.device_id,
+          handle,
+          key_mac: offerKeyMac(typed.key, mine, e2e.device_id),
+        }),
+      });
+      if (offered.status !== 409 || (await errorCode(offered.clone())) !== 'handle_taken') break;
+    }
+    if (offered?.status === 400) {
+      // A server from before typed codes refuses the new fields: offer the QR alone.
+      typed = undefined;
+      offered = await call('/v1/e2e/pairings', {
+        method: 'POST',
+        body: JSON.stringify({
+          connector_public_key: e2e.public_key,
+          connector_device_id: e2e.device_id,
+        }),
+      });
+    }
+    if (offered === undefined || !offered.ok)
+      throw new Error(offered === undefined ? 'no offer' : await refusal(offered));
     const offer = offerResponseSchema.parse(await offered.json());
     const secret = randomBytes(32);
     const link = pairLink({
@@ -149,20 +183,28 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     print('Scan this with Twring on your phone (Settings, Private chats).');
     const drawn = (options.qr ?? terminalQr)(link);
     print(drawn ?? 'This window is too small to show the code. Make it bigger and run this again.');
+    // The one place the typed code is shown: never logged or sent anywhere.
+    if (typed !== undefined) {
+      print('Or type this code in the app:');
+      print(formatTypedPairCode(typed.code));
+    }
     print('Waiting for your phone…');
 
     const claim = await waitForClaim(options, call, offer.offer_id, Date.parse(offer.expires_at));
-    const mine = base64urlDecode(e2e.public_key);
     const phoneKey = base64urlDecode(claim.phone_public_key);
-    // The MAC proves the phone read this QR: a key, device id or name swapped on the way fails.
-    const expected = pairingMac(secret, {
-      connectorPublic: mine,
-      phonePublic: phoneKey,
-      connectorDeviceId: e2e.device_id,
-      phoneDeviceId: claim.phone_device_id,
-      phoneName: claim.phone_name,
-    });
-    if (!sameText(expected, claim.mac)) {
+    // The MAC proves the phone read this QR (or the typed code): a key, device id or name
+    // swapped on the way fails, and so does a server that changes which key the claim names.
+    const macKey = claim.key === 'typed' ? typed?.key : secret;
+    const expected =
+      macKey &&
+      pairingMac(macKey, {
+        connectorPublic: mine,
+        phonePublic: phoneKey,
+        connectorDeviceId: e2e.device_id,
+        phoneDeviceId: claim.phone_device_id,
+        phoneName: claim.phone_name,
+      });
+    if (expected === undefined || !sameText(expected, claim.mac)) {
       print('Your phone sent a code this computer could not check. Nothing was paired.');
       return 'mismatch';
     }

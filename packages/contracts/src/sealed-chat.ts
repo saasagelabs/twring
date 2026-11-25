@@ -125,6 +125,15 @@ export const typedPairCodeSchema = z
   .string()
   .regex(new RegExp(`^${pairChar}{4}-${pairChar}{4}-${pairChar}{4}$`));
 
+/**
+ * The lookup handle of a typed pairing code (`TYPED_PAIR_ALPHABET` in message-seal.ts): its first
+ * 4 Crockford characters, upper case. The server sees only this part of the code.
+ */
+export const typedPairHandleSchema = z.string().regex(/^[0-9A-HJKMNP-TV-Z]{4}$/);
+
+/** Which MAC key the phone's claim used: the QR secret, or the typed code's (C3 #11). */
+export const pairKeyKindSchema = z.enum(['qr', 'typed']);
+
 export const pairClaimSchema = z
   .object({
     offer_id: pairOfferIdSchema,
@@ -132,6 +141,8 @@ export const pairClaimSchema = z
     phone_public_key: publicKeySchema,
     phone_name: z.string().min(1).max(60),
     mac: base64urlSchema.min(1).max(64),
+    /** Absent means `qr`, as every claim before typed codes. */
+    key: pairKeyKindSchema.optional(),
   })
   .strict();
 export type PairClaim = z.infer<typeof pairClaimSchema>;

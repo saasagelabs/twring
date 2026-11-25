@@ -60,4 +60,21 @@ describe('pair api', () => {
     expect(await pairApi().claim('off_1', body)).toEqual({ status: 401, body: refused });
     expect(mocks.expired).toHaveBeenCalledWith('old');
   });
+
+  it('looks up a typed code by its handle only, refreshing an expired sign-in once', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(json(401, { error: { code: 'auth_invalid', message: 'x' } }))
+      .mockResolvedValueOnce(json(404, { error: { code: 'not_found' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await pairApi().lookup('7KQ2')).toEqual({
+      status: 404,
+      body: { error: { code: 'not_found' } },
+    });
+    expect(mocks.refresh).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://gw.example/v1/e2e/pairings/lookup');
+    const sent = fetchMock.mock.calls[1]?.[1] as { method: string; body: string };
+    expect(sent.method).toBe('POST');
+    expect(JSON.parse(sent.body)).toEqual({ handle: '7KQ2' });
+  });
 });

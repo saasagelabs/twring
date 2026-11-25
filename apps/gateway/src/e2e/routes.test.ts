@@ -267,6 +267,142 @@ describe('private chat pairing routes', () => {
     ).toBe(404);
   });
 
+  describe('typed code', () => {
+    const typedOffer = (g: ConnectorGateway, token: string, extra: Record<string, unknown>) =>
+      g.send('POST', '/v1/e2e/pairings', {
+        headers: bearer(token),
+        body: { connector_public_key: key(1), connector_device_id: devId('c'), ...extra },
+      });
+    const lookup = (g: ConnectorGateway, user: string, handle: unknown) =>
+      g.send('POST', '/v1/e2e/pairings/lookup', { user, body: { handle } });
+
+    it('looks up a live offer by handle and lets the phone claim it with the typed key', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      const created = await typedOffer(g, token, { handle: '7KQ2', key_mac: 'KM' });
+      expect(created.statusCode).toBe(200);
+      const offerId = created.json<{ offer_id: string }>().offer_id;
+      const found = await lookup(g, 'u1', '7KQ2');
+      expect(found.statusCode).toBe(200);
+      expect(found.json()).toEqual({
+        offer_id: offerId,
+        connector_public_key: key(1),
+        connector_device_id: devId('c'),
+        key_mac: 'KM',
+      });
+      const claimed = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+        user: 'u1',
+        body: { ...claimBody(offerId), key: 'typed' },
+      });
+      expect(claimed.statusCode).toBe(200);
+      const polled = await g.send('GET', `/v1/e2e/pairings/${offerId}?wait=0`, {
+        headers: bearer(token),
+      });
+      expect(polled.json()).toMatchObject({ key: 'typed' });
+      // Claimed: the handle no longer finds it.
+      expect((await lookup(g, 'u1', '7KQ2')).statusCode).toBe(404);
+    });
+
+    it('answers 404 alike for an unknown handle and another account handle', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      await typedOffer(g, token, { handle: '7KQ2', key_mac: 'KM' });
+      const stranger = await lookup(g, 'u2', '7KQ2');
+      const unknown = await lookup(g, 'u1', 'ZZZZ');
+      expect(stranger.statusCode).toBe(404);
+      expect(unknown.statusCode).toBe(404);
+      expect(stranger.json().error.code).toBe(unknown.json().error.code);
+      expect(stranger.json().error.message).toBe(unknown.json().error.message);
+    });
+
+    it('never returns an expired offer', async () => {
+      const g = await start();
+      const { connectorId } = await g.pair('u1');
+      g.e2e.createOffer('u1', {
+        connectorId,
+        connectorDeviceId: devId('c'),
+        connectorPublicKey: key(1),
+        expiresAt: new Date(Date.now() - 1),
+        handle: '7KQ2',
+        keyMac: 'KM',
+      });
+      expect((await lookup(g, 'u1', '7KQ2')).statusCode).toBe(404);
+    });
+
+    it('still takes an offer from an older computer, which no handle finds', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      expect((await offer(g, token)).statusCode).toBe(200);
+      expect((await lookup(g, 'u1', '7KQ2')).statusCode).toBe(404);
+    });
+
+    it('answers handle_taken when the account already has a live offer with that handle', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      expect((await typedOffer(g, token, { handle: '7KQ2', key_mac: 'KM' })).statusCode).toBe(200);
+      const again = await typedOffer(g, token, { handle: '7KQ2', key_mac: 'KM2' });
+      expect(again.statusCode).toBe(409);
+      expect(again.json().error.code).toBe('handle_taken');
+      expect((await typedOffer(g, token, { handle: '7KQ3', key_mac: 'KM2' })).statusCode).toBe(200);
+    });
+
+    it('refuses a malformed handle or a handle without key_mac', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      for (const extra of [
+        { handle: '7kq2', key_mac: 'KM' },
+        { handle: 'UUUU', key_mac: 'KM' },
+        { handle: '7KQ2' },
+        { key_mac: 'KM' },
+        { handle: '7KQ2', key_mac: 'not base64!' },
+      ])
+        expect((await typedOffer(g, token, extra)).statusCode).toBe(400);
+      for (const handle of ['7kq2', '7KQ', 'IIII', 42, undefined])
+        expect((await lookup(g, 'u1', handle)).statusCode).toBe(400);
+      expect(
+        (
+          await g.send('POST', `/v1/e2e/pairings/off_${'a'.repeat(20)}/claim`, {
+            user: 'u1',
+            body: { ...claimBody(`off_${'a'.repeat(20)}`), key: 'both' },
+          })
+        ).statusCode,
+      ).toBe(400);
+    });
+
+    it('refuses a typed claim on an offer that registered no typed code, and keeps it open', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      const offerId = (await offer(g, token)).json<{ offer_id: string }>().offer_id;
+      const typedClaim = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+        user: 'u1',
+        body: { ...claimBody(offerId), key: 'typed' },
+      });
+      expect(typedClaim.statusCode).toBe(404);
+      // The QR claim still works afterwards: the bad claim did not use the offer up.
+      const qrClaim = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+        user: 'u1',
+        body: claimBody(offerId),
+      });
+      expect(qrClaim.statusCode).toBe(200);
+    });
+
+    it('rate limits lookups per account', async () => {
+      const g = await start(FLAG_ON, { e2eLookupRatePerMinute: 2 });
+      const codes: number[] = [];
+      for (let i = 0; i < 3; i++) codes.push((await lookup(g, 'u1', 'ZZZZ')).statusCode);
+      expect(codes).toEqual([404, 404, 429]);
+      // Another account has its own budget.
+      expect((await lookup(g, 'u2', 'ZZZZ')).statusCode).toBe(404);
+    });
+
+    it('answers private_chats_off when the account may not use private chats', async () => {
+      const g = await start({ ...FLAG_ON, PRIVATE_CHATS_USERS: 'owner' });
+      const res = await lookup(g, 'u1', '7KQ2');
+      expect(res.statusCode).toBe(404);
+      expect(res.json().error.code).toBe('private_chats_off');
+    });
+  });
+
   it('logs ids and counts, never keys or the mac', async () => {
     const lines: string[] = [];
     const stream = new Writable({

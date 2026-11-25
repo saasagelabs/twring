@@ -366,3 +366,101 @@ export function deviceIdFor(publicKey: Uint8Array): string {
   }
   return `dev_${out}`;
 }
+
+/**
+ * Typed pairing code (C3 #11): the fallback for people who cannot scan the QR. 16 Crockford
+ * base32 characters (80 bits) shown as `7KQ2-M9XD-4HTP-W3RV`. The first group is a lookup handle
+ * the server sees; the other 12 characters are a 60-bit secret it never sees, made into a second
+ * MAC key on the same offer (`typedPairKey`). The QR and its 32-byte secret stay as they are.
+ */
+export const TYPED_PAIR_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+const TYPED_PAIR_LENGTH = 16;
+const TYPED_PAIR_HANDLE_LENGTH = 4;
+const TYPED_PAIR_INFO = utf8.encode('twring-pair-typed-v1');
+const PAIR_OFFER_PREFIX = utf8.encode('twring-pair-offer-v1');
+
+/** A fresh code from 10 random bytes, without dashes. */
+export function newTypedPairCode(): string {
+  let out = '';
+  let acc = 0;
+  let bits = 0;
+  for (const byte of randomBytes(10)) {
+    acc = (acc << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      out += TYPED_PAIR_ALPHABET[(acc >> bits) & 31];
+    }
+    acc &= (1 << bits) - 1;
+  }
+  return out;
+}
+
+/** `7KQ2M9XD4HTPW3RV` as `7KQ2-M9XD-4HTP-W3RV`. */
+export function formatTypedPairCode(code: string): string {
+  return code.match(/.{1,4}/g)?.join('-') ?? code;
+}
+
+/**
+ * What a person typed, as the 16-character code: any case, dashes and spaces ignored, O read as
+ * 0 and I or L as 1 (Crockford). Anything else (U included) or another length is undefined.
+ */
+export function normalizeTypedPairCode(input: string): string | undefined {
+  const code = input.replace(/[\s-]/g, '').toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1');
+  if (code.length !== TYPED_PAIR_LENGTH) return undefined;
+  for (const char of code) if (!TYPED_PAIR_ALPHABET.includes(char)) return undefined;
+  return code;
+}
+
+/** A normalised code's lookup handle (first group) and secret (the other 12 characters). */
+export function splitTypedPairCode(code: string): { handle: string; secret: string } {
+  return {
+    handle: code.slice(0, TYPED_PAIR_HANDLE_LENGTH),
+    secret: code.slice(TYPED_PAIR_HANDLE_LENGTH),
+  };
+}
+
+/** The typed code's MAC key: HKDF-SHA256 over the secret's 12 characters (ASCII), no salt. */
+export function typedPairKey(secret: string): Uint8Array {
+  return hkdf(sha256, utf8.encode(secret), undefined, TYPED_PAIR_INFO, KEY_BYTES);
+}
+
+/**
+ * Key commitment the computer registers with its offer: HMAC-SHA256 with the typed key over
+ * `twring-pair-offer-v1`, the computer's public key and its device id (each length-prefixed as in
+ * `pairingMac`). With a typed code the phone learns the computer's key from the server, so it
+ * checks this first: a server that swaps the key cannot make a valid one without the secret.
+ */
+export function offerKeyMac(
+  typedKey: Uint8Array,
+  connectorPublic: Uint8Array,
+  connectorDeviceId: string,
+): string {
+  need32(connectorPublic, 'public key');
+  const data = concat(
+    PAIR_OFFER_PREFIX,
+    lengthPrefixed(connectorPublic),
+    lengthPrefixed(utf8.encode(connectorDeviceId)),
+  );
+  return base64urlEncode(hmac(sha256, typedKey, data));
+}
+
+/** Constant-time check of `offerKeyMac`; false for anything malformed. */
+export function offerKeyMacMatches(
+  typedKey: Uint8Array,
+  connectorPublic: Uint8Array,
+  connectorDeviceId: string,
+  mac: string,
+): boolean {
+  let given: Uint8Array;
+  try {
+    given = base64urlDecode(mac);
+  } catch {
+    return false;
+  }
+  const expected = base64urlDecode(offerKeyMac(typedKey, connectorPublic, connectorDeviceId));
+  if (given.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected[i]! ^ given[i]!;
+  return diff === 0;
+}

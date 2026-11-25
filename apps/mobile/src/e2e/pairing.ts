@@ -4,10 +4,14 @@ import {
   deviceIdFor,
   e2eDeviceIdSchema,
   e2eDeviceKindSchema,
+  normalizeTypedPairCode,
+  offerKeyMacMatches,
   pairingMac,
   pairOfferIdSchema,
   publicKeySchema,
   safetyCode,
+  splitTypedPairCode,
+  typedPairKey,
   type PairClaim,
   type PairOffer,
 } from '@twring/contracts';
@@ -43,8 +47,18 @@ export const trustedDeviceSchema = z
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>;
 const trustedListSchema = z.array(trustedDeviceSchema).max(16);
 
-/** QR only: P2 shipped no typed code (ruling P3 #3). */
-export type PairInput = { kind: 'qr'; offer: PairOffer; server: string };
+/**
+ * The QR, or the code typed instead (C3 #11). A typed code holds no server: it pairs on the
+ * phone's active server, where its handle finds the offer.
+ */
+export type PairInput =
+  { kind: 'qr'; offer: PairOffer; server: string } | { kind: 'typed'; code: string };
+
+/** A typed code as people type it (`normalizeTypedPairCode`), or undefined when it is not one. */
+export function parseTypedPairCode(text: string): PairInput | undefined {
+  const code = normalizeTypedPairCode(text);
+  return code === undefined ? undefined : { kind: 'typed', code };
+}
 
 export function parsePairInput(text: string): PairInput | undefined {
   const trimmed = text.trim();
@@ -65,9 +79,12 @@ export function parsePairInput(text: string): PairInput | undefined {
   }
 }
 
-/** `POST /v1/e2e/pairings/:offerId/claim`, signed in; the raw answer, checked here. */
+/** The signed-in pairing calls; the raw answers, checked here. */
 export interface PairApi {
+  /** `POST /v1/e2e/pairings/:offerId/claim` */
   claim(offerId: string, body: PairClaim): Promise<{ status: number; body: unknown }>;
+  /** `POST /v1/e2e/pairings/lookup`: the offer a typed code's handle names. */
+  lookup(handle: string): Promise<{ status: number; body: unknown }>;
 }
 
 export interface PairDeps {
@@ -81,13 +98,27 @@ export interface PairDeps {
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
-export type PairFailure = 'expired' | 'claimed' | 'mismatch' | 'cap' | 'network' | 'wrong_server';
+export type PairFailure =
+  | 'expired'
+  | 'claimed'
+  | 'mismatch'
+  | 'cap'
+  | 'network'
+  | 'wrong_server'
+  | 'wrong_code'
+  | 'too_many';
 export type ClaimResult =
   { ok: true; safety: string; connector: TrustedDevice } | { ok: false; code: PairFailure };
 
 const claimAnswerSchema = z.object({
   connector_public_key: publicKeySchema,
   connector_device_id: e2eDeviceIdSchema,
+});
+const lookupAnswerSchema = z.object({
+  offer_id: pairOfferIdSchema,
+  connector_public_key: publicKeySchema,
+  connector_device_id: e2eDeviceIdSchema,
+  key_mac: z.string().min(1).max(64),
 });
 const errorSchema = z.object({ error: z.object({ code: z.string() }) });
 
@@ -108,17 +139,83 @@ function originOf(url: string): string | undefined {
   }
 }
 
+/** What a claim needs, from the QR or from a typed code's checked lookup. */
+interface ClaimPlan {
+  offerId: string;
+  connectorPublicKey: string;
+  macKey: Uint8Array;
+  key?: 'typed';
+}
+
+/**
+ * A typed code's offer: the server answers the computer's key for the handle, so the phone
+ * checks the computer's commitment with the code's secret before using that key. A swapped key
+ * or a wrong code fails here, before any claim; both read as "that code didn't work".
+ */
+async function typedPlan(
+  deps: PairDeps,
+  code: string,
+): Promise<ClaimPlan | { failure: PairFailure }> {
+  const { handle, secret } = splitTypedPairCode(code);
+  let answer: { status: number; body: unknown };
+  try {
+    answer = await deps.api.lookup(handle);
+  } catch {
+    return { failure: 'network' };
+  }
+  if (answer.status === 429) return { failure: 'too_many' };
+  if (answer.status === 404) return { failure: 'wrong_code' };
+  if (answer.status < 200 || answer.status >= 300) return { failure: 'network' };
+  const found = lookupAnswerSchema.safeParse(answer.body);
+  if (!found.success) return { failure: 'wrong_code' };
+  const macKey = typedPairKey(secret);
+  const connectorKey = base64urlDecode(found.data.connector_public_key);
+  if (
+    found.data.connector_device_id !== deviceIdFor(connectorKey) ||
+    !offerKeyMacMatches(macKey, connectorKey, found.data.connector_device_id, found.data.key_mac)
+  )
+    return { failure: 'wrong_code' };
+  return {
+    offerId: found.data.offer_id,
+    connectorPublicKey: found.data.connector_public_key,
+    macKey,
+    key: 'typed',
+  };
+}
+
 export async function claimPairing(deps: PairDeps, input: PairInput): Promise<ClaimResult> {
-  if (deps.activeServer !== undefined && originOf(deps.activeServer) !== originOf(input.server)) {
+  if (
+    input.kind === 'qr' &&
+    deps.activeServer !== undefined &&
+    originOf(deps.activeServer) !== originOf(input.server)
+  ) {
     deps.log?.('e2e_pair_failed', { reason: 'wrong_server' });
     return { ok: false, code: 'wrong_server' };
   }
+  let plan: ClaimPlan;
+  if (input.kind === 'typed') {
+    const typed = await typedPlan(deps, input.code);
+    if ('failure' in typed) {
+      deps.log?.('e2e_pair_failed', { reason: typed.failure });
+      return { ok: false, code: typed.failure };
+    }
+    plan = typed;
+  } else {
+    plan = {
+      offerId: input.offer.offer_id,
+      connectorPublicKey: input.offer.connector_public_key,
+      macKey: base64urlDecode(input.offer.secret),
+    };
+  }
+  // With a typed code a refused claim reads as a wrong code, except a full list or no network.
+  const failure = (code: PairFailure): PairFailure =>
+    input.kind === 'typed' && code !== 'cap' && code !== 'network' ? 'wrong_code' : code;
   const me = await loadOrCreateDeviceKey(deps.store, deps.log);
-  const connectorKey = base64urlDecode(input.offer.connector_public_key);
+  const connectorKey = base64urlDecode(plan.connectorPublicKey);
   // The computer's id comes from its key (P3 ruling): the QR carries no id to trust.
   const connectorDeviceId = deviceIdFor(connectorKey);
   const phoneName = deps.phoneName.trim().slice(0, 60) || 'Phone';
-  const mac = pairingMac(base64urlDecode(input.offer.secret), {
+  const mac = pairingMac(plan.macKey, {
     connectorPublic: connectorKey,
     phonePublic: me.publicKey,
     connectorDeviceId,
@@ -127,31 +224,35 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
   });
   let answer: { status: number; body: unknown };
   try {
-    answer = await deps.api.claim(input.offer.offer_id, {
-      offer_id: input.offer.offer_id,
+    answer = await deps.api.claim(plan.offerId, {
+      offer_id: plan.offerId,
       phone_device_id: me.deviceId,
       phone_public_key: base64urlEncode(me.publicKey),
       phone_name: phoneName,
       mac,
+      // A QR claim stays exactly as before typed codes.
+      ...(plan.key !== undefined && { key: plan.key }),
     });
   } catch {
     deps.log?.('e2e_pair_failed', { reason: 'network' });
     return { ok: false, code: 'network' };
   }
   if (answer.status < 200 || answer.status >= 300) {
-    const code = refusal(answer.status, answer.body);
+    const code = failure(refusal(answer.status, answer.body));
     deps.log?.('e2e_pair_failed', { reason: code, status: answer.status });
     return { ok: false, code };
   }
   const parsed = claimAnswerSchema.safeParse(answer.body);
-  // A server that names another key or id than the QR implies is refused: never trusted.
+  // A server that names another key or id than the QR (or the checked lookup) implies is
+  // refused: never trusted.
   if (
     !parsed.success ||
-    parsed.data.connector_public_key !== input.offer.connector_public_key ||
+    parsed.data.connector_public_key !== plan.connectorPublicKey ||
     parsed.data.connector_device_id !== connectorDeviceId
   ) {
-    deps.log?.('e2e_pair_failed', { reason: 'mismatch' });
-    return { ok: false, code: 'mismatch' };
+    const code = failure('mismatch');
+    deps.log?.('e2e_pair_failed', { reason: code });
+    return { ok: false, code };
   }
   return {
     ok: true,
@@ -160,7 +261,7 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
       id: connectorDeviceId,
       kind: 'computer',
       name: 'Computer',
-      public_key: input.offer.connector_public_key,
+      public_key: plan.connectorPublicKey,
       verified_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
     },
   };
