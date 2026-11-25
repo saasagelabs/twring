@@ -99,3 +99,16 @@ describe('app config schemes', () => {
     expect((await configFor('development')).scheme).toBe('cord-dev');
   });
 });
+
+describe('app config push environment', () => {
+  // TestFlight builds (production and staging) are signed with App Store profiles, whose
+  // aps-environment is production; a mismatch fails the archive.
+  it.each([
+    ['production', 'production'],
+    ['staging', 'production'],
+    ['development', 'development'],
+  ])('%s uses the %s APNs environment', async (variant, environment) => {
+    const config = await configFor(variant);
+    expect(config.ios?.entitlements?.['aps-environment']).toBe(environment);
+  });
+});

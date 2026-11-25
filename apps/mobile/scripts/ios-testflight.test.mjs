@@ -71,7 +71,7 @@ describe('ios-testflight.sh check-env', () => {
     expect(guard).toBeLessThan(text.indexOf('CODE_SIGN_STYLE'));
     expect(text).toMatch(/abort\(".*profile/);
     // Only the notification extension, matched by bundle id, is exempt.
-    expect(text).toContain('NSE_BUNDLE_ID=com.twring.app.NotificationService');
+    expect(text).toContain('NSE_BUNDLE_ID="$BUNDLE_ID.NotificationService"');
     expect(text).toMatch(/partition \{ \|t\| ids\.\(t\) == \[ENV\.fetch\("NSE_BUNDLE_ID"\)\] \}/);
     expect(text).toMatch(/unless others\.empty\?\s*\n\s*abort/);
   });
@@ -101,8 +101,71 @@ describe('ios-testflight.sh check-env', () => {
     expect(cleanup.match(/IOS_NSE_PROFILE_UUID:-none/g)).toHaveLength(2);
   });
 
+  itRunsScript('names the production app it builds by default', () => {
+    const { status, stdout } = run(ALL);
+    expect(status).toBe(0);
+    expect(stdout).toContain('production app (com.twring.app,');
+  });
+
+  itRunsScript('refuses an unknown app variant', () => {
+    const { status, stderr } = run({ ...ALL, APP_VARIANT: 'beta' });
+    expect(status).toBe(2);
+    expect(stderr).toContain('APP_VARIANT');
+  });
+
   itRunsScript('rejects an unknown command', () => {
     const result = spawnSync(bash, [script, 'nope'], { encoding: 'utf8' });
     expect(result.status).toBe(2);
   });
+});
+
+describe('ios-testflight.sh check-env for the staging app', () => {
+  // Twring Staging: its own App Store Connect app and profiles, talking to the staging server.
+  const STAGING = {
+    ...ALL,
+    IOS_APPSTORE_PROFILE_BASE64: '',
+    IOS_APPSTORE_NSE_PROFILE_BASE64: '',
+    APP_VARIANT: 'staging',
+    IOS_STAGING_APPSTORE_PROFILE_BASE64: 'c3Rn',
+    IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64: 'c25z',
+    STAGING_ASC_APP_ID: '6999999999',
+    EXPO_PUBLIC_API_BASE_URL: 'https://staging.example.test',
+  };
+
+  itRunsScript('passes with the staging profiles alone and names the staging app', () => {
+    const { status, stdout } = run(STAGING);
+    expect(status).toBe(0);
+    expect(stdout).toContain(
+      'staging app (com.twring.app.staging, App Store Connect app 6999999999)',
+    );
+  });
+
+  itRunsScript('lists the missing staging profiles and app id, never printing a value', () => {
+    const { status, stderr, stdout } = run({
+      ...STAGING,
+      IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64: '',
+      STAGING_ASC_APP_ID: '',
+    });
+    expect(status).toBe(1);
+    expect(stderr).toContain('IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64');
+    expect(stderr).toContain('STAGING_ASC_APP_ID');
+    expect(stderr).not.toContain('IOS_APPSTORE_PROFILE_BASE64');
+    expect(stderr + stdout).not.toContain('c3Rn');
+  });
+
+  itRunsScript('refuses an App Store Connect app id that is not a number', () => {
+    const { status, stderr } = run({ ...STAGING, STAGING_ASC_APP_ID: 'com.twring.app.staging' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('STAGING_ASC_APP_ID');
+  });
+
+  // The workflow falls back to the production address when the staging one is not set.
+  itRunsScript.each(['', 'https://api.twring.com', 'http://staging.example.test'])(
+    'refuses to build the staging app for the server "%s"',
+    (address) => {
+      const { status, stderr } = run({ ...STAGING, EXPO_PUBLIC_API_BASE_URL: address });
+      expect(status).toBe(1);
+      expect(stderr).toContain('STAGING_API_BASE_URL');
+    },
+  );
 });

@@ -153,9 +153,10 @@ export default ({ config }: ConfigContext): ExpoConfig => {
         // closes the call screen.
         UIBackgroundModes: ['audio', 'voip', 'remote-notification'],
       },
-      // APNs for rings and notifications. Store and TestFlight builds use production APNs.
+      // APNs for rings and notifications. Store and TestFlight builds use production APNs, and the
+      // staging iPhone app is a TestFlight build too (App Store profiles carry production only).
       entitlements: {
-        'aps-environment': variant === 'production' ? 'production' : 'development',
+        'aps-environment': variant === 'development' ? 'development' : 'production',
       },
     },
     android: {
