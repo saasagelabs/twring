@@ -90,23 +90,28 @@ export function reconcileTrusted(
 ): { trusted: TrustedDevice[]; dropped: number; bound: number } {
   const revoked = new Set(server.filter((d) => d.revoked_at !== undefined).map((d) => d.id));
   let bound = 0;
-  const kept = trusted
-    .filter((d) => !revoked.has(d.id))
-    .map((d) => {
-      if (d.kind !== 'computer' || d.connector_id !== undefined) return d;
-      const listed = server.find(
-        (s) =>
-          s.id === d.id &&
-          s.revoked_at === undefined &&
-          s.kind === 'computer' &&
-          s.public_key === d.public_key &&
-          s.connector_id !== undefined,
-      );
-      const parsed = listed?.connector_id?.match(/^con_[a-z0-9]{20}$/)?.[0];
-      if (parsed === undefined) return d;
-      bound++;
-      return { ...d, connector_id: parsed };
-    });
+  const survivors = trusted.filter((d) => !revoked.has(d.id));
+  // A connector that already has a bound computer never gets another one from the server: that
+  // would let an older entry speak in a chat it is refused in now. One entry per connector.
+  const taken = new Set(
+    survivors.flatMap((d) => (d.kind === 'computer' && d.connector_id ? [d.connector_id] : [])),
+  );
+  const kept = survivors.map((d) => {
+    if (d.kind !== 'computer' || d.connector_id !== undefined) return d;
+    const listed = server.find(
+      (s) =>
+        s.id === d.id &&
+        s.revoked_at === undefined &&
+        s.kind === 'computer' &&
+        s.public_key === d.public_key &&
+        s.connector_id !== undefined,
+    );
+    const parsed = listed?.connector_id?.match(/^con_[a-z0-9]{20}$/)?.[0];
+    if (parsed === undefined || taken.has(parsed)) return d;
+    taken.add(parsed);
+    bound++;
+    return { ...d, connector_id: parsed };
+  });
   return { trusted: kept, dropped: trusted.length - kept.length, bound };
 }
 

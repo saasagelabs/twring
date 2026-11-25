@@ -200,4 +200,31 @@ describe('binding older computers (ruling)', () => {
     );
     expect(out.trusted[0].connector_id).toBe(CON);
   });
+
+  it('never binds an older entry to a connector that already has a bound computer', () => {
+    const bound = device('computer');
+    const older = device('computer');
+    const out = reconcileTrusted(
+      [trustedOf(bound, CON), trustedOf(older)],
+      [
+        { ...bound, connector_id: CON },
+        { ...older, connector_id: CON },
+      ],
+    );
+    expect(out.trusted.find((d) => d.id === older.id)?.connector_id).toBeUndefined();
+    expect(out.bound).toBe(0);
+  });
+
+  it('binds at most one older entry to a connector in one read', () => {
+    const a = device('computer');
+    const b = device('computer');
+    const out = reconcileTrusted(
+      [trustedOf(a), trustedOf(b)],
+      [
+        { ...a, connector_id: CON },
+        { ...b, connector_id: CON },
+      ],
+    );
+    expect(out.trusted.filter((d) => d.connector_id === CON)).toHaveLength(1);
+  });
 });
