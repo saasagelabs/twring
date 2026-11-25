@@ -62,6 +62,8 @@ export interface E2eRoutesOptions {
   approvalPollRatePerMinute?: number;
   /** After a device was removed: tells the account's connected computers (C3 #11). */
   onDevicesChanged?: (userId: string) => void;
+  /** A device was removed: its re-wrapped message keys go too (C3 #11 Task 28). */
+  onDeviceRemoved?: (userId: string, deviceId: string) => void;
   now?: () => Date;
 }
 
@@ -391,6 +393,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       .find((d) => d.id === id && d.kind === 'computer' && d.connector_id === connector.id);
     if (own === undefined || !devices.revoke(connector.user_id, id))
       return sendError(reply, 404, 'not_found');
+    options.onDeviceRemoved?.(connector.user_id, id);
     request.log.info(
       { event: 'e2e_device_reset', device_id: id, connector_id: connector.id },
       'e2e computer device reset',
@@ -420,6 +423,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     if (!e2eDeviceIdSchema.safeParse(request.params.id).success)
       return sendError(reply, 404, 'not_found');
     if (!devices.revoke(userId, request.params.id)) return sendError(reply, 404, 'not_found');
+    options.onDeviceRemoved?.(userId, request.params.id);
     request.log.info(
       { event: 'e2e_device_revoked', device_id: request.params.id },
       'e2e device revoked',

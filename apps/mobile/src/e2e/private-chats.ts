@@ -32,6 +32,7 @@ import {
   syncTrusted,
 } from './devices';
 import { PAIR_AGAIN } from './private-state';
+import { readRewraps, type RewrapApi } from './rewrap';
 
 /**
  * Private chats in the chat data layer (ADR-044): seals what the phone sends and opens what it
@@ -61,6 +62,11 @@ export interface PrivateChatDeps {
    * leave the trusted list and a reinstalled computer is noticed (C3 #11 P4a). None: not read.
    */
   devices?: () => Promise<unknown>;
+  /**
+   * Keys another phone wrapped again for this one (C3 #11 Task 28), read when a chat has a
+   * message with no key for this phone. None: older messages stay unopened.
+   */
+  rewraps?: Pick<RewrapApi, 'read'>;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
@@ -72,6 +78,9 @@ const savedSchema = z.record(
   }),
 );
 
+/** A chat's re-wraps are read again at most this often while the app runs. */
+export const REWRAP_ASK_MS = 5 * 60_000;
+
 export class PrivateChats {
   private readonly contexts = new Map<string, PhoneSealContext>();
   private readonly loading = new Map<string, Promise<PhoneSealContext | undefined>>();
@@ -82,6 +91,9 @@ export class PrivateChats {
   /** Chats with sealed messages none of which this phone's key can open (a reinstalled app). */
   private readonly lostKeys = new Set<string>();
   private saving: Promise<void> = Promise.resolve();
+  /** When each chat's re-wraps were last asked for, and the read still running. */
+  private readonly rewrapAsked = new Map<string, number>();
+  private readonly rewrapLoading = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: PrivateChatDeps) {}
 
@@ -130,7 +142,8 @@ export class PrivateChats {
   /** The chat's context, loaded once: key, trusted computers, address and saved replay state. */
   context(agentId: string): Promise<PhoneSealContext | undefined> {
     const ready = this.contexts.get(agentId);
-    if (ready) return Promise.resolve(ready);
+    // A re-wrap read under way: the chat is drawn again once it is in.
+    if (ready) return (this.rewrapLoading.get(agentId) ?? Promise.resolve()).then(() => ready);
     let work = this.loading.get(agentId);
     if (!work) {
       work = (async () => {
@@ -270,18 +283,47 @@ export class PrivateChats {
     const ctx = this.contexts.get(agentId);
     if (ctx === undefined) return undefined;
     const sealed = messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed');
-    const opened = openMessages(ctx, sealed);
-    // None of the chat's messages carries a key for this phone: its keys were lost.
+    const keyless = (m: SealedThreadMessage) =>
+      m.sealed.every((e) => !e.keys.some((k) => k.device === ctx.me.deviceId));
+    // A message with no key for this phone may have one from another phone: read them first.
     if (
-      sealed.length > 0 &&
-      sealed.every((m) => m.sealed.every((e) => !e.keys.some((k) => k.device === ctx.me.deviceId)))
+      sealed.some((m) => keyless(m) && ctx.rewraps?.has(m.id) !== true) &&
+      this.askRewraps(agentId, ctx)
     )
+      return undefined;
+    const opened = openMessages(ctx, sealed);
+    // None of the chat's messages carries a key for this phone, nor a re-wrap: its keys were lost.
+    if (sealed.length > 0 && sealed.every((m) => keyless(m) && ctx.rewraps?.has(m.id) !== true))
       this.lostKeys.add(agentId);
     else this.lostKeys.delete(agentId);
     this.save(agentId, ctx);
     const failed = opened.filter((m) => m.state === 'couldnt_open').length;
     if (failed > 0) this.deps.log?.('e2e_couldnt_open', { count: failed });
     return opened;
+  }
+
+  /**
+   * Starts reading the chat's re-wraps, at most once per chat in `REWRAP_ASK_MS`. True while a
+   * read runs: the caller waits (`context`) and opens the chat again with them.
+   */
+  private askRewraps(agentId: string, ctx: PhoneSealContext): boolean {
+    const api = this.deps.rewraps;
+    if (api === undefined) return false;
+    if (this.rewrapLoading.has(agentId)) return true;
+    const now = Date.now();
+    const asked = this.rewrapAsked.get(agentId);
+    if (asked !== undefined && now - asked < REWRAP_ASK_MS) return false;
+    this.rewrapAsked.set(agentId, now);
+    const work = readRewraps(api, agentId, ctx.me.deviceId)
+      .then((found) => {
+        if (found === undefined) return;
+        ctx.rewraps = found;
+        this.deps.log?.('e2e_rewraps_read', { count: found.size });
+      })
+      .catch(() => undefined)
+      .finally(() => this.rewrapLoading.delete(agentId));
+    this.rewrapLoading.set(agentId, work);
+    return true;
   }
 
   private save(agentId: string, ctx: PhoneSealContext): void {
@@ -302,6 +344,7 @@ export class PrivateChats {
     this.contexts.clear();
     this.reinstalled.clear();
     this.lostKeys.clear();
+    this.rewrapAsked.clear();
     this.trusted = [];
     this.saved = Promise.resolve({});
     await this.saving;

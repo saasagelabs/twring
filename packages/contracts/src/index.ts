@@ -14,6 +14,7 @@ export * from './realtime';
 export * from './rest-protocol';
 export * from './seal';
 export * from './sealed-chat';
+export * from './sealed-rewrap';
 export * from './recovery';
 export * from './message-seal';
 export * from './selfhost';

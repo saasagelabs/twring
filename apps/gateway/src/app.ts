@@ -55,6 +55,7 @@ import { registerSelfhostRoutes, type SelfhostRoutesOptions } from './selfhost/r
 import { registerThreadRoutes } from './threads/routes';
 import type { E2eDeviceStore } from './e2e/devices-store';
 import { registerE2eRoutes } from './e2e/routes';
+import { registerSealedKeyRoutes } from './e2e/rewrap-routes';
 import { registerFileRoutes, type FileRoutesOptions } from './files/routes';
 import type { ThreadRoutesOptions } from './threads/routes';
 import { registerMessageSpeechRoute, type MessageSpeechOptions } from './threads/speech';
@@ -557,6 +558,12 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         connectors: stores.connectors,
         connectorRatePerMinute: connectors.writeRatePerMinute,
         writeRatePerMinute: e2e.writeRatePerMinute,
+        ...(threads !== undefined && {
+          onDeviceRemoved: (userId: string, deviceId: string) => {
+            const removed = threads.store.deleteRewrapsForDevice(userId, deviceId);
+            app.log.info({ event: 'e2e_rewraps_removed', count: removed }, 'rewraps removed');
+          },
+        }),
         onDevicesChanged: (userId) => {
           const told = connectors.hub.notifyDevicesChanged(userId);
           app.log.info({ event: 'e2e_devices_changed_sent', computers: told }, 'devices changed');
@@ -570,6 +577,22 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         ...(userFor !== undefined && { userFor }),
       });
     }
+    if (
+      connectors !== undefined &&
+      stores !== undefined &&
+      e2e &&
+      threads !== undefined &&
+      env.PRIVATE_CHATS_ENABLED
+    )
+      registerSealedKeyRoutes(app, {
+        env,
+        devices: e2e.devices,
+        store: threads.store,
+        agents: visibleAgents(stores.agents, sharedAgents),
+        writeRatePerMinute: e2e.writeRatePerMinute,
+        readRatePerMinute: threads.readRatePerMinute,
+        ...(userFor !== undefined && { userFor }),
+      });
     if (connectors !== undefined) {
       registerConnectorRoutes(app, {
         stores,

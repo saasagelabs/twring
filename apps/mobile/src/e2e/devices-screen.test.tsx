@@ -59,7 +59,9 @@ vi.mock('@/e2e/approve', async () => ({
 vi.mock('@/e2e/pair-api', () => ({ approveApi: () => ({}) }));
 vi.mock('@/e2e/devices', async () => import('./devices'));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: vi.fn() }));
+vi.mock('@/e2e/share-history', () => ({ shareHistory: vi.fn() }));
 vi.mock('@/threads/chats', () => ({
+  chatController: () => undefined,
   forgetThisPhonePrivateKeys: vi.fn(),
   privateKeychain: () => ({}),
 }));

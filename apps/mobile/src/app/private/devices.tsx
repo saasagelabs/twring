@@ -31,7 +31,8 @@ import {
 } from '@/e2e/devices';
 import { approveApi } from '@/e2e/pair-api';
 import { playCallFeedback } from '@/platform/haptics';
-import { forgetThisPhonePrivateKeys, privateKeychain } from '@/threads/chats';
+import { shareHistory } from '@/e2e/share-history';
+import { chatController, forgetThisPhonePrivateKeys, privateKeychain } from '@/threads/chats';
 import { space, type, usePalette } from '@/theme/tokens';
 
 const LOAD_FAILED = 'Twring could not load your devices. Check your connection and try again.';
@@ -151,6 +152,16 @@ export default function PrivateDevicesScreen() {
         : await denyWaiting(deps, approving.approval.id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
       if (!out.ok) setError(APPROVE_FAILED);
+      // The new phone's older private messages: shared in the background, resumed on next open.
+      const api = twringApi();
+      if (out.ok && approve && api !== undefined) {
+        const chats = chatController()?.getSummaries() ?? [];
+        void shareHistory(
+          api,
+          deps.store,
+          chats.filter((c) => c.private === true).map((c) => c.agent_id),
+        );
+      }
       setApproving(undefined);
       await load();
     } finally {
