@@ -6,6 +6,7 @@ import {
   pairClaimSchema,
   pairOfferIdSchema,
   publicKeySchema,
+  recoveryBackupRequestSchema,
   typedPairHandleSchema,
   type E2eDevice,
 } from '@twring/contracts';
@@ -25,6 +26,8 @@ export const PAIR_OFFER_TTL_MS = 10 * 60_000;
 /** Longest wait a computer may ask for while it polls its offer. */
 export const PAIR_WAIT_MAX_S = 25;
 const BODY_LIMIT = 4 * 1024;
+/** A recovery backup: a sealed device key and a short trusted list, well under this. */
+const RECOVERY_BODY_LIMIT = 16 * 1024;
 /** How long a revoked device stays in the computer's list, so an offline computer still hears. */
 export const REVOKED_SHOWN_MS = 30 * 24 * 60 * 60_000;
 
@@ -41,6 +44,8 @@ export interface E2eRoutesOptions {
   connectorRatePerMinute: number;
   /** Phone reads and writes per account per minute. */
   writeRatePerMinute: number;
+  /** Recovery backup reads per account per minute (each one lets the words be guessed offline). */
+  recoveryReadRatePerMinute?: number;
   /** After a device was removed: tells the account's connected computers (C3 #11). */
   onDevicesChanged?: (userId: string) => void;
   now?: () => Date;
@@ -80,6 +85,7 @@ const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
   offer_expired: 'This code expired. Make a new one on your computer.',
   offer_claimed: 'This code was already used. Make a new one on your computer.',
   not_found: 'No such pairing.',
+  no_backup: 'There is no recovery key saved for this account.',
   handle_taken: 'This code is in use. Make a new one.',
   rate_limited: 'Too many tries. Wait a minute and try again.',
   bad_request: 'Invalid request.',
@@ -107,6 +113,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
   const claims = new FixedWindowLimiter(options.claimRatePerMinute ?? 5, 60_000);
   const lookups = new FixedWindowLimiter(options.lookupRatePerMinute ?? 5, 60_000);
   const writes = new FixedWindowLimiter(options.writeRatePerMinute, 60_000);
+  const recoveryReads = new FixedWindowLimiter(options.recoveryReadRatePerMinute ?? 10, 60_000);
   const connectorLimiter = new FixedWindowLimiter(options.connectorRatePerMinute, 60_000);
   const claimed = new EventEmitter();
   claimed.setMaxListeners(0);
@@ -378,6 +385,43 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       'e2e device revoked',
     );
     options.onDevicesChanged?.(userId);
+    return reply.code(204).send();
+  });
+
+  // Phone: the optional recovery backup (C3 #11). The server keeps a salt, a check value and
+  // ciphertext; the words and the key never reach it. One backup per account, for an active
+  // phone of that account.
+  app.put('/v1/e2e/recovery', { bodyLimit: RECOVERY_BODY_LIMIT }, (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    const body = recoveryBackupRequestSchema.safeParse(request.body);
+    if (!body.success) return sendError(reply, 400, 'bad_request');
+    const device = devices.get(userId, body.data.device_id);
+    if (device?.kind !== 'phone') return sendError(reply, 404, 'not_found');
+    const saved = devices.putRecovery(userId, body.data);
+    request.log.info(
+      { event: 'e2e_recovery_saved', device_id: saved.device_id },
+      'e2e recovery saved',
+    );
+    return { updated_at: saved.updated_at };
+  });
+
+  app.get('/v1/e2e/recovery', (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!recoveryReads.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    const backup = devices.recovery(userId);
+    if (backup === undefined) return sendError(reply, 404, 'no_backup');
+    return { ...backup, device_removed: devices.get(userId, backup.device_id) === undefined };
+  });
+
+  app.delete('/v1/e2e/recovery', (request, reply) => {
+    const userId = phoneFor(request, reply);
+    if (userId === undefined) return reply;
+    if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+    if (devices.deleteRecovery(userId))
+      request.log.info({ event: 'e2e_recovery_deleted' }, 'e2e recovery deleted');
     return reply.code(204).send();
   });
 }

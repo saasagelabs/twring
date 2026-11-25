@@ -1,3 +1,4 @@
+import { x25519 } from '@noble/curves/ed25519.js';
 import {
   base64urlDecode,
   base64urlEncode,
@@ -75,6 +76,38 @@ export async function loadOrCreateDeviceKey(
   };
 }
 
+/** This phone's device key, or undefined when it has none (nothing is created). */
+export async function loadDeviceKey(store: SecureKeyValue): Promise<DeviceKey | undefined> {
+  return read(await store.getItemAsync(DEVICE_KEY_NAME));
+}
+
+/**
+ * Puts back a device key from a recovery backup (C3 #11): the same key, so the same device id.
+ * The seq counter jumps to the clock in milliseconds, past anything the old phone could have
+ * sent, so the computer never drops the restored phone's messages as replays.
+ */
+export async function restoreDeviceKey(
+  store: SecureKeyValue,
+  privateKey: Uint8Array,
+  now: () => number = Date.now,
+): Promise<DeviceKey> {
+  const publicKey = x25519.getPublicKey(privateKey);
+  await store.setItemAsync(
+    DEVICE_KEY_NAME,
+    JSON.stringify({
+      v: 1,
+      public_key: base64urlEncode(publicKey),
+      private_key: base64urlEncode(privateKey),
+    }),
+  );
+  const raw = await store.getItemAsync(SEQ_KEY_NAME);
+  const last = raw === null ? 0 : Number(raw);
+  const floor = Math.floor(now());
+  if (!Number.isSafeInteger(last) || last < floor)
+    await store.setItemAsync(SEQ_KEY_NAME, String(floor));
+  return { deviceId: deviceIdFor(publicKey), publicKey, privateKey };
+}
+
 /** This phone's device id, without making a key when there is none (the devices screen). */
 export async function readDeviceId(store: SecureKeyValue): Promise<string | undefined> {
   return read(await store.getItemAsync(DEVICE_KEY_NAME))?.deviceId;
@@ -84,19 +117,25 @@ export async function readDeviceId(store: SecureKeyValue): Promise<string | unde
 /** One counter update at a time per keychain, so two quick sends never read the same seq. */
 const seqLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();
 
-export function nextSeq(store: SecureKeyValue): Promise<number> {
+/**
+ * The seq is max(saved + 1, clock in ms). A restored phone shares its key (so its device id and
+ * seq lane) with the old phone, which may still be in use; both follow the clock, so neither falls
+ * more than the 64-wide replay window behind the other and the computer drops neither.
+ */
+export function nextSeq(store: SecureKeyValue, now: () => number = Date.now): Promise<number> {
   const previous = seqLocks.get(store) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(() => takeSeq(store));
+  const next = previous.catch(() => undefined).then(() => takeSeq(store, now));
   seqLocks.set(store, next);
   return next;
 }
 
-async function takeSeq(store: SecureKeyValue): Promise<number> {
+async function takeSeq(store: SecureKeyValue, now: () => number): Promise<number> {
   const raw = await store.getItemAsync(SEQ_KEY_NAME);
   const last = raw === null ? 0 : Number(raw);
   // A damaged counter must never restart at 1: the computer would drop those as replays.
   if (!Number.isSafeInteger(last) || last < 0) throw new Error('private chat counter damaged');
-  const seq = last + 1;
+  const clock = Math.floor(now());
+  const seq = Number.isSafeInteger(clock) && clock > last ? clock : last + 1;
   await store.setItemAsync(SEQ_KEY_NAME, String(seq));
   return seq;
 }

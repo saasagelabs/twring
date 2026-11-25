@@ -6,6 +6,7 @@ import {
   e2eDeviceSchema,
   type E2eDevice,
   type PairClaim,
+  type RecoveryBackupRequest,
 } from '@twring/contracts';
 
 /**
@@ -60,6 +61,18 @@ type OfferRow = {
   key_mac: string | null;
 };
 
+type RecoveryRow = {
+  user_id: string;
+  device_id: string;
+  salt: string;
+  check_value: string;
+  sealed: string;
+  updated_at: string;
+};
+
+/** A stored recovery backup: salt, check value and ciphertext only (C3 #11). */
+export type RecoveryRecord = RecoveryBackupRequest & { updated_at: string };
+
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 const newOfferId = () => `off_${[...randomBytes(20)].map((byte) => ALPHABET[byte & 31]).join('')}`;
 
@@ -82,6 +95,8 @@ export class E2eDeviceStore {
         connector_id TEXT NOT NULL, connector_device_id TEXT NOT NULL, connector_public_key TEXT NOT NULL,
         expires_at TEXT NOT NULL, claim TEXT);
       CREATE INDEX IF NOT EXISTS e2e_pair_offers_expiry ON e2e_pair_offers(expires_at);
+      CREATE TABLE IF NOT EXISTS e2e_recovery(user_id TEXT PRIMARY KEY, device_id TEXT NOT NULL,
+        salt TEXT NOT NULL, check_value TEXT NOT NULL, sealed TEXT NOT NULL, updated_at TEXT NOT NULL);
     `);
     // Typed pairing codes (C3 #11). Added in place, so an existing database keeps its offers.
     const columns = this.db.prepare('PRAGMA table_info(e2e_pair_offers)').all() as {
@@ -289,10 +304,45 @@ export class E2eDeviceStore {
     this.db.prepare('DELETE FROM e2e_pair_offers WHERE id=? AND user_id=?').run(offerId, userId);
   }
 
-  /** Delete my data: every device and offer of the account. Returns the devices removed. */
+  /** Saves (or replaces) the account's one recovery backup. */
+  putRecovery(userId: string, backup: RecoveryBackupRequest): RecoveryRecord {
+    const updatedAt = this.now().toISOString();
+    this.db
+      .prepare(
+        `INSERT INTO e2e_recovery(user_id,device_id,salt,check_value,sealed,updated_at) VALUES(?,?,?,?,?,?)
+         ON CONFLICT(user_id) DO UPDATE SET device_id=excluded.device_id, salt=excluded.salt,
+           check_value=excluded.check_value, sealed=excluded.sealed, updated_at=excluded.updated_at`,
+      )
+      .run(userId, backup.device_id, backup.salt, backup.check, backup.sealed, updatedAt);
+    return { ...backup, updated_at: updatedAt };
+  }
+
+  /** This account's backup; never another account's. */
+  recovery(userId: string): RecoveryRecord | undefined {
+    const row = this.db.prepare('SELECT * FROM e2e_recovery WHERE user_id=?').get(userId) as
+      RecoveryRow | undefined;
+    return (
+      row && {
+        device_id: row.device_id,
+        salt: row.salt,
+        check: row.check_value,
+        sealed: row.sealed,
+        updated_at: row.updated_at,
+      }
+    );
+  }
+
+  deleteRecovery(userId: string): boolean {
+    return (
+      Number(this.db.prepare('DELETE FROM e2e_recovery WHERE user_id=?').run(userId).changes) > 0
+    );
+  }
+
+  /** Delete my data: every device, offer and recovery backup of the account. Returns the devices removed. */
   deleteAllForUser(userId: string): number {
     return this.transaction(() => {
       this.db.prepare('DELETE FROM e2e_pair_offers WHERE user_id=?').run(userId);
+      this.db.prepare('DELETE FROM e2e_recovery WHERE user_id=?').run(userId);
       return Number(this.db.prepare('DELETE FROM e2e_devices WHERE user_id=?').run(userId).changes);
     });
   }

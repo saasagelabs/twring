@@ -183,9 +183,10 @@ describe('private chats in the chat data layer', () => {
     await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalledTimes(1));
     t.controller.send(privateAgent, 'two');
     await vi.waitFor(() => expect(t.api.sendSealedMessage).toHaveBeenCalledTimes(2));
-    expect(t.seqAtPost).toEqual(['1', '2']);
     const seqs = (t.posts as { sealed: SealedEnvelopeV1 }[]).map((p) => p.sealed.sender_seq);
-    expect(seqs).toEqual([1, 2]);
+    // Each seq (it follows the clock, ADR-044 recovery) is saved before its post goes out.
+    expect(t.seqAtPost).toEqual(seqs.map(String));
+    expect(seqs[1]).toBeGreaterThan(seqs[0]);
   });
 
   it('shows the opened text, and keeps plaintext out of everything saved on the phone', async () => {
@@ -318,7 +319,8 @@ describe('private chats in the chat data layer', () => {
     expect(all.length).toBeGreaterThan(sent);
     expect(new Set(all.map((p) => JSON.stringify(p.sealed))).size).toBe(1);
     expect(new Set(all.map((p) => p.clientId))).toEqual(new Set([clientId]));
-    expect(t.store.m.get(SEQ_KEY_NAME)).toBe('1');
+    // One seq was taken, never a second one for the retry.
+    expect(t.store.m.get(SEQ_KEY_NAME)).toBe(String(all[0].sealed.sender_seq));
   });
 
   it('builds a 280-character reply quote inside the sealed payload', async () => {
