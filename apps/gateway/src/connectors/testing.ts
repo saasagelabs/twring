@@ -66,6 +66,8 @@ export interface FakeConnector {
   decisions: Extract<RelayGatewayMessage, { type: 'sealed.decision' }>[];
   /** Every `sealed.cancel` frame (Stop in a private chat, C3 #11) exactly as sent. */
   cancels: Extract<RelayGatewayMessage, { type: 'sealed.cancel' }>[];
+  /** How many `e2e.devices_changed` frames arrived (a device was removed, C3 #11). */
+  devicesChanged: () => number;
   /** Sends any frame on the relay socket as this computer (e.g. `sealed.reply`). */
   send(frame: Record<string, unknown>): void;
   terminate(): void;
@@ -113,6 +115,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
   const sealed: FakeConnector['sealed'] = [];
   const decisions: FakeConnector['decisions'] = [];
   const cancels: FakeConnector['cancels'] = [];
+  let devicesChanged = 0;
   const channels = new Map<string, { agent: string; turns: Map<string, AbortController> }>();
   const script = options.script ?? answerScript;
 
@@ -182,6 +185,9 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
       case 'sealed.cancel':
         cancels.push(frame);
         return;
+      case 'e2e.devices_changed':
+        devicesChanged++;
+        return;
       case 'channel.message': {
         const state = channels.get(frame.channel);
         const message = nativeClientMessageSchema.safeParse(frame.message);
@@ -249,6 +255,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
     sealed,
     decisions,
     cancels,
+    devicesChanged: () => devicesChanged,
     send: sendFrame,
     terminate: () => ws.terminate(),
   };

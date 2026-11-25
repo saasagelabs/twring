@@ -40,7 +40,7 @@ const claimBody = (offerId: string, n = 2, id = devId('p')) => ({
 describe('private chat pairing routes', () => {
   it('pairs a phone and a computer once', async () => {
     const g = await start();
-    const { token } = await g.pair('u1');
+    const { token, connectorId } = await g.pair('u1');
     const created = await offer(g, token);
     expect(created.statusCode).toBe(200);
     const offerId = created.json<{ offer_id: string }>().offer_id;
@@ -53,6 +53,7 @@ describe('private chat pairing routes', () => {
     expect(first.json()).toEqual({
       connector_public_key: key(1),
       connector_device_id: devId('c'),
+      connector_id: connectorId,
     });
     const again = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
       user: 'u1',
@@ -198,10 +199,13 @@ describe('private chat pairing routes', () => {
     const devices = computer.json<{ devices: { id: string; revoked_at?: string }[] }>().devices;
     expect(devices.find((d) => d.id === devId('p'))?.revoked_at).toEqual(expect.any(String));
     expect(devices.find((d) => d.id === devId('c'))?.revoked_at).toBeUndefined();
+    // The phone hears of the removal too (P4 ruling 3), marked revoked like the computer.
     const phone = await g.send('GET', '/v1/e2e/devices', { user: 'u1' });
-    expect(phone.json<{ devices: { id: string }[] }>().devices.map((d) => d.id)).toEqual([
+    const listed = phone.json<{ devices: { id: string; revoked_at?: string }[] }>().devices;
+    expect(listed.filter((d) => d.revoked_at === undefined).map((d) => d.id)).toEqual([
       devId('c'),
     ]);
+    expect(listed.find((d) => d.id === devId('p'))?.revoked_at).toEqual(expect.any(String));
   });
 
   it('enforces the device cap of 5 on the server, adding neither device', async () => {
@@ -427,5 +431,34 @@ describe('private chat pairing routes', () => {
     expect(all).not.toContain('SECRETMAC');
     expect(all).not.toContain(key(1));
     expect(all).not.toContain(key(2));
+  });
+});
+
+describe('a computer set up again (private reset, C3 #11 P4a)', () => {
+  it('removes only its own computer device, never a phone or another computer', async () => {
+    const g = await start();
+    const mine = await g.pair('u1');
+    g.e2e.add('u1', {
+      id: devId('c'),
+      kind: 'computer',
+      name: 'Laptop',
+      public_key: key(1),
+      connector_id: mine.connectorId,
+    });
+    g.e2e.add('u1', {
+      id: devId('d'),
+      kind: 'computer',
+      name: 'Desktop',
+      public_key: key(3),
+      connector_id: `con_${'z'.repeat(20)}`,
+    });
+    g.e2e.add('u1', { id: devId('p'), kind: 'phone', name: 'Pixel', public_key: key(2) });
+    const del = (token: string, id: string) =>
+      g.send('DELETE', `/v1/e2e/computer/devices/${id}`, { headers: bearer(token) });
+    expect((await del(mine.token, devId('p'))).statusCode).toBe(404);
+    expect((await del(mine.token, devId('d'))).statusCode).toBe(404);
+    expect((await del(mine.token, devId('c'))).statusCode).toBe(204);
+    expect((await del(mine.token, devId('c'))).statusCode).toBe(404);
+    expect(g.e2e.list('u1').map((d) => d.id)).toEqual([devId('d'), devId('p')]);
   });
 });

@@ -9,6 +9,7 @@ import {
   RELAY_PROTOCOL,
   relayConnectorMessageSchema,
   SCOPED_SESSIONS_FEATURE,
+  DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
   type LocalAgent,
@@ -320,6 +321,27 @@ export class ConnectorHub {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * Tells the account's connected computers that a private chat device was removed (C3 #11), so
+   * they read the device list now instead of at their next 10-minute sync. Only computers that
+   * said `sealed_chat` and `devices_changed` in their latest hello get it. Answers how many did.
+   */
+  notifyDevicesChanged(userId: string): number {
+    let sent = 0;
+    for (const entry of this.live.values()) {
+      if (!entry.ready || entry.userId !== userId) continue;
+      if (!entry.features.has(SEALED_CHAT_FEATURE) || !entry.features.has(DEVICES_CHANGED_FEATURE))
+        continue;
+      try {
+        entry.ws.send(JSON.stringify({ type: 'e2e.devices_changed' }));
+        sent++;
+      } catch {
+        // That socket is already gone; it syncs when it reconnects.
+      }
+    }
+    return sent;
   }
 
   /** Takes over an authenticated socket. A second socket for the same connector replaces the first. */

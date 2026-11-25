@@ -10,6 +10,7 @@ import {
   MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   SCOPED_SESSIONS_FEATURE,
+  DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
   TEXT_TURN_TAG,
@@ -118,12 +119,17 @@ export class FailureBudget {
 
 /**
  * What this computer says it supports: `sealed_chat` (and `sealed_cancel`, Stop for a private
- * turn) only once it trusts a phone.
+ * turn, and `devices_changed`, a prompt device sync) only once it trusts a phone.
  */
 export function helloFeatures(e2e: E2eConfig | undefined): string[] {
   const phones = e2e?.devices.some((device) => device.kind === 'phone') ?? false;
   return phones
-    ? [SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE]
+    ? [
+        SCOPED_SESSIONS_FEATURE,
+        SEALED_CHAT_FEATURE,
+        SEALED_CANCEL_FEATURE,
+        DEVICES_CHANGED_FEATURE,
+      ]
     : [SCOPED_SESSIONS_FEATURE];
 }
 
@@ -480,6 +486,12 @@ export class PrivateChats {
     if (saved === undefined) return;
     const seq = saved.seq;
     const ctx = this.context(saved, frame.agent);
+    // Each piece wraps to the devices trusted now: a device removed while the agent answers
+    // gets none of the pieces sealed after the sync that dropped it (C3 #11 P4a).
+    const current = (): SealContext => ({
+      ...ctx,
+      trusted: this.options.e2e()?.devices ?? ctx.trusted,
+    });
     let index = 0;
     const held: SealedReplyFrame[] = [];
     const push = (out: SealedReplyFrame) => {
@@ -496,7 +508,7 @@ export class PrivateChats {
         type: 'sealed.reply',
         agent: frame.agent,
         turn_id: frame.message_id,
-        sealed: sealOutgoing(ctx, payload, seq, { index, final }),
+        sealed: sealOutgoing(current(), payload, seq, { index, final }),
         final,
       };
       if (
