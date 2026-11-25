@@ -94,7 +94,11 @@ vi.mock('@/e2e/recovery', () => ({
   restoreOffer: mocks.restoreOffer,
 }));
 // This server and account's keychain (P3c ruling 1), never the phone-wide one.
-vi.mock('@/threads/chats', () => ({ privateKeychain: () => ({ deviceOnly: true }) }));
+vi.mock('@/threads/chats', () => ({
+  privateKeychain: () => ({ deviceOnly: true }),
+  resetPrivateChats: vi.fn(),
+}));
+vi.mock('@/api', () => ({ twringApi: () => undefined }));
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));

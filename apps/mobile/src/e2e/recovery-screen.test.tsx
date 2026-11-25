@@ -76,6 +76,7 @@ vi.mock('@/api', () => ({ twringApi: () => ({ privateDevices: mocks.privateDevic
 vi.mock('@/threads/chats', () => ({
   privateKeychain: () => ({}),
   currentScope: () => 'hosted_u1',
+  resetPrivateChats: vi.fn(),
 }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));

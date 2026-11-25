@@ -61,7 +61,10 @@ function chats(store: ReturnType<typeof memoryStore>, devices: E2eDevice[] | und
       remove: () => Promise.resolve(),
     },
     addressOf: () => Promise.resolve(`cord-connector://${CON_A}/${AGENT}`),
-    ...(devices !== undefined && { devices: () => Promise.resolve({ devices }) }),
+    // The server lists this phone too: a list without it means another phone removed it.
+    ...(devices !== undefined && {
+      devices: () => Promise.resolve({ devices: [...devices, listed(phone, { kind: 'phone' })] }),
+    }),
   });
 }
 

@@ -218,6 +218,13 @@ export class ChatController {
       ? this.privacy.notice(agentId)
       : undefined;
 
+  /** After a restore, pairing or approval: private chats load the key and computers again. */
+  resetPrivate(): void {
+    this.opened.clear();
+    this.privacy?.reset();
+    this.emit();
+  }
+
   /** Removing this phone on the devices screen: its private chat keys go (the sign-out path). */
   async forgetPrivateKeys(): Promise<void> {
     this.opened.clear();
@@ -818,4 +825,9 @@ export async function forgetThisPhonePrivateKeys(): Promise<void> {
   const active = chatController();
   if (active !== undefined) await active.forgetPrivateKeys();
   else await forgetPrivateDevice(privateKeychain());
+}
+
+/** A restore, pairing or approval changed this phone's key or computers: chats read them again. */
+export function resetPrivateChats(): void {
+  chatController()?.resetPrivate();
 }

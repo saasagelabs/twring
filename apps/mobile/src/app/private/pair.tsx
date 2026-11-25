@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
+import { twringApi } from '@/api';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { Field } from '@/components/Field';
 import { GhostButton } from '@/components/GhostButton';
@@ -35,7 +36,7 @@ import type { PairFailure, PairInput, TrustedDevice } from '@/e2e/pairing';
 import { RECOVERY_COPY, restoreOffer } from '@/e2e/recovery';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
-import { privateKeychain } from '@/threads/chats';
+import { privateKeychain, resetPrivateChats } from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -121,7 +122,11 @@ export default function PrivatePairScreen() {
 
   useEffect(() => {
     let live = true;
-    restoreOffer({ api: recoveryApi(), store: privateKeychain() }).then(
+    const api = twringApi();
+    // The device list tells a key this phone just made (opening a chat) from one in use.
+    const devices =
+      api?.privateDevices === undefined ? {} : { devices: { list: () => api.privateDevices!() } };
+    restoreOffer({ api: recoveryApi(), store: privateKeychain(), ...devices }).then(
       (offer) => {
         if (live && (offer.kind === 'found' || offer.kind === 'removed')) setBackup(offer.kind);
       },
@@ -178,6 +183,7 @@ export default function PrivatePairScreen() {
           approveShown !== undefined && (await finishApproval({ store }, approval, approveShown));
         if (!live) return;
         if (done) {
+          resetPrivateChats();
           playCallFeedback('connected');
           setStep({ kind: 'approved' });
         } else fail(APPROVE_FAILURE_COPY.refused, 'approve');
@@ -230,6 +236,7 @@ export default function PrivatePairScreen() {
       // The first computer this phone trusts: the moment to offer a recovery key.
       const first = (await loadTrusted(store)).length === 0;
       await confirmPairing({ store }, connector);
+      resetPrivateChats();
       playCallFeedback('connected');
       setStep({ kind: 'done', offerRecovery: first });
     } catch {
