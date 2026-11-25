@@ -151,6 +151,41 @@ export function shownApprover(approval: PhoneApproval, me: DeviceKey): ShownAppr
 }
 
 /**
+ * What the new phone does with the approver a claimed answer names: show it the first time, keep
+ * it when it is the same phone and key, and stop when it changes after a code was shown (a code
+ * must never be replaced silently while a person compares it).
+ */
+export function approverUpdate(
+  shown: Pick<ShownApprover, 'id' | 'public_key'> | undefined,
+  next: Pick<ShownApprover, 'id' | 'public_key'>,
+): 'show' | 'same' | 'changed' {
+  if (shown === undefined) return 'show';
+  return shown.id === next.id && shown.public_key === next.public_key ? 'same' : 'changed';
+}
+
+/**
+ * Runs `check` every `everyMs` while it is not already running (one poll at a time; a failure
+ * waits for the next tick). The returned stop ends it for good.
+ */
+export function pollApproval(check: () => Promise<void>, everyMs: number): () => void {
+  let running = false;
+  let stopped = false;
+  const timer = setInterval(() => {
+    if (running || stopped) return;
+    running = true;
+    void check()
+      .catch(() => undefined)
+      .finally(() => {
+        running = false;
+      });
+  }, everyMs);
+  return () => {
+    stopped = true;
+    clearInterval(timer);
+  };
+}
+
+/**
  * The new phone applies its own note (P4b ruling 5): sent by the approver it showed the code for,
  * naming this phone. It then trusts that phone and each device the note knows (never itself).
  */

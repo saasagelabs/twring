@@ -79,11 +79,16 @@ export function applyTrustNotes(
   server: readonly E2eDeviceWithNote[],
   me: { deviceId: string; privateKey: Uint8Array },
   now: number,
+  removed: readonly string[] = [],
 ): { trusted: TrustedDevice[]; added: number; refused: TrustNoteRefusal[] } {
   const vouchers = [...trusted];
   const out = [...trusted];
   const refused: TrustNoteRefusal[] = [];
   for (const listed of server) {
+    if (listed.trust_note !== undefined && removed.includes(listed.id)) {
+      refused.push('removed');
+      continue;
+    }
     if (
       listed.trust_note === undefined ||
       listed.revoked_at !== undefined ||
@@ -106,6 +111,17 @@ export function applyTrustNotes(
     });
   }
   return { trusted: out, added: out.length - trusted.length, refused };
+}
+
+/** How many removed device ids a computer keeps so a trust note can't bring one back. */
+export const MAX_REVOKED_SEEN = 32;
+
+/** The removed ids already kept plus the ones this list says were removed, newest last. */
+export function rememberRemoved(kept: readonly string[], server: readonly E2eDevice[]): string[] {
+  const fresh = server
+    .filter((d) => d.revoked_at !== undefined && !kept.includes(d.id))
+    .map((d) => d.id);
+  return [...kept, ...fresh].slice(-MAX_REVOKED_SEEN);
 }
 
 const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceWithNoteSchema).max(64) });
@@ -150,12 +166,14 @@ export async function syncDevices(
   const now = (options.now ?? Date.now)();
   await options.persist((current) => {
     const out = reconcileDevices(current.devices, body.devices, current.device_id);
+    const removed = rememberRemoved(current.revoked ?? [], body.devices);
     const noted = (list: TrustedDevice[]) => {
       const applied = applyTrustNotes(
         list,
         body.devices,
         { deviceId: current.device_id, privateKey: base64urlDecode(current.private_key) },
         now,
+        removed,
       );
       refused = applied.refused;
       counts = {
@@ -165,12 +183,14 @@ export async function syncDevices(
       };
       return applied.trusted;
     };
-    if (current.pending === undefined) return { ...current, devices: noted(out.trusted) };
+    const kept = removed.length > 0 ? { revoked: removed } : {};
+    if (current.pending === undefined) return { ...current, ...kept, devices: noted(out.trusted) };
     const settled = settlePending(current.pending, body.devices, now);
     const rest = { ...current };
     delete rest.pending;
     return {
       ...rest,
+      ...kept,
       devices: noted([
         ...out.trusted.filter((d) => !settled.confirmed.some((c) => c.id === d.id)),
         ...settled.confirmed,

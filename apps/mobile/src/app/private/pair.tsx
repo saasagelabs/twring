@@ -14,7 +14,9 @@ import {
   APPROVE_PATH,
   approvalStatus,
   approveCheckCopy,
+  approverUpdate,
   finishApproval,
+  pollApproval,
   requestApproval,
   shownApprover,
   type ApproveFailure,
@@ -166,12 +168,10 @@ export default function PrivatePairScreen() {
       if (approval.state === 'claimed') {
         const me = await loadDeviceKey(store);
         const shown = me === undefined ? undefined : shownApprover(approval, me);
-        if (
-          live &&
-          shown !== undefined &&
-          (shown.id !== approveShown?.id || shown.public_key !== approveShown.public_key)
-        )
-          setStep({ kind: 'approve', id: approveId, shown });
+        if (!live || shown === undefined) return;
+        const update = approverUpdate(approveShown, shown);
+        if (update === 'show') setStep({ kind: 'approve', id: approveId, shown });
+        else if (update === 'changed') fail(APPROVE_FAILURE_COPY.refused, 'approve');
       } else if (approval.state === 'accepted') {
         // Only the phone whose code was shown may vouch for this one (P4b ruling 5).
         const done =
@@ -184,10 +184,10 @@ export default function PrivatePairScreen() {
       } else if (approval.state === 'denied') fail(APPROVE_FAILURE_COPY.denied, 'approve');
       else if (approval.state === 'expired') fail(APPROVE_FAILURE_COPY.expired, 'approve');
     };
-    const timer = setInterval(() => void check().catch(() => undefined), APPROVE_POLL_MS);
+    const stop = pollApproval(check, APPROVE_POLL_MS);
     return () => {
       live = false;
-      clearInterval(timer);
+      stop();
     };
   }, [approveId, approveShown]);
 

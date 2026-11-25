@@ -163,6 +163,33 @@ export function applyTrustNotes(
   return { trusted: out, added: out.length - trusted.length, refused };
 }
 
+/** Device ids the server said were removed, kept so a trust note can never bring one back. */
+export const REMOVED_KEY_NAME = 'twring.e2e.removed.v1';
+export const MAX_REMOVED_SEEN = 32;
+const removedSchema = z.array(z.string().min(1).max(64)).max(MAX_REMOVED_SEEN);
+
+async function rememberRemoved(
+  store: SecureKeyValue,
+  server: readonly E2eDevice[],
+): Promise<string[]> {
+  let kept: string[] = [];
+  try {
+    const parsed = removedSchema.safeParse(
+      JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]'),
+    );
+    if (parsed.success) kept = parsed.data;
+  } catch {
+    kept = [];
+  }
+  const fresh = server
+    .filter((d) => d.revoked_at !== undefined && !kept.includes(d.id))
+    .map((d) => d.id);
+  if (fresh.length === 0) return kept;
+  const next = [...kept, ...fresh].slice(-MAX_REMOVED_SEEN);
+  await store.setItemAsync(REMOVED_KEY_NAME, JSON.stringify(next));
+  return next;
+}
+
 /**
  * Reads the server's list and applies `reconcileTrusted` to this phone's saved list, then, with
  * this phone's key, the trust notes of phones another trusted phone approved.
@@ -176,10 +203,21 @@ export async function syncTrusted(
 ): Promise<TrustedDevice[]> {
   const current = await loadTrusted(store);
   const out = reconcileTrusted(current, server);
-  const noted =
+  const removed = await rememberRemoved(store, server);
+  const notedRaw =
     me === undefined
-      ? { trusted: out.trusted, added: 0, refused: [] }
-      : applyTrustNotes(out.trusted, server, me, now());
+      ? { trusted: out.trusted, added: 0, refused: [] as TrustNoteRefusal[] }
+      : applyTrustNotes(
+          out.trusted,
+          server.filter((d) => !removed.includes(d.id)),
+          me,
+          now(),
+        );
+  const blocked = server.filter((d) => d.trust_note !== undefined && removed.includes(d.id));
+  const noted = {
+    ...notedRaw,
+    refused: [...notedRaw.refused, ...blocked.map((): TrustNoteRefusal => 'removed')],
+  };
   for (const reason of new Set(noted.refused)) log?.('e2e_trust_note_refused', { reason });
   if (out.dropped > 0 || out.bound > 0 || noted.added > 0) {
     await saveTrusted(store, noted.trusted);

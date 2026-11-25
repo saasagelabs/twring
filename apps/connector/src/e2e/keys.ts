@@ -38,6 +38,11 @@ export const e2eConfigSchema = z
      * Never wrapped to: they move to `devices` once the add succeeds or the server lists them.
      */
     pending: z.array(trustedDeviceSchema).max(4).optional(),
+    /**
+     * Devices the server has said were removed (newest last, at most MAX_REVOKED_SEEN). A trust
+     * note never brings one of these back, even when the server lists it as active again.
+     */
+    revoked: z.array(e2eDeviceIdSchema).max(32).optional(),
     /** The last seq this computer sealed with; never reused, even across restarts. */
     seq: z.number().int().nonnegative(),
     /** Highest seq opened per sender device, so a restart does not reopen old replays. */

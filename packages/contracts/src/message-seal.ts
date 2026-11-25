@@ -552,7 +552,13 @@ export function offerKeyMacMatches(
 
 /** Why a listed device's trust note was not applied (logged as a reason only). */
 export type TrustNoteRefusal =
-  'no_note' | 'sender_not_trusted' | 'not_for_me' | 'unopenable' | 'wrong_device';
+  | 'no_note'
+  | 'sender_not_trusted'
+  | 'not_for_me'
+  | 'unopenable'
+  | 'wrong_device'
+  /** The server said this device was removed before; a note never brings it back. */
+  | 'removed';
 
 /**
  * The rule both the computer and the phone apply to a device the server lists with a trust note

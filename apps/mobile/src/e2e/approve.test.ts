@@ -5,12 +5,14 @@ import {
   type PhoneApproval,
   type TrustNote,
 } from '@twring/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   approveWaiting,
   claimWaiting,
+  approverUpdate,
   finishApproval,
+  pollApproval,
   requestApproval,
   shownApprover,
   type ApproveApi,
@@ -194,5 +196,81 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     });
     expect(ignored).toEqual([]);
     expect(events).toEqual(['e2e_trust_note_refused']);
+  });
+
+  it('polls without overlap and stops for good', async () => {
+    vi.useFakeTimers();
+    try {
+      let calls = 0;
+      let release: (() => void) | undefined;
+      const stop = pollApproval(() => {
+        calls += 1;
+        return new Promise<void>((resolve) => (release = resolve));
+      }, 2000);
+      await vi.advanceTimersByTimeAsync(7000);
+      expect(calls).toBe(1);
+      release?.();
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(calls).toBe(2);
+      stop();
+      release?.();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls).toBe(2);
+      const failing = pollApproval(() => Promise.reject(new Error('net')), 2000);
+      await vi.advanceTimersByTimeAsync(4000);
+      failing();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a claim whose approver changes after a code was shown is refused, not shown', () => {
+    const a = { id: 'a', name: 'A', public_key: 'ka', code: '111111' };
+    expect(approverUpdate(undefined, a)).toBe('show');
+    expect(approverUpdate(a, { ...a })).toBe('same');
+    expect(approverUpdate(a, { ...a, public_key: 'kb' })).toBe('changed');
+    expect(approverUpdate(a, { ...a, id: 'b' })).toBe('changed');
+  });
+
+  it('a removed phone listed active again with its old note is not trusted again', async () => {
+    const env = await setup();
+    const pStore = memoryStore();
+    const p = await loadOrCreateDeviceKey(pStore);
+    await saveTrusted(env.tStore, [trustedEntry(keyOf(p), 'phone')]);
+    await saveTrusted(pStore, [trustedEntry(keyOf(env.t), 'phone')]);
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    const row = {
+      id: env.n.deviceId,
+      kind: 'phone' as const,
+      name: 'New phone',
+      public_key: base64urlEncode(env.n.publicKey),
+      added_at: at,
+      trust_note: env.sent(),
+    };
+    const me = { deviceId: p.deviceId, privateKey: p.privateKey };
+    expect((await syncTrusted(pStore, [row], undefined, me, () => NOW)).map((d) => d.id)).toContain(
+      env.n.deviceId,
+    );
+    const removed = await syncTrusted(
+      pStore,
+      [{ ...row, revoked_at: '2026-11-25T12:01:00.000Z' }],
+      undefined,
+      me,
+      () => NOW,
+    );
+    expect(removed.map((d) => d.id)).not.toContain(env.n.deviceId);
+    // A hostile server lists it as active again with the same, valid note.
+    const events: string[] = [];
+    const again = await syncTrusted(
+      pStore,
+      [row],
+      (e) => events.push(e),
+      me,
+      () => NOW,
+    );
+    expect(again.map((d) => d.id)).not.toContain(env.n.deviceId);
+    expect(events).toContain('e2e_trust_note_refused');
   });
 });

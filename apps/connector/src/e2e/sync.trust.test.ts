@@ -8,7 +8,7 @@ import {
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
 
-import type { TrustedDevice } from './keys';
+import { e2eConfigSchema, type E2eConfig, type TrustedDevice } from './keys';
 import { applyTrustNotes, syncDevices } from './sync';
 import { baseConfig } from './test-fixtures';
 
@@ -152,5 +152,40 @@ describe('syncDevices with notes', () => {
     expect(result?.added).toBe(1);
     expect(e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id, newPhone.id]);
     expect(lines).toEqual(['e2e_trust_note_refused sender_not_trusted (1)']);
+  });
+});
+
+describe('a removed phone listed again (C3 #11 P4b1 verify)', () => {
+  it('never trusts a phone again after the server said it was removed', async () => {
+    let e2e: E2eConfig = {
+      device_id: computer.id,
+      public_key: computer.key,
+      private_key: base64urlEncode(computer.privateKey),
+      devices: [...trusted(), trustedOf(newPhone)],
+      seq: 0,
+    };
+    const note = noteFrom(trustedPhone);
+    let rows: E2eDeviceWithNote[] = [
+      listed(note, newPhone, { revoked_at: '2026-11-25T11:59:30.000Z' }),
+    ];
+    const sync = () =>
+      syncDevices({
+        server: baseConfig.server,
+        token: baseConfig.token,
+        fetch: () =>
+          Promise.resolve(new Response(JSON.stringify({ devices: rows }), { status: 200 })),
+        now: () => NOW,
+        persist: (change) => {
+          e2e = e2eConfigSchema.parse(change(e2e));
+          return Promise.resolve(e2e);
+        },
+      });
+    await sync();
+    expect(e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
+    // A hostile server lists the removed phone as active again with its old, valid note.
+    rows = [listed(note)];
+    const second = await sync();
+    expect(second?.added).toBe(0);
+    expect(e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
   });
 });
