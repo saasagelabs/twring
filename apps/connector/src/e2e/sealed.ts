@@ -4,11 +4,14 @@ import {
   messageAad,
   newMessageKey,
   openBody,
+  openControl,
   ReplayWindow,
   sealBody,
+  sealControl,
   SEALED_FORMAT_VERSION,
   unwrapKey,
   wrapKey,
+  type SealedControlPayload,
   type SealedEnvelopeV1,
   type SealedPayload,
 } from '@twring/contracts';
@@ -37,9 +40,14 @@ export interface SealContext {
   seen: ReplayWindow;
 }
 
-export type OpenResult =
-  | { ok: true; payload: SealedPayload }
-  | { ok: false; reason: 'not_for_me' | 'unknown_sender' | 'replay' | 'bad_ciphertext' };
+export type OpenFailure = {
+  ok: false;
+  reason: 'not_for_me' | 'unknown_sender' | 'replay' | 'bad_ciphertext';
+};
+export type OpenResult = { ok: true; payload: SealedPayload } | OpenFailure;
+/** A sealed approval decision (C3 #11); `sender` is the trusted device that sealed it. */
+export type OpenControlResult =
+  { ok: true; payload: SealedControlPayload; sender: TrustedDevice } | OpenFailure;
 
 function aadFor(ctx: SealContext, sender: string, seq: number, chunk?: number): Uint8Array {
   return messageAad({
@@ -57,6 +65,23 @@ function aadFor(ctx: SealContext, sender: string, seq: number, chunk?: number): 
  * cannot use up a real message's seq.
  */
 export function openIncoming(ctx: SealContext, envelope: SealedEnvelopeV1): OpenResult {
+  const opened = openWith(ctx, envelope, openBody);
+  return opened.ok ? { ok: true, payload: opened.payload } : opened;
+}
+
+/** As `openIncoming`, for a sealed approval decision; a chat message never opens here. */
+export function openIncomingControl(
+  ctx: SealContext,
+  envelope: SealedEnvelopeV1,
+): OpenControlResult {
+  return openWith(ctx, envelope, openControl);
+}
+
+function openWith<T>(
+  ctx: SealContext,
+  envelope: SealedEnvelopeV1,
+  open: (key: Uint8Array, nonce: string, body: string, aad: Uint8Array) => T,
+): { ok: true; payload: T; sender: TrustedDevice } | OpenFailure {
   const mine = envelope.keys.find((key) => key.device === ctx.myDeviceId);
   if (mine === undefined) return { ok: false, reason: 'not_for_me' };
   const sender = ctx.trusted.find((device) => device.id === envelope.sender_device);
@@ -64,15 +89,15 @@ export function openIncoming(ctx: SealContext, envelope: SealedEnvelopeV1): Open
   if (!ctx.seen.fresh(envelope.sender_device, envelope.sender_seq))
     return { ok: false, reason: 'replay' };
   const aad = aadFor(ctx, envelope.sender_device, envelope.sender_seq, envelope.chunk?.index);
-  let payload: SealedPayload;
+  let payload: T;
   try {
     const key = unwrapKey(mine.wrapped, ctx.myPrivate, base64urlDecode(sender.public_key), aad);
-    payload = openBody(key, envelope.nonce, envelope.body, aad);
+    payload = open(key, envelope.nonce, envelope.body, aad);
   } catch {
     return { ok: false, reason: 'bad_ciphertext' };
   }
   ctx.seen.accept(envelope.sender_device, envelope.sender_seq);
-  return { ok: true, payload };
+  return { ok: true, payload, sender };
 }
 
 /** Seals under a fresh message key wrapped to this computer and every device it trusts. */
@@ -82,13 +107,31 @@ export function sealOutgoing(
   seq: number,
   chunk?: { index: number; final: boolean },
 ): SealedEnvelopeV1 {
+  return sealWith(ctx, seq, chunk, (key, aad) => sealBody(key, payload, aad));
+}
+
+/** As `sealOutgoing`, for a sealed approval request (C3 #11); never chunked. */
+export function sealOutgoingControl(
+  ctx: SealContext,
+  payload: SealedControlPayload,
+  seq: number,
+): SealedEnvelopeV1 {
+  return sealWith(ctx, seq, undefined, (key, aad) => sealControl(key, payload, aad));
+}
+
+function sealWith(
+  ctx: SealContext,
+  seq: number,
+  chunk: { index: number; final: boolean } | undefined,
+  seal: (key: Uint8Array, aad: Uint8Array) => { nonce: string; body: string },
+): SealedEnvelopeV1 {
   const key = newMessageKey();
   const aad = aadFor(ctx, ctx.myDeviceId, seq, chunk?.index);
   const recipients = [
     { id: ctx.myDeviceId, public_key: ctx.myPublic },
     ...ctx.trusted.filter((device) => device.id !== ctx.myDeviceId),
   ].slice(0, MAX_PAIRED_DEVICES);
-  const { nonce, body } = sealBody(key, payload, aad);
+  const { nonce, body } = seal(key, aad);
   return {
     v: SEALED_FORMAT_VERSION,
     sender_device: ctx.myDeviceId,

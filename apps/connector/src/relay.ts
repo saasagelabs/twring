@@ -59,7 +59,9 @@ export interface RelayClientOptions {
   /** What this computer says it supports, read at each hello (default: scoped sessions). */
   features?: () => string[];
   /** A private chat message (ADR-044); none set means they are ignored. */
-  onSealedMessage?(frame: Extract<RelayGatewayMessage, { type: 'sealed.message' }>): void;
+  onSealedMessage?(
+    frame: Extract<RelayGatewayMessage, { type: 'sealed.message' | 'sealed.decision' }>,
+  ): void;
   log?: (line: string) => void;
   delaysMs?: readonly number[];
   silenceTimeoutMs?: number;
@@ -254,6 +256,7 @@ export class RelayClient {
         if (this.closeChannel(frame.channel)) this.options.log?.('call ended');
         return;
       case 'sealed.message':
+      case 'sealed.decision':
         // Private chats (ADR-044): opened and answered by `PrivateChats` (e2e/turn.ts).
         this.options.onSealedMessage?.(frame);
         return;

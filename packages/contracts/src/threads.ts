@@ -133,6 +133,14 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       turn_id: z.string().max(128).optional(),
       /** The message this one answers; the quote itself is inside `sealed`, never on the server. */
       reply_to: threadMessageIdSchema.optional(),
+      /**
+       * A sealed approval request from the computer (C3 #11): what it asks is inside `sealed`;
+       * the server keeps only whether the phone answered (never how) and when it expires.
+       */
+      approval: z
+        .object({ state: z.enum(['pending', 'answered']), expires_at: z.iso.datetime() })
+        .strict()
+        .optional(),
     })
     .refine(
       (message) =>
@@ -242,6 +250,13 @@ export const voiceNoteQuerySchema = z
   .strict();
 export const approvalDecisionRequestSchema = z
   .object({ decision: z.enum(['approve', 'deny']) })
+  .strict();
+/**
+ * `POST /v1/agents/:agentId/approvals/:messageId` for a sealed approval (C3 #11): the phone's
+ * decision, sealed to the computer. The server relays it and cannot read or forge it.
+ */
+export const sealedApprovalDecisionRequestSchema = z
+  .object({ sealed: sealedEnvelopeV1Schema })
   .strict();
 export const messagePageResponseSchema = z.object({
   messages: z.array(threadMessageSchema),
