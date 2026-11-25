@@ -52,11 +52,7 @@ export function ChatSealedApproval({
   onDecide: Decide;
 }) {
   const [shownAt] = useState(Date.now);
-  const status = answered
-    ? 'answered'
-    : Date.parse(expiresAt) <= shownAt
-      ? 'expired'
-      : 'pending';
+  const status = answered ? 'answered' : Date.parse(expiresAt) <= shownAt ? 'expired' : 'pending';
   return (
     <ApprovalCard
       message={{
