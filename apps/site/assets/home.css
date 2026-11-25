@@ -143,7 +143,9 @@ h2 + .lead { margin-top: 1.25rem; }
 .cv, .rv { --v: var(--agent); --lvl: 0; display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 1.6rem; text-align: center; }
 .cv[data-voice="you"] { --v: var(--cyan); }
 .cv-top { display: flex; justify-content: space-between; align-items: center; width: 100%; padding-inline: 0.5rem; }
-.cv-lbl { font-size: 0.6875rem; letter-spacing: 0.22em; color: var(--text-sec); font-weight: 600; }
+.cv-lbl { display: inline-flex; align-items: center; gap: 0.4rem; font: 200 1.05rem/1 var(--display); letter-spacing: -0.02em; color: var(--text); }
+.cv-lbl svg { width: 1.45rem; height: auto; }
+.rv > .cv-lbl { margin-top: 0.45rem; }
 .cv-time { font-size: 0.75rem; color: var(--text-sec); }
 .orb { position: relative; flex: none; width: 9rem; height: 9rem; margin-top: 0.9rem; display: grid; place-items: center; }
 .orb-core { position: relative; width: 5.5rem; height: 5.5rem; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: var(--raise-2); box-shadow: 0 0 0 2px var(--cyan); font: 200 2.2rem/1 var(--display); color: var(--agent); transition: box-shadow 0.3s; }
