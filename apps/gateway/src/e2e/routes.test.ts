@@ -369,6 +369,23 @@ describe('private chat pairing routes', () => {
       ).toBe(400);
     });
 
+    it('refuses a typed claim on an offer that registered no typed code, and keeps it open', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      const offerId = (await offer(g, token)).json<{ offer_id: string }>().offer_id;
+      const typedClaim = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+        user: 'u1',
+        body: { ...claimBody(offerId), key: 'typed' },
+      });
+      expect(typedClaim.statusCode).toBe(404);
+      // The QR claim still works afterwards: the bad claim did not use the offer up.
+      const qrClaim = await g.send('POST', `/v1/e2e/pairings/${offerId}/claim`, {
+        user: 'u1',
+        body: claimBody(offerId),
+      });
+      expect(qrClaim.statusCode).toBe(200);
+    });
+
     it('rate limits lookups per account', async () => {
       const g = await start(FLAG_ON, { e2eLookupRatePerMinute: 2 });
       const codes: number[] = [];

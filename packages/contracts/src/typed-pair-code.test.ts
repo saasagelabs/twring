@@ -48,6 +48,16 @@ describe('typed pairing code', () => {
     expect(normalizeTypedPairCode('7KQ2_M9XD_4HTP_W3RV')).toBeUndefined();
   });
 
+  it('reads a pasted code with a newline or tabs, and refuses lookalike characters', () => {
+    expect(normalizeTypedPairCode('7KQ2-M9XD-4HTP-W3RV\n')).toBe(CODE);
+    expect(normalizeTypedPairCode('\t7KQ2--M9XD - 4HTP\r\nW3RV')).toBe(CODE);
+    // Full-width digits and Cyrillic letters look the same but are not the code.
+    expect(normalizeTypedPairCode('７KQ2-M9XD-4HTP-W3RV')).toBeUndefined();
+    expect(normalizeTypedPairCode('7КQ2-M9XD-4HTP-W3RV')).toBeUndefined();
+    expect(normalizeTypedPairCode('7KQ2-M9XD-4HTP-W3R')).toBeUndefined();
+    expect(normalizeTypedPairCode('7KQ2-M9XD-4HTP-W3RVA')).toBeUndefined();
+  });
+
   it('splits into a 4-character lookup handle and a 12-character secret', () => {
     expect(splitTypedPairCode(CODE)).toEqual({ handle: '7KQ2', secret: 'M9XD4HTPW3RV' });
     expect(typedPairHandleSchema.safeParse('7KQ2').success).toBe(true);

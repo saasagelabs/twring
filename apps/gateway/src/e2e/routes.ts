@@ -212,7 +212,10 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       if (!body.success || body.data.offer_id !== request.params.offerId)
         return sendError(reply, 400, 'bad_request');
       const offer = devices.offer(userId, body.data.offer_id);
-      if (offer === undefined) return sendError(reply, 404, 'not_found');
+      // A typed claim names a key the offer never registered: no such typed code, and the
+      // offer stays open for its QR.
+      if (offer === undefined || (body.data.key === 'typed' && offer.keyMac === undefined))
+        return sendError(reply, 404, 'not_found');
       if (offer.claim !== undefined) return sendError(reply, 409, 'offer_claimed');
       if (Date.parse(offer.expiresAt) <= now().getTime())
         return sendError(reply, 410, 'offer_expired');
