@@ -459,4 +459,32 @@ describe('a computer set up again (private reset, C3 #11 P4a)', () => {
     expect((await del(mine.token, devId('c'))).statusCode).toBe(404);
     expect(g.e2e.list('u1').map((d) => d.id)).toEqual([devId('d'), devId('p')]);
   });
+
+  it("never removes another account's computer, and answers like other e2e routes when off", async () => {
+    const g = await start();
+    const theirs = await g.pair('u1');
+    const mine = await g.pair('u2');
+    g.e2e.add('u1', {
+      id: devId('c'),
+      kind: 'computer',
+      name: 'Laptop',
+      public_key: key(1),
+      connector_id: theirs.connectorId,
+    });
+    const res = await g.send('DELETE', `/v1/e2e/computer/devices/${devId('c')}`, {
+      headers: bearer(mine.token),
+    });
+    expect(res.statusCode).toBe(404);
+    expect(g.e2e.list('u1').map((d) => d.id)).toEqual([devId('c')]);
+    // Outside the allowlist: the same refusal as the computer's device list.
+    const off = await start({ ...FLAG_ON, PRIVATE_CHATS_USERS: 'owner' });
+    const o = await off.pair('u1');
+    const refused = await off.send('DELETE', `/v1/e2e/computer/devices/${devId('c')}`, {
+      headers: bearer(o.token),
+    });
+    const listed = await off.send('GET', '/v1/e2e/computer/devices', { headers: bearer(o.token) });
+    expect(refused.statusCode).toBe(404);
+    expect(refused.json()).toMatchObject({ error: { code: 'private_chats_off' } });
+    expect(listed.json()).toMatchObject({ error: { code: 'private_chats_off' } });
+  });
 });
