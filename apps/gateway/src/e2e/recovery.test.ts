@@ -117,6 +117,25 @@ describe('recovery backup routes', () => {
     expect((await g.send('DELETE', '/v1/e2e/recovery', { user: 'u1' })).statusCode).toBe(404);
   });
 
+  it('a second phone of the account replaces the first one backup (one per account)', async () => {
+    const g = await start();
+    addPhone(g, 'u1');
+    addPhone(g, 'u1', 'q', 3);
+    await g.send('PUT', '/v1/e2e/recovery', { user: 'u1', body: backup() });
+    const second = backup(phoneId('q'));
+    expect((await g.send('PUT', '/v1/e2e/recovery', { user: 'u1', body: second })).statusCode).toBe(
+      200,
+    );
+    const got = await g.send('GET', '/v1/e2e/recovery', { user: 'u1' });
+    expect(got.json()).toMatchObject({ ...second, device_removed: false });
+  });
+
+  it('DELETE with no backup still answers 204', async () => {
+    const g = await start();
+    addPhone(g, 'u1');
+    expect((await g.send('DELETE', '/v1/e2e/recovery', { user: 'u1' })).statusCode).toBe(204);
+  });
+
   it('delete my data removes the backup', async () => {
     const g = await start();
     addPhone(g, 'u1');

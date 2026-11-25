@@ -54,6 +54,14 @@ describe('recovery key', () => {
     expect(() => recoveryKeyFrom([...words.slice(0, 11), 'twring'], salt)).toThrow(RecoveryError);
   });
 
+  it('refuses an empty field, a 13th word, and takes tabs and Windows line breaks', () => {
+    const words = recoveryWords();
+    expect(normalizeRecoveryWords('')).toBeUndefined();
+    expect(normalizeRecoveryWords('   \n ')).toBeUndefined();
+    expect(normalizeRecoveryWords([...words, ...words.slice(0, 1)])).toBeUndefined();
+    expect(normalizeRecoveryWords(words.join('\t\r\n'))).toEqual(words);
+  });
+
   it('derives the same key sync and async, and another key for another salt', async () => {
     const words = recoveryWords();
     const key = recoveryKeyFrom(words, salt);
