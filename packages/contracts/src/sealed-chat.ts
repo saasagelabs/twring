@@ -8,6 +8,8 @@ import { z } from 'zod';
 
 /** Capability both the app and the connector report before a chat can become private. */
 export const SEALED_CHAT_FEATURE = 'sealed_chat';
+/** A computer that can stop a private turn when the phone taps Stop (`sealed.cancel`, C3 #11). */
+export const SEALED_CANCEL_FEATURE = 'sealed_cancel';
 export const MAX_PAIRED_DEVICES = 5;
 export const SEALED_FORMAT_VERSION = 1;
 
