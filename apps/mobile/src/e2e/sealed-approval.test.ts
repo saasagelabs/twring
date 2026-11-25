@@ -158,3 +158,54 @@ describe('sealed approvals on the phone', () => {
     expect(b.sender_seq).toBeGreaterThan(a.sender_seq);
   });
 });
+
+describe('sealed approval sender (verify p148)', () => {
+  it('an approval sealed by another trusted phone, not the computer, does not open as a card', () => {
+    const other = generateSealKeyPair();
+    const OTHER_ID = deviceIdFor(other.publicKey);
+    let seq = 0;
+    const ctx = createPhoneContext({
+      accountId: ACCOUNT,
+      agentId: AGENT,
+      me: { deviceId: PHONE_ID, publicKey: phone.publicKey, privateKey: phone.privateKey },
+      trusted: [
+        trustedComputer,
+        {
+          id: OTHER_ID,
+          kind: 'phone',
+          name: 'Other phone',
+          public_key: base64urlEncode(other.publicKey),
+          verified_at: '2026-11-25T00:00:00.000Z',
+        } as TrustedDevice,
+      ],
+      nextSeq: () => ++seq,
+    });
+    const key = newMessageKey();
+    const aad = messageAad({
+      accountId: ACCOUNT,
+      agentId: AGENT,
+      senderDevice: OTHER_ID,
+      senderSeq: 1,
+    });
+    const { nonce, body } = sealControl(key, request, aad);
+    const m = {
+      id: 'msg_' + 'c'.repeat(20),
+      kind: 'sealed',
+      author: 'agent',
+      sealed: [
+        {
+          v: 1,
+          sender_device: OTHER_ID,
+          sender_seq: 1,
+          nonce,
+          body,
+          keys: [
+            { device: PHONE_ID, wrapped: wrapKey(key, other.privateKey, phone.publicKey, aad) },
+          ],
+        },
+      ],
+      created_at: '2026-11-25T10:00:00.000Z',
+    } as unknown as Extract<ThreadMessage, { kind: 'sealed' }>;
+    expect(openMessage(ctx, m).state).not.toBe('approval');
+  });
+});

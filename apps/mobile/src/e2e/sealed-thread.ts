@@ -192,7 +192,12 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
       payloads.push(openBody(key, e.nonce, e.body, aad));
     } catch {
       // Only a single sealed agent message from another device may be an approval (C3 #11).
-      if (chunked || m.author !== 'agent' || sender === ctx.me.deviceId)
+      // and only from a computer this phone paired, never from another phone.
+      if (
+        chunked ||
+        m.author !== 'agent' ||
+        !ctx.trusted.some((d) => d.id === sender && d.kind === 'computer')
+      )
         return { ok: false, replay: false };
       try {
         control = openControl(key, e.nonce, e.body, aad);
