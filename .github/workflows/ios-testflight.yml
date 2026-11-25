@@ -1,11 +1,19 @@
 # Signed iPhone build uploaded to App Store Connect (TestFlight). Start by hand from main:
 # Actions, "iOS: TestFlight build", Run workflow. The owner approves each run (environment
 # testflight). Upload only: external testing and App Store submission stay in App Store Connect.
+# app: production builds Twring; staging builds Twring Staging (com.twring.app.staging, its own
+# App Store Connect app), which talks to the staging server for internal testing.
 name: 'iOS: TestFlight build'
+run-name: 'iOS: TestFlight build (${{ inputs.app }})'
 
 on:
   workflow_dispatch:
     inputs:
+      app:
+        description: 'Which app: production (Twring) or staging (Twring Staging)'
+        type: choice
+        options: [production, staging]
+        default: production
       upload:
         description: 'Upload to App Store Connect (off: sign and export only)'
         type: boolean
@@ -25,9 +33,12 @@ jobs:
     timeout-minutes: 90
     environment: testflight
     env:
-      APP_VARIANT: production
-      EXPO_PUBLIC_CORD_ENV: production
-      EXPO_PUBLIC_API_BASE_URL: https://api.twring.com
+      APP_VARIANT: ${{ inputs.app }}
+      EXPO_PUBLIC_CORD_ENV: ${{ inputs.app }}
+      # The staging address lives in the testflight environment's variables, not in this public
+      # file. When it is missing this falls back to production, and check-env stops the run.
+      EXPO_PUBLIC_API_BASE_URL: ${{ inputs.app == 'staging' && vars.STAGING_API_BASE_URL || 'https://api.twring.com' }}
+      STAGING_ASC_APP_ID: ${{ vars.STAGING_ASC_APP_ID }}
       EXPO_PUBLIC_SUPABASE_URL: https://gifdayffysmzskxdgmgp.supabase.co
       EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_JOl2BTQPnkT0cN4lQA3Lrw_7lZRFovX
       EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: 605371988164-rtamegb6hegcll2kbu2e2i7o1udaordu.apps.googleusercontent.com
@@ -50,6 +61,8 @@ jobs:
           IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROFILE_BASE64 }}
           IOS_APPSTORE_NSE_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_NSE_PROFILE_BASE64 }}
+          IOS_STAGING_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_STAGING_APPSTORE_PROFILE_BASE64 }}
+          IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64: ${{ secrets.IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64 }}
         run: bash apps/mobile/scripts/ios-testflight.sh check-env
       - uses: maxim-lobanov/setup-xcode@v1.6.0
         with:
@@ -79,6 +92,8 @@ jobs:
           IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
           IOS_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_PROFILE_BASE64 }}
           IOS_APPSTORE_NSE_PROFILE_BASE64: ${{ secrets.IOS_APPSTORE_NSE_PROFILE_BASE64 }}
+          IOS_STAGING_APPSTORE_PROFILE_BASE64: ${{ secrets.IOS_STAGING_APPSTORE_PROFILE_BASE64 }}
+          IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64: ${{ secrets.IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64 }}
         run: bash apps/mobile/scripts/ios-testflight.sh setup-signing
       - name: Next build number
         env:
@@ -101,7 +116,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-testflight-logs-and-symbols
+          name: ios-testflight-${{ inputs.app }}-logs-and-symbols
           retention-days: 14
           if-no-files-found: ignore
           path: |

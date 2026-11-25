@@ -4,29 +4,62 @@
 # Run from the repository root. Secrets come from the environment and are never printed.
 set -euo pipefail
 
-SECRETS=(ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD
-  IOS_APPSTORE_PROFILE_BASE64 IOS_APPSTORE_NSE_PROFILE_BASE64 EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID EXPO_PUBLIC_SENTRY_DSN)
-APP_ID=6824735840
-BUNDLE_ID=com.twring.app
+# APP_VARIANT picks the app: production (Twring, the default) or staging (Twring Staging, which
+# talks to the staging server). Each has its own App Store Connect app and App Store profiles.
+VARIANT="${APP_VARIANT:-production}"
+case "$VARIANT" in
+  production)
+    APP_ID=6824735840
+    BUNDLE_ID=com.twring.app
+    PROFILE_SECRET=IOS_APPSTORE_PROFILE_BASE64
+    NSE_PROFILE_SECRET=IOS_APPSTORE_NSE_PROFILE_BASE64
+    ;;
+  staging)
+    # The testflight environment's STAGING_ASC_APP_ID variable (the app's Apple ID).
+    APP_ID="${STAGING_ASC_APP_ID:-}"
+    BUNDLE_ID=com.twring.app.staging
+    PROFILE_SECRET=IOS_STAGING_APPSTORE_PROFILE_BASE64
+    NSE_PROFILE_SECRET=IOS_STAGING_APPSTORE_NSE_PROFILE_BASE64
+    ;;
+  *)
+    echo "Unknown APP_VARIANT \"$VARIANT\". Use production or staging." >&2
+    exit 2
+    ;;
+esac
 # The Notification Service Extension (plugins/withNotificationService.ts), signed with its own profile.
-NSE_BUNDLE_ID=com.twring.app.NotificationService
+NSE_BUNDLE_ID="$BUNDLE_ID.NotificationService"
+SECRETS=(ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_P8_BASE64 IOS_DIST_CERT_P12_BASE64 IOS_DIST_CERT_PASSWORD
+  "$PROFILE_SECRET" "$NSE_PROFILE_SECRET" EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID EXPO_PUBLIC_SENTRY_DSN)
+[ "$VARIANT" = production ] || SECRETS+=(STAGING_ASC_APP_ID)
 WORK="${RUNNER_TEMP:-/tmp}/ios-signing"
 
 check_env() {
   local missing=()
   for name in "${SECRETS[@]}"; do [ -n "${!name:-}" ] || missing+=("$name"); done
   if [ "${#missing[@]}" -gt 0 ]; then
-    echo "Missing secrets in the testflight environment: ${missing[*]}" >&2
+    echo "Missing secrets or variables in the testflight environment: ${missing[*]}" >&2
     exit 1
   fi
-  echo "All ${#SECRETS[@]} secrets are set."
+  if [[ ! "$APP_ID" =~ ^[0-9]+$ ]]; then
+    echo "STAGING_ASC_APP_ID must be the app's Apple ID (digits, App Store Connect, App Information)." >&2
+    exit 1
+  fi
+  if [ "$VARIANT" = staging ]; then
+    # The workflow uses the production address when STAGING_API_BASE_URL is not set.
+    local server="${EXPO_PUBLIC_API_BASE_URL:-}"
+    if [[ "$server" != https://* || "$server" == https://api.twring.com* ]]; then
+      echo "The staging app needs the staging server: set STAGING_API_BASE_URL (https) in the testflight environment." >&2
+      exit 1
+    fi
+  fi
+  echo "All ${#SECRETS[@]} secrets are set. Building the $VARIANT app ($BUNDLE_ID, App Store Connect app $APP_ID)."
 }
 
 setup_signing() {
   mkdir -p "$WORK" && chmod 700 "$WORK"
   printf %s "$IOS_DIST_CERT_P12_BASE64" | base64 --decode >"$WORK/dist.p12"
-  printf %s "$IOS_APPSTORE_PROFILE_BASE64" | base64 --decode >"$WORK/appstore.mobileprovision"
-  printf %s "$IOS_APPSTORE_NSE_PROFILE_BASE64" | base64 --decode >"$WORK/nse.mobileprovision"
+  printf %s "${!PROFILE_SECRET}" | base64 --decode >"$WORK/appstore.mobileprovision"
+  printf %s "${!NSE_PROFILE_SECRET}" | base64 --decode >"$WORK/nse.mobileprovision"
   printf %s "$ASC_KEY_P8_BASE64" | base64 --decode >"$WORK/AuthKey.p8"
   local keychain="$WORK/build.keychain-db" pass
   pass="$(openssl rand -hex 24)"

@@ -308,7 +308,7 @@ GitHub Actions runs everything. Public repositories get the Linux and macOS runn
 | `verify.yml` | every pull request to `main` | frozen install, audit, format, lint, typecheck, unit and integration tests, gateway build plus HTTP smoke test, expo-doctor | None |
 | `android.yml` | pull requests that can change the app binary | Android prebuild, `assembleRelease`, signature check | `cord-staging-apk` artifact |
 | `ios-build-check.yml` | pull requests that change native inputs (`apps/mobile/package.json`, `app.config.ts`, `plugins/`, `modules/`, root `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`), and by hand | iOS prebuild with pods, then an unsigned simulator `xcodebuild` | None |
-| `ios-testflight.yml` | by hand from `main` only; the maintainer approves each run | signed App Store build uploaded to App Store Connect (TestFlight); `upload: false` signs and exports only | logs and dSYMs (never the IPA) |
+| `ios-testflight.yml` | by hand from `main` only; the maintainer approves each run | signed App Store build uploaded to App Store Connect (TestFlight); `app: staging` builds Twring Staging for the staging server (its own App Store Connect app, profiles and testflight variables); `upload: false` signs and exports only | logs and dSYMs (never the IPA) |
 
 `main` is protected: changes arrive through pull requests, `verify` and `DCO` must pass, and every commit carries a sign-off (`git commit -s`).
 
