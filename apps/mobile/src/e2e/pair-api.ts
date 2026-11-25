@@ -2,6 +2,7 @@ import { apiAuth } from '@/auth';
 import { activeServerUrl } from '@/servers/active';
 
 import { withAuth } from '../auth/controller';
+import type { ApproveApi } from './approve';
 import type { PairApi } from './pairing';
 import type { RecoveryApi } from './recovery';
 
@@ -45,6 +46,20 @@ export function recoveryApi(): RecoveryApi {
     get: () => request('GET', '/v1/e2e/recovery'),
     put: (body) => request('PUT', '/v1/e2e/recovery', body),
     remove: () => request('DELETE', '/v1/e2e/recovery'),
+  };
+}
+
+/** Approving a second phone (C3 #11, Task 27); `approve.ts` validates whatever comes back. */
+export function approveApi(): ApproveApi {
+  const at = (id: string) => `/v1/e2e/approvals/${encodeURIComponent(id)}`;
+  const as = (deviceId: string) => `device_id=${encodeURIComponent(deviceId)}`;
+  return {
+    request: (body) => post('/v1/e2e/approvals', body),
+    status: (id, deviceId) => request('GET', `${at(id)}?${as(deviceId)}`),
+    list: (deviceId) => request('GET', `/v1/e2e/approvals?${as(deviceId)}`),
+    claim: (id, deviceId) => post(`${at(id)}/claim`, { device_id: deviceId }),
+    accept: (id, deviceId, note) => post(`${at(id)}/accept`, { device_id: deviceId, note }),
+    deny: (id, deviceId) => post(`${at(id)}/deny`, { device_id: deviceId }),
   };
 }
 

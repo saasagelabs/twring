@@ -8,7 +8,20 @@ import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { QrScanner } from '@/components/QrScanner';
 import { Screen } from '@/components/Screen';
-import { pairApi, recoveryApi } from '@/e2e/pair-api';
+import {
+  APPROVE_ASK,
+  APPROVE_DONE,
+  APPROVE_PATH,
+  approvalStatus,
+  approveCheckCopy,
+  finishApproval,
+  requestApproval,
+  shownApprover,
+  type ApproveFailure,
+  type ShownApprover,
+} from '@/e2e/approve';
+import { loadDeviceKey } from '@/e2e/device-key';
+import { approveApi, pairApi, recoveryApi } from '@/e2e/pair-api';
 import {
   claimPairing,
   confirmPairing,
@@ -41,6 +54,20 @@ const FAILURE_COPY: Record<PairFailure, string> = {
   too_many: 'Too many tries. Wait a minute and try again.',
 };
 
+const APPROVE_FAILURE_COPY: Record<ApproveFailure | 'denied' | 'refused', string> = {
+  already_added: 'This phone already has private chats.',
+  cap: 'You already have 5 devices. Remove one under Devices on your other phone first.',
+  busy: 'Too many phones are waiting. Try again in a few minutes.',
+  expired: 'This took too long, so nothing was saved. Try again.',
+  closed: 'This request was already answered. Try again.',
+  mismatch: 'Approving stopped, so nothing was saved. Try again.',
+  network: 'Twring could not reach the server. Check your connection and try again.',
+  denied: 'Your other phone did not approve this phone. Nothing was saved.',
+  refused: 'Approving stopped, so nothing was saved. Try again.',
+};
+/** How often the new phone asks whether its other phone answered (C3 #11 P4b ruling 7). */
+const APPROVE_POLL_MS = 2_000;
+
 const SCAN_COPY = {
   needCamera: 'Twring needs the camera to scan the code on your computer.',
   cameraOff: 'Camera access is off for Twring. Turn it on in your phone settings, then try again.',
@@ -54,7 +81,9 @@ type Step =
   | { kind: 'type' }
   | { kind: 'compare'; safety: string; connector: TrustedDevice }
   | { kind: 'done'; offerRecovery: boolean }
-  | { kind: 'error'; message: string; retry: 'scan' | 'type' };
+  | { kind: 'approve'; id: string; shown?: ShownApprover }
+  | { kind: 'approved' }
+  | { kind: 'error'; message: string; retry: 'scan' | 'type' | 'approve' };
 
 const deps = () => ({
   api: pairApi(),
@@ -101,10 +130,66 @@ export default function PrivatePairScreen() {
     };
   }, []);
 
-  const fail = (message: string, retry: 'scan' | 'type' = 'scan') => {
+  const fail = (message: string, retry: 'scan' | 'type' | 'approve' = 'scan') => {
     playCallFeedback('error');
     setStep({ kind: 'error', message, retry });
   };
+
+  // Approving from another phone (C3 #11, Task 27): ask once, then check every 2 s while open.
+  const startApprove = async () => {
+    setBusy(true);
+    try {
+      const out = await requestApproval({
+        api: approveApi(),
+        store: privateKeychain(),
+        phoneName: deps().phoneName,
+      });
+      if (out.ok) setStep({ kind: 'approve', id: out.approval.id });
+      else fail(APPROVE_FAILURE_COPY[out.code], 'approve');
+    } catch {
+      fail(APPROVE_FAILURE_COPY.network, 'approve');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveId = step.kind === 'approve' ? step.id : undefined;
+  const approveShown = step.kind === 'approve' ? step.shown : undefined;
+  useEffect(() => {
+    if (approveId === undefined) return;
+    let live = true;
+    const store = privateKeychain();
+    const check = async () => {
+      const out = await approvalStatus({ api: approveApi(), store }, approveId);
+      if (!live || !out.ok) return;
+      const approval = out.approval;
+      if (approval.state === 'claimed') {
+        const me = await loadDeviceKey(store);
+        const shown = me === undefined ? undefined : shownApprover(approval, me);
+        if (
+          live &&
+          shown !== undefined &&
+          (shown.id !== approveShown?.id || shown.public_key !== approveShown.public_key)
+        )
+          setStep({ kind: 'approve', id: approveId, shown });
+      } else if (approval.state === 'accepted') {
+        // Only the phone whose code was shown may vouch for this one (P4b ruling 5).
+        const done =
+          approveShown !== undefined && (await finishApproval({ store }, approval, approveShown));
+        if (!live) return;
+        if (done) {
+          playCallFeedback('connected');
+          setStep({ kind: 'approved' });
+        } else fail(APPROVE_FAILURE_COPY.refused, 'approve');
+      } else if (approval.state === 'denied') fail(APPROVE_FAILURE_COPY.denied, 'approve');
+      else if (approval.state === 'expired') fail(APPROVE_FAILURE_COPY.expired, 'approve');
+    };
+    const timer = setInterval(() => void check().catch(() => undefined), APPROVE_POLL_MS);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, [approveId, approveShown]);
 
   const pair = async (input: PairInput) => {
     const retry = input.kind === 'typed' ? 'type' : 'scan';
@@ -234,13 +319,60 @@ export default function PrivatePairScreen() {
     );
   }
 
+  if (step.kind === 'approve') {
+    return (
+      <Screen
+        title="Private chats"
+        back
+        footer={<GhostButton label="Cancel" onPress={() => setStep({ kind: 'start' })} />}
+      >
+        <View style={styles.step}>
+          {step.shown === undefined ? (
+            <>
+              {heading(APPROVE_PATH)}
+              {support(APPROVE_ASK)}
+              <ActivityIndicator accessibilityLabel="Waiting for your other phone" />
+            </>
+          ) : (
+            <>
+              {heading(approveCheckCopy(step.shown.name, step.shown.code))}
+              <Text
+                accessible
+                accessibilityLabel={spoken(step.shown.code)}
+                style={[styles.code, { color: palette.textPrimary }]}
+              >
+                {step.shown.code}
+              </Text>
+            </>
+          )}
+        </View>
+      </Screen>
+    );
+  }
+
+  if (step.kind === 'approved') {
+    return (
+      <Screen
+        title="Private chats"
+        footer={<PrimaryButton label="Done" onPress={() => router.back()} />}
+      >
+        <View style={styles.step}>
+          {heading('Approved')}
+          {support(APPROVE_DONE)}
+        </View>
+      </Screen>
+    );
+  }
+
   if (step.kind === 'error') {
     return (
       <Screen
         title="Private chats"
         back
         footer={
-          step.retry === 'type' ? (
+          step.retry === 'approve' ? (
+            <PrimaryButton label="Try again" disabled={busy} onPress={() => void startApprove()} />
+          ) : step.retry === 'type' ? (
             <PrimaryButton label="Type the code again" onPress={() => setStep({ kind: 'type' })} />
           ) : (
             <PrimaryButton label="Scan again" onPress={() => setStep({ kind: 'scan' })} />
@@ -310,6 +442,7 @@ export default function PrivatePairScreen() {
               onPress={() => setStep({ kind: 'scan' })}
             />
             <GhostButton label="Type the code instead" onPress={() => setStep({ kind: 'type' })} />
+            <GhostButton label={APPROVE_PATH} disabled={busy} onPress={() => void startApprove()} />
             {backup === 'found' && (
               <GhostButton
                 label="Use my recovery key"

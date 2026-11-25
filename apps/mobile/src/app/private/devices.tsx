@@ -8,7 +8,18 @@ import { GhostButton } from '@/components/GhostButton';
 import { Screen } from '@/components/Screen';
 import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { Sheet } from '@/components/Sheet';
-import { readDeviceId } from '@/e2e/device-key';
+import {
+  APPROVE_BUTTON,
+  approveSheetCopy,
+  approveWaiting,
+  claimWaiting,
+  DENY_BUTTON,
+  denyWaiting,
+  listWaiting,
+  WAITING_TITLE,
+  type ClaimedApproval,
+} from '@/e2e/approve';
+import { loadDeviceKey } from '@/e2e/device-key';
 import {
   devicesStateFrom,
   listDevices,
@@ -18,14 +29,18 @@ import {
   type DeviceRow,
   type DevicesState,
 } from '@/e2e/devices';
+import { approveApi } from '@/e2e/pair-api';
 import { playCallFeedback } from '@/platform/haptics';
 import { forgetThisPhonePrivateKeys, privateKeychain } from '@/threads/chats';
 import { space, type, usePalette } from '@/theme/tokens';
 
 const LOAD_FAILED = 'Twring could not load your devices. Check your connection and try again.';
 const REMOVE_FAILED = 'Twring could not remove that device. Check your connection and try again.';
+const APPROVE_FAILED =
+  "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
 
-type Loaded = { state: DevicesState; self?: string } | { error: string };
+type Waiting = { id: string; name: string };
+type Loaded = { state: DevicesState; self?: string; waiting: Waiting[] } | { error: string };
 
 /** The list from the server; reading it also drops devices the server removed from this phone. */
 async function fetchDevices(): Promise<Loaded> {
@@ -33,12 +48,19 @@ async function fetchDevices(): Promise<Loaded> {
   if (api?.privateDevices === undefined) return { error: LOAD_FAILED };
   try {
     const store = privateKeychain();
-    const [server, self] = await Promise.all([
+    const [server, me, waiting] = await Promise.all([
       listDevices({ list: () => api.privateDevices!() }),
-      readDeviceId(store),
+      loadDeviceKey(store),
+      listWaiting({ api: approveApi(), store }).catch(() => []),
     ]);
-    await syncTrusted(store, server).catch(() => undefined);
-    return { state: devicesStateFrom(server, self), ...(self !== undefined && { self }) };
+    const self = me?.deviceId;
+    // Phones another of this person's phones approved become trusted here too.
+    await syncTrusted(store, server, undefined, me).catch(() => undefined);
+    return {
+      state: devicesStateFrom(server, self),
+      ...(self !== undefined && { self }),
+      waiting: waiting.map((a) => ({ id: a.id, name: a.name })),
+    };
   } catch {
     return { error: LOAD_FAILED };
   }
@@ -52,6 +74,8 @@ export default function PrivateDevicesScreen() {
   const [removing, setRemoving] = useState<DeviceRow | undefined>();
   const [busy, setBusy] = useState(false);
   const [selfId, setSelfId] = useState<string | undefined>();
+  const [waiting, setWaiting] = useState<Waiting[]>([]);
+  const [approving, setApproving] = useState<ClaimedApproval | undefined>();
 
   const apply = useCallback((found: Loaded) => {
     if ('error' in found) {
@@ -59,6 +83,7 @@ export default function PrivateDevicesScreen() {
       return;
     }
     setSelfId(found.self);
+    setWaiting(found.waiting);
     setError(undefined);
     setState(found.state);
   }, []);
@@ -100,6 +125,39 @@ export default function PrivateDevicesScreen() {
     }
   };
 
+  /** Tapping a waiting phone takes it, so both phones show the same code. */
+  const openWaiting = async (row: Waiting) => {
+    setBusy(true);
+    try {
+      const out = await claimWaiting({ api: approveApi(), store: privateKeychain() }, row.id);
+      if (out.ok) setApproving(out.claimed);
+      else {
+        playCallFeedback('error');
+        setError(APPROVE_FAILED);
+        await load();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const decide = async (approve: boolean) => {
+    if (approving === undefined) return;
+    setBusy(true);
+    try {
+      const deps = { api: approveApi(), store: privateKeychain() };
+      const out = approve
+        ? await approveWaiting(deps, approving.approval)
+        : await denyWaiting(deps, approving.approval.id);
+      playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
+      if (!out.ok) setError(APPROVE_FAILED);
+      setApproving(undefined);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const copy = removing === undefined ? undefined : removeCopy(removing);
 
   return (
@@ -129,6 +187,21 @@ export default function PrivateDevicesScreen() {
                 />
               ))}
             </SettingsGroup>
+            {waiting.length > 0 && (
+              <SettingsGroup title={WAITING_TITLE}>
+                {waiting.map((row, i) => (
+                  <SettingsRow
+                    key={row.id}
+                    label={row.name}
+                    value="Tap to approve"
+                    layout="stacked"
+                    accessibilityHint="Shows a code to compare with that phone"
+                    divider={i < waiting.length - 1}
+                    onPress={() => void openWaiting(row)}
+                  />
+                ))}
+              </SettingsGroup>
+            )}
             {state.hint !== undefined && (
               <Text style={[type.body, { color: palette.textSecondary }]}>{state.hint}</Text>
             )}
@@ -162,6 +235,35 @@ export default function PrivateDevicesScreen() {
             />
             {busy && <ActivityIndicator accessibilityLabel="Removing" />}
             <GhostButton label="Cancel" disabled={busy} onPress={() => setRemoving(undefined)} />
+          </View>
+        )}
+      </Sheet>
+      <Sheet
+        visible={approving !== undefined}
+        title={approving?.approval.name ?? ''}
+        onClose={() => {
+          if (!busy) setApproving(undefined);
+        }}
+      >
+        {approving !== undefined && (
+          <View style={styles.sheet}>
+            <Text
+              style={[type.title, { color: palette.textPrimary }]}
+              accessibilityLabel={approving.code.split('').join(' ')}
+            >
+              {approving.code}
+            </Text>
+            <Text style={[type.body, { color: palette.textSecondary }]}>
+              {approveSheetCopy(approving.approval.name)}
+            </Text>
+            <GhostButton label={APPROVE_BUTTON} disabled={busy} onPress={() => void decide(true)} />
+            <GhostButton
+              label={DENY_BUTTON}
+              tone="danger"
+              disabled={busy}
+              onPress={() => void decide(false)}
+            />
+            {busy && <ActivityIndicator accessibilityLabel="Approving" />}
           </View>
         )}
       </Sheet>

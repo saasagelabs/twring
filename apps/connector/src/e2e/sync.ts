@@ -1,4 +1,11 @@
-import { e2eDeviceSchema, type E2eDevice } from '@twring/contracts';
+import {
+  base64urlDecode,
+  checkTrustNote,
+  e2eDeviceWithNoteSchema,
+  type E2eDevice,
+  type E2eDeviceWithNote,
+  type TrustNoteRefusal,
+} from '@twring/contracts';
 import { z } from 'zod';
 
 import { apiUrl, checkServerUrl } from '../config';
@@ -61,7 +68,47 @@ export function settlePending(
   return { confirmed, pending: kept };
 }
 
-const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceSchema).max(64) });
+/**
+ * Devices the server lists that a phone this computer trusts vouched for (C3 #11 P4b ruling 4):
+ * each note is checked with `checkTrustNote` against this computer's own trusted list, so the
+ * server alone can never add one. Notes are applied in list order, so only a phone trusted before
+ * this sync can vouch. Refusals carry a reason only.
+ */
+export function applyTrustNotes(
+  trusted: TrustedDevice[],
+  server: readonly E2eDeviceWithNote[],
+  me: { deviceId: string; privateKey: Uint8Array },
+  now: number,
+): { trusted: TrustedDevice[]; added: number; refused: TrustNoteRefusal[] } {
+  const vouchers = [...trusted];
+  const out = [...trusted];
+  const refused: TrustNoteRefusal[] = [];
+  for (const listed of server) {
+    if (
+      listed.trust_note === undefined ||
+      listed.revoked_at !== undefined ||
+      listed.kind !== 'phone' ||
+      listed.id === me.deviceId ||
+      out.some((d) => d.id === listed.id)
+    )
+      continue;
+    const checked = checkTrustNote(listed, vouchers, me);
+    if (!checked.ok) {
+      refused.push(checked.reason);
+      continue;
+    }
+    out.push({
+      id: checked.add.id,
+      kind: 'phone',
+      name: checked.add.name,
+      public_key: checked.add.public_key,
+      verified_at: new Date(now).toISOString(),
+    });
+  }
+  return { trusted: out, added: out.length - trusted.length, refused };
+}
+
+const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceWithNoteSchema).max(64) });
 
 export interface SyncDevicesOptions {
   server: string;
@@ -71,6 +118,8 @@ export interface SyncDevicesOptions {
   persist: (change: (current: E2eConfig) => E2eConfig) => Promise<E2eConfig | undefined>;
   signal?: AbortSignal;
   now?: () => number;
+  /** Ids, counts and reasons only. */
+  log?: (line: string) => void;
 }
 
 /**
@@ -79,11 +128,11 @@ export interface SyncDevicesOptions {
  */
 export async function syncDevices(
   options: SyncDevicesOptions,
-): Promise<{ revoked: number; unverified: number } | undefined> {
+): Promise<{ revoked: number; unverified: number; added: number } | undefined> {
   let body: z.infer<typeof devicesResponseSchema>;
   try {
     const res = await options.fetch(
-      apiUrl(checkServerUrl(options.server), '/v1/e2e/computer/devices'),
+      apiUrl(checkServerUrl(options.server), '/v1/e2e/computer/devices?notes=1'),
       {
         headers: { authorization: `Bearer ${options.token}` },
         ...(options.signal !== undefined && { signal: options.signal }),
@@ -96,23 +145,43 @@ export async function syncDevices(
   } catch {
     return undefined;
   }
-  let counts = { revoked: 0, unverified: 0 };
+  let counts = { revoked: 0, unverified: 0, added: 0 };
+  let refused: TrustNoteRefusal[] = [];
+  const now = (options.now ?? Date.now)();
   await options.persist((current) => {
     const out = reconcileDevices(current.devices, body.devices, current.device_id);
-    counts = { revoked: out.revoked.length, unverified: out.unverified.length };
-    if (current.pending === undefined) return { ...current, devices: out.trusted };
-    const settled = settlePending(current.pending, body.devices, (options.now ?? Date.now)());
+    const noted = (list: TrustedDevice[]) => {
+      const applied = applyTrustNotes(
+        list,
+        body.devices,
+        { deviceId: current.device_id, privateKey: base64urlDecode(current.private_key) },
+        now,
+      );
+      refused = applied.refused;
+      counts = {
+        revoked: out.revoked.length,
+        unverified: Math.max(0, out.unverified.length - applied.added),
+        added: applied.added,
+      };
+      return applied.trusted;
+    };
+    if (current.pending === undefined) return { ...current, devices: noted(out.trusted) };
+    const settled = settlePending(current.pending, body.devices, now);
     const rest = { ...current };
     delete rest.pending;
     return {
       ...rest,
-      devices: [
+      devices: noted([
         ...out.trusted.filter((d) => !settled.confirmed.some((c) => c.id === d.id)),
         ...settled.confirmed,
-      ],
+      ]),
       ...(settled.pending.length > 0 && { pending: settled.pending }),
     };
   });
+  for (const reason of new Set(refused))
+    options.log?.(
+      `e2e_trust_note_refused ${reason} (${refused.filter((r) => r === reason).length})`,
+    );
   return counts;
 }
 

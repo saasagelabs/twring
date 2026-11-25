@@ -446,6 +446,7 @@ export class PrivateChats {
     const payload = opened.payload;
     switch (payload.kind) {
       case 'approval':
+      case 'trust_add':
         return ignore('not_a_decision');
       case 'approval_decision': {
         const pending = this.approvals.get(payload.approval_id);

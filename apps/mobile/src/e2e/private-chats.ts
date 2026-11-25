@@ -100,11 +100,15 @@ export class PrivateChats {
   }
 
   /** The server's list: drops revoked devices here, and notes a reinstalled computer. */
-  private async readDevices(agentId: string, connectorId: string): Promise<void> {
+  private async readDevices(
+    agentId: string,
+    connectorId: string,
+    me: { deviceId: string; privateKey: Uint8Array },
+  ): Promise<void> {
     if (this.deps.devices === undefined) return;
     try {
       const server = await listDevices({ list: this.deps.devices });
-      this.trusted = await syncTrusted(this.deps.store, server, this.deps.log);
+      this.trusted = await syncTrusted(this.deps.store, server, this.deps.log, me);
       if (reinstalledFor(server, this.trusted, connectorId)) this.reinstalled.add(agentId);
       else this.reinstalled.delete(agentId);
     } catch {
@@ -139,7 +143,7 @@ export class PrivateChats {
         this.trusted = trusted;
         const ids = address === undefined ? undefined : aadIdsFor(address);
         if (ids === undefined) return undefined;
-        await this.readDevices(agentId, ids.accountId);
+        await this.readDevices(agentId, ids.accountId, me);
         const ctx = createPhoneContext({
           ...ids,
           me,

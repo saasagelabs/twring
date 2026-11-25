@@ -6,7 +6,14 @@ import { devicesStateFrom } from './devices';
 
 /** The devices screen as rendered (C3 #11, Task 26): hooks are stubbed, state is set directly. */
 
-const mocks = vi.hoisted(() => ({ state: [] as unknown[], cursor: 0, push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  state: [] as unknown[],
+  cursor: 0,
+  push: vi.fn(),
+  claimWaiting: vi.fn(),
+  approveWaiting: vi.fn(),
+  denyWaiting: vi.fn(),
+}));
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
@@ -42,7 +49,14 @@ vi.mock('@/components/SettingsGroup', () => ({
   SettingsRow: 'SettingsRow',
 }));
 vi.mock('@/components/Sheet', () => ({ Sheet: 'Sheet' }));
-vi.mock('@/e2e/device-key', () => ({ readDeviceId: vi.fn() }));
+vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: vi.fn() }));
+vi.mock('@/e2e/approve', async () => ({
+  ...(await import('./approve')),
+  claimWaiting: mocks.claimWaiting,
+  approveWaiting: mocks.approveWaiting,
+  denyWaiting: mocks.denyWaiting,
+}));
+vi.mock('@/e2e/pair-api', () => ({ approveApi: () => ({}) }));
 vi.mock('@/e2e/devices', async () => import('./devices'));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: vi.fn() }));
 vi.mock('@/threads/chats', () => ({
@@ -87,14 +101,19 @@ const dev = (n: number, kind: 'phone' | 'computer', name: string) => ({
   public_key: 'k',
   added_at: at,
 });
-// useState slots in the screen: state, error, removing, busy, selfId.
+// useState slots in the screen: state, error, removing, busy, selfId, waiting, approving.
 const STATE = 0;
 const ERROR = 1;
 const REMOVING = 2;
+const WAITING = 5;
+const APPROVING = 6;
 
 beforeEach(() => {
   mocks.state = [];
   mocks.push.mockReset();
+  mocks.claimWaiting.mockReset();
+  mocks.approveWaiting.mockReset().mockResolvedValue({ ok: true });
+  mocks.denyWaiting.mockReset().mockResolvedValue({ ok: true });
 });
 
 describe('devices screen', () => {
@@ -160,5 +179,49 @@ describe('devices screen', () => {
     });
     expect(all.some((e) => e.type === 'SettingsGroup')).toBe(false);
     expect(all.some((e) => e.type === 'ActivityIndicator')).toBe(false);
+  });
+});
+
+describe('waiting for approval (C3 #11, Task 27)', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const approval = { id: 'pap_x', name: 'New phone', device_id: 'dev_n', public_key: 'k' };
+
+  it('lists waiting phones and opens a sheet with the code and both choices', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')], dev(0, 'phone', 'Pixel').id);
+    mocks.state[WAITING] = [{ id: 'pap_x', name: 'New phone' }];
+    mocks.claimWaiting.mockResolvedValue({ ok: true, claimed: { approval, code: '123 456' } });
+    const all = render();
+    expect(all.filter((e) => e.type === 'SettingsGroup').map((e) => e.props.title)).toContain(
+      'Waiting for approval',
+    );
+    const row = all.find((e) => e.type === 'SettingsRow' && e.props.label === 'New phone')!;
+    (row.props.onPress as () => void)();
+    await flush();
+    expect(mocks.claimWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+    const opened = render();
+    const sheets = opened.filter((e) => e.type === 'Sheet');
+    expect(sheets[1]?.props).toMatchObject({ visible: true, title: 'New phone' });
+    expect(texts(opened)).toEqual(
+      expect.arrayContaining(['123 456', 'Make sure New phone shows the same 6 digits.']),
+    );
+    const buttons = opened.filter((e) => e.type === 'GhostButton').map((e) => e.props.label);
+    expect(buttons).toEqual(['Codes match, approve', 'Deny']);
+    expect(JSON.stringify(texts(opened))).not.toMatch(/device id|trust note|\bkey\b/i);
+  });
+
+  it('approves or denies with the choice made', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { approval, code: '123 456' };
+    const approve = render().find(
+      (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
+    )!;
+    (approve.props.onPress as () => void)();
+    await flush();
+    expect(mocks.approveWaiting.mock.calls[0]?.[1]).toEqual(approval);
+    mocks.state[APPROVING] = { approval, code: '123 456' };
+    const deny = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
+    (deny.props.onPress as () => void)();
+    await flush();
+    expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
   });
 });

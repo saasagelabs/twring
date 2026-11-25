@@ -16,7 +16,11 @@ export type PrivateChatErrorCode =
   | 'private_thread'
   | 'not_private'
   | 'private_unsupported'
-  | 'private_is_one_way';
+  | 'private_is_one_way'
+  | 'already_added'
+  | 'approval_cap'
+  | 'approval_closed'
+  | 'expired';
 export type GatewayErrorCode = ErrorCode | PrivateChatErrorCode;
 
 /**

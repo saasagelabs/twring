@@ -1,0 +1,226 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
+import { deviceIdFor } from '@twring/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { startConnectorGateway, type ConnectorGateway } from '../connectors/harness';
+
+const FLAG_ON = { PRIVATE_CHATS_ENABLED: 'true', THREADS_ENABLED: 'true' };
+const keyBytes = (n: number) => new Uint8Array(32).fill(n);
+const key = (n: number) => Buffer.from(keyBytes(n)).toString('base64url');
+const idOf = (n: number) => deviceIdFor(keyBytes(n));
+type Devices = { devices: { id: string; trust_note?: unknown }[] };
+
+let gateway: ConnectorGateway | undefined;
+afterEach(async () => {
+  await gateway?.close();
+  gateway = undefined;
+  vi.useRealTimers();
+});
+
+async function start(env: Record<string, string> = FLAG_ON) {
+  gateway = await startConnectorGateway({ env });
+  return gateway;
+}
+
+/** Device `n` as an active phone of `user`. */
+function addPhone(g: ConnectorGateway, user: string, n: number) {
+  g.e2e.add(user, { id: idOf(n), kind: 'phone', name: `Phone ${n}`, public_key: key(n) });
+}
+
+const note = (approvalId: string, sender: number) => ({
+  approval_id: approvalId,
+  sender_device: idOf(sender),
+  nonce: 'bm9uY2U',
+  body: 'Ym9keQ',
+  keys: [{ device: idOf(9), wrapped: 'd3JhcA' }],
+});
+
+async function request(g: ConnectorGateway, user = 'u1', n = 9) {
+  const res = await g.send('POST', '/v1/e2e/approvals', {
+    user,
+    body: { device_id: idOf(n), public_key: key(n), name: 'New phone' },
+  });
+  return res;
+}
+
+const claim = (g: ConnectorGateway, id: string, by: number, user = 'u1') =>
+  g.send('POST', `/v1/e2e/approvals/${id}/claim`, { user, body: { device_id: idOf(by) } });
+const accept = (g: ConnectorGateway, id: string, by: number, user = 'u1') =>
+  g.send('POST', `/v1/e2e/approvals/${id}/accept`, {
+    user,
+    body: { device_id: idOf(by), note: note(id, by) },
+  });
+
+describe('approving a second phone (C3 #11, Task 27)', () => {
+  it('requests, claims, shows the approver, accepts and lists the note only when asked', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const created = await request(g);
+    expect(created.statusCode).toBe(200);
+    const id = created.json().id as string;
+    expect(id).toMatch(/^pap_[a-z2-7]{20}$/);
+    const listed = await g.send('GET', `/v1/e2e/approvals?device_id=${idOf(1)}`, { user: 'u1' });
+    expect(listed.json<{ approvals: { id: string }[] }>().approvals.map((a) => a.id)).toEqual([id]);
+
+    expect((await claim(g, id, 1)).json()).toMatchObject({
+      state: 'claimed',
+      public_key: key(9),
+    });
+    const polled = await g.send('GET', `/v1/e2e/approvals/${id}?device_id=${idOf(9)}`, {
+      user: 'u1',
+    });
+    expect(polled.json().approver).toEqual({ id: idOf(1), name: 'Phone 1', public_key: key(1) });
+
+    const done = await accept(g, id, 1);
+    expect(done.statusCode).toBe(200);
+    expect(done.json()).toMatchObject({ state: 'accepted', trust_note: note(id, 1) });
+
+    const plain = (await g.send('GET', '/v1/e2e/devices', { user: 'u1' })).json<Devices>();
+    const added = plain.devices.find((d) => d.id === idOf(9))!;
+    expect(Object.keys(added).sort()).toEqual(['added_at', 'id', 'kind', 'name', 'public_key']);
+    const withNotes = (
+      await g.send('GET', '/v1/e2e/devices?notes=1', { user: 'u1' })
+    ).json<Devices>();
+    expect(withNotes.devices.find((d) => d.id === idOf(9))?.trust_note).toEqual(note(id, 1));
+    expect(withNotes.devices.find((d) => d.id === idOf(1))?.trust_note).toBe(undefined);
+  });
+
+  it('gives the computer the note only with ?notes=1', async () => {
+    const g = await start();
+    const { token } = await g.pair('u1');
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    await claim(g, id, 1);
+    await accept(g, id, 1);
+    const headers = { authorization: `Bearer ${token}` };
+    const plain = (await g.send('GET', '/v1/e2e/computer/devices', { headers })).json<Devices>();
+    expect(JSON.stringify(plain)).not.toContain('trust_note');
+    const notes = (
+      await g.send('GET', '/v1/e2e/computer/devices?notes=1', { headers })
+    ).json<Devices>();
+    expect(JSON.stringify(notes)).toContain('trust_note');
+  });
+
+  it('an approval expires after 10 minutes', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-25T10:00:00.000Z'));
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    expect((await claim(g, id, 1)).statusCode).toBe(200);
+    vi.setSystemTime(new Date('2026-11-25T10:10:00.001Z'));
+    const late = await accept(g, id, 1);
+    expect(late.statusCode).toBe(410);
+    expect(late.json().error.code).toBe('expired');
+    expect(g.e2e.get('u1', idOf(9))).toBeUndefined();
+  });
+
+  it('refuses accept at the device cap', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    await claim(g, id, 1);
+    for (const n of [2, 3, 4, 5]) addPhone(g, 'u1', n);
+    const res = await accept(g, id, 1);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('device_cap');
+    // And a request at the cap is refused at once.
+    expect((await request(g, 'u1', 8)).json().error.code).toBe('device_cap');
+  });
+
+  it('a phone of another account cannot list, claim or accept', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u2', 2);
+    const id = (await request(g)).json().id as string;
+    expect(
+      (await g.send('GET', `/v1/e2e/approvals?device_id=${idOf(2)}`, { user: 'u2' })).json()
+        .approvals,
+    ).toEqual([]);
+    expect((await claim(g, id, 2, 'u2')).statusCode).toBe(404);
+    // Naming u1's phone from u2's account does not help either.
+    expect((await claim(g, id, 1, 'u2')).statusCode).toBe(404);
+    await claim(g, id, 1);
+    expect((await accept(g, id, 2, 'u2')).statusCode).toBe(404);
+    expect(g.e2e.get('u1', idOf(9))).toBeUndefined();
+  });
+
+  it('refuses a claim by a removed device and by the requesting phone itself', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    g.e2e.revoke('u1', idOf(2));
+    const id = (await request(g)).json().id as string;
+    expect((await claim(g, id, 2)).statusCode).toBe(404);
+    expect((await claim(g, id, 9)).statusCode).toBe(404);
+  });
+
+  it('refuses a mismatched device id, an added phone, a 4th open request and a second claimer', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const bad = await g.send('POST', '/v1/e2e/approvals', {
+      user: 'u1',
+      body: { device_id: idOf(8), public_key: key(9), name: 'x' },
+    });
+    expect(bad.statusCode).toBe(400);
+    expect((await request(g, 'u1', 1)).json().error.code).toBe('already_added');
+    const first = (await request(g, 'u1', 9)).json().id as string;
+    // A new request from the same phone replaces its open one.
+    const again = (await request(g, 'u1', 9)).json().id as string;
+    expect(g.e2e.approval('u1', first)).toBeUndefined();
+    await request(g, 'u1', 10);
+    await request(g, 'u1', 11);
+    expect((await request(g, 'u1', 12)).json().error.code).toBe('approval_cap');
+    await claim(g, again, 1);
+    expect((await claim(g, again, 2)).json().error.code).toBe('approval_closed');
+    expect((await accept(g, again, 2)).json().error.code).toBe('approval_closed');
+  });
+
+  it('denies, and the new phone sees it; another phone cannot read its status', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    expect(
+      (
+        await g.send('POST', `/v1/e2e/approvals/${id}/deny`, {
+          user: 'u1',
+          body: { device_id: idOf(1) },
+        })
+      ).statusCode,
+    ).toBe(204);
+    const status = await g.send('GET', `/v1/e2e/approvals/${id}?device_id=${idOf(9)}`, {
+      user: 'u1',
+    });
+    expect(status.json().state).toBe('denied');
+    expect(
+      (await g.send('GET', `/v1/e2e/approvals/${id}?device_id=${idOf(1)}`, { user: 'u1' }))
+        .statusCode,
+    ).toBe(404);
+    expect((await claim(g, id, 1)).statusCode).toBe(409);
+  });
+
+  it('refuses a note sent by another device than the approver', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    await claim(g, id, 1);
+    const res = await g.send('POST', `/v1/e2e/approvals/${id}/accept`, {
+      user: 'u1',
+      body: { device_id: idOf(1), note: note(id, 2) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('is not mounted with the flag off, and delete my data removes approvals', async () => {
+    const off = await start({ THREADS_ENABLED: 'true' });
+    expect((await request(off)).statusCode).toBe(404);
+    await off.close();
+    gateway = undefined;
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = (await request(g)).json().id as string;
+    g.e2e.deleteAllForUser('u1');
+    expect(g.e2e.approval('u1', id)).toBeUndefined();
+  });
+});

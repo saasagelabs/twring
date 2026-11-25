@@ -4,7 +4,13 @@ import { DatabaseSync } from 'node:sqlite';
 import {
   MAX_PAIRED_DEVICES,
   e2eDeviceSchema,
+  e2eDeviceWithNoteSchema,
+  trustNoteSchema,
   type E2eDevice,
+  type E2eDeviceWithNote,
+  type PhoneApproval,
+  type PhoneApprovalRequest,
+  type TrustNote,
   type PairClaim,
   type RecoveryBackupRequest,
 } from '@twring/contracts';
@@ -16,7 +22,15 @@ import {
  */
 
 export class E2eDeviceError extends Error {
-  constructor(readonly code: 'device_cap' | 'duplicate_key' | 'device_conflict' | 'handle_taken') {
+  constructor(
+    readonly code:
+      | 'device_cap'
+      | 'duplicate_key'
+      | 'device_conflict'
+      | 'handle_taken'
+      | 'approval_cap'
+      | 'already_added',
+  ) {
     super(code);
     this.name = 'E2eDeviceError';
   }
@@ -48,7 +62,25 @@ type DeviceRow = {
   connector_id: string | null;
   added_at: string;
   revoked_at: string | null;
+  trust_note: string | null;
 };
+type ApprovalRow = {
+  id: string;
+  user_id: string;
+  device_id: string;
+  public_key: string;
+  name: string;
+  state: string;
+  created_at: string;
+  expires_at: string;
+  approver_id: string | null;
+  approver_name: string | null;
+  approver_key: string | null;
+  note: string | null;
+};
+
+/** Open phone approvals (pending or claimed) an account may hold at once (C3 #11 P4b ruling 1). */
+export const MAX_OPEN_APPROVALS = 3;
 type OfferRow = {
   user_id: string;
   id: string;
@@ -75,6 +107,8 @@ export type RecoveryRecord = RecoveryBackupRequest & { updated_at: string };
 
 const ALPHABET = 'abcdefghijklmnopqrstuvwxyz234567';
 const newOfferId = () => `off_${[...randomBytes(20)].map((byte) => ALPHABET[byte & 31]).join('')}`;
+const newApprovalId = () =>
+  `pap_${[...randomBytes(20)].map((byte) => ALPHABET[byte & 31]).join('')}`;
 
 export class E2eDeviceStore {
   private readonly db: DatabaseSync;
@@ -109,6 +143,20 @@ export class E2eDeviceStore {
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS e2e_pair_offers_handle ON e2e_pair_offers(user_id, handle)',
     );
+    // Approving a second phone (C3 #11, Task 27): the note the approving phone sealed rides on
+    // the new phone's row, given only to clients that ask for it (`?notes=1`).
+    const deviceColumns = this.db.prepare('PRAGMA table_info(e2e_devices)').all() as {
+      name: string;
+    }[];
+    if (!deviceColumns.some((column) => column.name === 'trust_note'))
+      this.db.exec('ALTER TABLE e2e_devices ADD COLUMN trust_note TEXT');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS e2e_phone_approvals(id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+        device_id TEXT NOT NULL, public_key TEXT NOT NULL, name TEXT NOT NULL, state TEXT NOT NULL,
+        created_at TEXT NOT NULL, expires_at TEXT NOT NULL, approver_id TEXT, approver_name TEXT,
+        approver_key TEXT, note TEXT);
+      CREATE INDEX IF NOT EXISTS e2e_phone_approvals_user ON e2e_phone_approvals(user_id, state);
+    `);
   }
 
   private transaction<T>(run: () => T): T {
@@ -124,7 +172,18 @@ export class E2eDeviceStore {
   }
 
   private device(row: DeviceRow): E2eDevice {
-    return e2eDeviceSchema.parse({
+    return e2eDeviceSchema.parse(this.fields(row));
+  }
+
+  private deviceWithNote(row: DeviceRow): E2eDeviceWithNote {
+    return e2eDeviceWithNoteSchema.parse({
+      ...this.fields(row),
+      ...(row.trust_note !== null && { trust_note: JSON.parse(row.trust_note) as unknown }),
+    });
+  }
+
+  private fields(row: DeviceRow) {
+    return {
       id: row.id,
       kind: row.kind,
       name: row.name,
@@ -132,7 +191,7 @@ export class E2eDeviceStore {
       ...(row.connector_id !== null && { connector_id: row.connector_id }),
       added_at: row.added_at,
       ...(row.revoked_at !== null && { revoked_at: row.revoked_at }),
-    });
+    };
   }
 
   /**
@@ -148,7 +207,7 @@ export class E2eDeviceStore {
     return this.transaction(() => list.map((device) => this.insertDevice(userId, device)));
   }
 
-  private insertDevice(userId: string, device: NewDevice): E2eDevice {
+  private insertDevice(userId: string, device: NewDevice, note?: TrustNote): E2eDevice {
     const existing = this.db
       .prepare('SELECT * FROM e2e_devices WHERE user_id=? AND id=?')
       .get(userId, device.id) as DeviceRow | undefined;
@@ -165,7 +224,7 @@ export class E2eDeviceStore {
     if (active.length >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
     this.db
       .prepare(
-        'INSERT INTO e2e_devices(user_id,id,kind,name,public_key,connector_id,added_at) VALUES(?,?,?,?,?,?,?)',
+        'INSERT INTO e2e_devices(user_id,id,kind,name,public_key,connector_id,added_at,trust_note) VALUES(?,?,?,?,?,?,?,?)',
       )
       .run(
         userId,
@@ -175,6 +234,7 @@ export class E2eDeviceStore {
         device.public_key,
         device.connector_id ?? null,
         this.now().toISOString(),
+        note === undefined ? null : JSON.stringify(note),
       );
     return this.get(userId, device.id)!;
   }
@@ -199,6 +259,17 @@ export class E2eDeviceStore {
         )
         .all(userId, since.toISOString()) as DeviceRow[]
     ).map((row) => this.device(row));
+  }
+
+  /** As `listWithRevoked`, with each row's trust note when it has one (`?notes=1`). */
+  listWithNotes(userId: string, since: Date): E2eDeviceWithNote[] {
+    return (
+      this.db
+        .prepare(
+          'SELECT * FROM e2e_devices WHERE user_id=? AND (revoked_at IS NULL OR revoked_at>=?) ORDER BY added_at, id',
+        )
+        .all(userId, since.toISOString()) as DeviceRow[]
+    ).map((row) => this.deviceWithNote(row));
   }
 
   /** An active device of this account. */
@@ -338,9 +409,149 @@ export class E2eDeviceStore {
     );
   }
 
-  /** Delete my data: every device, offer and recovery backup of the account. Returns the devices removed. */
+  private approvalFrom(row: ApprovalRow): PhoneApproval {
+    const open = row.state === 'pending' || row.state === 'claimed';
+    const expired = open && Date.parse(row.expires_at) <= this.now().getTime();
+    return {
+      id: row.id,
+      state: (expired ? 'expired' : row.state) as PhoneApproval['state'],
+      device_id: row.device_id,
+      name: row.name,
+      public_key: row.public_key,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      ...(row.approver_id !== null &&
+        row.approver_name !== null &&
+        row.approver_key !== null && {
+          approver: { id: row.approver_id, name: row.approver_name, public_key: row.approver_key },
+        }),
+      ...(row.note !== null && { trust_note: trustNoteSchema.parse(JSON.parse(row.note)) }),
+    };
+  }
+
+  /**
+   * A new phone asks to be approved (C3 #11, Task 27). Its open request, if any, is replaced; an
+   * account holds at most MAX_OPEN_APPROVALS open ones. Refused when the phone is already active
+   * or the account is at the device cap.
+   */
+  requestApproval(userId: string, request: PhoneApprovalRequest, expiresAt: Date): PhoneApproval {
+    const now = this.now().toISOString();
+    const id = newApprovalId();
+    this.transaction(() => {
+      if (
+        this.db
+          .prepare('SELECT 1 FROM e2e_devices WHERE user_id=? AND id=? AND revoked_at IS NULL')
+          .get(userId, request.device_id) !== undefined
+      )
+        throw new E2eDeviceError('already_added');
+      const active = this.db
+        .prepare('SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
+        .get(userId) as { n: number };
+      if (active.n >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
+      this.db
+        .prepare(
+          "DELETE FROM e2e_phone_approvals WHERE user_id=? AND device_id=? AND state IN ('pending','claimed')",
+        )
+        .run(userId, request.device_id);
+      const open = this.db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM e2e_phone_approvals WHERE user_id=? AND state IN ('pending','claimed') AND expires_at>?",
+        )
+        .get(userId, now) as { n: number };
+      if (open.n >= MAX_OPEN_APPROVALS) throw new E2eDeviceError('approval_cap');
+      this.db
+        .prepare(
+          "INSERT INTO e2e_phone_approvals(id,user_id,device_id,public_key,name,state,created_at,expires_at) VALUES(?,?,?,?,?,'pending',?,?)",
+        )
+        .run(
+          id,
+          userId,
+          request.device_id,
+          request.public_key,
+          request.name,
+          now,
+          expiresAt.toISOString(),
+        );
+    });
+    return this.approval(userId, id)!;
+  }
+
+  /** This account's approval; never another account's. */
+  approval(userId: string, id: string): PhoneApproval | undefined {
+    const row = this.db
+      .prepare('SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=?')
+      .get(id, userId) as ApprovalRow | undefined;
+    return row && this.approvalFrom(row);
+  }
+
+  /** The account's open (pending or claimed, not expired) approvals, oldest first. */
+  openApprovals(userId: string): PhoneApproval[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT * FROM e2e_phone_approvals WHERE user_id=? AND state IN ('pending','claimed') AND expires_at>? ORDER BY created_at, id",
+        )
+        .all(userId, this.now().toISOString()) as ApprovalRow[]
+    ).map((row) => this.approvalFrom(row));
+  }
+
+  /** A trusted phone takes a pending approval (or the one it already took). */
+  claimApproval(userId: string, id: string, approver: E2eDevice): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET state='claimed', approver_id=?, approver_name=?, approver_key=? WHERE id=? AND user_id=? AND expires_at>? AND (state='pending' OR (state='claimed' AND approver_id=?))",
+      )
+      .run(
+        approver.id,
+        approver.name,
+        approver.public_key,
+        id,
+        userId,
+        this.now().toISOString(),
+        approver.id,
+      );
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * The approving phone says the codes matched: the new phone joins the account's devices with
+   * the note on its row, and the approval keeps the note for the new phone's next poll. Throws
+   * E2eDeviceError at the device cap (nothing changes then).
+   */
+  acceptApproval(userId: string, id: string, approverId: string, note: TrustNote): boolean {
+    return this.transaction(() => {
+      const row = this.db
+        .prepare(
+          "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>?",
+        )
+        .get(id, userId, approverId, this.now().toISOString()) as ApprovalRow | undefined;
+      if (row === undefined) return false;
+      this.insertDevice(
+        userId,
+        { id: row.device_id, kind: 'phone', name: row.name, public_key: row.public_key },
+        note,
+      );
+      this.db
+        .prepare("UPDATE e2e_phone_approvals SET state='accepted', note=? WHERE id=?")
+        .run(JSON.stringify(note), id);
+      return true;
+    });
+  }
+
+  /** An active phone of the account turns an open approval down. */
+  denyApproval(userId: string, id: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET state='denied' WHERE id=? AND user_id=? AND state IN ('pending','claimed') AND expires_at>?",
+      )
+      .run(id, userId, this.now().toISOString());
+    return Number(result.changes) > 0;
+  }
+
+  /** Delete my data: every device, offer, approval and recovery backup of the account. Returns the devices removed. */
   deleteAllForUser(userId: string): number {
     return this.transaction(() => {
+      this.db.prepare('DELETE FROM e2e_phone_approvals WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM e2e_pair_offers WHERE user_id=?').run(userId);
       this.db.prepare('DELETE FROM e2e_recovery WHERE user_id=?').run(userId);
       return Number(this.db.prepare('DELETE FROM e2e_devices WHERE user_id=?').run(userId).changes);

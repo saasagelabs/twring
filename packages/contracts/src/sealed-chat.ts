@@ -153,3 +153,84 @@ export const pairClaimSchema = z
   })
   .strict();
 export type PairClaim = z.infer<typeof pairClaimSchema>;
+
+/**
+ * Approving a second phone from a trusted one (C3 #11, Task 27). `pap_` ids are made by the
+ * server and are distinct from a computer's sealed approvals (`apv_`).
+ */
+export const phoneApprovalIdSchema = z.string().regex(/^pap_[a-z2-7]{20}$/);
+export const phoneApprovalStateSchema = z.enum([
+  'pending',
+  'claimed',
+  'accepted',
+  'denied',
+  'expired',
+]);
+export type PhoneApprovalState = z.infer<typeof phoneApprovalStateSchema>;
+
+/** Room for a trust note's payload: 6 device entries with 60-character names, escaped. */
+export const MAX_TRUST_NOTE_BODY_CHARS = 8192;
+
+/**
+ * A trust note: a trusted phone vouches for a new one. The payload (`trust_add` in
+ * message-seal.ts) is sealed with a fresh key wrapped by the approving phone to the new phone and
+ * to every device it trusts. `approval_id` travels in the clear because the AAD binds it.
+ */
+export const trustNoteSchema = z
+  .object({
+    approval_id: phoneApprovalIdSchema,
+    sender_device: e2eDeviceIdSchema,
+    nonce: base64urlSchema.min(1).max(64),
+    body: base64urlSchema.min(1).max(MAX_TRUST_NOTE_BODY_CHARS),
+    keys: z.array(wrappedKeySchema).min(1).max(MAX_PAIRED_DEVICES),
+  })
+  .strict();
+export type TrustNote = z.infer<typeof trustNoteSchema>;
+
+/**
+ * A device row as newer clients read it (`?notes=1`). Older clients parse rows strictly with
+ * `e2eDeviceSchema`, so the server adds `trust_note` only when asked.
+ */
+export const e2eDeviceWithNoteSchema = e2eDeviceSchema
+  .extend({ trust_note: trustNoteSchema.optional() })
+  .strict();
+export type E2eDeviceWithNote = z.infer<typeof e2eDeviceWithNoteSchema>;
+
+/** The new phone asks to be approved. */
+export const phoneApprovalRequestSchema = z
+  .object({
+    device_id: e2eDeviceIdSchema,
+    public_key: publicKeySchema,
+    name: z.string().min(1).max(60),
+  })
+  .strict();
+export type PhoneApprovalRequest = z.infer<typeof phoneApprovalRequestSchema>;
+
+/** Claim and deny name the trusted phone acting; accept also carries the note. */
+export const phoneApprovalActorSchema = z.object({ device_id: e2eDeviceIdSchema }).strict();
+export const phoneApprovalAcceptSchema = z
+  .object({ device_id: e2eDeviceIdSchema, note: trustNoteSchema })
+  .strict();
+
+/** One approval as the server answers it. `approver` once claimed; `trust_note` once accepted. */
+export const phoneApprovalSchema = z
+  .object({
+    id: phoneApprovalIdSchema,
+    state: phoneApprovalStateSchema,
+    device_id: e2eDeviceIdSchema,
+    name: z.string().min(1).max(60),
+    public_key: publicKeySchema,
+    created_at: z.iso.datetime(),
+    expires_at: z.iso.datetime(),
+    approver: z
+      .object({
+        id: e2eDeviceIdSchema,
+        name: z.string().min(1).max(60),
+        public_key: publicKeySchema,
+      })
+      .strict()
+      .optional(),
+    trust_note: trustNoteSchema.optional(),
+  })
+  .strict();
+export type PhoneApproval = z.infer<typeof phoneApprovalSchema>;

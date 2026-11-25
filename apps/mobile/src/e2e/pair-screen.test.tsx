@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
     confirmPairing: vi.fn(),
     loadTrusted: vi.fn(),
     restoreOffer: vi.fn(),
+    requestApproval: vi.fn(),
     push: vi.fn(),
     replace: vi.fn(),
     effects: 0,
@@ -75,7 +76,16 @@ vi.mock('@/e2e/pairing', async () => {
     loadTrusted: mocks.loadTrusted,
   };
 });
-vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}), recoveryApi: () => ({}) }));
+vi.mock('@/e2e/pair-api', () => ({
+  pairApi: () => ({}),
+  recoveryApi: () => ({}),
+  approveApi: () => ({}),
+}));
+vi.mock('@/e2e/approve', async () => ({
+  ...(await import('./approve')),
+  requestApproval: mocks.requestApproval,
+}));
+vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: vi.fn() }));
 vi.mock('@/e2e/recovery', () => ({
   RECOVERY_COPY: {
     offer: "Save a recovery key? Without it, a new phone can't read old private messages.",
@@ -372,5 +382,37 @@ describe('private chat pairing screen', () => {
     expect(mocks.claimPairing).not.toHaveBeenCalled();
     expect(text(tree)).toContain('not a pairing code');
     expect(elements(tree).some((e) => e.type === 'QrScanner')).toBe(true);
+  });
+});
+
+describe('approve from my other phone (C3 #11, Task 27)', () => {
+  it('asks the other phone, then shows its code, then says it is done', async () => {
+    mocks.requestApproval.mockResolvedValue({ ok: true, approval: { id: 'pap_x' } });
+    void labelled(render(), 'Approve from my other phone').props.onPress?.();
+    await flush();
+    expect(mocks.requestApproval.mock.calls[0]?.[0]).toMatchObject({
+      store: { deviceOnly: true },
+      phoneName: 'Android phone',
+    });
+    expect(text(render())).toContain('On your other phone, open Devices and approve this phone.');
+    mocks.state[0] = {
+      kind: 'approve',
+      id: 'pap_x',
+      shown: { id: 'dev_t', name: 'Pixel 8', public_key: 'k', code: '123 456' },
+    };
+    const compare = render();
+    expect(text(compare)).toContain('Check that Pixel 8 shows 123 456.');
+    expect(text(compare).replace(/"key":/g, '')).not.toMatch(/device id|trust note|\bkey\b/i);
+    mocks.state[0] = { kind: 'approved' };
+    expect(text(render())).toContain('This phone can read new private messages.');
+  });
+
+  it('says plainly when the request could not be made, and offers to try again', async () => {
+    mocks.requestApproval.mockResolvedValue({ ok: false, code: 'cap' });
+    void labelled(render(), 'Approve from my other phone').props.onPress?.();
+    await flush();
+    const tree = render();
+    expect(text(tree)).toContain('You already have 5 devices.');
+    expect(labelled(tree, 'Try again')).toBeDefined();
   });
 });
