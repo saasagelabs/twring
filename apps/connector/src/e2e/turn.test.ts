@@ -12,7 +12,7 @@ import {
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
 
-import type { LocalAgentAdapter, LocalAgentEvent } from '../events';
+import { LocalAgentError, type LocalAgentAdapter, type LocalAgentEvent } from '../events';
 import { ResultOutbox } from '../outbox';
 import { ensureDeviceKey, type E2eConfig, type TrustedDevice } from './keys';
 import { openIncoming, ReplayWindow, sealOutgoing, type SealContext } from './sealed';
@@ -22,6 +22,7 @@ import {
   helloFeatures,
   PrivateChats,
   privateTurnText,
+  SIGNED_OUT_TEXT,
   UNKNOWN_SENDER_BUDGET,
   UNKNOWN_SENDERS_BUDGET,
 } from './turn';
@@ -38,7 +39,7 @@ interface FakeRunOptions {
   dropSocketOnce?: boolean;
   /** The socket stays down until `reconnect()`. */
   down?: boolean;
-  agentThrows?: boolean;
+  agentThrows?: boolean | Error;
   now?: () => number;
 }
 
@@ -79,6 +80,7 @@ function fakeRun(options: FakeRunOptions = {}) {
     // eslint-disable-next-line @typescript-eslint/require-await
     async *sendTurn(text: string): AsyncIterable<LocalAgentEvent> {
       inputs.push(text);
+      if (options.agentThrows instanceof Error) throw options.agentThrows;
       if (options.agentThrows) throw new Error('agent crashed');
       for (const piece of options.agentSays ?? ['ok']) yield { type: 'text', text: piece };
     },
@@ -332,6 +334,15 @@ describe('private turns', () => {
     const frames = run.sent('sealed.reply');
     expect(frames.at(-1)!.final).toBe(true);
     expect(run.phoneReads(message.message_id)).toMatch(/went wrong/);
+  });
+
+  it('says Claude Code is signed out when the agent reports a sign-in failure', async () => {
+    const run = fakeRun({
+      agentThrows: new LocalAgentError('agent_signed_out', 'Claude Code is signed out'),
+    });
+    const message = run.sealedFromPhone({ text: 'hi' });
+    await run.receive(message);
+    expect(run.phoneReads(message.message_id)).toBe(SIGNED_OUT_TEXT);
   });
 
   it('caps a reply of 4-byte characters at the stored limit, every frame under the relay limit', async () => {

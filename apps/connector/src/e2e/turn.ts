@@ -18,7 +18,7 @@ import {
   type SealedPayload,
 } from '@twring/contracts';
 
-import type { LocalAgentAdapter, LocalAgentEvent } from '../events';
+import { LocalAgentError, type LocalAgentAdapter, type LocalAgentEvent } from '../events';
 import type { ResultOutbox } from '../outbox';
 import type { E2eConfig } from './keys';
 import {
@@ -77,6 +77,8 @@ export const CHUNK_INTERVAL_MS = 700;
 const TIME_FLUSH_CHUNKS = MAX_SEALED_REPLY_CHUNKS - 8;
 
 export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try again.';
+export const SIGNED_OUT_TEXT =
+  'Claude Code is signed out on this computer. Sign in to Claude Code there, then send your message again.';
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';
 export const FILES_NOT_OPENED_TEXT = "This computer can't open files in private chats yet.";
 
@@ -328,11 +330,15 @@ export class PrivateChats {
               await send({ text: out }, false);
             }
           }
-        } catch {
+        } catch (error) {
           // An agent that throws on its abort signal was stopped, not broken.
           if (!stopped.aborted) {
             this.options.log?.(`private turn ${frame.message_id} failed`);
-            buffered += total === 0 ? AGENT_FAILED_TEXT : `\n\n${AGENT_FAILED_TEXT}`;
+            const failed =
+              error instanceof LocalAgentError && error.code === 'agent_signed_out'
+                ? SIGNED_OUT_TEXT
+                : AGENT_FAILED_TEXT;
+            buffered += total === 0 ? failed : `\n\n${failed}`;
           }
         } finally {
           // The turn is over: anything still waiting for the phone is denied.

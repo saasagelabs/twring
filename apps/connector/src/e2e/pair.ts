@@ -180,7 +180,7 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
       k: e2e.public_key,
       x: base64urlEncode(secret),
     });
-    print('Scan this with Twring on your phone (Settings, Private chats).');
+    print('In Twring on your phone, open your agent and tap Make chats private, then scan this.');
     const drawn = (options.qr ?? terminalQr)(link);
     print(drawn ?? 'This window is too small to show the code. Make it bigger and run this again.');
     // The one place the typed code is shown: never logged or sent anywhere.
