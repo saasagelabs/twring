@@ -26,7 +26,7 @@ const FAILURE_COPY: Record<PairFailure, string> = {
   expired: 'This code has expired. Ask your agent on the computer to show a new pairing code.',
   claimed: 'This code was already used. Ask your agent on the computer to show a new pairing code.',
   mismatch: STOPPED,
-  cap: 'You already have 5 devices. Remove one in Private chats first.',
+  cap: 'You already have 5 devices. Remove one under Devices on the agent page first.',
   network: 'Twring could not reach the server. Check your connection and try again.',
   wrong_server:
     'This code is for a different Twring server. Sign in to that server on this phone, or pair a computer that uses the same server as this phone.',

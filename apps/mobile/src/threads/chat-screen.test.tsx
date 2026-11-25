@@ -210,6 +210,7 @@ function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: 
     private: input.private,
     opened: input.opened,
     pairAgain: false,
+    privateNotice: undefined,
     filesAvailable: true,
     send: vi.fn(),
     sendFiles: vi.fn(),

@@ -42,13 +42,7 @@ import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
-import {
-  labelFor,
-  MISSING_MESSAGE,
-  PAIR_AGAIN,
-  sealedBubble,
-  SERVER_READABLE_MARK,
-} from '@/e2e/private-state';
+import { labelFor, MISSING_MESSAGE, sealedBubble, SERVER_READABLE_MARK } from '@/e2e/private-state';
 import { PrivateBanner, VoiceNoteWarning } from '@/components/chat/PrivateChat';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
@@ -685,16 +679,16 @@ export default function ChatScreen() {
             </KeyboardGestureArea>
           )}
           {pill.show && rows.length > 0 && <NewReplyPill count={pill.count} onPress={toBottom} />}
-          {(removed || agent.error || messagePage.error || chat.pairAgain) && (
+          {(removed || agent.error || messagePage.error || chat.privateNotice !== undefined) && (
             // Opaque, so a notice laid over the messages stays readable.
             <View
               pointerEvents="box-none"
               style={[styles.notices, { backgroundColor: palette.background }]}
             >
               {removed && <Notice text="This agent was removed." />}
-              {chat.pairAgain && !removed && (
+              {chat.privateNotice !== undefined && !removed && (
                 <ErrorNotice
-                  error={{ message: PAIR_AGAIN, retryable: true }}
+                  error={{ message: chat.privateNotice, retryable: true }}
                   onRetry={() =>
                     router.push({ pathname: '/private/pair', params: { agentId: id } })
                   }

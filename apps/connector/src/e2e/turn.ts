@@ -124,12 +124,7 @@ export class FailureBudget {
 export function helloFeatures(e2e: E2eConfig | undefined): string[] {
   const phones = e2e?.devices.some((device) => device.kind === 'phone') ?? false;
   return phones
-    ? [
-        SCOPED_SESSIONS_FEATURE,
-        SEALED_CHAT_FEATURE,
-        SEALED_CANCEL_FEATURE,
-        DEVICES_CHANGED_FEATURE,
-      ]
+    ? [SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE, DEVICES_CHANGED_FEATURE]
     : [SCOPED_SESSIONS_FEATURE];
 }
 

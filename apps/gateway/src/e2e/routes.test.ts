@@ -202,9 +202,7 @@ describe('private chat pairing routes', () => {
     // The phone hears of the removal too (P4 ruling 3), marked revoked like the computer.
     const phone = await g.send('GET', '/v1/e2e/devices', { user: 'u1' });
     const listed = phone.json<{ devices: { id: string; revoked_at?: string }[] }>().devices;
-    expect(listed.filter((d) => d.revoked_at === undefined).map((d) => d.id)).toEqual([
-      devId('c'),
-    ]);
+    expect(listed.filter((d) => d.revoked_at === undefined).map((d) => d.id)).toEqual([devId('c')]);
     expect(listed.find((d) => d.id === devId('p'))?.revoked_at).toEqual(expect.any(String));
   });
 

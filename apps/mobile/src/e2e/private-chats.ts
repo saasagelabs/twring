@@ -23,7 +23,15 @@ import {
   type SealedThreadMessage,
 } from './sealed-thread';
 import type { PhoneQuote } from './private-quote';
-import { hasComputer } from './private-state';
+import {
+  hasComputerFor,
+  listDevices,
+  LOST_KEYS,
+  reinstalledFor,
+  REINSTALLED,
+  syncTrusted,
+} from './devices';
+import { PAIR_AGAIN } from './private-state';
 
 /**
  * Private chats in the chat data layer (ADR-044): seals what the phone sends and opens what it
@@ -48,6 +56,11 @@ export interface PrivateChatDeps {
   replay: JsonStore;
   /** The agent's address (`cord-connector://<connector>/<agent>`), for the AAD ids. */
   addressOf(agentId: string): Promise<string | undefined>;
+  /**
+   * The account's device list (`GET /v1/e2e/devices`), read when a chat opens: revoked devices
+   * leave the trusted list and a reinstalled computer is noticed (C3 #11 P4a). None: not read.
+   */
+  devices?: () => Promise<unknown>;
   log?: (event: string, fields?: Record<string, string | number>) => void;
 }
 
@@ -64,13 +77,39 @@ export class PrivateChats {
   private readonly loading = new Map<string, Promise<PhoneSealContext | undefined>>();
   private saved?: Promise<Record<string, SavedReplay>>;
   private trusted: TrustedDevice[] = [];
+  /** Chats whose computer the server lists with a key this phone does not trust. */
+  private readonly reinstalled = new Set<string>();
+  /** Chats with sealed messages none of which this phone's key can open (a reinstalled app). */
+  private readonly lostKeys = new Set<string>();
   private saving: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: PrivateChatDeps) {}
 
-  /** No computer to send to: the key was replaced, or pairing was lost (P3b ruling 3). */
-  pairAgain(): boolean {
-    return !hasComputer(this.trusted);
+  /** No computer to send to for this chat: the key was replaced, or pairing was lost. */
+  pairAgain(agentId: string): boolean {
+    const ctx = this.contexts.get(agentId);
+    return ctx === undefined || !hasComputerFor(this.trusted, ctx.accountId);
+  }
+
+  /** What a private chat says above the composer, if anything: most specific first. */
+  notice(agentId: string): string | undefined {
+    if (this.contexts.get(agentId) === undefined) return undefined;
+    if (this.reinstalled.has(agentId)) return REINSTALLED;
+    if (this.lostKeys.has(agentId) && this.pairAgain(agentId)) return LOST_KEYS;
+    return this.pairAgain(agentId) ? PAIR_AGAIN : undefined;
+  }
+
+  /** The server's list: drops revoked devices here, and notes a reinstalled computer. */
+  private async readDevices(agentId: string, connectorId: string): Promise<void> {
+    if (this.deps.devices === undefined) return;
+    try {
+      const server = await listDevices({ list: this.deps.devices });
+      this.trusted = await syncTrusted(this.deps.store, server, this.deps.log);
+      if (reinstalledFor(server, this.trusted, connectorId)) this.reinstalled.add(agentId);
+      else this.reinstalled.delete(agentId);
+    } catch {
+      // Offline or a bad answer: nothing changes.
+    }
   }
 
   private loadSaved(): Promise<Record<string, SavedReplay>> {
@@ -100,10 +139,11 @@ export class PrivateChats {
         this.trusted = trusted;
         const ids = address === undefined ? undefined : aadIdsFor(address);
         if (ids === undefined) return undefined;
+        await this.readDevices(agentId, ids.accountId);
         const ctx = createPhoneContext({
           ...ids,
           me,
-          trusted,
+          trusted: this.trusted,
           // Every seal takes its seq from the keychain counter first (`seal`).
           nextSeq: () => {
             throw new SealError('seal_failed');
@@ -142,7 +182,8 @@ export class PrivateChats {
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
     this.trusted = trusted;
     ctx.trusted = trusted;
-    if (!hasComputer(trusted)) throw new SealError('pair_again');
+    if (this.reinstalled.has(agentId) || !hasComputerFor(trusted, ctx.accountId))
+      throw new SealError('pair_again');
     let seq: number;
     try {
       seq = await nextSeq(this.deps.store);
@@ -173,7 +214,8 @@ export class PrivateChats {
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
     this.trusted = trusted;
     ctx.trusted = trusted;
-    if (!hasComputer(trusted)) throw new SealError('pair_again');
+    if (this.reinstalled.has(agentId) || !hasComputerFor(trusted, ctx.accountId))
+      throw new SealError('pair_again');
     let seq: number;
     try {
       seq = await nextSeq(this.deps.store);
@@ -225,6 +267,13 @@ export class PrivateChats {
     if (ctx === undefined) return undefined;
     const sealed = messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed');
     const opened = openMessages(ctx, sealed);
+    // None of the chat's messages carries a key for this phone: its keys were lost.
+    if (
+      sealed.length > 0 &&
+      sealed.every((m) => m.sealed.every((e) => !e.keys.some((k) => k.device === ctx.me.deviceId)))
+    )
+      this.lostKeys.add(agentId);
+    else this.lostKeys.delete(agentId);
     this.save(agentId, ctx);
     const failed = opened.filter((m) => m.state === 'couldnt_open').length;
     if (failed > 0) this.deps.log?.('e2e_couldnt_open', { count: failed });
@@ -247,6 +296,8 @@ export class PrivateChats {
    */
   async forget(): Promise<void> {
     this.contexts.clear();
+    this.reinstalled.clear();
+    this.lostKeys.clear();
     this.trusted = [];
     this.saved = Promise.resolve({});
     await this.saving;

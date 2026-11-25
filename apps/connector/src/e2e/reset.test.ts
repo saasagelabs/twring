@@ -61,7 +61,7 @@ describe('twring-connect private reset', () => {
     const out = await resetPrivateKey({
       config: paired(),
       save: () => Promise.resolve(),
-      fetch: (() => Promise.reject(new Error('offline'))) as typeof fetch,
+      fetch: () => Promise.reject(new Error('offline')),
     });
     expect(out.server).toBe('not_removed');
     expect(out.config.e2e).toBeDefined();
@@ -76,10 +76,10 @@ describe('twring-connect private reset', () => {
     const out = await resetPrivateKey({
       config: baseConfig,
       save: () => Promise.resolve(),
-      fetch: (() => {
+      fetch: () => {
         called = true;
         return Promise.resolve(new Response(null, { status: 204 }));
-      }) as typeof fetch,
+      },
     });
     expect(out.server).toBe('none');
     expect(called).toBe(false);

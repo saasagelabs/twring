@@ -1232,6 +1232,7 @@ async function main(): Promise<void> {
 
 /** `private pair`: pairs the phone for private chats (ADR-044). */
 async function privateCommand(rest: string[]): Promise<number> {
+  if (rest[0] === 'reset' && rest.length === 1) return privateReset();
   if (rest[0] !== 'pair' || rest.length > 1) fail(`Unknown command.\n\n${HELP}`);
   const path = configPath();
   const saved = await loadConfig(path);

@@ -156,6 +156,10 @@ export interface TwringApi {
    * is off, anything else (network, 5xx, 429) is unknown and worth asking again later.
    */
   privateChatsStatus?(signal?: AbortSignal): Promise<'on' | 'off' | 'unknown'>;
+  /** `GET /v1/e2e/devices`, raw: `e2e/devices.ts` validates it. */
+  privateDevices?(signal?: AbortSignal): Promise<unknown>;
+  /** `DELETE /v1/e2e/devices/:id`; a device already gone counts as removed. */
+  removePrivateDevice?(deviceId: string, signal?: AbortSignal): Promise<void>;
   sendVoiceNote(
     agentId: string,
     clientId: string,
@@ -714,6 +718,17 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) return 'off';
         return 'unknown';
+      }
+    },
+    async privateDevices(signal) {
+      return request('GET', '/v1/e2e/devices', { signal });
+    },
+    async removePrivateDevice(deviceId, signal) {
+      try {
+        await request('DELETE', `/v1/e2e/devices/${encodeURIComponent(deviceId)}`, { signal });
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return;
+        throw error;
       }
     },
     async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo) {

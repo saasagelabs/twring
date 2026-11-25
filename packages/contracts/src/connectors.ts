@@ -285,7 +285,9 @@ export const relaySealedCancelSchema = z
  * computer reads the device list again now. Not sealed and carries nothing: the server can only
  * take trust away. Sent only to a computer that said `devices_changed`.
  */
-export const relayDevicesChangedSchema = z.object({ type: z.literal('e2e.devices_changed') }).strict();
+export const relayDevicesChangedSchema = z
+  .object({ type: z.literal('e2e.devices_changed') })
+  .strict();
 
 export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayHelloSchema,
