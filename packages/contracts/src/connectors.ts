@@ -267,6 +267,19 @@ export const relaySealedDecisionSchema = z
   })
   .strict();
 
+/**
+ * Gateway to connector: the phone stopped the private turn `turn_id` (C3 #11). Not sealed: the
+ * server can already drop or delay any message. Sent only to a computer that said
+ * `sealed_cancel`; older connectors would drop the unknown type anyway.
+ */
+export const relaySealedCancelSchema = z
+  .object({
+    type: z.literal('sealed.cancel'),
+    agent: localAgentIdSchema,
+    turn_id: sealedMessageIdSchema,
+  })
+  .strict();
+
 export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayHelloSchema,
   relayChannelMessageSchema,
@@ -300,6 +313,7 @@ export const relayGatewayMessageSchema = z.discriminatedUnion('type', [
   relayChannelCloseSchema,
   relaySealedMessageSchema,
   relaySealedDecisionSchema,
+  relaySealedCancelSchema,
 ]);
 export type RelayGatewayMessage = z.infer<typeof relayGatewayMessageSchema>;
 

@@ -134,7 +134,10 @@ vi.mock('@/components/chat/PrivateChat', () => ({
   PrivateBanner: 'PrivateBanner',
   VoiceNoteWarning: 'VoiceNoteWarning',
 }));
-vi.mock('@/components/chat/status-line', () => ({ statusLineContent: () => undefined }));
+vi.mock('@/components/chat/status-line', () => ({
+  statusLineContent: () => undefined,
+  latestOwn: () => undefined,
+}));
 vi.mock('@/e2e/private-state', () => import('../e2e/private-state'));
 vi.mock('@/hooks/useNow', () => ({ useNow: () => Date.parse('2026-11-25T12:00:00Z') }));
 vi.mock('@/platform/ring', () => ({ ringPlatform: { clearMessages: vi.fn() } }));
@@ -341,6 +344,23 @@ describe('a private chat', () => {
       .filter((e) => e.type === 'Notice' || e.type === 'Bubble')
       .map((e) => (e.type === 'Notice' ? 'gap' : e.props.text));
     expect(order).toEqual(['gap', 'nine', 'gap', 'five', 'one']);
+  });
+
+  it('a reply stopped before the agent said anything draws no bubble but keeps its gap row', () => {
+    setChat({
+      private: true,
+      messages: [sealed('s1', 1, 'agent'), sealed('s5', 5, 'agent')],
+      opened: [
+        { id: 's1', author: 'agent', state: 'ok', text: 'one' },
+        { id: 's5:gap', state: 'missing_before', missing: 3 },
+        { id: 's5', author: 'agent', state: 'ok', text: '' },
+      ],
+    });
+    const { items } = render();
+    expect(of(items, 'Bubble').map((b) => b.props.text)).toEqual(['one']);
+    expect(of(items, 'Notice').map((n) => n.props.text)).toEqual([
+      'A message from your computer is missing here.',
+    ]);
   });
 
   it("shows no gap row for the phone's own messages", () => {

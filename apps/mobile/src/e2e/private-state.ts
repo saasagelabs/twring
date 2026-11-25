@@ -123,6 +123,8 @@ export function sealedBubble(
   const found = opened.get(message.id);
   const own = message.author === 'user';
   if (found?.state !== 'ok') return { text: COULDNT_OPEN, own, opened: false, actions: [] };
+  // A reply stopped before the agent said anything still ends with an empty final part.
+  if (!own && found.text.trim() === '' && found.quote === undefined) return undefined;
   return {
     text: found.text,
     own,

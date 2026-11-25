@@ -325,3 +325,14 @@ describe('sealed approvals in private turns (C3 #11)', () => {
     expect(run.decided).toEqual([{ id: 'tool-0', decision: 'deny' }]);
   });
 });
+
+describe('Stop during a sealed approval (C3 #11)', () => {
+  it('denies the waiting approval and ends the turn with a final chunk', async () => {
+    const run = harness();
+    const { message, turn } = await asked(run);
+    await run.chats.receive({ type: 'sealed.cancel', agent: AGENT, turn_id: message.message_id });
+    await turn;
+    expect(run.decided).toEqual([{ id: 'tool-0', decision: 'deny' }]);
+    expect(run.reply(message.message_id).at(-1)?.final).toBe(true);
+  });
+});

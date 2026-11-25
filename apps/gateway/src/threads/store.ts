@@ -806,7 +806,13 @@ export class SqliteThreadStore {
   async updateUserMessage(
     userId: string,
     messageId: string,
-    patch: { status?: UserMessageStatus; turnId?: string; errorCode?: string },
+    patch: {
+      status?: UserMessageStatus;
+      turnId?: string;
+      errorCode?: string;
+      /** Changed only while the stored status is one of these (checked in the same transaction). */
+      from?: readonly UserMessageStatus[];
+    },
   ): Promise<ThreadMessage | undefined> {
     return this.transaction(() => {
       const row = this.db
@@ -815,6 +821,8 @@ export class SqliteThreadStore {
         )
         .get(messageId, userId) as Row | undefined;
       if (!row) return undefined;
+      if (patch.from !== undefined && !patch.from.includes(row.status as UserMessageStatus))
+        return undefined;
       const thread = this.db
         .prepare('SELECT * FROM threads WHERE id=? AND user_id=?')
         .get(row.thread_id, userId) as ThreadRow;
@@ -1062,7 +1070,7 @@ export class SqliteThreadStore {
     if (!thread) return undefined;
     const row = this.db
       .prepare(
-        "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND id=? AND kind='user_text'",
+        "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND id=? AND (kind='user_text' OR (kind='sealed' AND client_id IS NOT NULL))",
       )
       .get(thread.id, userId, messageId) as Row | undefined;
     return row ? this.decode(row, agentId) : undefined;

@@ -1,4 +1,4 @@
-import type { UserMessageStatus } from '@twring/contracts';
+import type { ThreadMessage, UserMessageStatus } from '@twring/contracts';
 
 import { aiAppReplyStatus } from '../../agents/ai-app';
 import { apiErrorCopy } from '../../api/errors';
@@ -23,6 +23,28 @@ export interface StatusLineInput {
   pending?: { clientId: string; state: 'sending' | 'failed'; error?: unknown };
   /** The newest own message the server knows about. */
   latest?: { status: UserMessageStatus; errorCode?: string };
+}
+
+/**
+ * The newest message this person sent, plain or private, as the status line reads it. A private
+ * message counts as working once sent: its computer starts on it at once, so Stop shows then.
+ */
+export function latestOwn(
+  messages: readonly ThreadMessage[],
+): { id: string; status: UserMessageStatus; errorCode?: string; working: boolean } | undefined {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.kind === 'user_text')
+      return {
+        id: m.id,
+        status: m.status,
+        ...(m.error_code !== undefined && { errorCode: m.error_code }),
+        working: m.status === 'working',
+      };
+    if (m.kind === 'sealed' && m.author === 'user' && m.status !== undefined)
+      return { id: m.id, status: m.status, working: m.status === 'sent' || m.status === 'working' };
+  }
+  return undefined;
 }
 
 /** One line above the composer: working beats the latest send's status; otherwise nothing. */

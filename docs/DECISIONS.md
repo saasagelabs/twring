@@ -1387,6 +1387,11 @@ transcription, Listen and AI apps connected online are never labelled end-to-end
   relays unchanged as `sealed.decision`. The computer acts only on an answer from a trusted phone,
   fresh in the replay window, for an approval of this agent still waiting and not expired; no
   answer within `APPROVAL_HOLD_MS`, or the turn ending, denies. Calls are unchanged.
+- Stop in a private chat (2026-11-25): the server marks the message stopped and sends the
+  computer an unsealed `sealed.cancel { agent, turn_id }` (only to one whose hello says
+  `sealed_cancel`); the computer ends or drops that turn and denies its waiting approvals. The
+  cancel is not sealed because the server can already drop or delay any message, so a forged
+  cancel gives it no new power beyond denial of service.
 - A voice note in a private chat is a server-readable message, marked on the bubble; the header
   label is replaced by "Private, except messages marked as sent through Twring" while such a
   message exists in the chat.

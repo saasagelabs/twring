@@ -10,6 +10,7 @@ import {
   MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   SCOPED_SESSIONS_FEATURE,
+  SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
   TEXT_TURN_TAG,
   type RelayConnectorMessage,
@@ -31,6 +32,7 @@ import {
 
 type SealedMessageFrame = Extract<RelayGatewayMessage, { type: 'sealed.message' }>;
 type SealedDecisionFrame = Extract<RelayGatewayMessage, { type: 'sealed.decision' }>;
+type SealedCancelFrame = Extract<RelayGatewayMessage, { type: 'sealed.cancel' }>;
 type SealedReplyFrame = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>;
 type SealedApprovalFrame = Extract<RelayConnectorMessage, { type: 'sealed.approval' }>;
 type ApprovalEvent = Extract<LocalAgentEvent, { type: 'approval.required' }>;
@@ -112,10 +114,15 @@ export class FailureBudget {
   }
 }
 
-/** What this computer says it supports: `sealed_chat` only once it trusts a phone. */
+/**
+ * What this computer says it supports: `sealed_chat` (and `sealed_cancel`, Stop for a private
+ * turn) only once it trusts a phone.
+ */
 export function helloFeatures(e2e: E2eConfig | undefined): string[] {
   const phones = e2e?.devices.some((device) => device.kind === 'phone') ?? false;
-  return phones ? [SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE] : [SCOPED_SESSIONS_FEATURE];
+  return phones
+    ? [SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE]
+    : [SCOPED_SESSIONS_FEATURE];
 }
 
 /**
@@ -165,6 +172,8 @@ export class PrivateChats {
   /** Sealed approvals waiting for the phone, by the id inside the sealed request. */
   private readonly approvals = new Map<string, PendingApproval>();
   private ignoredDecisions = 0;
+  /** Private turns received and not over yet, by message id, so the phone's Stop can end them. */
+  private readonly turns = new Map<string, { agent: string; controller: AbortController }>();
 
   constructor(private readonly options: PrivateChatsOptions) {}
 
@@ -185,12 +194,25 @@ export class PrivateChats {
     };
   }
 
-  async receive(frame: SealedMessageFrame | SealedDecisionFrame): Promise<void> {
+  async receive(
+    frame: SealedMessageFrame | SealedDecisionFrame | SealedCancelFrame,
+  ): Promise<void> {
     switch (frame.type) {
-      case 'sealed.message':
-        return this.receiveMessage(frame);
+      case 'sealed.message': {
+        // Kept from the first moment, so a Stop that arrives while this turn waits is not lost.
+        const controller = new AbortController();
+        this.turns.set(frame.message_id, { agent: frame.agent, controller });
+        try {
+          return await this.receiveMessage(frame, controller.signal);
+        } finally {
+          if (this.turns.get(frame.message_id)?.controller === controller)
+            this.turns.delete(frame.message_id);
+        }
+      }
       case 'sealed.decision':
         return this.receiveDecision(frame);
+      case 'sealed.cancel':
+        return this.cancel(frame);
       default: {
         const never: never = frame;
         return never;
@@ -198,7 +220,24 @@ export class PrivateChats {
     }
   }
 
-  private async receiveMessage(frame: SealedMessageFrame): Promise<void> {
+  /**
+   * The phone stopped a private turn (C3 #11). A running turn is aborted and ends with what it
+   * has; one still waiting is dropped. Its pending approvals are denied. Unknown turns and other
+   * agents' turns are ignored.
+   */
+  private cancel(frame: SealedCancelFrame): void {
+    const turn = this.turns.get(frame.turn_id);
+    if (turn === undefined || turn.agent !== frame.agent) {
+      this.options.log?.(`private stop for ${frame.turn_id} ignored (unknown turn)`);
+      return;
+    }
+    turn.controller.abort();
+    for (const [id, pending] of this.approvals)
+      if (pending.turnId === frame.turn_id) this.settle(id, 'deny');
+    this.options.log?.(`private turn ${frame.turn_id} stopped`);
+  }
+
+  private async receiveMessage(frame: SealedMessageFrame, stopped: AbortSignal): Promise<void> {
     const log = this.options.log;
     let e2e = this.options.e2e();
     if (e2e === undefined) return;
@@ -234,7 +273,8 @@ export class PrivateChats {
       await this.reply(frame, async (send) => send({ text: FILES_NOT_OPENED_TEXT }, true));
       return;
     }
-    await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks));
+    if (stopped.aborted) return;
+    await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks, stopped));
   }
 
   private async runAgent(
@@ -242,6 +282,7 @@ export class PrivateChats {
     payload: SealedPayload,
     send: (payload: SealedPayload, final: boolean) => Promise<void>,
     chunks: () => number,
+    stopped: AbortSignal,
   ): Promise<void> {
     const { pool } = this.options;
     const adapter = pool.acquire(frame.agent);
@@ -250,11 +291,18 @@ export class PrivateChats {
     let buffered = '';
     let total = 0;
     let lastSent = now();
+    let dropped = false;
     const controller = new AbortController();
     const stop = () => controller.abort();
     this.options.signal?.addEventListener('abort', stop, { once: true });
+    stopped.addEventListener('abort', stop, { once: true });
     try {
       await pool.runExclusive(frame.agent, async () => {
+        // Stopped while it waited behind another turn of this agent: never run, nothing sent.
+        if (stopped.aborted) {
+          dropped = true;
+          return;
+        }
         try {
           for await (const event of adapter.sendTurn(
             `${TEXT_TURN_TAG}\n${privateTurnText(payload)}`,
@@ -281,8 +329,11 @@ export class PrivateChats {
             }
           }
         } catch {
-          this.options.log?.(`private turn ${frame.message_id} failed`);
-          buffered += total === 0 ? AGENT_FAILED_TEXT : `\n\n${AGENT_FAILED_TEXT}`;
+          // An agent that throws on its abort signal was stopped, not broken.
+          if (!stopped.aborted) {
+            this.options.log?.(`private turn ${frame.message_id} failed`);
+            buffered += total === 0 ? AGENT_FAILED_TEXT : `\n\n${AGENT_FAILED_TEXT}`;
+          }
         } finally {
           // The turn is over: anything still waiting for the phone is denied.
           for (const [id, pending] of this.approvals)
@@ -291,8 +342,10 @@ export class PrivateChats {
       });
     } finally {
       this.options.signal?.removeEventListener('abort', stop);
+      stopped.removeEventListener('abort', stop);
       pool.release(frame.agent);
     }
+    if (dropped) return;
     await send({ text: buffered }, true);
   }
 

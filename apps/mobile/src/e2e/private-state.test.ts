@@ -112,4 +112,11 @@ describe('sealed message bubbles', () => {
   it('draws nothing while the keys are still loading', () => {
     expect(sealedBubble(message, undefined, 'Claude')).toBeUndefined();
   });
+
+  it('draws no empty bubble for a reply stopped before the agent said anything', () => {
+    for (const text of ['', ' \n '])
+      expect(
+        sealedBubble(message, opened({ id, author: 'agent', state: 'ok', text }), 'Claude'),
+      ).toBeUndefined();
+  });
 });

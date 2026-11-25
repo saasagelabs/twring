@@ -1,6 +1,7 @@
+import type { ThreadMessage } from '@twring/contracts';
 import { expect, it } from 'vitest';
 
-import { statusLineContent } from './status-line';
+import { latestOwn, statusLineContent } from './status-line';
 
 const base = { name: 'Hermes', aiApp: false, working: false };
 
@@ -70,4 +71,43 @@ it('never hides a failed AI app message behind the calm reply copy', () => {
     tone: 'danger',
     text: "Didn't go through: too many messages",
   });
+});
+
+const sealedMine = (status: string) =>
+  ({ id: 'msg_s', kind: 'sealed', author: 'user', status, sealed: [] }) as unknown as ThreadMessage;
+const sealedReply = {
+  id: 'msg_r',
+  kind: 'sealed',
+  author: 'agent',
+  sealed: [],
+} as unknown as ThreadMessage;
+
+it('a private message sent or working shows Working and Stop', () => {
+  for (const status of ['sent', 'working']) {
+    const latest = latestOwn([sealedMine(status), sealedReply]);
+    expect(latest).toMatchObject({ id: 'msg_s', working: true });
+    expect(statusLineContent({ ...base, working: latest!.working, latest })).toMatchObject({
+      kind: 'working',
+    });
+  }
+});
+
+it('a stopped private message reads Stopped, and queued is not working', () => {
+  const stopped = latestOwn([sealedMine('stopped')]);
+  expect(statusLineContent({ ...base, working: stopped!.working, latest: stopped })).toEqual({
+    kind: 'status',
+    tone: 'tertiary',
+    text: 'Stopped',
+  });
+  expect(latestOwn([sealedMine('queued')])).toMatchObject({ working: false });
+});
+
+it('a plain message works as before', () => {
+  const plain = {
+    id: 'msg_p',
+    kind: 'user_text',
+    status: 'sent',
+    text: 'hi',
+  } as unknown as ThreadMessage;
+  expect(latestOwn([plain])).toEqual({ id: 'msg_p', status: 'sent', working: false });
 });
