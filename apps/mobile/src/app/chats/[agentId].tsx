@@ -689,6 +689,7 @@ export default function ChatScreen() {
               {chat.privateNotice !== undefined && !removed && (
                 <ErrorNotice
                   error={{ message: chat.privateNotice, retryable: true }}
+                  actionLabel="Pair again"
                   onRetry={() =>
                     router.push({ pathname: '/private/pair', params: { agentId: id } })
                   }

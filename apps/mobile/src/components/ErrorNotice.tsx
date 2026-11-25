@@ -7,7 +7,16 @@ import { radius, space, type, usePalette } from '@/theme/tokens';
 import { GhostButton } from './GhostButton';
 
 /** What happened and what to do next, with the technical reference in small print. */
-export function ErrorNotice({ error, onRetry }: { error: ErrorCopy; onRetry?: () => void }) {
+export function ErrorNotice({
+  error,
+  onRetry,
+  actionLabel = 'Try again',
+}: {
+  error: ErrorCopy;
+  onRetry?: () => void;
+  /** The button's words: what it does ("Pair again"); "Try again" when it repeats the step. */
+  actionLabel?: string;
+}) {
   const palette = usePalette();
   return (
     <View accessibilityRole="alert" style={styles.box}>
@@ -19,7 +28,7 @@ export function ErrorNotice({ error, onRetry }: { error: ErrorCopy; onRetry?: ()
       )}
       {onRetry !== undefined && error.retryable && (
         <View style={styles.actions}>
-          <GhostButton label="Try again" tone="danger" onPress={onRetry} />
+          <GhostButton label={actionLabel} tone="danger" onPress={onRetry} />
         </View>
       )}
     </View>
