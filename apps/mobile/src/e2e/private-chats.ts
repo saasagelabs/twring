@@ -95,6 +95,8 @@ export class PrivateChats {
   private readonly lostKeys = new Set<string>();
   /** Another phone removed this one: its keys are forgotten and nothing is sealed. */
   private removedSelf = false;
+  /** Bumped by `reset` and `forget`: a load started before one never keeps what it read. */
+  private generation = 0;
   /** This phone's saved list held a computer before the server's list was applied. */
   private hadComputer = false;
   private saving: Promise<void> = Promise.resolve();
@@ -126,10 +128,13 @@ export class PrivateChats {
     agentId: string,
     connectorId: string,
     me: { deviceId: string; privateKey: Uint8Array },
+    stale: () => boolean = () => false,
   ): Promise<void> {
     if (this.deps.devices === undefined) return;
     try {
       const server = await listDevices({ list: this.deps.devices });
+      // A reset came while the list was read: it may hold a new key, never act on the old one.
+      if (stale()) return;
       const before = this.trusted;
       if (removedPhone(server, before, me.deviceId)) {
         await this.forgetRemoved();
@@ -163,6 +168,8 @@ export class PrivateChats {
    * a restore, a pairing or an approval the chat opens with them at once.
    */
   reset(): void {
+    this.generation++;
+    this.loading.clear();
     this.contexts.clear();
     this.reinstalled.clear();
     this.lostKeys.clear();
@@ -188,6 +195,8 @@ export class PrivateChats {
     if (ready) return (this.rewrapLoading.get(agentId) ?? Promise.resolve()).then(() => ready);
     let work = this.loading.get(agentId);
     if (!work) {
+      const generation = this.generation;
+      const stale = () => generation !== this.generation;
       work = (async () => {
         const [me, trusted, address, saved] = await Promise.all([
           loadOrCreateDeviceKey(this.deps.store, this.deps.log),
@@ -195,11 +204,13 @@ export class PrivateChats {
           this.deps.addressOf(agentId),
           this.loadSaved(),
         ]);
+        if (stale()) return undefined;
         this.trusted = trusted;
         this.hadComputer = trusted.some((d) => d.kind === 'computer');
         const ids = address === undefined ? undefined : aadIdsFor(address);
         if (ids === undefined) return undefined;
-        await this.readDevices(agentId, ids.accountId, me);
+        await this.readDevices(agentId, ids.accountId, me, stale);
+        if (stale()) return undefined;
         const ctx = createPhoneContext({
           ...ids,
           me,
@@ -214,7 +225,9 @@ export class PrivateChats {
         return ctx;
       })()
         .catch(() => undefined)
-        .finally(() => this.loading.delete(agentId));
+        .finally(() => {
+          if (this.loading.get(agentId) === work) this.loading.delete(agentId);
+        });
       this.loading.set(agentId, work);
     }
     return work;
@@ -392,6 +405,8 @@ export class PrivateChats {
    * trusted computers go too, so the next account never seals to this account's computer.
    */
   async forget(): Promise<void> {
+    this.generation++;
+    this.loading.clear();
     this.contexts.clear();
     this.reinstalled.clear();
     this.lostKeys.clear();

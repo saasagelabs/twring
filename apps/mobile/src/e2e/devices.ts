@@ -283,18 +283,16 @@ export function reinstalledFor(
 }
 
 /**
- * Another phone removed this one: the server marks it revoked, or no longer lists it (removed
- * over 30 days ago) while this phone has trusted devices saved. A phone that trusts nothing yet
- * is simply not added, never removed.
+ * Another phone removed this one: only when the server lists this phone's id with `revoked_at`.
+ * A phone missing from the list is never treated as removed (lead ruling): a server answer that
+ * leaves it out by mistake must never wipe its keys. The trusted list is not consulted.
  */
 export function removedPhone(
   server: readonly E2eDevice[],
-  trusted: readonly TrustedDevice[],
+  _trusted: readonly TrustedDevice[],
   selfId: string,
 ): boolean {
-  const self = server.find((d) => d.id === selfId);
-  if (self !== undefined) return self.revoked_at !== undefined;
-  return trusted.length > 0;
+  return server.some((d) => d.id === selfId && d.revoked_at !== undefined);
 }
 
 /**

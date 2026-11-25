@@ -238,12 +238,13 @@ describe('a removed phone (bug 3)', () => {
     await expect(c.seal(AGENT, 'hi')).rejects.toEqual(new SealError('pair_again'));
   });
 
-  it('removed over 30 days ago: no longer listed while it trusts devices', async () => {
+  it('removed over 30 days ago or left out by mistake: missing from the list keeps its keys', async () => {
     const store = await pairedPhone();
     const c = chats(store, () => ({ devices: [listed(computer)] }));
     await c.context(AGENT);
-    expect(c.notice(AGENT)).toBe(REMOVED_PHONE);
-    expect(await loadDeviceKey(store)).toBeUndefined();
+    expect(c.notice(AGENT)).not.toBe(REMOVED_PHONE);
+    expect((await loadDeviceKey(store))?.deviceId).toBe(phone.id);
+    expect(await loadTrusted(store)).toHaveLength(1);
   });
 
   it('offline or a bad answer changes nothing', async () => {
@@ -260,5 +261,120 @@ describe('a removed phone (bug 3)', () => {
       expect((await loadDeviceKey(store))?.deviceId).toBe(phone.id);
       expect(await loadTrusted(store)).toHaveLength(1);
     }
+  });
+});
+
+describe('edge cases (verifier)', () => {
+  async function pairedPhone() {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer()]);
+    return store;
+  }
+  const replay = {
+    load: () => Promise.resolve({}),
+    save: () => Promise.resolve(),
+    remove: () => Promise.resolve(),
+  };
+
+  it('a reset while a context load is in flight never keeps the stale context', async () => {
+    const store = await pairedPhone();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let calls = 0;
+    const c = new PrivateChats({
+      store,
+      replay,
+      addressOf: () => Promise.resolve(`cord-connector://${CON}/${AGENT}`),
+      devices: async () => {
+        calls++;
+        if (calls === 1) await gate;
+        return { devices: [listedPhone(phone.id), listed(computer)] };
+      },
+    });
+    const stale = c.context(AGENT);
+    await new Promise((r) => setTimeout(r, 0));
+    // A restore put a different key in the keychain, then reset the chats.
+    const other = keys();
+    await store.setItemAsync(
+      DEVICE_KEY_NAME,
+      JSON.stringify({
+        v: 1,
+        public_key: other.pub,
+        private_key: base64urlEncode(other.privateKey),
+      }),
+    );
+    c.reset();
+    const fresh = c.context(AGENT);
+    release();
+    await stale;
+    const ctx = await fresh;
+    expect(ctx?.me.deviceId).toBe(other.id);
+    expect(c.ready(AGENT)?.me.deviceId).toBe(other.id);
+  });
+
+  it('a send racing the load that finds the phone removed is refused', async () => {
+    const store = await pairedPhone();
+    const c = chats(store, () => ({
+      devices: [listedPhone(phone.id, { revoked_at: at }), listed(computer)],
+    }));
+    const [, sent] = await Promise.allSettled([c.context(AGENT), c.seal(AGENT, 'hi')]);
+    expect(sent.status).toBe('rejected');
+    expect(c.notice(AGENT)).toBe(REMOVED_PHONE);
+    expect(await loadDeviceKey(store)).toBeUndefined();
+  });
+
+  it('a phone whose only computer was removed says pair again, not the new-phone notice', async () => {
+    const store = await pairedPhone();
+    const c = chats(store, () => ({
+      devices: [listedPhone(phone.id), listed(computer, { revoked_at: at })],
+    }));
+    await c.context(AGENT);
+    expect(await loadTrusted(store)).toEqual([]);
+    const notice = c.notice(AGENT);
+    expect(notice).toBeDefined();
+    expect(notice).not.toBe(NEW_PHONE);
+    expect(noticeAction(notice!)).toBe(PAIR_AGAIN_ACTION);
+  });
+
+  it('after the removed notice, a rebuilt context still refuses to send', async () => {
+    const store = await pairedPhone();
+    const c = chats(store, () => ({
+      devices: [listedPhone(phone.id, { revoked_at: at }), listed(computer)],
+    }));
+    await c.context(AGENT);
+    await expect(c.seal(AGENT, 'hi')).rejects.toEqual(new SealError('pair_again'));
+    c.reset();
+    await c.context(AGENT);
+    // A new key that trusts nothing: told to set up, and nothing is sealed.
+    expect(c.notice(AGENT)).toBe(NEW_PHONE);
+    await expect(c.seal(AGENT, 'hi')).rejects.toBeInstanceOf(SealError);
+  });
+
+  it('keyInUse counts a failed or malformed device list as in use', async () => {
+    const { keyInUse } = await import('./recovery');
+    const store = memoryStore();
+    await chats(store, () => ({ devices: [] })).context(AGENT);
+    const list = (answer: () => Promise<unknown>) => ({ store, devices: { list: answer } });
+    expect(await keyInUse(list(() => Promise.reject(new Error('offline'))))).toBe(true);
+    expect(await keyInUse(list(() => Promise.resolve({ bad: 1 })))).toBe(true);
+    expect(await keyInUse(list(() => Promise.resolve({ devices: 'nope' })))).toBe(true);
+    expect(await keyInUse(list(() => Promise.resolve({ devices: [] })))).toBe(false);
+  });
+
+  it('logs carry no key material', async () => {
+    const lines: string[] = [];
+    const store = await pairedPhone();
+    const c = new PrivateChats({
+      store,
+      replay,
+      addressOf: () => Promise.resolve(`cord-connector://${CON}/${AGENT}`),
+      devices: () =>
+        Promise.resolve({
+          devices: [listedPhone(phone.id, { revoked_at: at }), listed(computer)],
+        }),
+      log: (e, f) => lines.push(JSON.stringify([e, f])),
+    });
+    await c.context(AGENT);
+    expect(lines.join('\n')).not.toContain(base64urlEncode(phone.privateKey));
   });
 });
