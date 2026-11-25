@@ -50,7 +50,11 @@ function fakeServer(options: FakeServerOptions = {}) {
     if (method === 'POST' && url.pathname === '/v1/e2e/pairings') {
       const body = JSON.parse(init?.body as string) as Record<string, string>;
       offered = { key: body.connector_public_key!, device: body.connector_device_id! };
-      return json(200, { offer_id: OFFER, expires_at: '2026-11-25T00:10:00.000Z' });
+      // Ten minutes from the real clock: pairing compares it with Date.now().
+      return json(200, {
+        offer_id: OFFER,
+        expires_at: new Date(Date.now() + 600_000).toISOString(),
+      });
     }
     if (method === 'GET' && url.pathname === `/v1/e2e/pairings/${OFFER}`) {
       if (options.expired) return json(410, { error: { code: 'offer_expired', message: 'x' } });
