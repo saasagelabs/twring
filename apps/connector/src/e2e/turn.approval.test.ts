@@ -117,6 +117,9 @@ function harness(options: { approvals?: number; down?: boolean } = {}) {
     advance: (ms: number) => {
       t += ms;
     },
+    removePhone: () => {
+      e2e = { ...e2e, devices: [] };
+    },
     message: () => ({
       type: 'sealed.message' as const,
       agent: AGENT,
@@ -282,6 +285,38 @@ describe('sealed approvals in private turns (C3 #11)', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('acts on only the first of two racing decisions (verify p148)', async () => {
+    const run = harness();
+    const { turn, payload } = await asked(run);
+    await Promise.all([
+      run.chats.receive(run.decision(payload.approval_id, 'approve')),
+      run.chats.receive(run.decision(payload.approval_id, 'deny')),
+    ]);
+    await turn;
+    expect(run.decided).toHaveLength(1);
+  });
+
+  it('ignores a decision from a phone removed after the request went out (verify p148)', async () => {
+    const run = harness();
+    const { turn, payload } = await asked(run);
+    run.removePhone();
+    await run.chats.receive(run.decision(payload.approval_id, 'approve'));
+    expect(run.decided).toEqual([]);
+    run.advance(APPROVAL_HOLD_MS + 1);
+    await run.chats.receive(run.decision(payload.approval_id, 'approve'));
+    expect(run.decided).toEqual([]);
+    void turn;
+  });
+
+  it('a decision after the turn ended does nothing more (verify p148)', async () => {
+    const run = harness();
+    const { turn, payload } = await asked(run);
+    await run.chats.receive(run.decision(payload.approval_id, 'deny'));
+    await turn;
+    await run.chats.receive(run.decision(payload.approval_id, 'approve'));
+    expect(run.decided).toEqual([{ id: 'tool-0', decision: 'deny' }]);
   });
 
   it('denies at once when the request cannot be sent', async () => {

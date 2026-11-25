@@ -184,6 +184,36 @@ describe('sealed approvals (C3 #11)', () => {
     expect(t.connector.decisions).toHaveLength(1);
   });
 
+  it('another account gets the same 404 as an unknown approval (verify p148)', async () => {
+    const t = await privateTurn();
+    t.ask();
+    await waitFor(async () => (await t.stored()) !== undefined);
+    const id = (await t.stored())!.id;
+    const other = await t.g.send('POST', `/v1/agents/${t.agentId}/approvals/${id}`, {
+      user: 'u2',
+      body: { sealed: t.decision('approve') },
+    });
+    const unknown = await t.decide('msg_' + 'z'.repeat(20), { sealed: t.decision('approve') });
+    expect(other.statusCode).toBe(404);
+    expect(other.json().error.code).toBe(unknown.json.error.code);
+    expect(other.json().error.message).toBe(unknown.json.error.message);
+    expect(t.connector.decisions).toHaveLength(0);
+  });
+
+  it('relays only one of two racing answers (verify p148)', async () => {
+    const t = await privateTurn();
+    t.ask();
+    await waitFor(async () => (await t.stored()) !== undefined);
+    const id = (await t.stored())!.id;
+    const results = await Promise.all([
+      t.decide(id, { sealed: t.decision('approve') }),
+      t.decide(id, { sealed: t.decision('deny') }),
+    ]);
+    expect(results.map((r) => r.status).sort()).toEqual([200, 409]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(t.connector.decisions).toHaveLength(1);
+  });
+
   it('refuses a plain decision for a sealed approval: only the phone answers it', async () => {
     const t = await privateTurn();
     t.ask();
