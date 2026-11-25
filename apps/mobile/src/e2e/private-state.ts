@@ -81,6 +81,8 @@ export const VOICE_WARNING =
 /** Calls and Listen stay; their speech goes through the server. */
 export const SPEECH_NOTE = "Speech goes through Twring's server.";
 export const COULDNT_OPEN = "Couldn't open this message";
+/** Before a message when earlier ones from the computer never arrived (one row per gap). */
+export const MISSING_MESSAGE = 'A message from your computer is missing here.';
 
 /** A message with text the server holds: a voice note, an older message, or one that slipped in. */
 export function serverReadable(message: ThreadMessage): boolean {

@@ -42,7 +42,13 @@ import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
-import { labelFor, PAIR_AGAIN, sealedBubble, SERVER_READABLE_MARK } from '@/e2e/private-state';
+import {
+  labelFor,
+  MISSING_MESSAGE,
+  PAIR_AGAIN,
+  sealedBubble,
+  SERVER_READABLE_MARK,
+} from '@/e2e/private-state';
 import { PrivateBanner, VoiceNoteWarning } from '@/components/chat/PrivateChat';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
@@ -494,7 +500,9 @@ export default function ChatScreen() {
         from: bubble.own ? 'yourself' : name,
         actions: bubble.actions,
       };
-      return (
+      // Messages from the computer that never reached this phone: one quiet row per gap.
+      const gap = openedById?.get(`${message.id}:gap`)?.state === 'missing_before';
+      const bubbleView = (
         <Bubble
           {...actionProps(sealedTarget, message.id)}
           quote={bubble.quote}
@@ -505,6 +513,15 @@ export default function ChatScreen() {
           own={bubble.own}
           onLink={setUrl}
         />
+      );
+      if (!gap) return bubbleView;
+      return (
+        <View>
+          <View accessible accessibilityLabel={MISSING_MESSAGE}>
+            <Notice text={MISSING_MESSAGE} />
+          </View>
+          {bubbleView}
+        </View>
       );
     }
     if (message.kind !== 'agent_text' && message.kind !== 'user_text') return null;

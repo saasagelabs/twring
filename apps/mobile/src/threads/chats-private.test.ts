@@ -149,6 +149,7 @@ async function setup(options: { paired?: boolean; sendFails?: boolean } = {}) {
   const outbox = memoryStore();
   const replay = memoryStore();
   const searchStore = memorySearchStore();
+  const drafts = memoryStore();
   const privacy = new PrivateChats({
     store,
     replay,
@@ -156,11 +157,12 @@ async function setup(options: { paired?: boolean; sendFails?: boolean } = {}) {
   });
   const controller = new ChatController(api as unknown as TwringApi, undefined, {
     outbox,
+    drafts,
     search: new SearchIndex(searchStore),
     privacy,
   });
   await controller.refreshList();
-  return { controller, api, posts, seqAtPost, outbox, replay, searchStore, me, store };
+  return { controller, api, posts, seqAtPost, outbox, replay, drafts, searchStore, me, store };
 }
 
 describe('private chats in the chat data layer', () => {
@@ -196,8 +198,12 @@ describe('private chats in the chat data layer', () => {
     t.controller.send(privateAgent, 'hello there');
     await vi.waitFor(() => expect(t.controller.getPending(privateAgent)[0]?.state).toBe('failed'));
     await (t.controller as unknown as { outbox: { flush(): Promise<void> } }).outbox.flush();
-    // The search copy is the one place opened text is kept (Task 23), removed on sign-out.
-    const saved = JSON.stringify([t.outbox.value, t.replay.value]);
+    // Opened text is never written anywhere on the phone (C3 #11).
+    const saved = JSON.stringify([
+      t.outbox.value,
+      t.replay.value,
+      [...t.searchStore.rows.values()],
+    ]);
     expect(saved).not.toContain('hello from computer');
     expect(saved).not.toContain('hello there');
     // The queued message is saved, sealed only.
@@ -351,7 +357,7 @@ describe('private chats in the chat data layer', () => {
     expect(openPayloadAsComputer(post.sealed, t.me.publicKey).quote).toBeUndefined();
   });
 
-  it('search finds a private message by its opened text', async () => {
+  it('search finds a private message by its opened text, kept in memory only', async () => {
     const t = await setup();
     await t.controller.open(privateAgent);
     await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
@@ -362,6 +368,42 @@ describe('private chats in the chat data layer', () => {
     );
     const [hit] = await t.controller.searchChats('computer');
     expect(hit).toMatchObject({ role: 'agent', text: 'hello from computer' });
+    expect(JSON.stringify([...t.searchStore.rows.values()])).not.toContain('hello from computer');
+  });
+
+  it('removes opened text an earlier version saved on the phone', async () => {
+    const t = await setup();
+    const listed = (await t.api.listMessages()) as { messages: ThreadMessage[] };
+    const id = listed.messages[0].id;
+    await t.searchStore.upsert([
+      {
+        id,
+        agentId: privateAgent,
+        role: 'agent',
+        text: 'hello from computer',
+        createdAt: at,
+        seq: 1,
+      },
+    ]);
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(() => expect(t.searchStore.rows.has(id)).toBe(false));
+    expect(await t.controller.searchChats('computer')).toHaveLength(1);
+  });
+
+  it('search finds it again after the private chat reloads', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await t.controller.clear();
+    expect(await t.controller.searchChats('computer')).toHaveLength(0);
+    await t.controller.refreshList();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(async () =>
+      expect(await t.controller.searchChats('computer')).toHaveLength(1),
+    );
+    expect(t.searchStore.rows.size).toBe(0);
   });
 
   it('a message that could not be opened is never searchable', async () => {
@@ -375,15 +417,57 @@ describe('private chats in the chat data layer', () => {
     await t.controller.open(privateAgent);
     await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
     expect(t.searchStore.rows.size).toBe(0);
+    expect(await t.controller.searchChats('secret')).toHaveLength(0);
   });
 
-  it('sign-out removes the private search copy', async () => {
+  it('sign-out clears the in-memory private search', async () => {
     const t = await setup();
     await t.controller.open(privateAgent);
     await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
-    await vi.waitFor(() => expect(t.searchStore.rows.size).toBe(1));
+    await vi.waitFor(async () =>
+      expect(await t.controller.searchChats('computer')).toHaveLength(1),
+    );
     await t.controller.clear({ forget: true });
-    expect(t.searchStore.rows.size).toBe(0);
+    expect(await t.controller.searchChats('computer')).toHaveLength(0);
+  });
+
+  it('a private draft stays in memory and never reaches the drafts file', async () => {
+    const t = await setup();
+    t.controller.setDraft(privateAgent, 'my api key is sk-123');
+    t.controller.setDraft('agt_ordinary0000000000', 'plain draft');
+    t.controller.flushDrafts();
+    await vi.waitFor(() => expect(t.drafts.value).toBeDefined());
+    expect(JSON.stringify(t.drafts.value)).not.toContain('sk-123');
+    expect(JSON.stringify(t.drafts.value)).toContain('plain draft');
+    expect(await t.controller.getDraft(privateAgent)).toBe('my api key is sk-123');
+  });
+
+  it('a draft saved before the chat became private is removed from the file', async () => {
+    const t = await setup();
+    await t.drafts.save({ version: 1, drafts: { [privateAgent]: 'old words' } });
+    const fresh = new ChatController(t.api as unknown as TwringApi, undefined, {
+      drafts: t.drafts,
+    });
+    await fresh.refreshList();
+    await vi.waitFor(() => expect(JSON.stringify(t.drafts.value ?? '')).not.toContain('old words'));
+  });
+
+  it('a draft typed after the first chat list load failed is not written to the file', async () => {
+    const t = await setup();
+    await t.drafts.save({ version: 1, drafts: { [privateAgent]: 'old secret sk-old' } });
+    const api = {
+      ...t.api,
+      listThreads: vi.fn().mockRejectedValue(new ApiError('network', 'agent_offline')),
+    };
+    const fresh = new ChatController(api as unknown as TwringApi, undefined, {
+      drafts: t.drafts,
+    });
+    await fresh.refreshList();
+    // The list never arrived: nothing says this chat is ordinary.
+    fresh.setDraft(privateAgent, 'my api key is sk-123');
+    fresh.flushDrafts();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(JSON.stringify(t.drafts.value ?? '')).not.toContain('sk-123');
   });
 
   it('opens the whole chat for export without moving the replay window', async () => {
