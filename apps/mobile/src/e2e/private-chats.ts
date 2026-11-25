@@ -15,6 +15,7 @@ import {
   openMessage,
   openMessages,
   sealOutgoing,
+  sealOutgoingControl,
   seenToSave,
   type OpenedMessage,
   type PhoneSealContext,
@@ -152,6 +153,37 @@ export class PrivateChats {
       return sealOutgoing(
         { ...ctx, nextSeq: () => seq },
         { text, ...(quote !== undefined && { quote }) },
+      );
+    } catch {
+      throw new SealError('seal_failed');
+    }
+  }
+
+  /**
+   * Seals the answer to a sealed approval (C3 #11) with the next keychain seq, like a message:
+   * only the computer can open it, and the server cannot forge or reuse it.
+   */
+  async sealDecision(
+    agentId: string,
+    approvalId: string,
+    decision: 'approve' | 'deny',
+  ): Promise<SealedEnvelopeV1> {
+    const ctx = await this.context(agentId).catch(() => undefined);
+    if (ctx === undefined) throw new SealError('not_computer');
+    const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
+    this.trusted = trusted;
+    ctx.trusted = trusted;
+    if (!hasComputer(trusted)) throw new SealError('pair_again');
+    let seq: number;
+    try {
+      seq = await nextSeq(this.deps.store);
+    } catch {
+      throw new SealError('seal_failed');
+    }
+    try {
+      return sealOutgoingControl(
+        { ...ctx, nextSeq: () => seq },
+        { kind: 'approval_decision', approval_id: approvalId, decision },
       );
     } catch {
       throw new SealError('seal_failed');

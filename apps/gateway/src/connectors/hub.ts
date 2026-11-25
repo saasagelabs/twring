@@ -190,10 +190,10 @@ interface LiveConnector extends ConnectorIdentity {
   endReason?: string;
 }
 
-/** A private chat reply from a computer (ADR-044), with who sent it. */
+/** A private chat reply or sealed approval request from a computer (ADR-044), with who sent it. */
 export type SealedReplyListener = (
   from: { connectorId: string; userId: string },
-  frame: Extract<RelayConnectorMessage, { type: 'sealed.reply' }>,
+  frame: Extract<RelayConnectorMessage, { type: 'sealed.reply' | 'sealed.approval' }>,
 ) => void;
 
 export class ConnectorHub {
@@ -291,19 +291,20 @@ export class ConnectorHub {
     this.onReplaced = listener;
   }
 
-  /** Told of each `sealed.reply` from a computer; none set means they are ignored. */
+  /** Told of each `sealed.reply` and `sealed.approval`; none set means they are ignored. */
   setSealedReplyListener(listener: SealedReplyListener): void {
     this.onSealedReply = listener;
   }
 
   /**
-   * Sends a private chat message (ADR-044) unchanged to the user's own computer. False when it is
-   * not connected, not theirs, or did not say `sealed_chat` in its latest hello.
+   * Sends a private chat message or sealed approval answer (ADR-044) unchanged to the user's own
+   * computer. False when it is not connected, not theirs, or did not say `sealed_chat` in its
+   * latest hello.
    */
   sendSealed(
     userId: string,
     connectorId: string,
-    frame: Extract<RelayGatewayMessage, { type: 'sealed.message' }>,
+    frame: Extract<RelayGatewayMessage, { type: 'sealed.message' | 'sealed.decision' }>,
   ): boolean {
     const entry = this.live.get(connectorId);
     if (entry === undefined || !entry.ready || entry.userId !== userId) return false;
@@ -515,6 +516,7 @@ export class ConnectorHub {
         entry.channels.get(message.channel)?.remoteClosed();
         return;
       case 'sealed.reply':
+      case 'sealed.approval':
         // Private chats (ADR-044): the chat service checks the thread is this account's and
         // private; the hub only says which computer and account it came from.
         this.onSealedReply?.({ connectorId: entry.connectorId, userId: entry.userId }, message);

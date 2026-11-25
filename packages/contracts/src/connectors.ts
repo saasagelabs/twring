@@ -243,11 +243,36 @@ export const relaySealedReplySchema = z.object({
   final: z.boolean(),
 });
 
+/**
+ * Connector to gateway: a sealed approval request during the private turn `turn_id` (C3 #11).
+ * Title and description are inside `sealed`; the server sees only when it expires.
+ */
+export const relaySealedApprovalSchema = z
+  .object({
+    type: z.literal('sealed.approval'),
+    agent: localAgentIdSchema,
+    turn_id: sealedMessageIdSchema,
+    sealed: sealedEnvelopeV1Schema,
+    expires_at: z.iso.datetime(),
+  })
+  .strict();
+
+/** Gateway to connector: the phone's sealed answer to the stored approval `message_id`, unchanged. */
+export const relaySealedDecisionSchema = z
+  .object({
+    type: z.literal('sealed.decision'),
+    agent: localAgentIdSchema,
+    message_id: sealedMessageIdSchema,
+    sealed: sealedEnvelopeV1Schema,
+  })
+  .strict();
+
 export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayHelloSchema,
   relayChannelMessageSchema,
   relayChannelCloseSchema,
   relaySealedReplySchema,
+  relaySealedApprovalSchema,
 ]);
 export type RelayConnectorMessage = z.infer<typeof relayConnectorMessageSchema>;
 
@@ -274,6 +299,7 @@ export const relayGatewayMessageSchema = z.discriminatedUnion('type', [
   relayChannelMessageSchema,
   relayChannelCloseSchema,
   relaySealedMessageSchema,
+  relaySealedDecisionSchema,
 ]);
 export type RelayGatewayMessage = z.infer<typeof relayGatewayMessageSchema>;
 

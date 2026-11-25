@@ -76,6 +76,7 @@ function fakeApi() {
     clearChat: vi.fn<TwringApi['clearChat']>(),
     newConversation: vi.fn<TwringApi['newConversation']>(),
     decideChatApproval: vi.fn<TwringApi['decideChatApproval']>(),
+    decideSealedApproval: vi.fn<TwringApi['decideSealedApproval']>(),
     listAgents: vi.fn<TwringApi['listAgents']>(),
     getAgent: vi.fn<TwringApi['getAgent']>(),
     deleteAgent: vi.fn<TwringApi['deleteAgent']>(),

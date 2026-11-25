@@ -1,6 +1,7 @@
 import {
   type SpeakerLanguage,
   approvalDecisionRequestSchema,
+  sealedApprovalDecisionRequestSchema,
   agentIdSchema,
   fileIdSchema,
   MAX_USER_MESSAGE_CHARS,
@@ -596,21 +597,38 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         !threadMessageIdSchema.safeParse(request.params.messageId).success
       )
         return error(reply, 404, 'not_found', 'No such approval.');
+      // A private chat's approval is answered sealed (C3 #11); the server only relays it.
+      const sealed = sealedApprovalDecisionRequestSchema.safeParse(request.body);
       const body = approvalDecisionRequestSchema.safeParse(request.body);
-      if (!body.success) return error(reply, 400, 'bad_request', 'Invalid decision.');
+      if (!sealed.success && !body.success)
+        return error(reply, 400, 'bad_request', 'Invalid decision.');
       if (!writes.tryAcquire(userId)) return limited(reply);
       try {
-        const message = await options.service.decideApproval(
-          userId,
-          request.params.agentId,
-          request.params.messageId,
-          body.data.decision,
-        );
+        const message = sealed.success
+          ? await options.service.decideSealedApproval(
+              userId,
+              request.params.agentId,
+              request.params.messageId,
+              sealed.data.sealed,
+            )
+          : await options.service.decideApproval(
+              userId,
+              request.params.agentId,
+              request.params.messageId,
+              body.data!.decision,
+            );
         return { message: threadMessageSchema.parse(message) };
       } catch (cause) {
         if (cause instanceof ThreadServiceError) {
           if (cause.code === 'approval_not_found')
             return error(reply, 404, 'not_found', 'No such approval.');
+          if (cause.code === 'computer_offline')
+            return error(
+              reply,
+              409,
+              'agent_offline',
+              "Your computer isn't connected. Open it and try again.",
+            );
           if (cause.code === 'approval_conflict')
             return reply.code(409).send({
               error: {

@@ -28,7 +28,26 @@ export function privateChatAccess(
   allowed(userId: string): boolean;
   computerSupports(record: AgentRecord): boolean;
   deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
+  deliverDecision(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
 } {
+  const send = (
+    record: AgentRecord,
+    type: 'sealed.message' | 'sealed.decision',
+    messageId: string,
+    sealed: SealedEnvelopeV1,
+  ) => {
+    if (record.protocol !== 'cord-connector') return false;
+    const endpoint = parseConnectorEndpoint(record.endpoint_url);
+    return (
+      endpoint !== undefined &&
+      hub.sendSealed(record.user_id, endpoint.connectorId, {
+        type,
+        agent: endpoint.localAgent,
+        message_id: messageId,
+        sealed,
+      })
+    );
+  };
   return {
     allowed: (userId) => privateChatsAllowed(env, userId),
     computerSupports: (record) => {
@@ -40,18 +59,8 @@ export function privateChatAccess(
         hub.supports(endpoint.connectorId, SEALED_CHAT_FEATURE) === true
       );
     },
-    deliver: (record, messageId, sealed) => {
-      if (record.protocol !== 'cord-connector') return false;
-      const endpoint = parseConnectorEndpoint(record.endpoint_url);
-      return (
-        endpoint !== undefined &&
-        hub.sendSealed(record.user_id, endpoint.connectorId, {
-          type: 'sealed.message',
-          agent: endpoint.localAgent,
-          message_id: messageId,
-          sealed,
-        })
-      );
-    },
+    deliver: (record, messageId, sealed) => send(record, 'sealed.message', messageId, sealed),
+    deliverDecision: (record, messageId, sealed) =>
+      send(record, 'sealed.decision', messageId, sealed),
   };
 }

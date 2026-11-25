@@ -225,6 +225,71 @@ export function openBody(
   return parsed.data;
 }
 
+/** A sealed approval's id: made by the computer, 130 random bits, never by the server. */
+export const sealedApprovalIdSchema = z.string().regex(/^apv_[a-z2-7]{26}$/);
+
+/** Same limits as a plain approval card (threads.ts `approval`). */
+export const MAX_SEALED_APPROVAL_TITLE_CHARS = 140;
+export const MAX_SEALED_APPROVAL_DESCRIPTION_CHARS = 500;
+
+/**
+ * Sealed approvals in private chats (C3 #11). Not a chat message: `kind` is required here and
+ * absent from `sealedPayloadSchema` (strict), so one can never be opened as the other.
+ */
+export const sealedControlPayloadSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('approval'),
+      approval_id: sealedApprovalIdSchema,
+      title: z.string().max(MAX_SEALED_APPROVAL_TITLE_CHARS),
+      description: z.string().max(MAX_SEALED_APPROVAL_DESCRIPTION_CHARS).optional(),
+      expires_at: z.iso.datetime(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('approval_decision'),
+      approval_id: sealedApprovalIdSchema,
+      decision: z.enum(['approve', 'deny']),
+    })
+    .strict(),
+]);
+export type SealedControlPayload = z.infer<typeof sealedControlPayloadSchema>;
+
+export function sealControl(
+  messageKey: Uint8Array,
+  plaintext: SealedControlPayload,
+  aad: Uint8Array,
+): { nonce: string; body: string } {
+  need32(messageKey, 'message key');
+  const payload = sealedControlPayloadSchema.parse(plaintext);
+  const sealed = aeadSeal(messageKey, utf8.encode(JSON.stringify(payload)), aad);
+  return {
+    nonce: base64urlEncode(sealed.subarray(0, NONCE_BYTES)),
+    body: base64urlEncode(sealed.subarray(NONCE_BYTES)),
+  };
+}
+
+/** Throws SealError, as `openBody` does, also for a chat message's payload. */
+export function openControl(
+  messageKey: Uint8Array,
+  nonce: string,
+  body: string,
+  aad: Uint8Array,
+): SealedControlPayload {
+  need32(messageKey, 'message key');
+  const plain = aeadOpen(messageKey, base64urlDecode(nonce), base64urlDecode(body), aad);
+  let json: unknown;
+  try {
+    json = JSON.parse(bytesToUtf8(plain));
+  } catch {
+    throw new SealError('malformed sealed payload');
+  }
+  const parsed = sealedControlPayloadSchema.safeParse(json);
+  if (!parsed.success) throw new SealError('malformed sealed payload');
+  return parsed.data;
+}
+
 /** What the phone's pairing MAC covers: everything the computer saves about the pair. */
 export interface PairingMacInput {
   connectorPublic: Uint8Array;

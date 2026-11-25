@@ -301,7 +301,7 @@ export async function startConnectorGateway(
       sweepIntervalMs: options.threads.sweepIntervalMs ?? 20,
     });
     await service.start();
-    hub.setSealedReplyListener((from, frame) => void service.receiveSealedReply(from, frame));
+    hub.setSealedReplyListener((from, frame) => void service.receiveSealed(from, frame));
     threads = { service, store };
   }
   const e2e = new E2eDeviceStore(':memory:');

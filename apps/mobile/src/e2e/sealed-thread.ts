@@ -6,12 +6,15 @@ import {
   messageAad,
   newMessageKey,
   openBody,
+  openControl,
   parseConnectorEndpoint,
   ReplayWindow,
   sealBody,
+  sealControl,
   SEALED_FORMAT_VERSION,
   unwrapKey,
   wrapKey,
+  type SealedControlPayload,
   type SealedEnvelopeV1,
   type SealedPayload,
   type ThreadMessage,
@@ -40,6 +43,16 @@ export type OpenedMessage =
       notice?: 'couldnt_open';
       /** A streamed reply whose final chunk has not arrived yet. */
       partial?: true;
+    }
+  | {
+      /** A sealed approval request from the computer (C3 #11), opened on this phone only. */
+      id: string;
+      author: 'agent';
+      state: 'approval';
+      approvalId: string;
+      title: string;
+      description?: string;
+      expiresAt: string;
     }
   | { id: string; author: 'user' | 'agent'; state: 'couldnt_open' }
   | { id: string; state: 'missing_before'; missing: number };
@@ -130,6 +143,12 @@ const replayKey = (sender: string, seq: number, chunk?: number) =>
 
 type Opened =
   | { ok: true; payload: SealedPayload; partial: boolean; sender: string; seq: number }
+  | {
+      ok: true;
+      approval: Extract<SealedControlPayload, { kind: 'approval' }>;
+      sender: string;
+      seq: number;
+    }
   | { ok: false; replay: boolean };
 
 /**
@@ -158,17 +177,36 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
       return { ok: false, replay: true };
   }
   const payloads: SealedPayload[] = [];
+  let control: SealedControlPayload | undefined;
   for (const e of envelopes) {
     const mine = e.keys.find((k) => k.device === ctx.me.deviceId);
     if (mine === undefined) return { ok: false, replay: false };
     const aad = aadFor(ctx, sender, seq, e.chunk?.index);
+    let key: Uint8Array;
     try {
-      const key = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, aad);
-      payloads.push(openBody(key, e.nonce, e.body, aad));
+      key = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, aad);
     } catch {
       return { ok: false, replay: false };
     }
+    try {
+      payloads.push(openBody(key, e.nonce, e.body, aad));
+    } catch {
+      // Only a single sealed agent message from another device may be an approval (C3 #11).
+      // and only from a computer this phone paired, never from another phone.
+      if (
+        chunked ||
+        m.author !== 'agent' ||
+        !ctx.trusted.some((d) => d.id === sender && d.kind === 'computer')
+      )
+        return { ok: false, replay: false };
+      try {
+        control = openControl(key, e.nonce, e.body, aad);
+      } catch {
+        return { ok: false, replay: false };
+      }
+    }
   }
+  if (control !== undefined && control.kind !== 'approval') return { ok: false, replay: false };
   // Only now does the window move: a forgery cannot use up a real message's seq.
   for (const e of envelopes) {
     const key = replayKey(sender, seq, e.chunk?.index);
@@ -177,6 +215,7 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
       ctx.owners.set(key, m.id);
     }
   }
+  if (control !== undefined) return { ok: true, approval: control, sender, seq };
   const head = payloads[0];
   const notice = payloads.find((p) => p.notice !== undefined)?.notice;
   return {
@@ -205,6 +244,19 @@ function openOne(ctx: PhoneSealContext, m: SealedThreadMessage): OpenedMessage[]
     if (last !== undefined && opened.seq > last + 1)
       out.push({ id: `${m.id}:gap`, state: 'missing_before', missing: opened.seq - last - 1 });
     if (last === undefined || opened.seq > last) ctx.shown.set(opened.sender, opened.seq);
+  }
+  if ('approval' in opened) {
+    const { approval } = opened;
+    out.push({
+      id: m.id,
+      author: 'agent',
+      state: 'approval',
+      approvalId: approval.approval_id,
+      title: approval.title,
+      ...(approval.description !== undefined && { description: approval.description }),
+      expiresAt: approval.expires_at,
+    });
+    return out;
   }
   const { payload } = opened;
   out.push({
@@ -244,6 +296,32 @@ export function sealOutgoing(ctx: PhoneSealContext, payload: SealedPayload): Sea
     ...ctx.trusted.filter((d) => d.id !== ctx.me.deviceId),
   ].slice(0, MAX_PAIRED_DEVICES);
   const { nonce, body } = sealBody(key, payload, aad);
+  return {
+    v: SEALED_FORMAT_VERSION,
+    sender_device: ctx.me.deviceId,
+    sender_seq: seq,
+    nonce,
+    body,
+    keys: recipients.map((d) => ({
+      device: d.id,
+      wrapped: wrapKey(key, ctx.me.privateKey, base64urlDecode(d.public_key), aad),
+    })),
+  };
+}
+
+/** Seals an approval answer (C3 #11) to this phone and every computer it trusts, next seq. */
+export function sealOutgoingControl(
+  ctx: PhoneSealContext,
+  payload: SealedControlPayload,
+): SealedEnvelopeV1 {
+  const seq = ctx.nextSeq();
+  const key = newMessageKey();
+  const aad = aadFor(ctx, ctx.me.deviceId, seq);
+  const recipients = [
+    { id: ctx.me.deviceId, public_key: base64urlEncode(ctx.me.publicKey) },
+    ...ctx.trusted.filter((d) => d.id !== ctx.me.deviceId),
+  ].slice(0, MAX_PAIRED_DEVICES);
+  const { nonce, body } = sealControl(key, payload, aad);
   return {
     v: SEALED_FORMAT_VERSION,
     sender_device: ctx.me.deviceId,

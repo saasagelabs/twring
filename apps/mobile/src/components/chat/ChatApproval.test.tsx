@@ -42,7 +42,17 @@ vi.mock('@/theme/tokens', () => ({
   }),
 }));
 
-import { ChatApproval } from './ChatApproval';
+import * as Cards from './ChatApproval';
+
+/** Renders one level down: both exports draw the same inner card component. */
+function shallow(element: ReactElement): ReactElement {
+  const inner = element.type as (props: unknown) => ReactElement;
+  return inner(element.props);
+}
+const ChatApproval = (props: Parameters<typeof Cards.ChatApproval>[0]) =>
+  shallow(Cards.ChatApproval(props));
+const ChatSealedApproval = (props: Parameters<typeof Cards.ChatSealedApproval>[0]) =>
+  shallow(Cards.ChatSealedApproval(props));
 
 const message = {
   kind: 'approval',
@@ -75,6 +85,53 @@ it('shows both decisions and forwards the selected action', async () => {
   ).toEqual(['Allow Run the report', 'Deny Run the report']);
   await (buttons[0].props as { onPress: () => Promise<void> }).onPress();
   expect(onDecide).toHaveBeenCalledWith('approve');
+});
+
+it('shows an opened private approval with labelled Allow and Deny of at least 48 dp', async () => {
+  const onDecide = vi.fn(() => Promise.resolve());
+  const tree = ChatSealedApproval({
+    title: 'Use the key to deploy',
+    description: 'Production',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    answered: false,
+    updatedAt: '2026-11-25T10:00:00.000Z',
+    name: 'Laptop Claude',
+    onDecide,
+  });
+  const all = elements(tree);
+  expect(all[0]?.props).toMatchObject({
+    accessibilityLabel: 'Laptop Claude needs your OK: Use the key to deploy',
+  });
+  const buttons = all.filter(
+    (item) => (item.props as { accessibilityRole?: string }).accessibilityRole === 'button',
+  );
+  expect(
+    buttons.map((item) => (item.props as { accessibilityLabel: string }).accessibilityLabel),
+  ).toEqual(['Allow Use the key to deploy', 'Deny Use the key to deploy']);
+  for (const button of buttons) {
+    const style = (button.props as { style: { minHeight?: number }[] }).style;
+    expect(style[0]?.minHeight).toBeGreaterThanOrEqual(48);
+  }
+  await (buttons[1].props as { onPress: () => Promise<void> }).onPress();
+  expect(onDecide).toHaveBeenCalledWith('deny');
+});
+
+it('shows an answered or expired private approval as one line', () => {
+  const base = {
+    title: 'Use the key',
+    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    updatedAt: '2026-11-25T10:00:00.000Z',
+    name: 'Laptop Claude',
+    onDecide: vi.fn(),
+  };
+  const answered = ChatSealedApproval({ ...base, answered: true });
+  expect((answered.props as { children: string }).children).toContain('Answered ·');
+  const expired = ChatSealedApproval({
+    ...base,
+    answered: false,
+    expiresAt: new Date(Date.now() - 1).toISOString(),
+  });
+  expect((expired.props as { children: string }).children).toBe('Expired: denied');
 });
 
 it('collapses an expired or allowed card to one line', () => {

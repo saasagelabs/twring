@@ -586,6 +586,8 @@ export class SqliteThreadStore {
       status?: UserMessageStatus;
       turnId?: string;
       replyTo?: string;
+      /** A computer's sealed approval request (C3 #11): stored pending until this time. */
+      approvalExpiresAt?: string;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     return this.transaction(() => {
@@ -618,6 +620,9 @@ export class SqliteThreadStore {
         meta: {
           author: input.author,
           ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
+          ...(input.approvalExpiresAt !== undefined && {
+            approval: { state: 'pending', expires_at: input.approvalExpiresAt },
+          }),
         },
       });
       return { message, created: true };
@@ -860,6 +865,50 @@ export class SqliteThreadStore {
       this.db
         .prepare('UPDATE messages SET status=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
         .run(status, thread.next_rev, this.now().toISOString(), messageId, userId);
+      this.db
+        .prepare('UPDATE threads SET next_rev=next_rev+1 WHERE id=? AND user_id=?')
+        .run(thread.id, userId);
+      return this.decode(
+        this.db
+          .prepare('SELECT * FROM messages WHERE id=? AND user_id=?')
+          .get(messageId, userId) as Row,
+        agentId,
+      );
+    });
+  }
+
+  /**
+   * Marks a sealed approval request answered (C3 #11): metadata only, the server never knows the
+   * answer. `undefined` when there is no such request; `answered` when it was answered already.
+   */
+  async answerSealedApproval(
+    userId: string,
+    agentId: string,
+    messageId: string,
+  ): Promise<ThreadMessage | 'answered' | undefined> {
+    return this.transaction(() => {
+      const thread = this.thread(userId, agentId);
+      if (!thread) return undefined;
+      const row = this.db
+        .prepare(
+          "SELECT * FROM messages WHERE id=? AND thread_id=? AND user_id=? AND kind='sealed'",
+        )
+        .get(messageId, thread.id, userId) as Row | undefined;
+      if (!row) return undefined;
+      const meta = JSON.parse(row.meta) as {
+        approval?: { state: 'pending' | 'answered'; expires_at: string };
+      };
+      if (meta.approval === undefined) return undefined;
+      if (meta.approval.state === 'answered') return 'answered';
+      this.db
+        .prepare('UPDATE messages SET meta=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
+        .run(
+          JSON.stringify({ ...meta, approval: { ...meta.approval, state: 'answered' } }),
+          thread.next_rev,
+          this.now().toISOString(),
+          messageId,
+          userId,
+        );
       this.db
         .prepare('UPDATE threads SET next_rev=next_rev+1 WHERE id=? AND user_id=?')
         .run(thread.id, userId);

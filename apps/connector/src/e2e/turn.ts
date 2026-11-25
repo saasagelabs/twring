@@ -1,7 +1,12 @@
+import { randomBytes } from 'node:crypto';
+
 import {
+  APPROVAL_HOLD_MS,
   base64urlDecode,
   MAX_QUOTE_CHARS,
   MAX_RELAY_MESSAGE_BYTES,
+  MAX_SEALED_APPROVAL_DESCRIPTION_CHARS,
+  MAX_SEALED_APPROVAL_TITLE_CHARS,
   MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   SCOPED_SESSIONS_FEATURE,
@@ -12,13 +17,48 @@ import {
   type SealedPayload,
 } from '@twring/contracts';
 
-import type { LocalAgentAdapter } from '../events';
+import type { LocalAgentAdapter, LocalAgentEvent } from '../events';
 import type { ResultOutbox } from '../outbox';
 import type { E2eConfig } from './keys';
-import { openIncoming, ReplayWindow, sealOutgoing, type SealContext } from './sealed';
+import {
+  openIncoming,
+  openIncomingControl,
+  ReplayWindow,
+  sealOutgoing,
+  sealOutgoingControl,
+  type SealContext,
+} from './sealed';
 
 type SealedMessageFrame = Extract<RelayGatewayMessage, { type: 'sealed.message' }>;
+type SealedDecisionFrame = Extract<RelayGatewayMessage, { type: 'sealed.decision' }>;
 type SealedReplyFrame = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>;
+type SealedApprovalFrame = Extract<RelayConnectorMessage, { type: 'sealed.approval' }>;
+type ApprovalEvent = Extract<LocalAgentEvent, { type: 'approval.required' }>;
+
+/** An approval sealed to the phone and not answered yet (C3 #11). */
+interface PendingApproval {
+  agent: string;
+  /** The private message whose turn asked. */
+  turnId: string;
+  /** The agent's own id for it, given back to `adapter.decide`. */
+  eventId: string;
+  adapter: LocalAgentAdapter;
+  expiresAt: number;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+const BASE32 = 'abcdefghijklmnopqrstuvwxyz234567';
+
+/** `apv_` and 26 base32 characters: 130 random bits, made on this computer. */
+export function newApprovalId(): string {
+  return `apv_${Array.from(randomBytes(26), (b) => BASE32[b & 31]).join('')}`;
+}
+
+/** Cuts to `max` UTF-16 units without leaving half a surrogate pair. */
+function cut(text: string, max: number): string {
+  const out = text.slice(0, max);
+  return /[\ud800-\udbff]$/.test(out) ? out.slice(0, -1) : out;
+}
 
 /**
  * Most UTF-16 units of reply text in one chunk. Even at 6 JSON bytes per unit (escaped control
@@ -105,7 +145,7 @@ export interface PrivateChatsOptions {
     runExclusive(agentId: string, fn: () => Promise<void>): Promise<void>;
   };
   /** Sends one frame now; false when the link is down. */
-  send: (frame: SealedReplyFrame) => boolean;
+  send: (frame: SealedReplyFrame | SealedApprovalFrame) => boolean;
   outbox: ResultOutbox;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -122,6 +162,9 @@ export class PrivateChats {
   private seen: ReplayWindow | undefined;
   private readonly failures = new FailureBudget();
   private refused = 0;
+  /** Sealed approvals waiting for the phone, by the id inside the sealed request. */
+  private readonly approvals = new Map<string, PendingApproval>();
+  private ignoredDecisions = 0;
 
   constructor(private readonly options: PrivateChatsOptions) {}
 
@@ -142,7 +185,20 @@ export class PrivateChats {
     };
   }
 
-  async receive(frame: SealedMessageFrame): Promise<void> {
+  async receive(frame: SealedMessageFrame | SealedDecisionFrame): Promise<void> {
+    switch (frame.type) {
+      case 'sealed.message':
+        return this.receiveMessage(frame);
+      case 'sealed.decision':
+        return this.receiveDecision(frame);
+      default: {
+        const never: never = frame;
+        return never;
+      }
+    }
+  }
+
+  private async receiveMessage(frame: SealedMessageFrame): Promise<void> {
     const log = this.options.log;
     let e2e = this.options.e2e();
     if (e2e === undefined) return;
@@ -207,8 +263,7 @@ export class PrivateChats {
           )) {
             if (controller.signal.aborted) break;
             if (event.type === 'approval.required') {
-              // Approvals in private chats are not built yet (ADR-044): never approve unseen.
-              adapter.decide?.(event.id, 'deny');
+              await this.askApproval(frame, adapter, event);
               continue;
             }
             if (event.type !== 'text') continue;
@@ -228,6 +283,10 @@ export class PrivateChats {
         } catch {
           this.options.log?.(`private turn ${frame.message_id} failed`);
           buffered += total === 0 ? AGENT_FAILED_TEXT : `\n\n${AGENT_FAILED_TEXT}`;
+        } finally {
+          // The turn is over: anything still waiting for the phone is denied.
+          for (const [id, pending] of this.approvals)
+            if (pending.turnId === frame.message_id) this.settle(id, 'deny');
         }
       });
     } finally {
@@ -235,6 +294,115 @@ export class PrivateChats {
       pool.release(frame.agent);
     }
     await send({ text: buffered }, true);
+  }
+
+  /**
+   * Seals the agent's approval request to every trusted phone (C3 #11) under a fresh seq of its
+   * own, never a reply chunk. The server stores it but cannot read the title or description. If
+   * it cannot be sent now, it is denied at once.
+   */
+  private async askApproval(
+    frame: SealedMessageFrame,
+    adapter: LocalAgentAdapter,
+    event: ApprovalEvent,
+  ): Promise<void> {
+    if (adapter.decide === undefined) return;
+    const deny = () => adapter.decide?.(event.id, 'deny');
+    const saved = await this.options.persist((current) => ({ ...current, seq: current.seq + 1 }));
+    if (saved === undefined) return deny();
+    const expiresAt = (this.options.now ?? Date.now)() + APPROVAL_HOLD_MS;
+    const id = newApprovalId();
+    const expires_at = new Date(expiresAt).toISOString();
+    const description =
+      event.description === undefined
+        ? undefined
+        : cut(event.description, MAX_SEALED_APPROVAL_DESCRIPTION_CHARS);
+    const out: SealedApprovalFrame = {
+      type: 'sealed.approval',
+      agent: frame.agent,
+      turn_id: frame.message_id,
+      sealed: sealOutgoingControl(
+        this.context(saved, frame.agent),
+        {
+          kind: 'approval',
+          approval_id: id,
+          title: cut(event.title, MAX_SEALED_APPROVAL_TITLE_CHARS),
+          ...(description !== undefined && { description }),
+          expires_at,
+        },
+        saved.seq,
+      ),
+      expires_at,
+    };
+    if (!this.options.send(out)) {
+      this.options.log?.(`private approval in ${frame.message_id} not sent, denied`);
+      return deny();
+    }
+    // Same hold as a plain chat's approval card (APPROVAL_HOLD_MS): no answer in time is a no.
+    const timer = setTimeout(() => this.settle(id, 'deny'), APPROVAL_HOLD_MS);
+    timer.unref?.();
+    this.approvals.set(id, {
+      agent: frame.agent,
+      turnId: frame.message_id,
+      eventId: event.id,
+      adapter,
+      expiresAt,
+      timer,
+    });
+    this.options.log?.(`private approval ${id} asked in ${frame.message_id}`);
+  }
+
+  /** Answers a waiting approval once; a later call for the same id does nothing. */
+  private settle(id: string, decision: 'approve' | 'deny'): void {
+    const pending = this.approvals.get(id);
+    if (pending === undefined) return;
+    this.approvals.delete(id);
+    clearTimeout(pending.timer);
+    pending.adapter.decide?.(pending.eventId, decision);
+  }
+
+  /**
+   * The phone's sealed answer (C3 #11). Taken only when a trusted phone sealed it, it is not a
+   * replay, it names an approval of this agent still waiting, and it has not expired. Anything
+   * else is ignored and counted; logs carry ids and counts, never the answer.
+   */
+  private async receiveDecision(frame: SealedDecisionFrame): Promise<void> {
+    const ignore = (reason: string) => {
+      this.ignoredDecisions++;
+      this.options.log?.(
+        `private approval answer ${frame.message_id} ignored (${reason}), ${this.ignoredDecisions} so far`,
+      );
+    };
+    const e2e = this.options.e2e();
+    if (e2e === undefined) return ignore('no_keys');
+    const opened = openIncomingControl(this.context(e2e, frame.agent), frame.sealed);
+    if (!opened.ok) return ignore(opened.reason);
+    const highest = this.window(e2e).highest();
+    await this.options.persist((current) => ({
+      ...current,
+      seen: { ...current.seen, ...highest },
+    }));
+    if (opened.sender.kind !== 'phone') return ignore('not_a_phone');
+    const payload = opened.payload;
+    switch (payload.kind) {
+      case 'approval':
+        return ignore('not_a_decision');
+      case 'approval_decision': {
+        const pending = this.approvals.get(payload.approval_id);
+        if (pending === undefined || pending.agent !== frame.agent) return ignore('unknown');
+        if ((this.options.now ?? Date.now)() >= pending.expiresAt) {
+          this.settle(payload.approval_id, 'deny');
+          return ignore('expired');
+        }
+        this.settle(payload.approval_id, payload.decision);
+        this.options.log?.(`private approval ${payload.approval_id} answered`);
+        return;
+      }
+      default: {
+        const never: never = payload;
+        return never;
+      }
+    }
   }
 
   /**
