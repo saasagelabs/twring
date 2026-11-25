@@ -60,6 +60,34 @@ describe('exporting a private chat on the phone (Task 23)', () => {
     expect(Object.keys(api)).toEqual(['listMessages']);
   });
 
+  it('an ordinary chat exports as before and never opens anything', async () => {
+    const plain = {
+      id: A,
+      agent_id: 'agt_aaaaaaaaaaaaaaaaaaaa',
+      seq: 1,
+      rev: 1,
+      created_at: at,
+      updated_at: at,
+      kind: 'agent_text',
+      text: 'plain reply',
+    } as unknown as ThreadMessage;
+    const api = { listMessages: vi.fn(async () => ({ messages: [plain], hasMore: false })) };
+    const open = vi.fn(async () => []);
+    await exportChat(
+      api,
+      { id: 'agt_aaaaaaaaaaaaaaaaaaaa', name: 'Claude' },
+      { signal: new AbortController().signal, onProgress: () => undefined, open },
+    );
+    expect(open).not.toHaveBeenCalled();
+    const before = renderChatMarkdown([plain], {
+      agentName: 'Claude',
+      exportedAt: new Date(at),
+      formatTime: () => 't',
+    });
+    expect(before).toContain('> plain reply');
+    expect(written.text).toContain('> plain reply');
+  });
+
   it('every sealed message the phone could not open says so', () => {
     const md = renderChatMarkdown([sealed(A, 1, 'agent'), sealed(B, 2, 'user')], {
       agentName: 'Claude',

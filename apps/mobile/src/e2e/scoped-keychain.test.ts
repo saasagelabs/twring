@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { loadOrCreateDeviceKey, nextSeq } from './device-key';
 import { confirmPairing, loadTrusted, type TrustedDevice } from './pairing';
 import { forgetPrivateDevice } from './private-chats';
-import { scopedKeychain } from './scoped-keychain';
+import { noKeychain, scopedKeychain } from './scoped-keychain';
 import { memoryStore } from './test-fixtures';
 
 const computer: TrustedDevice = {
@@ -60,5 +60,37 @@ describe('private chat keys per server and account (P3c ruling 1)', () => {
   it('the same scope gets the same keychain, so its counter lock is shared', () => {
     const phone = memoryStore();
     expect(scopedKeychain(phone, 's')).toBe(scopedKeychain(phone, 's'));
+  });
+});
+
+describe('scoped keychain edge cases (P3c verify)', () => {
+  it('two quick sends in one scope still get two seqs, even from two lookups', async () => {
+    const phone = memoryStore();
+    const seqs = await Promise.all([
+      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
+      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
+      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
+    ]);
+    expect([...seqs].sort()).toEqual([1, 2, 3]);
+  });
+
+  it('every name is short and uses only characters iOS and Android keychains accept', async () => {
+    const phone = memoryStore();
+    const store = scopedKeychain(phone, 'selfhost:' + 'x'.repeat(500) + ':\u{1F600} person');
+    await loadOrCreateDeviceKey(store);
+    await nextSeq(store);
+    await confirmPairing({ store }, computer);
+    expect(phone.m.size).toBeGreaterThanOrEqual(3);
+    for (const name of phone.m.keys()) {
+      // expo-secure-store: alphanumeric, ".", "-" and "_" only.
+      expect(name).toMatch(/^[A-Za-z0-9._-]+$/);
+      expect(name.length).toBeLessThanOrEqual(64);
+    }
+  });
+
+  it('signed out: reads and writes fail, forgetting is a no-op', async () => {
+    await expect(nextSeq(noKeychain)).rejects.toThrow();
+    await expect(loadTrusted(noKeychain)).rejects.toThrow();
+    await expect(forgetPrivateDevice(noKeychain)).resolves.toBeUndefined();
   });
 });
