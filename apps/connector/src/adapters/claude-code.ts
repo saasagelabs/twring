@@ -122,8 +122,30 @@ export function resolveClaudeBin(env: NodeJS.ProcessEnv = process.env): string {
   return 'claude.exe';
 }
 
+/** True when Claude Code's own error text says its sign-in is missing or expired. */
+export function isSignInFailure(text: string): boolean {
+  return (
+    /Failed to authenticate/i.test(text) ||
+    (/OAuth/i.test(text) && /expired/i.test(text)) ||
+    /Invalid API key/i.test(text) ||
+    /Please run \/login/i.test(text) ||
+    /not logged in/i.test(text)
+  );
+}
+
+/** Text of a synthetic assistant message: Claude Code's own notice, not the model's words. */
+function syntheticText(message: Record<string, unknown>): string {
+  const inner = isRecord(message.message) ? message.message : {};
+  if (inner.model !== '<synthetic>' || !Array.isArray(inner.content)) return '';
+  return inner.content
+    .map((part) => (isRecord(part) && typeof part.text === 'string' ? part.text : ''))
+    .join(' ')
+    .slice(0, 4_096);
+}
+
 interface Turn {
   queue: EventQueue<LocalAgentEvent>;
+  signedOut?: boolean;
   blocks: Map<number, 'text' | 'tool' | 'other'>;
   openTools: Set<string>;
   cancelling: boolean;
@@ -344,7 +366,12 @@ export class ClaudeCodeAdapter implements LocalAgentAdapter {
     if (turn === null) return;
     if (message.type === 'result') {
       if (!turn.cancelling && (message.subtype !== 'success' || message.is_error === true)) {
-        this.finish(turn, new LocalAgentError('agent_failed', 'Claude Code reported an error'));
+        this.finish(
+          turn,
+          turn.signedOut === true
+            ? new LocalAgentError('agent_signed_out', 'Claude Code is signed out')
+            : new LocalAgentError('agent_failed', 'Claude Code reported an error'),
+        );
       } else {
         this.finish(turn);
       }
@@ -360,6 +387,8 @@ export class ClaudeCodeAdapter implements LocalAgentAdapter {
       this.mapStreamEvent(turn, message.event);
     } else if (message.type === 'user') {
       this.mapToolResults(turn, message);
+    } else if (message.type === 'assistant' && isSignInFailure(syntheticText(message))) {
+      turn.signedOut = true;
     }
   }
 

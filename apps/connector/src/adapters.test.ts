@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { APPROVAL_HOLD_MS } from '@twring/contracts';
 
 import { ACP_APPROVAL_TIMEOUT_MS, AcpAdapter } from './adapters/acp';
-import { ClaudeCodeAdapter, READ_ONLY_TOOLS } from './adapters/claude-code';
+import { ClaudeCodeAdapter, isSignInFailure, READ_ONLY_TOOLS } from './adapters/claude-code';
 import { CodexAdapter } from './adapters/codex';
 import { CommandAdapter } from './adapters/command';
 import { LocalAgentError, type LocalAgentEvent } from './events';
@@ -343,6 +343,69 @@ describe('claude-code adapter', () => {
     await expect(events).resolves.toEqual([]);
     expect(child.killed).toBe(false);
     adapter.close();
+  });
+
+  it('fails the turn with agent_signed_out when Claude Code is signed out', async () => {
+    const { adapter, spawned } = started();
+    const events = collect(adapter.sendTurn('hi', new AbortController().signal));
+    const child = await spawned[0]!;
+    const init = await child.next((m) => m.type === 'control_request');
+    child.out({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: init.request_id },
+    });
+    await child.next((m) => m.type === 'user');
+    child.out({
+      type: 'assistant',
+      message: {
+        model: '<synthetic>',
+        content: [
+          {
+            type: 'text',
+            text: 'Failed to authenticate: OAuth session expired and could not be refreshed',
+          },
+        ],
+      },
+    });
+    child.out({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error' });
+    const error = await events.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LocalAgentError);
+    expect((error as LocalAgentError).code).toBe('agent_signed_out');
+    expect((error as LocalAgentError).message).not.toMatch(/OAuth/);
+    adapter.close();
+  });
+
+  it('keeps agent_failed for an error that is not about signing in', async () => {
+    const { adapter, spawned } = started();
+    const events = collect(adapter.sendTurn('hi', new AbortController().signal));
+    const child = await spawned[0]!;
+    const init = await child.next((m) => m.type === 'control_request');
+    child.out({
+      type: 'control_response',
+      response: { subtype: 'success', request_id: init.request_id },
+    });
+    await child.next((m) => m.type === 'user');
+    child.out({
+      type: 'assistant',
+      message: { model: '<synthetic>', content: [{ type: 'text', text: 'API Error: 500' }] },
+    });
+    child.out({ type: 'result', subtype: 'success', is_error: true });
+    const error = await events.catch((e: unknown) => e);
+    expect((error as LocalAgentError).code).toBe('agent_failed');
+    adapter.close();
+  });
+
+  it('recognises sign-in failures from Claude Code', () => {
+    for (const text of [
+      'Failed to authenticate: OAuth session expired and could not be refreshed',
+      'OAuth token has expired',
+      'Invalid API key · Please run /login',
+      'Please run /login',
+      'Not logged in',
+    ])
+      expect(isSignInFailure(text)).toBe(true);
+    for (const text of ['API Error: 500', 'OAuth is a protocol', 'Rate limited', ''])
+      expect(isSignInFailure(text)).toBe(false);
   });
 
   it('fails the turn when Claude Code exits mid-turn', async () => {
