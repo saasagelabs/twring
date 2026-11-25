@@ -58,6 +58,7 @@ import { pairPhone } from './e2e/pair';
 import { updateE2e } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
+import { watchPairing } from './e2e/watch';
 import { DEVICE_SYNC_MS, devicesChangedTrigger, syncDevices } from './e2e/sync';
 import { resetLines, resetPrivateKey } from './e2e/reset';
 import {
@@ -522,7 +523,10 @@ function run(config: ConnectorConfig): Promise<number> {
     onSealedMessage: (frame) =>
       void privateChats.receive(frame).catch(() => log('a private message could not be answered')),
     // A device was removed in the app (C3 #11): read the list now, once for a burst of these.
-    onDevicesChanged: () => devicesChanged(),
+    onDevicesChanged: () => {
+      void pairingWatch.check().catch(() => undefined);
+      devicesChanged();
+    },
     server: checkServerUrl(config.server).toString(),
     token: config.token,
     agents: config.agents.map(publicAgent),
@@ -602,6 +606,15 @@ function run(config: ConnectorConfig): Promise<number> {
     run: syncPrivate,
     enabled: () => e2e?.devices.some((device) => device.kind === 'phone') ?? false,
   });
+  // A phone paired with `private pair` (another process) while this copy runs: noticed here
+  // within seconds, without a restart.
+  const pairingWatch = watchPairing({
+    read: async () => (await loadConfig(configPath()))?.e2e,
+    current: () => e2e,
+    apply: (fresh) => (e2e = fresh),
+    rehello: () => client.rehello(),
+  });
+  void client.done.finally(() => pairingWatch.stop());
   process.once('SIGINT', () => {
     print('Disconnecting…');
     client.stop();
