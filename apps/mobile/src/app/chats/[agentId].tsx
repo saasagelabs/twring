@@ -156,6 +156,18 @@ export default function ChatScreen() {
   const [removed, setRemoved] = useState(false);
   /** A recorded voice note waiting for "Send anyway" in a private chat. */
   const [heldVoice, setHeldVoice] = useState<{ uri: string; durationMs: number }>();
+  const heldUri = useRef<string>(undefined);
+  const discardHeld = () => {
+    if (heldUri.current === undefined) return;
+    try {
+      new File(heldUri.current).delete();
+    } catch {
+      /* cache may already be gone */
+    }
+    heldUri.current = undefined;
+  };
+  // Leaving the chat with a note still held deletes the recording, as "Don't send" does.
+  useEffect(() => () => discardHeld(), []);
   const load = useCallback(
     async (signal: AbortSignal) => {
       try {
@@ -672,15 +684,12 @@ export default function ChatScreen() {
               <VoiceNoteWarning
                 onSend={() => {
                   chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id);
+                  heldUri.current = undefined;
                   setReplyTo(undefined);
                   setHeldVoice(undefined);
                 }}
                 onCancel={() => {
-                  try {
-                    new File(heldVoice.uri).delete();
-                  } catch {
-                    /* cache may already be gone */
-                  }
+                  discardHeld();
                   setHeldVoice(undefined);
                 }}
               />
@@ -722,6 +731,8 @@ export default function ChatScreen() {
               onVoiceSend={(uri, durationMs) => {
                 // A voice note is turned into text on the server: ask first in a private chat.
                 if (chat.private) {
+                  discardHeld();
+                  heldUri.current = uri;
                   setHeldVoice({ uri, durationMs });
                   return;
                 }
