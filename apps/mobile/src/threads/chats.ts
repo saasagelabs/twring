@@ -44,6 +44,8 @@ export class ChatController {
   private readonly focusCounts = new Map<string, number>();
   private summaries: ThreadSummary[] = [];
   private availability: boolean | undefined;
+  /** The chat list arrived since the last clear: each chat's privacy is known. */
+  private listLoaded = false;
   private filesAvailable = false;
   private socket?: ReturnType<typeof connectThreadSocket>;
   private appSubscription?: { remove(): void };
@@ -112,7 +114,11 @@ export class ChatController {
       this.sealer(),
     );
     this.search = stores.search ?? new SearchIndex(memorySearchStore());
-    this.drafts = new DraftStore(stores.drafts ?? memoryStore(), timers);
+    // Until the chat list loads, no chat is known to be ordinary: its draft is not written yet.
+    // A failed first load leaves chats usable but the list unknown, so it does not count.
+    this.drafts = new DraftStore(stores.drafts ?? memoryStore(), timers, (agentId) =>
+      this.listLoaded ? this.isPrivate(agentId) : undefined,
+    );
   }
 
   /** Private chats never go out as text, even with no way to seal on this phone. */
@@ -183,7 +189,7 @@ export class ChatController {
         seq: source?.seq ?? 0,
       });
     }
-    void this.search.recordRows(rows);
+    void this.search.recordPrivate(rows);
   }
 
   /** A private chat's whole history opened on this phone for "Export chat" (Task 23). */
@@ -308,6 +314,8 @@ export class ChatController {
         this.summaries = threads;
         this.filesAvailable = files;
         this.availability = true;
+        this.listLoaded = true;
+        this.drafts.privacyChanged();
         this.emit();
         this.ensureSocket();
       })
@@ -526,9 +534,12 @@ export class ChatController {
     this.opened.clear();
     const privacy = options.forget ? this.privacy?.forget() : Promise.resolve();
     const outbox = options.forget ? this.outbox.clear() : this.outbox.detach();
+    // Opened private text in memory goes on any clear: a switch must not show it to another account.
+    this.search.forgetPrivate();
     const search = options.forget ? this.search.wipe() : Promise.resolve();
     const drafts = options.forget ? this.drafts.clear() : this.drafts.flush();
     this.summaries = [];
+    this.listLoaded = false;
     this.availability = undefined;
     this.filesAvailable = false;
     this.emit();
