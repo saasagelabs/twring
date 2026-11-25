@@ -70,13 +70,13 @@ describe('the Private label (Task 24)', () => {
     expect(SPEECH_NOTE).toBe("Speech goes through Twring's server.");
     expect(COULDNT_OPEN).toBe("Couldn't open this message");
     for (const copy of [PRIVATE_LABEL, PRIVATE_LABEL_EXCEPT, SERVER_READABLE_MARK, VOICE_WARNING])
-      expect(copy).not.toContain('—');
+      expect(copy).not.toContain(String.fromCharCode(0x2014));
   });
 });
 
 describe('sealed message bubbles', () => {
   const id = 'msg_' + 'q'.repeat(20);
-  const message = { ...sealedOk(), id } as ThreadMessage;
+  const message: ThreadMessage = { ...sealedOk(), id };
   const opened = (entry: OpenedMessage) => new Map([[id, entry]]);
 
   it('an opened message shows its text, quote and the reply, copy and share choices', () => {

@@ -388,7 +388,7 @@ describe('private chats in the chat data layer', () => {
 
   it('opens the whole chat for export without moving the replay window', async () => {
     const t = await setup();
-    const listed = await t.api.listMessages();
+    const listed = (await t.api.listMessages()) as { messages: ThreadMessage[] };
     const opened = await t.controller.openForExport(privateAgent, listed.messages);
     expect(opened).toEqual([expect.objectContaining({ state: 'ok', text: 'hello from computer' })]);
     // Opening again for the chat still works: export did not use the seq up.

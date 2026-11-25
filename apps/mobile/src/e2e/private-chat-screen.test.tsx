@@ -46,7 +46,7 @@ describe('private chat screen pieces (Task 24)', () => {
     const onSend = vi.fn();
     const onCancel = vi.fn();
     const all = elements(VoiceNoteWarning({ onSend, onCancel }));
-    expect(texts(all).join(' ')).toMatch(/won't be private/);
+    expect(texts(all)).toContainEqual(expect.stringMatching(/won't be private/));
     const live = all.find((item) => item.props.accessibilityLiveRegion === 'polite');
     expect(live).toBeDefined();
     const send = all.find((item) => item.type === 'PrimaryButton');
