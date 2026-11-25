@@ -14,6 +14,11 @@ const mocks = vi.hoisted(() => {
     parsePairInput: vi.fn(),
     claimPairing: vi.fn(),
     confirmPairing: vi.fn(),
+    loadTrusted: vi.fn(),
+    restoreOffer: vi.fn(),
+    push: vi.fn(),
+    replace: vi.fn(),
+    effects: 0,
   };
 });
 
@@ -21,6 +26,10 @@ vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
   return {
     ...actual,
+    // Effects run once per screen, as on mount.
+    useEffect: (effect: () => unknown) => {
+      if (mocks.effects++ === 0) void effect();
+    },
     useState: (initial: unknown) => {
       const slot = mocks.cursor++;
       if (!(slot in mocks.state))
@@ -45,7 +54,12 @@ vi.mock('react-native', () => ({
   Platform: { OS: 'android' },
 }));
 vi.mock('expo-router', () => ({
-  router: { back: mocks.back, replace: vi.fn(), dismissTo: mocks.dismissTo },
+  router: {
+    back: mocks.back,
+    replace: mocks.replace,
+    push: mocks.push,
+    dismissTo: mocks.dismissTo,
+  },
   useLocalSearchParams: () => mocks.params,
 }));
 vi.mock('@/e2e/pairing', async () => {
@@ -58,9 +72,17 @@ vi.mock('@/e2e/pairing', async () => {
     },
     claimPairing: mocks.claimPairing,
     confirmPairing: mocks.confirmPairing,
+    loadTrusted: mocks.loadTrusted,
   };
 });
-vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}) }));
+vi.mock('@/e2e/pair-api', () => ({ pairApi: () => ({}), recoveryApi: () => ({}) }));
+vi.mock('@/e2e/recovery', () => ({
+  RECOVERY_COPY: {
+    offer: "Save a recovery key? Without it, a new phone can't read old private messages.",
+    removed: 'REMOVED_COPY',
+  },
+  restoreOffer: mocks.restoreOffer,
+}));
 // This server and account's keychain (P3c ruling 1), never the phone-wide one.
 vi.mock('@/threads/chats', () => ({ privateKeychain: () => ({ deviceOnly: true }) }));
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
@@ -136,6 +158,57 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, safety: '123 456', connector: { id: 'dev_c' } });
   mocks.confirmPairing.mockReset().mockResolvedValue(undefined);
+  mocks.loadTrusted.mockReset().mockResolvedValue([{ id: 'dev_old' }]);
+  mocks.restoreOffer.mockReset().mockResolvedValue({ kind: 'none' });
+  mocks.push.mockReset();
+  mocks.replace.mockReset();
+  mocks.effects = 0;
+});
+
+describe('recovery key on the pairing screen', () => {
+  it('offers a recovery key after the first pairing, with Not now', async () => {
+    mocks.loadTrusted.mockResolvedValue([]);
+    void labelled(await scan(), 'Yes, same number').props.onPress?.();
+    await flush();
+    const tree = render();
+    expect(text(tree)).toContain(
+      "Save a recovery key? Without it, a new phone can't read old private messages.",
+    );
+    void labelled(tree, 'Save a recovery key').props.onPress?.();
+    expect(mocks.replace).toHaveBeenCalledWith({
+      pathname: '/private/recovery',
+      params: { mode: 'create' },
+    });
+    void labelled(tree, 'Not now').props.onPress?.();
+    expect(mocks.back).toHaveBeenCalled();
+  });
+
+  it('does not offer it again after a later pairing', async () => {
+    void labelled(await scan(), 'Yes, same number').props.onPress?.();
+    await flush();
+    expect(text(render())).not.toContain('Save a recovery key');
+  });
+
+  it('offers a restore when the phone has no key and a backup exists', async () => {
+    mocks.restoreOffer.mockResolvedValue({ kind: 'found', backup: {} });
+    render();
+    await flush();
+    void labelled(render(), 'Use my recovery key').props.onPress?.();
+    expect(mocks.push).toHaveBeenCalledWith({
+      pathname: '/private/recovery',
+      params: { mode: 'restore' },
+    });
+  });
+
+  it('says plainly when the backup is for a removed phone, and stays on pairing', async () => {
+    mocks.restoreOffer.mockResolvedValue({ kind: 'removed' });
+    render();
+    await flush();
+    const tree = render();
+    expect(text(tree)).toContain('REMOVED_COPY');
+    expect(text(tree)).not.toContain('Use my recovery key');
+    expect(labelled(tree, 'Scan the code on your computer')).toBeDefined();
+  });
 });
 
 describe('private chat pairing screen', () => {

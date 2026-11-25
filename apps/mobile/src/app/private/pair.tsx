@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { ErrorNotice } from '@/components/ErrorNotice';
@@ -8,9 +8,16 @@ import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
 import { QrScanner } from '@/components/QrScanner';
 import { Screen } from '@/components/Screen';
-import { pairApi } from '@/e2e/pair-api';
-import { claimPairing, confirmPairing, parsePairInput, parseTypedPairCode } from '@/e2e/pairing';
+import { pairApi, recoveryApi } from '@/e2e/pair-api';
+import {
+  claimPairing,
+  confirmPairing,
+  loadTrusted,
+  parsePairInput,
+  parseTypedPairCode,
+} from '@/e2e/pairing';
 import type { PairFailure, PairInput, TrustedDevice } from '@/e2e/pairing';
+import { RECOVERY_COPY, restoreOffer } from '@/e2e/recovery';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
 import { privateKeychain } from '@/threads/chats';
@@ -46,7 +53,7 @@ type Step =
   | { kind: 'scan' }
   | { kind: 'type' }
   | { kind: 'compare'; safety: string; connector: TrustedDevice }
-  | { kind: 'done' }
+  | { kind: 'done'; offerRecovery: boolean }
   | { kind: 'error'; message: string; retry: 'scan' | 'type' };
 
 const deps = () => ({
@@ -78,6 +85,21 @@ export default function PrivatePairScreen() {
   // The code as typed, for people who cannot scan (the QR is on this phone, or the camera fails).
   const [typed, setTyped] = useState('');
   const typedInput = parseTypedPairCode(typed);
+  // A phone with no key whose account has a recovery backup can restore instead (C3 #11).
+  const [backup, setBackup] = useState<'found' | 'removed' | undefined>();
+
+  useEffect(() => {
+    let live = true;
+    restoreOffer({ api: recoveryApi(), store: privateKeychain() }).then(
+      (offer) => {
+        if (live && (offer.kind === 'found' || offer.kind === 'removed')) setBackup(offer.kind);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const fail = (message: string, retry: 'scan' | 'type' = 'scan') => {
     playCallFeedback('error');
@@ -119,9 +141,12 @@ export default function PrivatePairScreen() {
   const onSame = async (connector: TrustedDevice) => {
     setBusy(true);
     try {
-      await confirmPairing({ store: privateKeychain() }, connector);
+      const store = privateKeychain();
+      // The first computer this phone trusts: the moment to offer a recovery key.
+      const first = (await loadTrusted(store)).length === 0;
+      await confirmPairing({ store }, connector);
       playCallFeedback('connected');
-      setStep({ kind: 'done' });
+      setStep({ kind: 'done', offerRecovery: first });
     } catch {
       fail('Twring could not save this pairing on your phone. Try again.');
     } finally {
@@ -171,26 +196,36 @@ export default function PrivatePairScreen() {
   }
 
   if (step.kind === 'done') {
+    const finish = () =>
+      agentId === undefined
+        ? router.back()
+        : router.dismissTo({
+            pathname: '/agents/[id]',
+            params: { id: agentId, private: 'ask' },
+          });
     return (
       <Screen
         title="Private chats"
         footer={
-          <PrimaryButton
-            label="Done"
-            onPress={() =>
-              agentId === undefined
-                ? router.back()
-                : router.dismissTo({
-                    pathname: '/agents/[id]',
-                    params: { id: agentId, private: 'ask' },
-                  })
-            }
-          />
+          step.offerRecovery ? (
+            <View style={styles.actions}>
+              <PrimaryButton
+                label="Save a recovery key"
+                onPress={() =>
+                  router.replace({ pathname: '/private/recovery', params: { mode: 'create' } })
+                }
+              />
+              <GhostButton label="Not now" onPress={finish} />
+            </View>
+          ) : (
+            <PrimaryButton label="Done" onPress={finish} />
+          )
         }
       >
         <View style={styles.step}>
           {heading('Paired')}
           {support('Private: only your phone and your computer can read this')}
+          {step.offerRecovery && support(RECOVERY_COPY.offer)}
         </View>
       </Screen>
     );
@@ -272,6 +307,14 @@ export default function PrivatePairScreen() {
               onPress={() => setStep({ kind: 'scan' })}
             />
             <GhostButton label="Type the code instead" onPress={() => setStep({ kind: 'type' })} />
+            {backup === 'found' && (
+              <GhostButton
+                label="Use my recovery key"
+                onPress={() =>
+                  router.push({ pathname: '/private/recovery', params: { mode: 'restore' } })
+                }
+              />
+            )}
           </View>
         ) : undefined
       }
@@ -279,6 +322,7 @@ export default function PrivatePairScreen() {
       <View style={styles.step}>
         {heading('Pair with your computer')}
         {support(HELP)}
+        {backup === 'removed' && support(RECOVERY_COPY.removed)}
         {notice !== undefined && <ErrorNotice error={{ message: notice, retryable: true }} />}
         {step.kind === 'scan' && (
           <QrScanner

@@ -28,6 +28,8 @@ type InputProps = Pick<
   | 'returnKeyType'
   | 'submitBehavior'
   | 'multiline'
+  | 'spellCheck'
+  | 'importantForAutofill'
 >;
 
 interface Props extends InputProps {

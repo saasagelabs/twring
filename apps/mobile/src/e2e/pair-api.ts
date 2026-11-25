@@ -3,6 +3,7 @@ import { activeServerUrl } from '@/servers/active';
 
 import { withAuth } from '../auth/controller';
 import type { PairApi } from './pairing';
+import type { RecoveryApi } from './recovery';
 
 const TIMEOUT_MS = 15_000;
 const AUTH_CODES = ['auth_invalid', 'auth_required', 'device_removed'] as const;
@@ -38,20 +39,35 @@ export function pairApi(): PairApi {
   };
 }
 
-async function post(path: string, body: unknown): Promise<{ status: number; body: unknown }> {
+/** The recovery backup calls (C3 #11); `recovery.ts` validates whatever comes back. */
+export function recoveryApi(): RecoveryApi {
+  return {
+    get: () => request('GET', '/v1/e2e/recovery'),
+    put: (body) => request('PUT', '/v1/e2e/recovery', body),
+    remove: () => request('DELETE', '/v1/e2e/recovery'),
+  };
+}
+
+const post = (path: string, body: unknown) => request('POST', path, body);
+
+async function request(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; body: unknown }> {
   const base = activeServerUrl().replace(/\/+$/, '');
   const send = async (headers: Record<string, string>) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
     try {
       const res = await fetch(`${base}${path}`, {
-        method: 'POST',
+        method,
         headers: {
           accept: 'application/json',
-          'content-type': 'application/json',
+          ...(body !== undefined && { 'content-type': 'application/json' }),
           ...headers,
         },
-        body: JSON.stringify(body),
+        ...(body !== undefined && { body: JSON.stringify(body) }),
         signal: controller.signal,
       });
       const json: unknown = await res.json().catch(() => undefined);

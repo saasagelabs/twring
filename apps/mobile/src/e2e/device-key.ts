@@ -1,3 +1,4 @@
+import { x25519 } from '@noble/curves/ed25519.js';
 import {
   base64urlDecode,
   base64urlEncode,
@@ -73,6 +74,38 @@ export async function loadOrCreateDeviceKey(
     privateKey: pair.privateKey,
     created: true,
   };
+}
+
+/** This phone's device key, or undefined when it has none (nothing is created). */
+export async function loadDeviceKey(store: SecureKeyValue): Promise<DeviceKey | undefined> {
+  return read(await store.getItemAsync(DEVICE_KEY_NAME));
+}
+
+/**
+ * Puts back a device key from a recovery backup (C3 #11): the same key, so the same device id.
+ * The seq counter jumps to the clock in milliseconds, past anything the old phone could have
+ * sent, so the computer never drops the restored phone's messages as replays.
+ */
+export async function restoreDeviceKey(
+  store: SecureKeyValue,
+  privateKey: Uint8Array,
+  now: () => number = Date.now,
+): Promise<DeviceKey> {
+  const publicKey = x25519.getPublicKey(privateKey);
+  await store.setItemAsync(
+    DEVICE_KEY_NAME,
+    JSON.stringify({
+      v: 1,
+      public_key: base64urlEncode(publicKey),
+      private_key: base64urlEncode(privateKey),
+    }),
+  );
+  const raw = await store.getItemAsync(SEQ_KEY_NAME);
+  const last = raw === null ? 0 : Number(raw);
+  const floor = Math.floor(now());
+  if (!Number.isSafeInteger(last) || last < floor)
+    await store.setItemAsync(SEQ_KEY_NAME, String(floor));
+  return { deviceId: deviceIdFor(publicKey), publicKey, privateKey };
 }
 
 /** The next seq this phone seals with, saved before it is handed out: never reused. */

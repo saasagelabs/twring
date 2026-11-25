@@ -12,6 +12,7 @@ export type PrivateChatErrorCode =
   | 'offer_expired'
   | 'offer_claimed'
   | 'handle_taken'
+  | 'no_backup'
   | 'private_thread'
   | 'not_private'
   | 'private_unsupported'

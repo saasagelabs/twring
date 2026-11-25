@@ -1397,6 +1397,20 @@ transcription, Listen and AI apps connected online are never labelled end-to-end
   message exists in the chat.
 - Message sealing calls @noble directly with an AAD; `seal-core.ts` (push sealing) is unchanged.
 
+### Recovery key (C3 #11, 2026-11-25)
+
+Optional. The phone shows 12 English BIP39 words (128 bits with a checksum, `@scure/bip39`, same
+audited family as @noble) once, and asks back words 3 and 9. scrypt (N=2^15, r=8, p=1) turns the
+words and a fresh 16-byte salt per backup into a 32-byte key; XChaCha20-Poly1305 seals the
+phone's device private key and the computers it verified, with associated data binding the label
+`twring-recovery-v1`, the account and the device id. The server stores one backup per account in
+`e2e_recovery`: device id, salt, an 8-byte check value (tells wrong words from a damaged backup;
+it lets nobody guess faster than the backup itself does) and the ciphertext. Never the words or
+the key. Reads are rate limited per account; delete my data removes the backup. A restored phone
+keeps its device id, so its computers need no new pairing; its seq counter jumps to the clock in
+milliseconds so nothing it sends is taken for a replay. A computer paired after the backup was
+made must be paired again on the restored phone. A backup of a removed phone is not offered.
+
 ### Consequences
 
 Server-side quotes, export, transcription, MCP reads and ring text do not work for private
