@@ -23,6 +23,7 @@ import {
 } from './devices';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
 import { PrivateChats, SealError } from './private-chats';
+import { PAIR_AGAIN } from './private-state';
 import {
   newRecoveryWords,
   restoreFromWords,
@@ -127,6 +128,24 @@ describe('a new phone (bug 1)', () => {
     await c.context(AGENT);
     expect(c.notice(AGENT)).toBe(NEW_PHONE);
     expect(noticeAction(NEW_PHONE)).toBe(SET_UP_PHONE);
+  });
+
+  // Staging re-test: restored with a recovery key saved before the computer got a new key, the
+  // phone's list had already lost that computer, and it was told it was new.
+  it('a phone the server already lists is told to pair its computer again, never that it is new', async () => {
+    const store = await storeWithPhoneKey();
+    const newComputer = keys();
+    const c = chats(store, () => ({
+      devices: [listedPhone(phone.id), listed(computer, { revoked_at: at }), listed(newComputer)],
+    }));
+    await c.context(AGENT);
+    expect(await loadTrusted(store)).toEqual([]);
+    expect(c.notice(AGENT)).toBe(PAIR_AGAIN);
+    expect(noticeAction(PAIR_AGAIN)).toBe(PAIR_AGAIN_ACTION);
+    // Opened again later (an app restart, or after a pairing elsewhere): still not a new phone.
+    c.reset();
+    await c.context(AGENT);
+    expect(c.notice(AGENT)).toBe(PAIR_AGAIN);
   });
 
   it('a phone that trusted the old computer still sees the reinstalled notice', async () => {
