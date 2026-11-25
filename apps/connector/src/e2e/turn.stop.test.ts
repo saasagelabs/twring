@@ -154,4 +154,21 @@ describe('stop in a private chat (C3 #11)', () => {
     await run.cancel(m.message_id);
     await turn;
   });
+
+  it('forgets a turn once it ends: a late or repeated Stop is ignored and sends nothing', async () => {
+    const run = harness();
+    const m = run.message('once');
+    const turn = run.chats.receive(m);
+    await vi.waitFor(() => expect(run.started).toHaveLength(1));
+    await run.cancel(m.message_id);
+    await run.cancel(m.message_id);
+    await turn;
+    const after = run.replies(m.message_id).length;
+    await run.cancel(m.message_id);
+    expect(run.replies(m.message_id)).toHaveLength(after);
+    expect(run.replies(m.message_id).filter((r) => r.final)).toHaveLength(1);
+    expect(run.aborted).toHaveLength(1);
+    expect(run.logs.at(-1)).toContain('ignored');
+    expect(run.logs.join('\n')).not.toContain('failed');
+  });
 });

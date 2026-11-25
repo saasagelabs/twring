@@ -183,4 +183,74 @@ describe('stop in a private chat', () => {
     expect(await t.statusOf(m.id)).toBe('sent');
     expect(t.connector.cancels).toHaveLength(0);
   });
+
+  it('a Stop that lands while the sweep is delivering is never overwritten or delivered', async () => {
+    const t = await privateThread();
+    t.connector.terminate();
+    await waitFor(() => !t.g.hub.isOnline('u1', t.connectorId));
+    const m = await t.post();
+    const again = await t.reconnect();
+    // The sweep reads the queue, then looks up the agent: the phone's Stop lands in that gap.
+    const options = (
+      t.g.threads!.service as unknown as {
+        options: { agents: { get: (...args: unknown[]) => Promise<unknown> } };
+      }
+    ).options;
+    const get = options.agents.get.bind(options.agents);
+    let fired = false;
+    options.agents.get = async (...args: unknown[]) => {
+      if (!fired) {
+        fired = true;
+        expect((await t.stop(m.id)).statusCode).toBe(200);
+      }
+      return get(...args);
+    };
+    await t.g.threads!.service.sweep();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fired).toBe(true);
+    expect(await t.statusOf(m.id)).toBe('stopped');
+    expect(again.sealed).toHaveLength(0);
+  });
+
+  it('a final reply that lands after Stop read the message keeps it answered, no cancel', async () => {
+    const t = await privateThread();
+    const m = await t.post();
+    await waitFor(() => t.connector.sealed.length === 1);
+    t.reply(t.connector, m.id, 0, true);
+    await waitFor(async () => (await t.statusOf(m.id)) === 'answered');
+    // Stop read the message while it was still working (the reply landed right after).
+    const store = t.g.threads!.store as unknown as {
+      findMessageForUser: (...args: unknown[]) => Promise<{ message: { status?: string } }>;
+    };
+    const find = store.findMessageForUser.bind(store);
+    store.findMessageForUser = async (...args: unknown[]) => {
+      store.findMessageForUser = find;
+      const found = await find(...args);
+      return { ...found, message: { ...found.message, status: 'working' } };
+    };
+    expect((await t.stop(m.id)).json()).toMatchObject({ message: { status: 'answered' } });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await t.statusOf(m.id)).toBe('answered');
+    expect(t.connector.cancels).toHaveLength(0);
+  });
+
+  it('a double Stop is harmless: still stopped, the computer told', async () => {
+    const t = await privateThread();
+    const m = await t.post();
+    await waitFor(() => t.connector.sealed.length === 1);
+    const [a, b] = await Promise.all([t.stop(m.id), t.stop(m.id)]);
+    expect([a.statusCode, b.statusCode]).toEqual([200, 200]);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await t.statusOf(m.id)).toBe('stopped');
+    expect(t.connector.cancels.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('Stop with an unknown message id changes nothing', async () => {
+    const t = await privateThread();
+    const m = await t.post();
+    await waitFor(() => t.connector.sealed.length === 1);
+    expect((await t.stop(`msg_${'a'.repeat(20)}`)).statusCode).toBe(404);
+    expect(await t.statusOf(m.id)).toBe('sent');
+    expect(t.connector.cancels).toHaveLength(0);
+  });
 });

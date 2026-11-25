@@ -436,10 +436,16 @@ export class ThreadService {
   ): Promise<ThreadMessage | undefined> {
     const status = message.status;
     if (status !== 'queued' && status !== 'sent' && status !== 'working') return message;
+    // Only from a live status: a final reply that landed since the read keeps `answered`.
     const changed = await this.options.store.updateUserMessage(userId, message.id, {
       status: 'stopped',
+      from: ['queued', 'sent', 'working'],
     });
-    if (changed) this.upsert(userId, changed);
+    if (!changed) {
+      const now = await this.options.store.findMessageForUser(userId, message.id);
+      return now?.message;
+    }
+    this.upsert(userId, changed);
     let told = false;
     if (status !== 'queued') {
       const record = await this.options.agents.get(userId, agentId);
@@ -915,8 +921,10 @@ export class ThreadService {
     const status = saved.complete ? 'answered' : 'working';
     const current = found.message.status;
     if (current !== status && current !== 'answered' && current !== 'stopped') {
+      // Never over a Stop or an answer that landed since the turn was read.
       const changed = await this.options.store.updateUserMessage(from.userId, frame.turn_id, {
         status,
+        from: ['queued', 'sent', 'working', 'interrupted', 'expired', 'failed'],
       });
       if (changed) this.upsert(from.userId, changed);
     }
@@ -944,19 +952,27 @@ export class ThreadService {
       const key = keyOf(userId, agentId);
       if (blocked.has(key) || message.kind !== 'sealed') continue;
       const record = await this.options.agents.get(userId, agentId);
-      if (
-        !record ||
-        !privateChats.computerSupports(record) ||
-        !message.sealed[0] ||
-        !privateChats.deliver(record, message.id, message.sealed[0])
-      ) {
+      if (!record || !privateChats.computerSupports(record) || !message.sealed[0]) {
         blocked.add(key);
         continue;
       }
+      // Marked sent before it goes out, and only while still queued: a Stop (or expiry) that
+      // landed since the queue was read wins, and the message is never delivered.
       const sent = await this.options.store.updateUserMessage(userId, message.id, {
         status: 'sent',
+        from: ['queued'],
       });
-      if (sent) this.upsert(userId, sent);
+      if (!sent) continue;
+      if (!privateChats.deliver(record, message.id, message.sealed[0])) {
+        const back = await this.options.store.updateUserMessage(userId, message.id, {
+          status: 'queued',
+          from: ['sent'],
+        });
+        if (back) this.upsert(userId, back);
+        blocked.add(key);
+        continue;
+      }
+      this.upsert(userId, sent);
     }
   }
 
