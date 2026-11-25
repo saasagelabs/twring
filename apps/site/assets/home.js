@@ -482,7 +482,7 @@
     // The ring phone gets its own copy of the call screen, for after you answer.
     $('.screen', ringPhone).appendChild($('.cv', callPhone).cloneNode(true));
 
-    var agent = { name: '', where: '', href: '', link: '', ringOnly: false };
+    var agent = { name: '', where: '', href: '', link: '', logo: '', ringOnly: false };
     var radios = $$('#agents input'), agentLink = byId('agentLink');
     var APPS = 'AI apps (Claude, ChatGPT and Grok Bot)';
     function texts(id) {
@@ -646,6 +646,7 @@
           where: r.getAttribute('data-where'),
           href: r.getAttribute('data-href'),
           link: r.getAttribute('data-link'),
+          logo: r.getAttribute('data-logo'),
           ringOnly: r.hasAttribute('data-ring-only'),
         };
       } else {
@@ -656,7 +657,8 @@
         if (agent.ringOnly && n.closest('.script')) return;
         n.textContent = agent.name;
       });
-      $$('[data-initial]').forEach(function (n) { n.textContent = agent.name.charAt(0); });
+      // The caller's picture on both phones: the agent's own logo.
+      if (agent.logo) $$('[data-logo]').forEach(function (n) { n.src = agent.logo; });
       if (r) $$('[data-where]').forEach(function (n) { n.textContent = agent.where; });
       if (r && agentLink) { agentLink.href = agent.href; agentLink.textContent = agent.link; }
       resetCall();

@@ -86,12 +86,12 @@ h2 + .lead { margin-top: 1.25rem; }
 
 /* Sections */
 .band { padding-block: clamp(4.5rem, 10vw, 8rem); }
-.band + .band, .works + .band { border-top: 1px solid var(--line); }
+.band + .band { border-top: 1px solid var(--line); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(2.5rem, 6vw, 5.5rem); align-items: center; }
 
 /* Hero: the words on the left, the call on the right. */
-.hero { padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(3.5rem, 8vw, 6rem); }
-.hero-in { display: grid; grid-template-columns: minmax(0, 1fr) 22rem; column-gap: clamp(2rem, 5vw, 4.5rem); align-items: start; }
+.hero { padding-block: clamp(2.5rem, 6vw, 4.5rem) clamp(2rem, 4vw, 3rem); }
+.hero-in { display: grid; grid-template-columns: minmax(0, 1fr) 24rem; column-gap: clamp(2rem, 5vw, 4.5rem); align-items: start; }
 .hero h1 span { display: block; }
 .hero .lead { margin-top: clamp(1.5rem, 3vw, 2.25rem); }
 .hero-ctas { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.75rem; }
@@ -114,9 +114,25 @@ h2 + .lead { margin-top: 1.25rem; }
 .stage { min-width: 0; }
 .device { margin: 0; position: relative; }
 .tag { position: absolute; z-index: 2; top: -0.7rem; left: 50%; transform: translateX(-50%); padding: 0.3rem 0.7rem; border-radius: 999px; background: #000; box-shadow: inset 0 0 0 1px var(--cyan-line); font: 600 0.6875rem/1.2 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--cyan); white-space: nowrap; }
-.phone { display: grid; width: min(20rem, 100%); aspect-ratio: 9 / 19; margin: 0 auto; border-radius: 2.9rem; padding: 0.6rem; background: #111417; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 3rem 7rem -2rem rgba(0, 0, 0, 0.95), 0 1.5rem 5rem -2.5rem rgba(25, 214, 242, 0.35); }
-.screen { display: grid; min-width: 0; border-radius: 2.35rem; overflow: hidden; background: #000; }
+/* An iPhone 18 Pro in Dark Gray: a brushed metal band with light running along its edge, a thin
+   black border, the smaller Dynamic Island, the side buttons and Camera Control. */
+.phone { --metal: linear-gradient(150deg, #8d9298 0%, #3b3f45 9%, #23262a 22%, #6f747b 36%, #2b2e33 50%, #1c1e22 63%, #5e636a 78%, #2a2d31 90%, #868b92 100%); position: relative; display: grid; width: min(20rem, 100%); aspect-ratio: 71.5 / 150; margin: 0 auto; border-radius: 3.05rem; padding: 0.5rem; border: 0.2rem solid transparent; background: linear-gradient(#050607, #050607) padding-box, var(--metal) border-box; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07), 0 0 0 1px rgba(0, 0, 0, 0.85), 0 3rem 7rem -2rem rgba(0, 0, 0, 0.95), 0 1.5rem 5rem -2.5rem rgba(25, 214, 242, 0.35); }
+/* Left: Action button, volume up, volume down. Right: side button, Camera Control. */
+.phone::before, .phone::after { content: ""; position: absolute; width: 0.19rem; border-radius: 0.12rem; pointer-events: none; }
+.phone::before { left: -0.38rem; top: 17%; height: 29%; background: linear-gradient(90deg, #2c2f34, #9a9fa6 55%, #3c3f44) 0 0 / 100% 12% no-repeat, linear-gradient(90deg, #2c2f34, #9a9fa6 55%, #3c3f44) 0 47% / 100% 30% no-repeat, linear-gradient(90deg, #2c2f34, #9a9fa6 55%, #3c3f44) 0 100% / 100% 30% no-repeat; }
+.phone::after { right: -0.38rem; top: 25%; height: 40%; background: linear-gradient(270deg, #2c2f34, #9a9fa6 55%, #3c3f44) 0 0 / 100% 26% no-repeat, linear-gradient(270deg, #1a1c1f, #4b5057 50%, #1a1c1f) 0 100% / 100% 17% no-repeat; }
+.screen { position: relative; grid-area: 1 / 1; display: grid; min-width: 0; border-radius: 2.45rem; overflow: hidden; background: linear-gradient(180deg, #0b1216 0%, #06090b 55%, #030405 100%); }
 .screen > * { grid-area: 1 / 1; min-width: 0; }
+/* The glass: one soft reflection across the screen, above everything, never in the way. */
+.glare { grid-area: 1 / 1; position: relative; z-index: 3; border-radius: 2.45rem; pointer-events: none; background: linear-gradient(118deg, rgba(255, 255, 255, 0.075) 0%, rgba(255, 255, 255, 0.02) 30%, transparent 46%); }
+/* Status bar with the island between the time and the icons; the home bar at the bottom. */
+.sb { position: absolute; z-index: 2; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; height: 2.55rem; padding: 0 1.55rem 0 1.75rem; color: #fff; pointer-events: none; }
+.sb-time { font: 600 0.8125rem/1 var(--body); letter-spacing: -0.01em; }
+.sb-icons { display: inline-flex; align-items: center; gap: 0.3rem; }
+.sb-icons svg { width: auto; height: 0.66rem; }
+.sb-icons svg:last-child { height: 0.72rem; }
+.island { position: absolute; top: 0.62rem; left: 50%; width: 4.1rem; height: 1.42rem; transform: translateX(-50%); border-radius: 999px; background: radial-gradient(circle at 78% 50%, #1d2b3b 0 0.17rem, #0b1119 0.18rem 0.3rem, #000 0.31rem); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04); }
+.screen::after { content: ""; position: absolute; z-index: 2; bottom: 0.42rem; left: 50%; width: 34%; height: 0.26rem; transform: translateX(-50%); border-radius: 999px; background: rgba(255, 255, 255, 0.78); pointer-events: none; }
 .phone[data-view="call"] .rv, .phone[data-view="ring"] .cv { display: none; }
 .device-note { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin: 1.1rem auto 0; max-width: 20rem; text-align: center; font-size: 0.8125rem; line-height: 1.5; color: var(--text-ter); }
 .device-note a { display: inline-block; padding-block: 0.5rem; color: var(--text); text-decoration-color: var(--cyan-line); }
@@ -124,13 +140,15 @@ h2 + .lead { margin-top: 1.25rem; }
 .device-note .btn { min-height: 2.75rem; padding: 0 1.2rem; font-size: 0.875rem; }
 
 /* Call screen */
-.cv, .rv { --v: var(--agent); --lvl: 0; display: flex; flex-direction: column; align-items: center; padding: 1.9rem 1.1rem 1.4rem; text-align: center; }
+.cv, .rv { --v: var(--agent); --lvl: 0; display: flex; flex-direction: column; align-items: center; padding: 3rem 1.1rem 1.6rem; text-align: center; }
 .cv[data-voice="you"] { --v: var(--cyan); }
 .cv-top { display: flex; justify-content: space-between; align-items: center; width: 100%; padding-inline: 0.5rem; }
 .cv-lbl { font-size: 0.6875rem; letter-spacing: 0.22em; color: var(--text-sec); font-weight: 600; }
 .cv-time { font-size: 0.75rem; color: var(--text-sec); }
 .orb { position: relative; flex: none; width: 9rem; height: 9rem; margin-top: 0.9rem; display: grid; place-items: center; }
-.orb-core { position: relative; width: 5.5rem; height: 5.5rem; border-radius: 50%; display: grid; place-items: center; background: var(--raise-2); box-shadow: inset 0 0 0 2px var(--cyan); font: 200 2.2rem/1 var(--display); color: var(--agent); transition: box-shadow 0.3s; }
+.orb-core { position: relative; width: 5.5rem; height: 5.5rem; border-radius: 50%; display: grid; place-items: center; overflow: hidden; background: var(--raise-2); box-shadow: 0 0 0 2px var(--cyan); font: 200 2.2rem/1 var(--display); color: var(--agent); transition: box-shadow 0.3s; }
+/* The caller's picture: the agent's own logo, like a contact photo. */
+.orb-logo { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 .halo { position: absolute; inset: 1.75rem; border-radius: 50%; background: var(--v); transition: transform 0.14s linear, background-color 0.2s; }
 .halo:nth-child(1) { opacity: 0.2; transform: scale(calc(1.1 + var(--lvl) * 0.16)); }
 .halo:nth-child(2) { opacity: 0.11; transform: scale(calc(1.22 + var(--lvl) * 0.26)); transition-duration: 0.22s; }
@@ -148,7 +166,7 @@ h2 + .lead { margin-top: 1.25rem; }
 .cv[data-state="working"] .orbit { display: block; animation: orbit 1.6s linear infinite; }
 .cv[data-state="working"] .halo { opacity: 0; }
 @keyframes orbit { to { transform: rotate(-360deg); } }
-.cv.cutflash .orb-core { box-shadow: inset 0 0 0 2px var(--cyan), 0 0 0 0.4rem rgba(25, 214, 242, 0.28); transition-duration: 0s; }
+.cv.cutflash .orb-core { box-shadow: 0 0 0 2px var(--cyan), 0 0 0 0.4rem rgba(25, 214, 242, 0.28); transition-duration: 0s; }
 
 .cv-name, .rv-name { font: 200 1.9rem/1.15 var(--display); letter-spacing: -0.03em; margin-top: 0.5rem; overflow-wrap: anywhere; }
 .cv-where { font-size: 0.75rem; color: var(--text-ter); }
@@ -228,7 +246,7 @@ button.rv-reply { cursor: pointer; text-decoration: underline; text-decoration-c
 .rv-replies button:hover { background: var(--cyan-tint); }
 .rv-replies button:active { transform: scale(0.95); }
 .rv[data-state="reply"] .rv-reply, .rv[data-state="reply"] .acts, .rv[data-state="declined"] .rv-reply, .rv[data-state="declined"] .acts, .rv[data-state="declined"] .rv-why { display: none; }
-.rv[data-state="declined"] .orb-core { box-shadow: inset 0 0 0 2px var(--line-strong); }
+.rv[data-state="declined"] .orb-core { box-shadow: 0 0 0 2px var(--line-strong); }
 
 /* The same samples as plain text. */
 .script { max-width: 22rem; margin: 0.5rem auto 0; font-size: 0.875rem; color: var(--text-sec); }
@@ -242,14 +260,7 @@ button.rv-reply { cursor: pointer; text-decoration: underline; text-decoration-c
 .script .t { color: var(--text); }
 .script i { font-style: normal; color: var(--text-ter); }
 
-.works { padding-block: 1.6rem; border-top: 1px solid var(--line); }
-.works p { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.4rem 1.6rem; color: var(--text-ter); font-size: 0.9375rem; }
-.works b { font: 300 1.25rem/1.2 var(--display); color: var(--text); letter-spacing: -0.01em; }
-.works a { display: inline-flex; align-items: center; min-height: 2.75rem; text-decoration: none; }
-.works a:hover b, .works a:focus-visible b { text-decoration: underline; text-decoration-color: var(--cyan); text-underline-offset: 0.2em; }
-
 /* How it works: one line, three stops, the order a call travels. */
-.how-head { max-width: 48rem; }
 .path { counter-reset: p; margin: clamp(2.25rem, 5vw, 3.5rem) 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 clamp(1.5rem, 4vw, 3.5rem); border-top: 1px solid var(--line-strong); }
 .path li { position: relative; padding-top: 1.4rem; }
 .path li::before { content: ""; position: absolute; top: -0.3rem; left: 0; width: 0.5625rem; height: 0.5625rem; border-radius: 50%; background: #000; box-shadow: inset 0 0 0 1px var(--agent); }
@@ -389,7 +400,6 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); overfl
 .signal::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255, 255, 255, 0.4); }
 .signal-on .signal::before { display: none; }
 .signal canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.signal + .works { border-top: 0; padding-top: 0.6rem; }
 /* The second line stands in for the rule above "You stay in control." */
 .band#trust { border-top: 0; padding-top: 0; }
 .signal-b { margin-bottom: clamp(1.5rem, 4vw, 3rem); }
@@ -441,19 +451,98 @@ footer { padding-block: 3.5rem 2.5rem; border-top: 1px solid var(--line); overfl
   .cv[data-state="calling"] .halo, .rv[data-state="ringing"] .halo { opacity: 0.4; transform: scale(1.3); }
 }
 
-/* Two groups of agents, side by side: the ones you talk to live, and the ones that ring and message. */
-.groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem clamp(2rem, 5vw, 4.5rem); }
-.group h2 { font: 500 0.8125rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-sec); }
-.group.talk h2 { color: var(--cyan); }
-.group .names { gap: 0 1.6rem; margin-top: 0.3rem; }
-.group .names > b { display: inline-flex; align-items: center; min-height: 2.75rem; }
-.group p:not(.names) { display: block; margin-top: 0.3rem; max-width: 30rem; color: var(--text-sec); }
-.group p:not(.names) a { display: inline; min-height: 0; color: var(--text); text-decoration: underline; text-decoration-color: var(--cyan-line); white-space: nowrap; }
-.group + .group { padding-left: clamp(1.5rem, 4vw, 3.5rem); border-left: 1px solid var(--line); }
 .agents small { font-size: 0.75rem; font-weight: 400; color: var(--text-ter); }
 .script-note { margin-top: 0.9rem; font-size: 0.875rem; color: var(--text-sec); }
 .rv[data-state="answered"] .rv-reply, .rv[data-state="answered"] .acts { display: none; }
-@media (max-width: 40rem) {
-  .groups { grid-template-columns: minmax(0, 1fr); }
-  .group + .group { padding: 1.75rem 0 0; border-left: 0; border-top: 1px solid var(--line); }
+
+/* Agent names with their logos, inline in a sentence. */
+.brand { display: inline-flex; align-items: center; gap: 0.34em; padding: 0.06em 0.55em 0.06em 0.16em; margin-inline: 0.04em 0; border-radius: 999px; background: rgba(255, 255, 255, 0.055); box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); font-weight: 400; line-height: 1.4; white-space: nowrap; vertical-align: 0.06em; text-decoration: none; }
+.brand img { flex: none; width: 1.15em; height: 1.15em; border-radius: 50%; object-fit: cover; }
+.brand.lg { gap: 0.5rem; min-height: 2.75rem; padding: 0 1rem 0 0.4rem; font: 400 1rem/1 var(--body); vertical-align: middle; transition: background-color 0.2s, box-shadow 0.2s; }
+.brand.lg img { width: 1.9rem; height: 1.9rem; }
+a.brand:hover, a.brand:focus-visible { background: var(--cyan-tint); box-shadow: inset 0 0 0 1px var(--cyan-line); }
+
+/* Under the hero buttons: who you can talk to, and who can ring you. */
+.works-with { margin-top: clamp(2rem, 4vw, 2.75rem); display: grid; gap: 1.25rem; padding-top: clamp(1.5rem, 3vw, 2rem); border-top: 1px solid var(--line); max-width: 36rem; }
+.ww-label { font: 500 0.75rem/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-sec); }
+.ww-row.talk .ww-label { color: var(--cyan); }
+.ww-list { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.65rem; }
+.ww-note { margin-top: 0.55rem; font-size: 0.875rem; color: var(--text-ter); }
+.ww-note a { color: var(--text); text-decoration-color: var(--cyan-line); white-space: nowrap; }
+
+/* Chooser chips carry the logo instead of a radio dot; AI apps show their three logos. */
+.agents span:has(> img)::before, .agents span:has(> .stack)::before { display: none; }
+.agents span { padding-left: 0.4rem; }
+.agents span > img { width: 1.6rem; height: 1.6rem; border-radius: 50%; object-fit: cover; transition: box-shadow 0.2s; }
+.agents input:checked + span > img { box-shadow: 0 0 0 2px var(--cyan); }
+.agents .stack { display: inline-flex; }
+.agents .stack img { width: 1.45rem; height: 1.45rem; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px #000; }
+.agents .stack img + img { margin-left: -0.45rem; }
+
+/* How it works: the heading with the voice layer drawn beside it. */
+#how { position: relative; overflow: hidden; padding-top: clamp(3rem, 6vw, 5rem); }
+#how > .wrap { position: relative; z-index: 1; }
+.glow { position: absolute; top: -12rem; right: -10rem; width: 44rem; height: 44rem; border-radius: 50%; background: radial-gradient(closest-side, rgba(25, 214, 242, 0.13), rgba(25, 214, 242, 0.04) 55%, transparent); pointer-events: none; }
+.how-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 24rem); gap: clamp(2rem, 5vw, 4.5rem); align-items: center; }
+.how-head { max-width: 40rem; }
+.how-head h2 .you { display: block; }
+.layers { display: grid; justify-items: stretch; }
+.layer { display: flex; align-items: center; gap: 0.85rem; padding: 0.85rem 1rem; border-radius: 1.1rem; background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)); box-shadow: inset 0 0 0 1px var(--line-strong), 0 1rem 2.5rem -1.5rem rgba(0, 0, 0, 0.9); }
+.l-ico { position: relative; flex: none; display: grid; place-items: center; width: 2.5rem; height: 2.5rem; border-radius: 50%; background: #000; box-shadow: inset 0 0 0 1px var(--line-strong); color: var(--text); }
+.l-you .l-ico { color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan-line); }
+.l-twring { background: linear-gradient(180deg, rgba(25, 214, 242, 0.12), rgba(25, 214, 242, 0.04)); box-shadow: inset 0 0 0 1px var(--cyan-line), 0 0 3rem -1rem rgba(25, 214, 242, 0.45); }
+.l-twring .l-ico { color: var(--cyan); }
+.l-txt { flex: 1; min-width: 0; display: grid; }
+.l-txt b { font: 400 1rem/1.3 var(--display); }
+.l-txt span { font-size: 0.8125rem; color: var(--text-ter); }
+.l-tag { flex: none; padding: 0.25rem 0.6rem; border-radius: 999px; font: 500 0.6875rem/1.2 var(--mono); letter-spacing: 0.04em; color: var(--cyan); box-shadow: inset 0 0 0 1px var(--cyan-line); }
+.l-tag.same { color: var(--text-sec); box-shadow: inset 0 0 0 1px var(--line-strong); }
+.l-wave { flex: none; display: flex; align-items: center; gap: 2px; height: 1.6rem; }
+.l-wave i { width: 2px; height: 100%; border-radius: 1px; background: var(--cyan); transform: scaleY(0.25); animation: lwave 1.2s ease-in-out infinite; }
+.l-wave i:nth-child(3n) { animation-delay: -0.3s; }
+.l-wave i:nth-child(3n + 1) { animation-delay: -0.7s; }
+.l-wave i:nth-child(4n) { animation-duration: 0.9s; }
+@keyframes lwave { 0%, 100% { transform: scaleY(0.2); } 50% { transform: scaleY(0.9); } }
+/* The agent's logo changes; the agent itself does not. */
+.l-logos { overflow: hidden; }
+.l-logos img { position: absolute; inset: 0; width: 100%; height: 100%; border-radius: 50%; object-fit: cover; opacity: 0; animation: lswap 9s infinite; }
+.l-logos img:nth-child(1) { opacity: 1; }
+.l-logos img:nth-child(2) { animation-delay: 3s; }
+.l-logos img:nth-child(3) { animation-delay: 6s; }
+@keyframes lswap { 0% { opacity: 0; } 4%, 30% { opacity: 1; } 36%, 100% { opacity: 0; } }
+/* Between the layers: your words travel down in cyan, the reply comes back up in white. */
+.l-link { position: relative; justify-self: center; width: 2px; height: 2.4rem; background: linear-gradient(var(--cyan-line), var(--line-strong)); }
+.pulse { position: absolute; left: 50%; width: 0.45rem; height: 0.45rem; margin-left: -0.225rem; border-radius: 50%; opacity: 0; }
+.pulse.down { background: var(--cyan); box-shadow: 0 0 0.8rem var(--cyan); animation: pdown 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+.pulse.up { background: #fff; box-shadow: 0 0 0.8rem rgba(255, 255, 255, 0.8); animation: pup 3.2s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+.l-link + .layer + .l-link .pulse.down { animation-delay: 0.45s; }
+.l-link:first-of-type .pulse.up { animation-delay: 0.45s; }
+@keyframes pdown { 0% { top: -0.2rem; opacity: 0; } 6% { opacity: 1; } 34% { top: calc(100% - 0.25rem); opacity: 1; } 40%, 100% { top: calc(100% - 0.25rem); opacity: 0; } }
+@keyframes pup { 0%, 50% { top: calc(100% - 0.25rem); opacity: 0; } 56% { opacity: 1; } 84% { top: -0.2rem; opacity: 1; } 90%, 100% { top: -0.2rem; opacity: 0; } }
+/* The path: a light runs along it, and each stop lights up as the light reaches it. */
+.path { position: relative; }
+.path::after { content: ""; position: absolute; top: -1px; left: 0; width: 18%; height: 1px; background: linear-gradient(90deg, transparent, var(--cyan), transparent); animation: pathrun 4.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes pathrun { 0% { transform: translateX(-100%); opacity: 0; } 8% { opacity: 1; } 92% { opacity: 1; } 100% { transform: translateX(560%); opacity: 0; } }
+.path li::before { animation: stop 4.8s infinite; }
+.path li:nth-child(2)::before { animation-delay: 1.5s; }
+.path li:nth-child(3)::before { animation-delay: 3s; }
+@keyframes stop { 0%, 100% { filter: none; } 6% { filter: drop-shadow(0 0 0.35rem var(--cyan)) brightness(1.6); } 20% { filter: none; } }
+
+@media (max-width: 60rem) {
+  .hero-in { align-items: start; }
+  .how-top { grid-template-columns: minmax(0, 1fr); }
+  .layers { max-width: 26rem; }
+  .works-with { margin-inline: auto; }
+}
+@media (min-width: 60.0625rem) {
+  .hero-in { align-items: center; }
+}
+@media (max-width: 22.5rem) {
+  .sb { padding-inline: 1.3rem 1.15rem; }
+  .island { width: 3.6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .l-wave i { transform: scaleY(0.5); }
+  .l-logos img:nth-child(1) { opacity: 1; }
+  .path::after { display: none; }
 }
