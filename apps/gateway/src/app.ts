@@ -557,6 +557,10 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         connectors: stores.connectors,
         connectorRatePerMinute: connectors.writeRatePerMinute,
         writeRatePerMinute: e2e.writeRatePerMinute,
+        onDevicesChanged: (userId) => {
+          const told = connectors.hub.notifyDevicesChanged(userId);
+          app.log.info({ event: 'e2e_devices_changed_sent', computers: told }, 'devices changed');
+        },
         ...(e2e.claimRatePerMinute !== undefined && {
           claimRatePerMinute: e2e.claimRatePerMinute,
         }),

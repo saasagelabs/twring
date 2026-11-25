@@ -98,18 +98,23 @@ export function PrivateChatsRow({
   return (
     <SettingsGroup title="Privacy">
       {isPrivate ? (
-        <SettingsRow label="Private chats" value="On" divider={false} />
+        <SettingsRow label="Private chats" value="On" />
       ) : (
         <SettingsRow
           label={PRIVATE_ROW_LABEL}
           accessibilityHint="Asks before making new messages private"
-          divider={false}
           onPress={() => {
             setError(undefined);
             setVisible(true);
           }}
         />
       )}
+      <SettingsRow
+        label="Devices"
+        accessibilityHint="Shows the phones and computers that can read private chats"
+        divider={false}
+        onPress={() => router.push('/private/devices')}
+      />
       <Sheet
         visible={visible}
         title={copy.title}

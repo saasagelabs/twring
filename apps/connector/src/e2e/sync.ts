@@ -115,3 +115,45 @@ export async function syncDevices(
   });
   return counts;
 }
+
+/** How long a `e2e.devices_changed` waits for more of them before the one sync it starts. */
+export const DEVICES_CHANGED_DEBOUNCE_MS = 2_000;
+
+/**
+ * The sync a `e2e.devices_changed` frame starts (C3 #11 P4 ruling 2): many frames close together
+ * start one sync, and a frame that arrives while a sync runs starts one more after it, so the
+ * last removal is always read. Ignored while `enabled()` says private chats are off here.
+ */
+export function devicesChangedTrigger(options: {
+  run: () => Promise<void>;
+  enabled: () => boolean;
+  delayMs?: number;
+}): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let running = false;
+  let again = false;
+  const start = () => {
+    timer = undefined;
+    if (running) {
+      again = true;
+      return;
+    }
+    running = true;
+    void options
+      .run()
+      .catch(() => undefined)
+      .finally(() => {
+        running = false;
+        if (again) {
+          again = false;
+          start();
+        }
+      });
+  };
+  return () => {
+    if (!options.enabled()) return;
+    if (timer !== undefined) return;
+    timer = setTimeout(start, options.delayMs ?? DEVICES_CHANGED_DEBOUNCE_MS);
+    timer.unref?.();
+  };
+}

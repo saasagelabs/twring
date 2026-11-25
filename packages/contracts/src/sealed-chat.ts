@@ -10,6 +10,11 @@ import { z } from 'zod';
 export const SEALED_CHAT_FEATURE = 'sealed_chat';
 /** A computer that can stop a private turn when the phone taps Stop (`sealed.cancel`, C3 #11). */
 export const SEALED_CANCEL_FEATURE = 'sealed_cancel';
+/**
+ * A computer that reads the account's devices again when told a device was removed
+ * (`e2e.devices_changed`, C3 #11). Older computers still read them every 10 minutes.
+ */
+export const DEVICES_CHANGED_FEATURE = 'devices_changed';
 export const MAX_PAIRED_DEVICES = 5;
 export const SEALED_FORMAT_VERSION = 1;
 

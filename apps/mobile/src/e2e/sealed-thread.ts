@@ -21,6 +21,7 @@ import {
 } from '@twring/contracts';
 
 import type { DeviceKey } from './device-key';
+import { computerAllowed } from './devices';
 import type { TrustedDevice } from './pairing';
 
 /**
@@ -170,6 +171,14 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   if (!chunked && envelopes.length !== 1) return { ok: false, replay: false };
   const theirKey = senderKey(ctx, sender);
   if (theirKey === undefined) return { ok: false, replay: false };
+  // A computer speaks only in chats with its own connector's agents (C3 #11 P4a): another
+  // computer the person paired cannot seal a reply or approval into this chat.
+  if (
+    sender !== ctx.me.deviceId &&
+    ctx.trusted.some((d) => d.id === sender && d.kind === 'computer') &&
+    !computerAllowed(ctx.trusted, sender, ctx.accountId)
+  )
+    return { ok: false, replay: false };
   const saved = ctx.savedIds.get(`${sender}:${seq}`);
   for (const e of envelopes) {
     const owner = ctx.owners.get(replayKey(sender, seq, e.chunk?.index)) ?? saved;

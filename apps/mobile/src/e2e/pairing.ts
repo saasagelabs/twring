@@ -1,6 +1,7 @@
 import {
   base64urlDecode,
   base64urlEncode,
+  connectorIdSchema,
   deviceIdFor,
   e2eDeviceIdSchema,
   e2eDeviceKindSchema,
@@ -42,6 +43,11 @@ export const trustedDeviceSchema = z
     name: z.string().min(1).max(60),
     public_key: publicKeySchema,
     verified_at: z.iso.datetime(),
+    /**
+     * A computer's connector (`con_...`): its replies and approvals are taken only in chats with
+     * that connector's agents (C3 #11 P4a). Absent on entries paired before; see `devices.ts`.
+     */
+    connector_id: connectorIdSchema.optional(),
   })
   .strict();
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>;
@@ -113,6 +119,8 @@ export type ClaimResult =
 const claimAnswerSchema = z.object({
   connector_public_key: publicKeySchema,
   connector_device_id: e2eDeviceIdSchema,
+  /** Older servers send none; the entry is then bound later from the device list. */
+  connector_id: connectorIdSchema.optional(),
 });
 const lookupAnswerSchema = z.object({
   offer_id: pairOfferIdSchema,
@@ -263,6 +271,7 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
       name: 'Computer',
       public_key: plan.connectorPublicKey,
       verified_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
+      ...(parsed.data.connector_id !== undefined && { connector_id: parsed.data.connector_id }),
     },
   };
 }
@@ -284,12 +293,21 @@ export async function confirmPairing(
   connector: TrustedDevice,
 ): Promise<void> {
   const current = await loadTrusted(deps.store);
+  // A computer set up again (new key, same connector) replaces its old entry.
   const others = current.filter(
-    (d) => d.id !== connector.id && d.public_key !== connector.public_key,
+    (d) =>
+      d.id !== connector.id &&
+      d.public_key !== connector.public_key &&
+      (connector.connector_id === undefined || d.connector_id !== connector.connector_id),
   );
   const next = trustedListSchema.parse([...others, connector].slice(-16));
   await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(next));
   deps.log?.('e2e_paired', { device_id: connector.id, trusted: next.length });
+}
+
+/** Saves the trusted list as it is now (devices.ts drops revoked ones and binds older ones). */
+export async function saveTrusted(store: SecureKeyValue, list: TrustedDevice[]): Promise<void> {
+  await store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(trustedListSchema.parse(list)));
 }
 
 export async function forgetTrusted(store: SecureKeyValue): Promise<void> {

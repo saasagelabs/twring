@@ -111,6 +111,25 @@ describe('pairing client', () => {
     expect(res.ok && res.safety).toBe(safetyCode(computer.publicKey, phone.publicKey));
   });
 
+  it('records the connector id the claim names, and none from an older server', async () => {
+    const CON = `con_${'a'.repeat(20)}`;
+    const bound = await claimPairing(
+      deps(
+        fakeApi({
+          body: {
+            connector_public_key: K,
+            connector_device_id: deviceIdFor(computer.publicKey),
+            connector_id: CON,
+          },
+        }),
+      ),
+      input(),
+    );
+    expect(bound.ok && bound.connector.connector_id).toBe(CON);
+    const older = await claimPairing(deps(fakeApi()), input());
+    expect(older.ok && older.connector.connector_id).toBeUndefined();
+  });
+
   it('rejects a swapped connector key and stores nothing', async () => {
     const other = generateSealKeyPair().publicKey;
     const d = deps(

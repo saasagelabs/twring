@@ -58,7 +58,8 @@ import { pairPhone } from './e2e/pair';
 import { updateE2e } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
-import { DEVICE_SYNC_MS, syncDevices } from './e2e/sync';
+import { DEVICE_SYNC_MS, devicesChangedTrigger, syncDevices } from './e2e/sync';
+import { resetLines, resetPrivateKey } from './e2e/reset';
 import {
   cancelLastRing,
   deliverBackgroundResult,
@@ -161,6 +162,7 @@ Let Claude Code or Codex ring you by themselves:
 
 Private chats (only your phone and this computer can read them):
   node ${CONNECTOR_CLI_NAME}.mjs private pair    Pair your phone with this computer.
+  node ${CONNECTOR_CLI_NAME}.mjs private reset   Give this computer a new private chat key.
 `;
 
 function print(line: string): void {
@@ -519,6 +521,8 @@ function run(config: ConnectorConfig): Promise<number> {
     features: () => helloFeatures(e2e),
     onSealedMessage: (frame) =>
       void privateChats.receive(frame).catch(() => log('a private message could not be answered')),
+    // A device was removed in the app (C3 #11): read the list now, once for a burst of these.
+    onDevicesChanged: () => devicesChanged(),
     server: checkServerUrl(config.server).toString(),
     token: config.token,
     agents: config.agents.map(publicAgent),
@@ -590,6 +594,11 @@ function run(config: ConnectorConfig): Promise<number> {
     if (helloFeatures(e2e).join() !== before) client.rehello();
   };
   setInterval(() => void syncPrivate().catch(() => undefined), DEVICE_SYNC_MS).unref();
+  // Ignored while no phone is trusted here: private chats are off on this computer.
+  const devicesChanged = devicesChangedTrigger({
+    run: syncPrivate,
+    enabled: () => e2e?.devices.some((device) => device.kind === 'phone') ?? false,
+  });
   process.once('SIGINT', () => {
     print('Disconnecting…');
     client.stop();
@@ -1223,6 +1232,7 @@ async function main(): Promise<void> {
 
 /** `private pair`: pairs the phone for private chats (ADR-044). */
 async function privateCommand(rest: string[]): Promise<number> {
+  if (rest[0] === 'reset' && rest.length === 1) return privateReset();
   if (rest[0] !== 'pair' || rest.length > 1) fail(`Unknown command.\n\n${HELP}`);
   const path = configPath();
   const saved = await loadConfig(path);
@@ -1285,6 +1295,24 @@ async function privateCommand(rest: string[]): Promise<number> {
   } finally {
     process.off('SIGINT', stop);
   }
+}
+
+/** `private reset`: a new private chat key for this computer (C3 #11 P4a). */
+async function privateReset(): Promise<number> {
+  const path = configPath();
+  const saved = await loadConfig(path);
+  if (saved === undefined) {
+    print(`Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
+    return 1;
+  }
+  const outcome = await resetPrivateKey({
+    config: saved,
+    save: (config) => saveConfig(path, config),
+    fetch,
+  });
+  for (const line of resetLines(outcome.server, CONNECTOR_CLI_NAME)) print(line);
+  print('If Twring is running on this computer, restart it.');
+  return 0;
 }
 
 /**
