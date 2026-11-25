@@ -1062,7 +1062,7 @@ export class SqliteThreadStore {
     if (!thread) return undefined;
     const row = this.db
       .prepare(
-        "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND id=? AND kind='user_text'",
+        "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND id=? AND (kind='user_text' OR (kind='sealed' AND client_id IS NOT NULL))",
       )
       .get(thread.id, userId, messageId) as Row | undefined;
     return row ? this.decode(row, agentId) : undefined;

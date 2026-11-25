@@ -64,6 +64,8 @@ export interface FakeConnector {
   sealed: Extract<RelayGatewayMessage, { type: 'sealed.message' }>[];
   /** Every `sealed.decision` frame (sealed approval answers, C3 #11) exactly as sent. */
   decisions: Extract<RelayGatewayMessage, { type: 'sealed.decision' }>[];
+  /** Every `sealed.cancel` frame (Stop in a private chat, C3 #11) exactly as sent. */
+  cancels: Extract<RelayGatewayMessage, { type: 'sealed.cancel' }>[];
   /** Sends any frame on the relay socket as this computer (e.g. `sealed.reply`). */
   send(frame: Record<string, unknown>): void;
   terminate(): void;
@@ -110,6 +112,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
   const closedByGateway: string[] = [];
   const sealed: FakeConnector['sealed'] = [];
   const decisions: FakeConnector['decisions'] = [];
+  const cancels: FakeConnector['cancels'] = [];
   const channels = new Map<string, { agent: string; turns: Map<string, AbortController> }>();
   const script = options.script ?? answerScript;
 
@@ -175,6 +178,9 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
         return;
       case 'sealed.decision':
         decisions.push(frame);
+        return;
+      case 'sealed.cancel':
+        cancels.push(frame);
         return;
       case 'channel.message': {
         const state = channels.get(frame.channel);
@@ -242,6 +248,7 @@ export function startFakeConnector(options: FakeConnectorOptions): FakeConnector
     closed,
     sealed,
     decisions,
+    cancels,
     send: sendFrame,
     terminate: () => ws.terminate(),
   };

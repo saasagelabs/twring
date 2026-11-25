@@ -29,6 +29,7 @@ export function privateChatAccess(
   computerSupports(record: AgentRecord): boolean;
   deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
   deliverDecision(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
+  cancel(record: AgentRecord, turnId: string): boolean;
 } {
   const send = (
     record: AgentRecord,
@@ -62,5 +63,17 @@ export function privateChatAccess(
     deliver: (record, messageId, sealed) => send(record, 'sealed.message', messageId, sealed),
     deliverDecision: (record, messageId, sealed) =>
       send(record, 'sealed.decision', messageId, sealed),
+    cancel: (record, turnId) => {
+      if (record.protocol !== 'cord-connector') return false;
+      const endpoint = parseConnectorEndpoint(record.endpoint_url);
+      return (
+        endpoint !== undefined &&
+        hub.sendSealed(record.user_id, endpoint.connectorId, {
+          type: 'sealed.cancel',
+          agent: endpoint.localAgent,
+          turn_id: turnId,
+        })
+      );
+    },
   };
 }

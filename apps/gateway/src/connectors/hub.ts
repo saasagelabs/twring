@@ -9,6 +9,7 @@ import {
   RELAY_PROTOCOL,
   relayConnectorMessageSchema,
   SCOPED_SESSIONS_FEATURE,
+  SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
   type LocalAgent,
   type RelayConnectorMessage,
@@ -299,16 +300,20 @@ export class ConnectorHub {
   /**
    * Sends a private chat message or sealed approval answer (ADR-044) unchanged to the user's own
    * computer. False when it is not connected, not theirs, or did not say `sealed_chat` in its
-   * latest hello.
+   * latest hello. A `sealed.cancel` also needs `sealed_cancel` in that hello.
    */
   sendSealed(
     userId: string,
     connectorId: string,
-    frame: Extract<RelayGatewayMessage, { type: 'sealed.message' | 'sealed.decision' }>,
+    frame: Extract<
+      RelayGatewayMessage,
+      { type: 'sealed.message' | 'sealed.decision' | 'sealed.cancel' }
+    >,
   ): boolean {
     const entry = this.live.get(connectorId);
     if (entry === undefined || !entry.ready || entry.userId !== userId) return false;
     if (!entry.features.has(SEALED_CHAT_FEATURE)) return false;
+    if (frame.type === 'sealed.cancel' && !entry.features.has(SEALED_CANCEL_FEATURE)) return false;
     try {
       entry.ws.send(JSON.stringify(frame));
       return true;

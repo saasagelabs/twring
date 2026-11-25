@@ -69,6 +69,11 @@ export interface ThreadServiceOptions {
     deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
     /** Sends the phone's sealed approval answer unchanged to the computer (C3 #11). */
     deliverDecision(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
+    /**
+     * Tells the computer the phone stopped private turn `turnId` (C3 #11); best effort, false when
+     * it is offline or did not say `sealed_cancel`.
+     */
+    cancel?(record: AgentRecord, turnId: string): boolean;
   };
 }
 export class ThreadServiceError extends Error {
@@ -389,6 +394,9 @@ export class ThreadService {
         return changed;
       }
     }
+    const sealed = await this.options.store.findMessageForUser(userId, messageId);
+    if (sealed?.message.kind === 'sealed' && sealed.message.author === 'user')
+      return this.stopSealed(userId, sealed.agentId, sealed.message);
     const threads = await this.options.store.listThreads(userId);
     for (const thread of threads) {
       const queued = await this.options.store.queuedMessages(userId, thread.agent_id);
@@ -414,6 +422,40 @@ export class ThreadService {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Stop for a private message (C3 #11). Queued: it is never delivered (the sweep sends only
+   * `queued`). Sent or working: marked stopped, then the computer is told, best effort; a reply
+   * still arriving is kept and the status stays stopped. Answered or stopped: unchanged.
+   */
+  private async stopSealed(
+    userId: string,
+    agentId: string,
+    message: Extract<ThreadMessage, { kind: 'sealed' }>,
+  ): Promise<ThreadMessage | undefined> {
+    const status = message.status;
+    if (status !== 'queued' && status !== 'sent' && status !== 'working') return message;
+    const changed = await this.options.store.updateUserMessage(userId, message.id, {
+      status: 'stopped',
+    });
+    if (changed) this.upsert(userId, changed);
+    let told = false;
+    if (status !== 'queued') {
+      const record = await this.options.agents.get(userId, agentId);
+      told = !!record && this.options.privateChats?.cancel?.(record, message.id) === true;
+    }
+    this.options.log?.info(
+      {
+        event: 'thread_sealed_stopped',
+        agent_id: agentId,
+        message_id: message.id,
+        from: status,
+        told,
+      },
+      'thread_sealed_stopped',
+    );
+    return changed;
   }
 
   async decideApproval(
