@@ -452,6 +452,24 @@ describe('private chats in the chat data layer', () => {
     await vi.waitFor(() => expect(JSON.stringify(t.drafts.value ?? '')).not.toContain('old words'));
   });
 
+  it('a draft typed after the first chat list load failed is not written to the file', async () => {
+    const t = await setup();
+    await t.drafts.save({ version: 1, drafts: { [privateAgent]: 'old secret sk-old' } });
+    const api = {
+      ...t.api,
+      listThreads: vi.fn().mockRejectedValue(new ApiError('network', 'agent_offline')),
+    };
+    const fresh = new ChatController(api as unknown as TwringApi, undefined, {
+      drafts: t.drafts,
+    });
+    await fresh.refreshList();
+    // The list never arrived: nothing says this chat is ordinary.
+    fresh.setDraft(privateAgent, 'my api key is sk-123');
+    fresh.flushDrafts();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(JSON.stringify(t.drafts.value ?? '')).not.toContain('sk-123');
+  });
+
   it('opens the whole chat for export without moving the replay window', async () => {
     const t = await setup();
     const listed = (await t.api.listMessages()) as { messages: ThreadMessage[] };
