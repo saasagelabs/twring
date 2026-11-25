@@ -112,19 +112,25 @@ export async function restoreDeviceKey(
 /** One counter update at a time per keychain, so two quick sends never read the same seq. */
 const seqLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();
 
-export function nextSeq(store: SecureKeyValue): Promise<number> {
+/**
+ * The seq is max(saved + 1, clock in ms). A restored phone shares its key (so its device id and
+ * seq lane) with the old phone, which may still be in use; both follow the clock, so neither falls
+ * more than the 64-wide replay window behind the other and the computer drops neither.
+ */
+export function nextSeq(store: SecureKeyValue, now: () => number = Date.now): Promise<number> {
   const previous = seqLocks.get(store) ?? Promise.resolve();
-  const next = previous.catch(() => undefined).then(() => takeSeq(store));
+  const next = previous.catch(() => undefined).then(() => takeSeq(store, now));
   seqLocks.set(store, next);
   return next;
 }
 
-async function takeSeq(store: SecureKeyValue): Promise<number> {
+async function takeSeq(store: SecureKeyValue, now: () => number): Promise<number> {
   const raw = await store.getItemAsync(SEQ_KEY_NAME);
   const last = raw === null ? 0 : Number(raw);
   // A damaged counter must never restart at 1: the computer would drop those as replays.
   if (!Number.isSafeInteger(last) || last < 0) throw new Error('private chat counter damaged');
-  const seq = last + 1;
+  const clock = Math.floor(now());
+  const seq = Number.isSafeInteger(clock) && clock > last ? clock : last + 1;
   await store.setItemAsync(SEQ_KEY_NAME, String(seq));
   return seq;
 }

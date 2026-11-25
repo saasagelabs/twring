@@ -23,9 +23,9 @@ describe('private chat keys per server and account (P3c ruling 1)', () => {
     const keyB = await loadOrCreateDeviceKey(b);
     expect(keyB.created).toBe(true);
     expect(keyB.deviceId).not.toBe(keyA.deviceId);
-    expect(await nextSeq(a)).toBe(1);
-    expect(await nextSeq(a)).toBe(2);
-    expect(await nextSeq(b)).toBe(1);
+    expect(await nextSeq(a, () => 0)).toBe(1);
+    expect(await nextSeq(a, () => 0)).toBe(2);
+    expect(await nextSeq(b, () => 0)).toBe(1);
     await confirmPairing({ store: a }, computer);
     expect(await loadTrusted(a)).toHaveLength(1);
     expect(await loadTrusted(b)).toEqual([]);
@@ -46,14 +46,14 @@ describe('private chat keys per server and account (P3c ruling 1)', () => {
     const b = scopedKeychain(phone, 'hosted:user-b');
     await loadOrCreateDeviceKey(a);
     const keyB = await loadOrCreateDeviceKey(b);
-    await nextSeq(b);
+    await nextSeq(b, () => 0);
     await confirmPairing({ store: b }, computer);
-    await nextSeq(a);
+    await nextSeq(a, () => 0);
     await confirmPairing({ store: a }, computer);
     await forgetPrivateDevice(a);
     expect(await loadTrusted(a)).toEqual([]);
     expect((await loadOrCreateDeviceKey(b)).deviceId).toBe(keyB.deviceId);
-    expect(await nextSeq(b)).toBe(2);
+    expect(await nextSeq(b, () => 0)).toBe(2);
     expect(await loadTrusted(b)).toHaveLength(1);
   });
 
@@ -67,9 +67,9 @@ describe('scoped keychain edge cases (P3c verify)', () => {
   it('two quick sends in one scope still get two seqs, even from two lookups', async () => {
     const phone = memoryStore();
     const seqs = await Promise.all([
-      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
-      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
-      nextSeq(scopedKeychain(phone, 'hosted:user-a')),
+      nextSeq(scopedKeychain(phone, 'hosted:user-a'), () => 0),
+      nextSeq(scopedKeychain(phone, 'hosted:user-a'), () => 0),
+      nextSeq(scopedKeychain(phone, 'hosted:user-a'), () => 0),
     ]);
     expect([...seqs].sort()).toEqual([1, 2, 3]);
   });
@@ -78,7 +78,7 @@ describe('scoped keychain edge cases (P3c verify)', () => {
     const phone = memoryStore();
     const store = scopedKeychain(phone, 'selfhost:' + 'x'.repeat(500) + ':\u{1F600} person');
     await loadOrCreateDeviceKey(store);
-    await nextSeq(store);
+    await nextSeq(store, () => 0);
     await confirmPairing({ store }, computer);
     expect(phone.m.size).toBeGreaterThanOrEqual(3);
     for (const name of phone.m.keys()) {
@@ -89,7 +89,7 @@ describe('scoped keychain edge cases (P3c verify)', () => {
   });
 
   it('signed out: reads and writes fail, forgetting is a no-op', async () => {
-    await expect(nextSeq(noKeychain)).rejects.toThrow();
+    await expect(nextSeq(noKeychain, () => 0)).rejects.toThrow();
     await expect(loadTrusted(noKeychain)).rejects.toThrow();
     await expect(forgetPrivateDevice(noKeychain)).resolves.toBeUndefined();
   });

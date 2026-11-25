@@ -1407,8 +1407,9 @@ phone's device private key and the computers it verified, with associated data b
 `e2e_recovery`: device id, salt, an 8-byte check value (tells wrong words from a damaged backup;
 it lets nobody guess faster than the backup itself does) and the ciphertext. Never the words or
 the key. Reads are rate limited per account; delete my data removes the backup. A restored phone
-keeps its device id, so its computers need no new pairing; its seq counter jumps to the clock in
-milliseconds so nothing it sends is taken for a replay. A computer paired after the backup was
+keeps its device id, so its computers need no new pairing. Every phone seals with seq
+max(saved + 1, clock in milliseconds), so a restored phone and an old phone still in use with the
+same key stay within the 64-wide replay window of each other and neither is dropped as a replay. A computer paired after the backup was
 made must be paired again on the restored phone. A backup of a removed phone is not offered.
 
 ### Consequences

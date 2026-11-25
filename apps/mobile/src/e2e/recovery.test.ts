@@ -1,4 +1,9 @@
-import { base64urlDecode, base64urlEncode, type RecoveryBackupRequest } from '@twring/contracts';
+import {
+  base64urlDecode,
+  base64urlEncode,
+  ReplayWindow,
+  type RecoveryBackupRequest,
+} from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import { loadDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
@@ -214,5 +219,42 @@ describe('recovery key on the phone', () => {
     expect(
       await saveRecoveryKey({ api: server.api, store, account: ACCOUNT }, newRecoveryWords()),
     ).toEqual({ ok: false, code: 'refused' });
+  });
+});
+
+describe('two phones with one key (restore while the old phone still works)', () => {
+  it('the computer keeps taking messages from both phones', async () => {
+    const { store: oldPhone, me } = await pairedPhone();
+    const server = fakeServer();
+    const words = newRecoveryWords();
+    await saveRecoveryKey({ api: server.api, store: oldPhone, account: ACCOUNT }, words);
+    let clock = 1_800_000_000_000;
+    const now = () => clock;
+    const computerSeen = new ReplayWindow();
+    // The old phone sent a few messages before the restore.
+    for (let i = 0; i < 3; i++)
+      expect(computerSeen.accept(me.deviceId, await nextSeq(oldPhone, now))).toBe(true);
+    const newPhone = memoryStore();
+    const backup = await found(server.api, newPhone);
+    await restoreFromWords(
+      { api: server.api, store: newPhone, account: ACCOUNT, now },
+      backup,
+      words.join(' '),
+    );
+    // Then both phones send, alternating, a few seconds apart.
+    for (let i = 0; i < 5; i++) {
+      clock += 2_000;
+      expect(computerSeen.accept(me.deviceId, await nextSeq(newPhone, now))).toBe(true);
+      clock += 2_000;
+      expect(computerSeen.accept(me.deviceId, await nextSeq(oldPhone, now))).toBe(true);
+    }
+  });
+
+  it('a phone that restarts still counts up from its saved seq', async () => {
+    const s = memoryStore();
+    s.m.set('twring.e2e.seq.v1', '5000');
+    expect(await nextSeq(s, () => 10)).toBe(5001);
+    expect(await nextSeq(s, () => 10)).toBe(5002);
+    expect(await nextSeq(s, () => 9000)).toBe(9000);
   });
 });

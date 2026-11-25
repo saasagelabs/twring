@@ -46,17 +46,17 @@ describe('phone device key', () => {
   it('forgets on sign-out', async () => {
     const s = memoryStore();
     await loadOrCreateDeviceKey(s);
-    await nextSeq(s);
+    await nextSeq(s, () => 0);
     await forgetDeviceKey(s);
     expect(s.m.size).toBe(0);
   });
 
   it('hands out each seq once and saves it before use', async () => {
     const s = memoryStore();
-    expect(await nextSeq(s)).toBe(1);
-    expect(await nextSeq(s)).toBe(2);
+    expect(await nextSeq(s, () => 0)).toBe(1);
+    expect(await nextSeq(s, () => 0)).toBe(2);
     s.m.set('twring.e2e.seq.v1', 'junk');
-    await expect(nextSeq(s)).rejects.toThrow();
+    await expect(nextSeq(s, () => 0)).rejects.toThrow();
   });
 
   it('two messages sealed at once never share a seq (the keychain is slow)', async () => {
@@ -72,9 +72,13 @@ describe('phone device key', () => {
       },
       deleteItemAsync: (k: string) => s.deleteItemAsync(k),
     };
-    const seqs = await Promise.all([nextSeq(slow), nextSeq(slow), nextSeq(slow)]);
+    const seqs = await Promise.all([
+      nextSeq(slow, () => 0),
+      nextSeq(slow, () => 0),
+      nextSeq(slow, () => 0),
+    ]);
     expect(seqs.sort()).toEqual([1, 2, 3]);
-    expect(await nextSeq(slow)).toBe(4);
+    expect(await nextSeq(slow, () => 0)).toBe(4);
   });
 
   it('a failed counter write does not block the next seq', async () => {
@@ -91,7 +95,7 @@ describe('phone device key', () => {
       },
       deleteItemAsync: (k: string) => s.deleteItemAsync(k),
     };
-    await expect(nextSeq(flaky)).rejects.toThrow();
-    expect(await nextSeq(flaky)).toBe(1);
+    await expect(nextSeq(flaky, () => 0)).rejects.toThrow();
+    expect(await nextSeq(flaky, () => 0)).toBe(1);
   });
 });
