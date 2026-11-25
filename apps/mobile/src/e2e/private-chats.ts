@@ -99,6 +99,11 @@ export class PrivateChats {
   private generation = 0;
   /** This phone's saved list held a computer before the server's list was applied. */
   private hadComputer = false;
+  /**
+   * The server's last list named this phone as an active device (it was paired, approved or
+   * restored): never a new phone. Undefined until a list was read.
+   */
+  private known: boolean | undefined;
   private saving: Promise<void> = Promise.resolve();
   /** When each chat's re-wraps were last asked for, and the read still running. */
   private readonly rewrapAsked = new Map<string, number>();
@@ -118,8 +123,14 @@ export class PrivateChats {
     if (this.removedSelf) return REMOVED_PHONE;
     if (this.reinstalled.has(agentId)) return REINSTALLED;
     if (this.lostKeys.has(agentId) && this.pairAgain(agentId)) return LOST_KEYS;
-    // No computer trusted, then or now: a new or wiped phone, to set up rather than pair "again".
-    if (!this.hadComputer && !this.trusted.some((d) => d.kind === 'computer')) return NEW_PHONE;
+    // No computer trusted, then or now, and the server does not know this phone: a new or wiped
+    // phone, to set up rather than pair "again". A phone the server knows lost only its computer.
+    if (
+      this.known !== true &&
+      !this.hadComputer &&
+      !this.trusted.some((d) => d.kind === 'computer')
+    )
+      return NEW_PHONE;
     return this.pairAgain(agentId) ? PAIR_AGAIN : undefined;
   }
 
@@ -140,6 +151,9 @@ export class PrivateChats {
         await this.forgetRemoved();
         return;
       }
+      this.known = server.some(
+        (d) => d.id === me.deviceId && d.kind === 'phone' && d.revoked_at === undefined,
+      );
       this.trusted = await syncTrusted(this.deps.store, server, this.deps.log, me);
       if (reinstalledFor(server, this.trusted, connectorId, before)) this.reinstalled.add(agentId);
       else this.reinstalled.delete(agentId);
@@ -155,6 +169,7 @@ export class PrivateChats {
   private async forgetRemoved(): Promise<void> {
     this.deps.log?.('e2e_phone_removed');
     this.removedSelf = true;
+    this.known = false;
     this.trusted = [];
     this.contexts.clear();
     this.reinstalled.clear();
@@ -175,6 +190,7 @@ export class PrivateChats {
     this.lostKeys.clear();
     this.rewrapAsked.clear();
     this.removedSelf = false;
+    this.known = undefined;
   }
 
   private loadSaved(): Promise<Record<string, SavedReplay>> {
@@ -412,6 +428,7 @@ export class PrivateChats {
     this.lostKeys.clear();
     this.rewrapAsked.clear();
     this.removedSelf = false;
+    this.known = undefined;
     this.trusted = [];
     this.saved = Promise.resolve({});
     await this.saving;
