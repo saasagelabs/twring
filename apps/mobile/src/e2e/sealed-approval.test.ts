@@ -176,7 +176,7 @@ describe('sealed approval sender (verify p148)', () => {
           name: 'Other phone',
           public_key: base64urlEncode(other.publicKey),
           verified_at: '2026-11-25T00:00:00.000Z',
-        } as TrustedDevice,
+        },
       ],
       nextSeq: () => ++seq,
     });
