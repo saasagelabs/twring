@@ -26,7 +26,7 @@ import { callController, useCallView } from '@/call/session';
 import { Avatar } from '@/components/Avatar';
 import { ComputerCallHint } from '@/components/ComputerCallHint';
 import { Bubble } from '@/components/chat/Bubble';
-import { ChatApproval } from '@/components/chat/ChatApproval';
+import { ChatApproval, ChatSealedApproval } from '@/components/chat/ChatApproval';
 import { CallCard } from '@/components/chat/CallCard';
 import { Composer } from '@/components/chat/Composer';
 import { DateSeparator } from '@/components/chat/DateSeparator';
@@ -471,6 +471,21 @@ export default function ChatScreen() {
     if (message.kind === 'notice' && message.code === 'new_session')
       return <Notice text={`New conversation: ${name} won't remember earlier messages.`} />;
     if (message.kind === 'sealed') {
+      const card = openedById?.get(message.id);
+      if (card?.state === 'approval')
+        return (
+          <ChatSealedApproval
+            title={card.title}
+            description={card.description}
+            expiresAt={card.expiresAt}
+            answered={message.approval?.state === 'answered'}
+            updatedAt={message.updated_at}
+            name={name}
+            onDecide={(decision) =>
+              chat.decideSealedApproval(message.id, card.approvalId, decision)
+            }
+          />
+        );
       const bubble = sealedBubble(message, openedById, name);
       if (bubble === undefined) return null;
       const sealedTarget: ActionTarget = {

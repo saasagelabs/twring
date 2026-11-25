@@ -484,6 +484,29 @@ export class ChatController {
     }
   }
 
+  /** Answers a private chat's sealed approval (C3 #11) with a sealed, signed decision. */
+  async decideSealedApproval(
+    agentId: string,
+    messageId: string,
+    approvalId: string,
+    decision: 'approve' | 'deny',
+  ): Promise<void> {
+    if (!this.privacy) throw new Error('Private chats unavailable');
+    const epoch = this.epoch;
+    const sealed = await this.privacy.sealDecision(agentId, approvalId, decision);
+    try {
+      const message = await this.api.decideSealedApproval(agentId, messageId, sealed);
+      if (epoch === this.epoch) this.put(agentId, upsert(this.getChat(agentId), [message]));
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && error.currentMessage) {
+        if (epoch === this.epoch)
+          this.put(agentId, upsert(this.getChat(agentId), [error.currentMessage]));
+        return;
+      }
+      throw error;
+    }
+  }
+
   frame(frame: ThreadSocketFrame): void {
     const agentId = frame.type === 'message.upserted' ? frame.message.agent_id : frame.agent_id;
     if (frame.type === 'message.upserted') this.outbox.reconcile(frame.message);
@@ -694,6 +717,8 @@ export function useChat(agentId: string) {
     stop: (messageId: string) => active?.stop(agentId, messageId),
     decideApproval: (messageId: string, decision: 'approve' | 'deny') =>
       active?.decideApproval(agentId, messageId, decision),
+    decideSealedApproval: (messageId: string, approvalId: string, decision: 'approve' | 'deny') =>
+      active?.decideSealedApproval(agentId, messageId, approvalId, decision),
     loadOlder: () => active?.loadOlder(agentId),
     /** Private chats: the opened messages (memory only) and whether to pair again. */
     private: active?.isPrivate(agentId) ?? false,

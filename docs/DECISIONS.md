@@ -1377,7 +1377,16 @@ transcription, Listen and AI apps connected online are never labelled end-to-end
   per-sender seq are. The gateway keeps assigning message ids.
 - Agent replies stream as sealed chunks with the same message key and a chunk index in the AAD;
   the final message carries the whole text.
-- Approval requests in a private chat are sealed like any message.
+- Approval requests in a private chat are sealed like any message. Owner decision (2026-11-25):
+  a private chat must be safe enough to share API keys and secrets, so the computer seals each
+  approval (a fresh random 130-bit `apv_` id, the title and description at the plain card's
+  limits, the expiry) to every trusted phone under its own seq, in a `sealed.approval` frame; the
+  server stores it as an opaque sealed message with only `pending | answered` and the expiry, and
+  pushes the fixed private text. The phone answers with a sealed, sender-authenticated
+  `approval_decision` (id and `approve | deny`) under its next keychain seq, which the server
+  relays unchanged as `sealed.decision`. The computer acts only on an answer from a trusted phone,
+  fresh in the replay window, for an approval of this agent still waiting and not expired; no
+  answer within `APPROVAL_HOLD_MS`, or the turn ending, denies. Calls are unchanged.
 - A voice note in a private chat is a server-readable message, marked on the bubble; the header
   label is replaced by "Private, except messages marked as sent through Twring" while such a
   message exists in the chat.

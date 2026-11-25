@@ -179,6 +179,13 @@ export interface TwringApi {
     decision: 'approve' | 'deny',
     signal?: AbortSignal,
   ): Promise<ThreadMessage>;
+  /** A private chat's approval (C3 #11): the answer goes sealed, the server only relays it. */
+  decideSealedApproval(
+    agentId: string,
+    messageId: string,
+    sealed: SealedEnvelopeV1,
+    signal?: AbortSignal,
+  ): Promise<ThreadMessage>;
   markRead(agentId: string, seq: number, signal?: AbortSignal): Promise<void>;
   clearChat(agentId: string, signal?: AbortSignal): Promise<{ deleted: number }>;
   newConversation(agentId: string, signal?: AbortSignal): Promise<{ ok: true }>;
@@ -762,6 +769,15 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         z.object({ message: threadMessageSchema }),
         await request('POST', `${agentPath(agentId)}/approvals/${encodeURIComponent(messageId)}`, {
           body: { decision },
+          signal,
+        }),
+      ).message;
+    },
+    async decideSealedApproval(agentId, messageId, sealed, signal) {
+      return parse(
+        z.object({ message: threadMessageSchema }),
+        await request('POST', `${agentPath(agentId)}/approvals/${encodeURIComponent(messageId)}`, {
+          body: { sealed },
           signal,
         }),
       ).message;

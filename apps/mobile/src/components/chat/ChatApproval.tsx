@@ -7,6 +7,16 @@ import { usePalette, radius, type } from '@/theme/tokens';
 import { approvalCountdown } from '../../threads/presentation';
 
 type Approval = Extract<ThreadMessage, { kind: 'approval' }>;
+type Decide = (decision: 'approve' | 'deny') => Promise<void> | void;
+
+/** What an approval card shows, from a plain card or a private chat's opened one. */
+interface Card {
+  title: string;
+  description?: string;
+  expires_at: string;
+  updated_at: string;
+  status: 'pending' | 'allowed' | 'denied' | 'expired' | 'answered';
+}
 
 export function ChatApproval({
   message,
@@ -15,7 +25,61 @@ export function ChatApproval({
 }: {
   message: Approval;
   name: string;
-  onDecide: (decision: 'approve' | 'deny') => Promise<void> | void;
+  onDecide: Decide;
+}) {
+  return <ApprovalCard message={message} name={name} onDecide={onDecide} />;
+}
+
+/**
+ * A private chat's approval (C3 #11): what it asks was opened on this phone. Past its time it
+ * reads as denied, as the computer denies it then.
+ */
+export function ChatSealedApproval({
+  title,
+  description,
+  expiresAt,
+  answered,
+  updatedAt,
+  name,
+  onDecide,
+}: {
+  title: string;
+  description?: string;
+  expiresAt: string;
+  answered: boolean;
+  updatedAt: string;
+  name: string;
+  onDecide: Decide;
+}) {
+  const [shownAt] = useState(Date.now);
+  const status = answered
+    ? 'answered'
+    : Date.parse(expiresAt) <= shownAt
+      ? 'expired'
+      : 'pending';
+  return (
+    <ApprovalCard
+      message={{
+        title,
+        ...(description !== undefined && { description }),
+        expires_at: expiresAt,
+        updated_at: updatedAt,
+        status,
+      }}
+      name={name}
+      onDecide={onDecide}
+    />
+  );
+}
+
+function ApprovalCard({
+  message,
+  name,
+  onDecide,
+}: {
+  message: Card;
+  name: string;
+  onDecide: Decide;
 }) {
   const palette = usePalette();
   const [now, setNow] = useState(Date.now);
@@ -47,7 +111,9 @@ export function ChatApproval({
     const line =
       message.status === 'expired'
         ? 'Expired: denied'
-        : `${message.status === 'allowed' ? 'Allowed' : 'Denied'} · ${time}`;
+        : message.status === 'answered'
+          ? `Answered · ${time}`
+          : `${message.status === 'allowed' ? 'Allowed' : 'Denied'} · ${time}`;
     return (
       <Text
         accessible
