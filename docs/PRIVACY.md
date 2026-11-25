@@ -2,7 +2,7 @@
 
 **Operator:** {{OPERATOR}}\
 **Contact:** {{CONTACT_EMAIL}}\
-**Effective:** 25 November 2026
+**Effective:** 26 November 2026
 
 Twring is a voice layer for an AI agent you already use. You connect your agent, then call it or type to it in a chat. Twring handles the audio and the chat; your agent does the thinking.
 
@@ -23,8 +23,8 @@ Speech providers: **Deepgram** (speech-to-text and text-to-speech). Some deploym
 - **Agent settings:** name, endpoint address, protocol, chosen voice, and the words to listen for.
 - **Agent credential (API key):** encrypted with AES-256-GCM on the Twring server. It is never shown again, never logged, and decrypted only in the server process when a call or connection test connects to your agent.
 - **Your own voice account keys (optional):** if you add a Deepgram, Cartesia or xAI key, it is encrypted with AES-256-GCM on the Twring server, never shown again (only its last four characters), never logged, and used only for your own calls, voice notes, replies read aloud and previews of voices Twring doesn't offer itself. Delete it any time in Settings; Delete my data removes it.
-- **Chats with your agents:** the messages you type to an agent and its written replies, plus short entries for calls and rings (when, how long, the outcome, an agent's ring reason, and your decline note). They are encrypted on the Twring server (AES-256-GCM), never written to logs, and only your account can read them. A call appears in the chat as a card only: Twring keeps no audio and no transcript of what was said on a call. At most 2,000 messages per agent are kept; older ones are removed. When a new message arrives, the notification shows the agent's name and the first line of the message, sealed on the Twring server for your phone: Google's and Apple's push services (Firebase Cloud Messaging, Apple Push Notification service) pass it on and cannot read it, and your phone opens it to show the preview. The Twring server writes this preview, as it stores your chats. If your app version cannot open sealed notifications, or your phone cannot open one, the notification says only "New message" (with the title "Your agent" on Android), and the agent's name and the message text are not sent through Google's or Apple's push services at all. Rings are different: a ring still shows which agent is calling (see Ringing below).
-- **Chat search on your phone:** to let you search your chats, the app keeps a copy of your chat text on this phone; it never leaves the phone, and it is removed when you sign out or delete your data.
+- **Chats with your agents:** the messages you type to an agent and its written replies, plus short entries for calls and rings (when, how long, the outcome, an agent's ring reason, and your decline note). They are encrypted on the Twring server (AES-256-GCM), never written to logs, and only your account can read them. A call appears in the chat as a card only: Twring keeps no audio and no transcript of what was said on a call. At most 2,000 messages per agent are kept; older ones are removed. When a new message arrives, the notification shows the agent's name and the first line of the message, sealed on the Twring server for your phone: Google's and Apple's push services (Firebase Cloud Messaging, Apple Push Notification service) pass it on and cannot read it, and your phone opens it to show the preview. The Twring server writes this preview, as it stores your chats. If your app version cannot open sealed notifications, or your phone cannot open one, the notification says only "New message" (with the title "Your agent" on Android), and the agent's name and the message text are not sent through Google's or Apple's push services at all. Rings are different: a ring still shows which agent is calling (see Ringing below). Private chats work differently (section 3).
+- **Chat search on your phone:** to let you search your chats, the app keeps a copy of your chat text on this phone (except private chats, section 3); it never leaves the phone, and it is removed when you sign out or delete your data.
 - **Call summaries:** agent, start time, duration, outcome, end reason, and usage counts (seconds of speech, characters spoken, interruptions, reconnects, an optional cost estimate). No audio, no transcript. Only your most recent 200 calls are kept.
 - **Call ratings:** if you rate a call, the stars, the issues you picked and your optional note, kept with that call to improve Twring. A note, or a rating of 3 stars or fewer, is also emailed to our support inbox so a person reads it (without your account details). Deleted with your data.
 - **Notes you send from Settings (Send feedback):** your note, your account's email address (so we can reply) and the app version. Emailed to our support inbox so a person reads it. Deleted with your data.
@@ -42,7 +42,23 @@ Twring does not sell data, show ads, or use your calls to train models.
 
 When you send a voice note in a chat, its audio goes to Deepgram for transcription. Twring does not keep the audio. The transcript is kept as a chat message until you clear it.
 
-## 3. Connected AI apps (the Twring connector)
+## 3. Private chats (agents on your computer)
+
+A chat with an agent on your computer (one you linked with the Twring connector) can be made private. Private chats are being tested and may not be available on your account yet.
+
+- **What is private:** the messages you type, your agent's written replies, the quotes in them, and your agent's requests for approval with your answers. They are encrypted on your phone or your computer before they leave it, and only the phones and computers you paired for that chat can open them. The Twring server stores and passes on encrypted messages; it does not hold the keys and cannot read them.
+- **What the Twring server still sees:** which agent you chat with and when, how many messages there are and how large they are, whether you have read them, and the public key, kind and name of each phone and computer you paired (a phone is named "iPhone" or "Android phone"; a computer by the name it reports).
+- **What is not private:** calls, voice notes and Listen, because speech is turned into text or into a voice on Twring's server. In a private chat, a voice note is sent only after a warning, and it is marked "Sent through Twring". The chat says "Private: only your phone and your computer can read this" only while that is true. Photos and files cannot be sent in a private chat yet.
+- **Your agent still reads your messages:** the agent on your computer opens each message to answer it, and may send it to its own AI model provider under that provider's terms. Private chats keep Twring and its service providers out; they do not change what your agent does.
+- **Notifications:** a notification for a private chat never shows the message text; it says "New message". The text never reaches the Twring server, so it never passes through Google's or Apple's push services either.
+- **Your keys:** each phone and each computer makes its own key. A phone keeps its private key in the phone's secure storage (Android Keystore or the iPhone Keychain); a computer keeps its private key in the connector's settings file on that computer. When you pair, both screens show the same code, so you can check that nobody swapped a key.
+- **Another phone:** a phone you already paired can approve a new one. It then shares the keys of your earlier private messages with the new phone, encrypted for that phone; the Twring server stores them and cannot open them.
+- **Recovery key (optional):** 12 words, shown once on your phone. They encrypt a backup of your phone's private key, which the Twring server stores. The words never leave your phone, so Twring cannot open the backup. Anyone who has the words and can sign in to your account can read your private chats, so keep them safe.
+- **Removing a phone or computer** (in the app, on the devices screen for private chats): your other devices stop encrypting new messages for it at once. It can still read what it received before. Anyone who gets a device's private key can read the private messages encrypted for that device until you remove it.
+- **On your phone:** text from private chats, including drafts, is never written to your phone's storage. Search finds a private chat's messages only after you open that chat, and only until the app closes.
+- **AI apps you connected online** (section 4) cannot read private chats.
+
+## 4. Connected AI apps (the Twring connector)
 
 When you add the Twring connector to an AI app (such as Claude or ChatGPT) and approve it, that app can ring your phone with a short reason, send messages and files to its own Twring chat, and read the replies you write in that chat. It cannot reach your other chats, agents, calls, or account details.
 
@@ -52,13 +68,16 @@ Sign-in is handled by Twring's sign-in provider, Supabase. Twring never sees you
 
 To remove an app, go to Settings, Connected AI apps, Remove. This deletes its chat and blocks the app. Delete my data removes everything, including connected apps and blocked records.
 
-## 4. Retention
+## 5. Retention
 
 | Data                             | Retention                                                                                |
 | -------------------------------- | ---------------------------------------------------------------------------------------- |
 | Call audio, call transcripts     | Not retained                                                                             |
 | Chat messages                    | Until you clear the chat, delete the agent, or delete your data; at most 2,000 per agent |
 | Files in chats                   | Until you clear the chat, delete the agent, or delete your data                          |
+| Private chats: paired phones and computers | Until you remove the device or delete your data |
+| Private chats: message keys shared with another phone | Until you clear the chat, remove either phone, or delete your data |
+| Private chats: recovery key backup | Until you save a new one or delete your data |
 | Call ratings                     | Until you delete your data                                                               |
 | Notes from Settings              | Until you delete your data                                                               |
 | Account (email, Google profile)  | Until you ask us to delete your account                                                  |
@@ -72,27 +91,27 @@ To remove an app, go to Settings, Connected AI apps, Remove. This deletes its ch
 | Ring history                     | One day for the ring itself; a missed ring stays with your call summaries                |
 | Server logs and crash reports    | 30 days                                                                                  |
 
-## 5. Deletion
+## 6. Deletion
 
 - **Clear chat** (agent info → Clear chat): removes your messages with that agent from Twring. The agent keeps its own memory, which Twring does not control.
 - **Delete an agent** (agent screen → Delete agent): removes its settings, key and chat at once, and ends any call using it.
-- **Delete my data** (Settings → Delete my data): removes all your agents, keys, chats, call summaries, push tokens, notification keys, ring settings, and rings, and ends any call in progress. The app shows what was deleted.
+- **Delete my data** (Settings → Delete my data): removes all your agents, keys, chats, call summaries, push tokens, notification keys, ring settings, rings, and your private chat devices, approvals and recovery key backup, and ends any call in progress. The app shows what was deleted.
 - **Delete account** (Settings → Delete account): removes all of the above and your sign-in account (email and Google profile at Supabase), then signs you out. Signing out alone (Settings → Sign out) removes the session from your phone but keeps the account.
 - **Without the app:** the account deletion page (`/account-deletion` on the Twring server) explains how to ask by email; write to {{CONTACT_EMAIL}} from the address you sign in with. We delete within 30 days and reply to confirm.
 
-## 6. Security
+## 7. Security
 
 TLS for every connection; agent endpoints must be public `https://` or `wss://` addresses; server-side SSRF protection; encrypted credentials; short-lived call tokens; rate limits.
 
-## 7. Children
+## 8. Children
 
 Twring is not directed at children under 13 (or the minimum age in your country).
 
-## 8. Changes
+## 9. Changes
 
 We will update this notice and its effective date when data handling changes.
 
-## 9. Self-hosted servers
+## 10. Self-hosted servers
 
 Anyone can run Twring on their own server. On a self-hosted server, the person who runs it is responsible for the data on it; this section covers only what Twring itself receives from such a server.
 
