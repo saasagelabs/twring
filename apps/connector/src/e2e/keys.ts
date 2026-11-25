@@ -24,7 +24,9 @@ export const trustedDeviceSchema = z
     public_key: publicKeySchema,
     verified_at: z.iso.datetime(),
   })
-  .strict();
+  // Saved by this connector only. A field from a newer version is dropped, not "damaged": a
+  // strict parse would make an older copy refuse the whole config (calls included).
+  .strip();
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>;
 
 export const e2eConfigSchema = z
@@ -48,7 +50,8 @@ export const e2eConfigSchema = z
     /** Highest seq opened per sender device, so a restart does not reopen old replays. */
     seen: z.record(e2eDeviceIdSchema, z.number().int().nonnegative()).optional(),
   })
-  .strict();
+  // As above: fields from a newer connector are dropped on load, the key and lists are kept.
+  .strip();
 export type E2eConfig = z.infer<typeof e2eConfigSchema>;
 
 /** The config with a device key, made once per install. */

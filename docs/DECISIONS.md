@@ -1412,6 +1412,20 @@ max(saved + 1, clock in milliseconds), so a restored phone and an old phone stil
 same key stay within the 64-wide replay window of each other and neither is dropped as a replay. A computer paired after the backup was
 made must be paired again on the restored phone. A backup of a removed phone is not offered.
 
+### Approving a second phone (C3 #11, 2026-11-25)
+
+A phone already trusted for private chats can approve a new one. Both phones show the 6-digit
+code of their two public keys; after the person compares them, the approving phone seals a
+`trust_add` note (associated data `twring-trust-v1`, the approval id and the sender) and wraps its
+key to the new phone and to every device it trusts. Other devices trust the new phone only when a
+phone they already trust sealed that note for that exact id and key; the server still can only
+take trust away. Device lists carry notes only when a client asks (`?notes=1`), so older apps and
+computers keep parsing the list they know. Every device remembers the newest 32 device ids the
+server has said were removed and never accepts a note for one of them again, so a removed phone
+can't come back with its old note (it can come back only by pairing with a code). The connector
+drops fields it doesn't know from its saved private chat settings instead of refusing the whole
+file, so an older copy keeps working next to a newer one.
+
 ### Consequences
 
 Server-side quotes, export, transcription, MCP reads and ring text do not work for private
