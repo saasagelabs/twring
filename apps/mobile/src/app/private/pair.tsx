@@ -212,7 +212,10 @@ export default function PrivatePairScreen() {
               <PrimaryButton
                 label="Save a recovery key"
                 onPress={() =>
-                  router.replace({ pathname: '/private/recovery', params: { mode: 'create' } })
+                  router.replace({
+                    pathname: '/private/recovery',
+                    params: { mode: 'create', ...(agentId !== undefined && { agentId }) },
+                  })
                 }
               />
               <GhostButton label="Not now" onPress={finish} />
@@ -311,7 +314,10 @@ export default function PrivatePairScreen() {
               <GhostButton
                 label="Use my recovery key"
                 onPress={() =>
-                  router.push({ pathname: '/private/recovery', params: { mode: 'restore' } })
+                  router.push({
+                    pathname: '/private/recovery',
+                    params: { mode: 'restore', ...(agentId !== undefined && { agentId }) },
+                  })
                 }
               />
             )}

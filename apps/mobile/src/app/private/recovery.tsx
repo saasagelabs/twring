@@ -66,8 +66,14 @@ const deps = (account: string) => ({ api: recoveryApi(), store: privateKeychain(
  */
 export default function PrivateRecoveryScreen() {
   const palette = usePalette();
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; agentId?: string }>();
   const restoring = params.mode === 'restore';
+  // Opened from an agent's "Make chats private" via pairing: finishing returns there, as pairing would.
+  const agentId = typeof params.agentId === 'string' && params.agentId ? params.agentId : undefined;
+  const finish = () =>
+    agentId === undefined
+      ? router.back()
+      : router.dismissTo({ pathname: '/agents/[id]', params: { id: agentId, private: 'ask' } });
   const [step, setStep] = useState<Step>(restoring ? { kind: 'loading' } : { kind: 'intro' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
@@ -150,7 +156,7 @@ export default function PrivateRecoveryScreen() {
     <Text style={[styles.support, { color: palette.textSecondary }]}>{text}</Text>
   );
   const notice = error !== undefined && <ErrorNotice error={{ message: error, retryable: true }} />;
-  const done = <PrimaryButton label="Done" onPress={() => router.back()} />;
+  const done = <PrimaryButton label="Done" onPress={finish} />;
 
   switch (step.kind) {
     case 'intro':
@@ -164,7 +170,7 @@ export default function PrivateRecoveryScreen() {
                 label="Show my 12 words"
                 onPress={() => setStep({ kind: 'words', words: newRecoveryWords() })}
               />
-              <GhostButton label="Not now" onPress={() => router.back()} />
+              <GhostButton label="Not now" onPress={finish} />
             </View>
           }
         >

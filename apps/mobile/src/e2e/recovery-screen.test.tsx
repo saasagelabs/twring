@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type * as RecoveryModule from './recovery';
 
 const mocks = vi.hoisted(() => {
-  const params: { mode?: string } = {};
+  const params: { mode?: string; agentId?: string } = {};
   return {
     state: [] as unknown[],
     cursor: 0,
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => {
     back: vi.fn(),
     push: vi.fn(),
     replace: vi.fn(),
+    dismissTo: vi.fn(),
     params,
     feedback: vi.fn(),
     save: vi.fn(),
@@ -52,7 +53,12 @@ vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
 }));
 vi.mock('expo-router', () => ({
-  router: { back: mocks.back, replace: mocks.replace, push: mocks.push },
+  router: {
+    back: mocks.back,
+    replace: mocks.replace,
+    push: mocks.push,
+    dismissTo: mocks.dismissTo,
+  },
   useLocalSearchParams: () => mocks.params,
 }));
 vi.mock('@/e2e/recovery', async () => {
@@ -145,6 +151,7 @@ beforeEach(() => {
   mocks.back.mockReset();
   mocks.push.mockReset();
   mocks.replace.mockReset();
+  mocks.dismissTo.mockReset();
   mocks.feedback.mockReset();
   mocks.save.mockReset().mockResolvedValue({ ok: true });
   mocks.restore.mockReset();
@@ -187,6 +194,29 @@ describe('recovery key screen: create', () => {
       words,
     );
     expect(text(render())).toContain('Recovery key saved');
+  });
+
+  it('opened from an agent, Done after saving returns to that agent', async () => {
+    mocks.params = { mode: 'create', agentId: 'agt_1' };
+    const words = toCheck();
+    typeChecks(words[2], words[8]);
+    void labelled(render(), 'Save recovery key').props.onPress?.();
+    await flush();
+    void labelled(render(), 'Done').props.onPress?.();
+    expect(mocks.dismissTo).toHaveBeenCalledWith({
+      pathname: '/agents/[id]',
+      params: { id: 'agt_1', private: 'ask' },
+    });
+    expect(mocks.back).not.toHaveBeenCalled();
+  });
+
+  it('opened from an agent, Not now also returns to that agent', () => {
+    mocks.params = { mode: 'create', agentId: 'agt_1' };
+    void labelled(render(), 'Not now').props.onPress?.();
+    expect(mocks.dismissTo).toHaveBeenCalledWith({
+      pathname: '/agents/[id]',
+      params: { id: 'agt_1', private: 'ask' },
+    });
   });
 
   it('Not now leaves without saving', () => {

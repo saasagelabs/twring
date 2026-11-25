@@ -294,6 +294,18 @@ describe('private chat pairing screen', () => {
     expect(text(render())).toContain('Paired');
   });
 
+  it('Save a recovery key carries the agent along', async () => {
+    mocks.params = { agentId: 'agt_1' };
+    mocks.loadTrusted.mockResolvedValue([]);
+    void labelled(await scan(), 'Yes, same number').props.onPress?.();
+    await flush();
+    void labelled(render(), 'Save a recovery key').props.onPress?.();
+    expect(mocks.replace).toHaveBeenCalledWith({
+      pathname: '/private/recovery',
+      params: { mode: 'create', agentId: 'agt_1' },
+    });
+  });
+
   it('returns to the agent it was opened for, ready to turn private chats on', async () => {
     mocks.params = { agentId: 'agt_1' };
     void labelled(await scan(), 'Yes, same number').props.onPress?.();
