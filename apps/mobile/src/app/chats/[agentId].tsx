@@ -42,6 +42,7 @@ import { CallButton } from '@/components/CallButton';
 import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
+import { noticeAction } from '@/e2e/devices';
 import { labelFor, MISSING_MESSAGE, sealedBubble, SERVER_READABLE_MARK } from '@/e2e/private-state';
 import { PrivateBanner, VoiceNoteWarning } from '@/components/chat/PrivateChat';
 import { GhostButton } from '@/components/GhostButton';
@@ -689,7 +690,7 @@ export default function ChatScreen() {
               {chat.privateNotice !== undefined && !removed && (
                 <ErrorNotice
                   error={{ message: chat.privateNotice, retryable: true }}
-                  actionLabel="Pair again"
+                  actionLabel={noticeAction(chat.privateNotice)}
                   onRetry={() =>
                     router.push({ pathname: '/private/pair', params: { agentId: id } })
                   }

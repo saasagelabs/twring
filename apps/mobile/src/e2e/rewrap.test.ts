@@ -14,10 +14,9 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { DEVICE_KEY_NAME, loadOrCreateDeviceKey, type DeviceKey } from './device-key';
-import { LOST_KEYS } from './devices';
+import { LOST_KEYS, NEW_PHONE } from './devices';
 import { saveTrusted, type TrustedDevice } from './pairing';
 import { PrivateChats } from './private-chats';
-import { PAIR_AGAIN } from './private-state';
 import {
   hasRewrapWork,
   queueRewrap,
@@ -440,7 +439,7 @@ describe('verification edges (PR #158)', () => {
     noComputer.open(AGENT_ID, [old]);
     await noComputer.context(AGENT_ID);
     noComputer.open(AGENT_ID, [old]);
-    expect(noComputer.notice(AGENT_ID)).toBe(PAIR_AGAIN);
+    expect(noComputer.notice(AGENT_ID)).toBe(NEW_PHONE);
   });
 
   it('lost keys notice still shows when no re-wrap can be had, and reads only once', async () => {

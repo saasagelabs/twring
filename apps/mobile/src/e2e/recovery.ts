@@ -124,6 +124,25 @@ export async function saveRecoveryKey(
   return { ok: true };
 }
 
+/**
+ * Whether this phone has a device key worth keeping. Opening a private chat makes a key, so a
+ * wiped phone has one before it reaches the pair screen; a key no device trusts yet (nothing in
+ * this phone's trusted list) and the server does not list is unused, and a restore may replace
+ * it. A key trusted anywhere or listed on the server is never replaced; without the server's
+ * list it counts as used.
+ */
+export async function keyInUse(deps: Pick<RecoveryDeps, 'store' | 'devices'>): Promise<boolean> {
+  const me = await loadDeviceKey(deps.store);
+  if (me === undefined) return false;
+  if ((await loadTrusted(deps.store)).length > 0) return true;
+  if (deps.devices === undefined) return true;
+  try {
+    return (await listDevices(deps.devices)).some((d) => d.id === me.deviceId);
+  } catch {
+    return true;
+  }
+}
+
 export type BackupLookup =
   | { kind: 'none' }
   | { kind: 'removed' }
@@ -131,13 +150,13 @@ export type BackupLookup =
   | { kind: 'found'; backup: RecoveryBackupResponse };
 
 /**
- * Whether to offer a restore: only on a phone with no device key, and only when the server holds
+ * Whether to offer a restore: only on a phone with no device key in use (`keyInUse`), and only when the server holds
  * a backup. A backup for a removed phone is reported so the screen can say so.
  */
 export async function restoreOffer(
-  deps: Pick<RecoveryDeps, 'api' | 'store'>,
+  deps: Pick<RecoveryDeps, 'api' | 'store' | 'devices'>,
 ): Promise<BackupLookup> {
-  if ((await loadDeviceKey(deps.store)) !== undefined) return { kind: 'none' };
+  if (await keyInUse(deps)) return { kind: 'none' };
   let answer: { status: number; body: unknown };
   try {
     answer = await deps.api.get();
@@ -166,7 +185,7 @@ export async function restoreFromWords(
   // Checked on the phone first: a wrong word never costs a server call or a scrypt run.
   const words = normalizeRecoveryWords(typed);
   if (words === undefined) return fail('wrong_words');
-  if ((await loadDeviceKey(deps.store)) !== undefined) return fail('has_key');
+  if (await keyInUse(deps)) return fail('has_key');
   let payload: z.infer<typeof payloadSchema>;
   let privateKey: Uint8Array;
   try {

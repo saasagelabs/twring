@@ -20,6 +20,19 @@ import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
 
 export const CAP_HINT = 'Remove a device to add a new one.';
 export const REINSTALLED = 'Your computer was set up again, scan to continue';
+/** A phone that trusts no computer yet (a new or wiped phone): set it up, nothing was undone. */
+export const NEW_PHONE = "This phone can't read private chats yet.";
+/** Another phone removed this one: its keys are gone, and it comes back as a new device. */
+export const REMOVED_PHONE =
+  'This phone was removed from private chats. Approve it from your other phone to read new messages.';
+export const SET_UP_PHONE = 'Set up this phone';
+export const PAIR_AGAIN_ACTION = 'Pair again';
+
+/** The button under a private chat's notice: both open the pair screen. */
+export function noticeAction(notice: string): string {
+  return notice === NEW_PHONE || notice === REMOVED_PHONE ? SET_UP_PHONE : PAIR_AGAIN_ACTION;
+}
+
 export const LOST_KEYS =
   "Older private messages can't be opened on this phone. New messages will work after you pair.";
 
@@ -247,15 +260,19 @@ export function hasComputerFor(trusted: readonly TrustedDevice[], connectorId: s
 }
 
 /**
- * The server lists an active computer for this chat's connector that this phone does not trust:
- * the computer was set up again (Task 30). Never trusted silently; the chat asks to scan. A
- * computer that was only removed is not listed active, so it never shows this.
+ * The server lists an active computer for this chat's connector that this phone does not trust,
+ * while this phone did trust a computer for that connector (`before`, its list before the
+ * server's was applied): the computer was set up again (Task 30). Never trusted silently; the
+ * chat asks to scan. A phone that never trusted one is a new phone, not this. A computer that was
+ * only removed is not listed active, so it never shows this.
  */
 export function reinstalledFor(
   server: readonly E2eDevice[],
   trusted: readonly TrustedDevice[],
   connectorId: string,
+  before: readonly TrustedDevice[] = trusted,
 ): boolean {
+  if (!hasComputerFor(before, connectorId)) return false;
   return server.some(
     (s) =>
       s.kind === 'computer' &&
@@ -263,6 +280,21 @@ export function reinstalledFor(
       s.connector_id === connectorId &&
       !trusted.some((d) => d.id === s.id && d.public_key === s.public_key),
   );
+}
+
+/**
+ * Another phone removed this one: the server marks it revoked, or no longer lists it (removed
+ * over 30 days ago) while this phone has trusted devices saved. A phone that trusts nothing yet
+ * is simply not added, never removed.
+ */
+export function removedPhone(
+  server: readonly E2eDevice[],
+  trusted: readonly TrustedDevice[],
+  selfId: string,
+): boolean {
+  const self = server.find((d) => d.id === selfId);
+  if (self !== undefined) return self.revoked_at !== undefined;
+  return trusted.length > 0;
 }
 
 /**

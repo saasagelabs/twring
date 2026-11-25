@@ -27,8 +27,11 @@ import {
   hasComputerFor,
   listDevices,
   LOST_KEYS,
+  NEW_PHONE,
   reinstalledFor,
   REINSTALLED,
+  removedPhone,
+  REMOVED_PHONE,
   syncTrusted,
 } from './devices';
 import { PAIR_AGAIN } from './private-state';
@@ -90,6 +93,10 @@ export class PrivateChats {
   private readonly reinstalled = new Set<string>();
   /** Chats with sealed messages none of which this phone's key can open (a reinstalled app). */
   private readonly lostKeys = new Set<string>();
+  /** Another phone removed this one: its keys are forgotten and nothing is sealed. */
+  private removedSelf = false;
+  /** This phone's saved list held a computer before the server's list was applied. */
+  private hadComputer = false;
   private saving: Promise<void> = Promise.resolve();
   /** When each chat's re-wraps were last asked for, and the read still running. */
   private readonly rewrapAsked = new Map<string, number>();
@@ -106,8 +113,11 @@ export class PrivateChats {
   /** What a private chat says above the composer, if anything: most specific first. */
   notice(agentId: string): string | undefined {
     if (this.contexts.get(agentId) === undefined) return undefined;
+    if (this.removedSelf) return REMOVED_PHONE;
     if (this.reinstalled.has(agentId)) return REINSTALLED;
     if (this.lostKeys.has(agentId) && this.pairAgain(agentId)) return LOST_KEYS;
+    // No computer trusted, then or now: a new or wiped phone, to set up rather than pair "again".
+    if (!this.hadComputer && !this.trusted.some((d) => d.kind === 'computer')) return NEW_PHONE;
     return this.pairAgain(agentId) ? PAIR_AGAIN : undefined;
   }
 
@@ -120,12 +130,44 @@ export class PrivateChats {
     if (this.deps.devices === undefined) return;
     try {
       const server = await listDevices({ list: this.deps.devices });
+      const before = this.trusted;
+      if (removedPhone(server, before, me.deviceId)) {
+        await this.forgetRemoved();
+        return;
+      }
       this.trusted = await syncTrusted(this.deps.store, server, this.deps.log, me);
-      if (reinstalledFor(server, this.trusted, connectorId)) this.reinstalled.add(agentId);
+      if (reinstalledFor(server, this.trusted, connectorId, before)) this.reinstalled.add(agentId);
       else this.reinstalled.delete(agentId);
     } catch {
       // Offline or a bad answer: nothing changes.
     }
+  }
+
+  /**
+   * This phone was removed by another: the sign-out forget path for its key and trusted list, so
+   * it can only come back through a fresh approval as a new device.
+   */
+  private async forgetRemoved(): Promise<void> {
+    this.deps.log?.('e2e_phone_removed');
+    this.removedSelf = true;
+    this.trusted = [];
+    this.contexts.clear();
+    this.reinstalled.clear();
+    this.lostKeys.clear();
+    this.rewrapAsked.clear();
+    await forgetPrivateDevice(this.deps.store);
+  }
+
+  /**
+   * Drops every loaded chat context, so the next open reads the key and trusted list again: after
+   * a restore, a pairing or an approval the chat opens with them at once.
+   */
+  reset(): void {
+    this.contexts.clear();
+    this.reinstalled.clear();
+    this.lostKeys.clear();
+    this.rewrapAsked.clear();
+    this.removedSelf = false;
   }
 
   private loadSaved(): Promise<Record<string, SavedReplay>> {
@@ -154,6 +196,7 @@ export class PrivateChats {
           this.loadSaved(),
         ]);
         this.trusted = trusted;
+        this.hadComputer = trusted.some((d) => d.kind === 'computer');
         const ids = address === undefined ? undefined : aadIdsFor(address);
         if (ids === undefined) return undefined;
         await this.readDevices(agentId, ids.accountId, me);
@@ -199,7 +242,11 @@ export class PrivateChats {
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
     this.trusted = trusted;
     ctx.trusted = trusted;
-    if (this.reinstalled.has(agentId) || !hasComputerFor(trusted, ctx.accountId))
+    if (
+      this.removedSelf ||
+      this.reinstalled.has(agentId) ||
+      !hasComputerFor(trusted, ctx.accountId)
+    )
       throw new SealError('pair_again');
     let seq: number;
     try {
@@ -231,7 +278,11 @@ export class PrivateChats {
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
     this.trusted = trusted;
     ctx.trusted = trusted;
-    if (this.reinstalled.has(agentId) || !hasComputerFor(trusted, ctx.accountId))
+    if (
+      this.removedSelf ||
+      this.reinstalled.has(agentId) ||
+      !hasComputerFor(trusted, ctx.accountId)
+    )
       throw new SealError('pair_again');
     let seq: number;
     try {
@@ -345,6 +396,7 @@ export class PrivateChats {
     this.reinstalled.clear();
     this.lostKeys.clear();
     this.rewrapAsked.clear();
+    this.removedSelf = false;
     this.trusted = [];
     this.saved = Promise.resolve({});
     await this.saving;

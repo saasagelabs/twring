@@ -139,6 +139,7 @@ vi.mock('@/components/chat/status-line', () => ({
   latestOwn: () => undefined,
 }));
 vi.mock('@/e2e/private-state', () => import('../e2e/private-state'));
+vi.mock('@/e2e/devices', () => import('../e2e/devices'));
 vi.mock('@/hooks/useNow', () => ({ useNow: () => Date.parse('2026-11-25T12:00:00Z') }));
 vi.mock('@/platform/ring', () => ({ ringPlatform: { clearMessages: vi.fn() } }));
 vi.mock('@/hooks/useResource', () => ({

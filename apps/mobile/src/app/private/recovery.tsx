@@ -22,7 +22,7 @@ import {
 } from '@/e2e/recovery';
 import type { RecoveryBackupResponse } from '@twring/contracts';
 import { playCallFeedback } from '@/platform/haptics';
-import { currentScope, privateKeychain } from '@/threads/chats';
+import { currentScope, privateKeychain, resetPrivateChats } from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -91,7 +91,7 @@ export default function PrivateRecoveryScreen() {
   useEffect(() => {
     if (!restoring) return;
     let live = true;
-    void restoreOffer({ api: recoveryApi(), store: privateKeychain() }).then(
+    void restoreOffer({ api: recoveryApi(), store: privateKeychain(), ...devicesList() }).then(
       (offer) => {
         if (!live) return;
         if (offer.kind === 'found') setStep({ kind: 'enter', backup: offer.backup });
@@ -142,6 +142,7 @@ export default function PrivateRecoveryScreen() {
       const result = await restoreFromWords({ ...deps(account), ...devicesList() }, backup, typed);
       if (result.ok) {
         playCallFeedback('connected');
+        resetPrivateChats();
         setTyped('');
         setStep({ kind: 'restored' });
       } else {
