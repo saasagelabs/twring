@@ -166,7 +166,16 @@ export default function PrivatePairScreen() {
     );
     if (api?.privateDevices !== undefined)
       loadDeviceKey(privateKeychain())
-        .then((me) => otherPhones(() => listDevices({ list: rawList }), me?.deviceId))
+        .then(async (me) => {
+          const phones = await otherPhones(() => listDevices({ list: rawList }), me?.deviceId);
+          // A phone this phone is already connected with has nothing to approve; the same rule
+          // as Devices. A trusted list that cannot be read keeps every phone listed.
+          const trusted = await loadTrusted(privateKeychain()).then(
+            (list) => new Set(list.map((t) => t.id)),
+            () => undefined,
+          );
+          return trusted === undefined ? phones : phones.filter((p) => !trusted.has(p.id));
+        })
         .then(
           (phones) => {
             if (live) setOthers(phones);
@@ -208,13 +217,7 @@ export default function PrivatePairScreen() {
           // Shares this phone's earlier messages with the approver, in the background.
           const api = twringApi();
           if (api !== undefined)
-            void shareHistory(
-              api,
-              store,
-              (chatController()?.getSummaries() ?? [])
-                .filter((c) => c.private === true)
-                .map((c) => c.agent_id),
-            );
+            void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
           playCallFeedback('connected');
           setStep({ kind: 'approved' });
         } else fail(APPROVE_FAILURE_COPY.refused, 'approve');

@@ -156,12 +156,7 @@ export default function PrivateDevicesScreen() {
       // The new phone's older private messages: shared in the background, resumed on next open.
       const api = twringApi();
       if (out.ok && approve && api !== undefined) {
-        const chats = chatController()?.getSummaries() ?? [];
-        void shareHistory(
-          api,
-          deps.store,
-          chats.filter((c) => c.private === true).map((c) => c.agent_id),
-        );
+        void shareHistory(api, deps.store, chatController()?.loadedPrivateAgentIds());
       }
       setApproving(undefined);
       await load();

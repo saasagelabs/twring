@@ -354,6 +354,22 @@ describe('verification edges (PR #158)', () => {
     expect(await hasRewrapWork(store)).toBe(true);
   });
 
+  it('keeps the share job when the chat list has not loaded', async () => {
+    const { store } = await approvingPhone();
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    const { shareHistory } = await import('./share-history');
+    const api = {
+      getAgent: vi.fn(async () => {
+        throw new Error('not reached');
+      }),
+      listMessages: vi.fn(async () => ({ messages: [], hasMore: false })),
+    };
+    await shareHistory(api, store, undefined);
+    expect(api.getAgent).not.toHaveBeenCalled();
+    expect(await hasRewrapWork(store)).toBe(true);
+    expect(store.m.get(REWRAP_JOBS_KEY)).toBeDefined();
+  });
+
   it('a re-approve during a run keeps its fresh start, not the old run cursor', async () => {
     const { store, me } = await approvingPhone();
     const history = Array.from({ length: 300 }, (_, i) => reply(i + 1, [me.publicKey]));
