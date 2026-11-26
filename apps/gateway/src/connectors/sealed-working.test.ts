@@ -85,12 +85,12 @@ async function privateThread(features: string[] = ALL) {
     const found = page.messages.find((m) => m.id === id);
     return found?.kind === 'sealed' ? found.status : undefined;
   };
-  const reply = (on: FakeConnector, turnId: string, final: boolean) =>
+  const reply = (on: FakeConnector, turnId: string, final: boolean, index = 0) =>
     on.send({
       type: 'sealed.reply',
       agent: 'claude-code',
       turn_id: turnId,
-      sealed: envelope({ sender_device: COMPUTER, chunk: { index: 0, final } }),
+      sealed: envelope({ sender_device: COMPUTER, chunk: { index, final } }),
       final,
     });
   const working = (on: FakeConnector, turnId: string, agent = 'claude-code') =>
@@ -181,5 +181,30 @@ describe('private turn silence', () => {
     expect((await t.stop(m.id)).statusCode).toBe(200);
     await sleep(IDLE_MS + 400);
     expect(await t.statusOf(m.id)).toBe('stopped');
+  });
+
+  it('a final chunk that arrives before a missing one keeps the clock running', async () => {
+    const t = await privateThread();
+    const m = await t.post();
+    await waitFor(() => t.connector.sealed.length === 1);
+    t.reply(t.connector, m.id, false, 0);
+    t.reply(t.connector, m.id, true, 2);
+    await waitFor(async () => (await t.statusOf(m.id)) === 'working');
+    await waitFor(async () => (await t.statusOf(m.id)) === 'interrupted', 2_000);
+    // The missing chunk still completes the reply.
+    t.reply(t.connector, m.id, false, 1);
+    await waitFor(async () => (await t.statusOf(m.id)) === 'answered');
+  });
+
+  it('a complete reply in order is answered and never interrupted', async () => {
+    const t = await privateThread();
+    const m = await t.post();
+    await waitFor(() => t.connector.sealed.length === 1);
+    t.reply(t.connector, m.id, false, 0);
+    t.reply(t.connector, m.id, false, 1);
+    t.reply(t.connector, m.id, true, 2);
+    await waitFor(async () => (await t.statusOf(m.id)) === 'answered');
+    await sleep(IDLE_MS + 400);
+    expect(await t.statusOf(m.id)).toBe('answered');
   });
 });
