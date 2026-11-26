@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any -- Fastify inject JSON is untyped. */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 
@@ -13,7 +13,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { PRIVATE_PUSH_TEXT, PRIVATE_RING_REASON } from '../e2e/guard';
-import { SqliteThreadStore } from '../threads/store';
+import type { SqliteThreadStore } from '../threads/store';
 
 import { startConnectorGateway, type ConnectorGateway } from './harness';
 
@@ -27,6 +27,16 @@ afterEach(async () => {
   await gateway?.close();
   gateway = undefined;
 });
+
+/** The columns the tests read from a stored message. */
+interface SealedRow {
+  turn_id: string | null;
+  meta: string;
+}
+interface Page {
+  messages: { kind: string; author: string; text?: string; sealed?: unknown[] }[];
+}
+const pageOf = (res: { json(): unknown }) => res.json() as Page;
 
 const rawDb = (store: SqliteThreadStore) => (store as unknown as { db: DatabaseSync }).db;
 
@@ -81,7 +91,9 @@ async function setup(privateChat = true) {
       body: { local_agent: 'claude-code', origin: 'agent', ...body },
     });
   const rows = () =>
-    rawDb(g.threads!.store).prepare("SELECT * FROM messages WHERE kind='sealed'").all() as any[];
+    rawDb(g.threads!.store)
+      .prepare("SELECT * FROM messages WHERE kind='sealed'")
+      .all() as unknown as SealedRow[];
   const total = () =>
     (rawDb(g.threads!.store).prepare('SELECT count(*) AS n FROM messages').get() as { n: number })
       .n;
@@ -96,9 +108,9 @@ describe('a sealed post from the computer (ADR-045)', () => {
     expect(res.json()).toMatchObject({ delivery: 'push' });
     const rows = t.rows();
     expect(rows).toHaveLength(1);
-    expect(rows[0].turn_id).toBeNull();
-    expect(JSON.parse(rows[0].meta)).toMatchObject({ author: 'agent' });
-    const page = (await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' })).json();
+    expect(rows[0]!.turn_id).toBeNull();
+    expect(JSON.parse(rows[0]!.meta)).toMatchObject({ author: 'agent' });
+    const page = pageOf(await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' }));
     expect(page.messages[0]).toMatchObject({ kind: 'sealed', author: 'agent' });
     expect(t.g.ring!.pushes).toHaveLength(1);
     expect(JSON.stringify(t.g.ring!.pushes)).toContain(PRIVATE_PUSH_TEXT);
@@ -112,8 +124,8 @@ describe('a sealed post from the computer (ADR-045)', () => {
     );
     const res = await t.post({ sealed });
     expect(res.statusCode).toBe(201);
-    const page = (await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' })).json();
-    expect(page.messages[0].sealed).toHaveLength(3);
+    const page = pageOf(await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' }));
+    expect(page.messages[0]!.sealed).toHaveLength(3);
   });
 
   it('rings with the private reason when a background result rings', async () => {
@@ -162,7 +174,7 @@ describe('a sealed post from the computer (ADR-045)', () => {
     const t = await setup();
     const res = await t.post({ text: 'Build passed.' });
     expect(res.statusCode).toBe(201);
-    const page = (await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' })).json();
+    const page = pageOf(await t.g.send('GET', `/v1/agents/${t.agentId}/messages`, { user: 'u1' }));
     expect(page.messages[0]).toMatchObject({ kind: 'agent_text', text: 'Build passed.' });
   });
 

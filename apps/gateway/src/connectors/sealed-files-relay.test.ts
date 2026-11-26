@@ -109,6 +109,16 @@ async function setup(features: string[] = WITH_FILES) {
   };
 }
 
+/** The parts of a message the tests read. */
+interface MessageBody {
+  id: string;
+  status: string;
+  error_code?: string;
+  attachments?: unknown;
+}
+const messageOf = (res: { json(): unknown }): MessageBody =>
+  (res.json() as { message: MessageBody }).message;
+
 const rawDb = (store: unknown) => (store as { db: DatabaseSync }).db;
 
 describe('sealed files and the computer that opens them (ADR-045)', () => {
@@ -117,7 +127,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
     const fileId = await t.phoneUpload();
     const res = await t.post([fileId]);
     expect(res.statusCode).toBe(201);
-    const message = res.json().message;
+    const message = messageOf(res);
     expect(message.status).toBe('sent');
     await waitFor(() => t.connector.sealed.length === 1);
     expect(t.store.findFile('u1', fileId)?.messageId).toBe(message.id);
@@ -130,7 +140,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
   it('a sealed message with no files still reaches a computer without sealed_files', async () => {
     const t = await setup(WITHOUT_FILES);
     const res = await t.post();
-    expect(res.json().message.status).toBe('sent');
+    expect(messageOf(res).status).toBe('sent');
     await waitFor(() => t.connector.sealed.length === 1);
   });
 
@@ -140,7 +150,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
       const fileId = await t.phoneUpload();
       const res = await t.post([fileId]);
       expect(res.statusCode).toBe(201);
-      const message = res.json().message;
+      const message = messageOf(res);
       expect(message.status).toBe('failed');
       expect(message.error_code).toBe('computer_update');
       await sleep(150);
@@ -160,7 +170,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
       );
       const fileId = await t.phoneUpload();
       const res = await t.post([fileId]);
-      const message = res.json().message;
+      const message = messageOf(res);
       expect(message.status).toBe('queued');
       const back = startFakeConnector({
         url: t.g.socketUrl,
@@ -179,7 +189,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
       t.connector.terminate();
       await t.connector.closed;
       const fileId = await t.phoneUpload();
-      const message = (await t.post([fileId])).json().message;
+      const message = messageOf(await t.post([fileId]));
       expect(message.status).toBe('queued');
       const back = startFakeConnector({ url: t.g.socketUrl, token: t.token, features: WITH_FILES });
       await back.ready;
@@ -227,7 +237,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
 
   it('a sealed reply with file_ids links them with direction agent', async () => {
     const t = await setup();
-    const turn = (await t.post()).json().message;
+    const turn = messageOf(await t.post());
     await waitFor(() => t.connector.sealed.length === 1);
     const fileId = await t.computerUpload();
     t.connector.send({
@@ -250,7 +260,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
 
   it('a sealed reply naming a file that is not the computer sealed file is dropped whole', async () => {
     const t = await setup();
-    const turn = (await t.post()).json().message;
+    const turn = messageOf(await t.post());
     await waitFor(() => t.connector.sealed.length === 1);
     const phoneFile = await t.phoneUpload();
     t.connector.send({
@@ -270,7 +280,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
   it('deleting the sealed message removes its blobs, and the dangling cleanup leaves linked ones alone', async () => {
     const t = await setup();
     const fileId = await t.phoneUpload();
-    const message = (await t.post([fileId])).json().message;
+    const message = messageOf(await t.post([fileId]));
     expect(t.store.danglingFiles()).not.toContain(fileId);
     const res = await t.g.send('DELETE', `/v1/agents/${t.agentId}/messages/${message.id}`, {
       user: 'u1',
@@ -279,7 +289,7 @@ describe('sealed files and the computer that opens them (ADR-045)', () => {
     expect(t.store.findFile('u1', fileId)).toBeUndefined();
     // A message pruned from a full thread leaves its file dangling for the sweep.
     const second = await t.phoneUpload();
-    const kept = (await t.post([second])).json().message;
+    const kept = messageOf(await t.post([second]));
     rawDb(t.store).prepare('DELETE FROM messages WHERE id=?').run(kept.id);
     expect(t.store.danglingFiles()).toContain(second);
   });
