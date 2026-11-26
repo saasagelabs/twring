@@ -1,5 +1,6 @@
 import type { ThreadMessage } from '@twring/contracts';
 
+import { fileMarker } from '../e2e/sealed-files';
 import type { OpenedMessage } from '../e2e/sealed-thread';
 
 /** The most messages one export holds; the server keeps fewer per thread today. */
@@ -107,6 +108,8 @@ function attachmentLine(message: ThreadMessage): string | undefined {
 /** A private message the phone could not open, in an export (Task 23). */
 export const COULDNT_OPEN_EXPORT = "(Couldn't open this message)";
 
+const LINE = String.fromCharCode(10);
+
 function body(message: ThreadMessage, opened?: ReadonlyMap<string, OpenedMessage>): string {
   switch (message.kind) {
     case 'user_text':
@@ -131,7 +134,8 @@ function body(message: ThreadMessage, opened?: ReadonlyMap<string, OpenedMessage
         return `_Asked to approve: ${escapeInline(found.title)} (${answered ? 'answered' : 'not answered'})_`;
       }
       if (found?.state !== 'ok') return COULDNT_OPEN_EXPORT;
-      return found.text.length ? quote(found.text) : '';
+      const files = (found.files ?? []).map(fileMarker).join(LINE);
+      return [found.text.length ? quote(found.text) : '', files].filter(Boolean).join(LINE + LINE);
     }
   }
 }

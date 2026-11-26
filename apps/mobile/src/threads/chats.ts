@@ -26,7 +26,13 @@ import {
 } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
-import { deviceSealedFiles, type SealedFiles } from './sealed-file-cache';
+import {
+  clearSealedFiles,
+  deviceSealedFiles,
+  openSealedFile,
+  type SealedFileRef,
+  type SealedFiles,
+} from './sealed-file-cache';
 import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
@@ -232,6 +238,16 @@ export class ChatController {
     return this.privacy?.openForExport(agentId, messages) ?? Promise.resolve(undefined);
   }
 
+  /** Opens one photo or file of a private chat (ADR-045); never throws. */
+  async openSealedFile(
+    agentId: string,
+    file: SealedFileRef,
+  ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
+    const ctx = await this.privacy?.context(agentId);
+    if (ctx === undefined) return { error: 'couldnt_open' };
+    return openSealedFile(agentId, file, { accountId: ctx.accountId, agentId: ctx.agentId });
+  }
+
   /** A private chat with no computer to send to: "Pair your computer again" (P3b ruling 3). */
   getPairAgain = (agentId: string): boolean =>
     this.privacy !== undefined &&
@@ -256,7 +272,7 @@ export class ChatController {
   /** Removing this phone on the devices screen: its private chat keys go (the sign-out path). */
   async forgetPrivateKeys(): Promise<void> {
     this.opened.clear();
-    await this.privacy?.forget();
+    await Promise.all([this.privacy?.forget(), clearSealedFiles()]);
     this.emit();
   }
 
@@ -630,7 +646,11 @@ export class ChatController {
     this.focusCounts.clear();
     this.chats.clear();
     this.opened.clear();
-    const privacy = options.forget ? this.privacy?.forget() : Promise.resolve();
+    // Opened files are plaintext on disk: they go on any clear, as the opened text does.
+    const privacy = Promise.all([
+      options.forget ? this.privacy?.forget() : undefined,
+      clearSealedFiles(),
+    ]);
     const outbox = options.forget ? this.outbox.clear() : this.outbox.detach();
     // Opened private text in memory goes on any clear: a switch must not show it to another account.
     this.search.forgetPrivate();
@@ -652,6 +672,7 @@ export class ChatController {
   }
   /** After "Clear chat": unsent messages are dropped and the composer starts empty too. */
   forgetChat(agentId: string): void {
+    void clearSealedFiles();
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
   }
@@ -751,6 +772,7 @@ export function chatController(): ChatController | undefined {
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
             deleteSearchDatabase(signingOut),
+            clearSealedFiles(),
             forgetPrivateDevice(privateKeychain(signingOut)),
           ]).catch(() => undefined);
       });
@@ -877,6 +899,7 @@ export async function forgetThisPhonePrivateKeys(): Promise<void> {
   const active = chatController();
   if (active !== undefined) await active.forgetPrivateKeys();
   else await forgetPrivateDevice(privateKeychain());
+  await clearSealedFiles();
 }
 
 /** A restore, pairing or approval changed this phone's key or computers: chats read them again. */

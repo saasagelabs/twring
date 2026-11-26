@@ -19,7 +19,7 @@ export function ImageViewer({
   onClose,
   onShare,
 }: {
-  file?: Attachment;
+  file?: Pick<Attachment, 'id' | 'name'>;
   source?: { uri: string; headers?: Record<string, string> };
   onClose: () => void;
   onShare: () => Promise<void>;

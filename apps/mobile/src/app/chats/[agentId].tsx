@@ -25,6 +25,7 @@ import { callAgent } from '@/call/call-agent';
 import { callController, useCallView } from '@/call/session';
 import { Avatar } from '@/components/Avatar';
 import { ComputerCallHint } from '@/components/ComputerCallHint';
+import { SealedAttachments } from '@/components/chat/SealedAttachments';
 import { Bubble } from '@/components/chat/Bubble';
 import { ChatApproval, ChatSealedApproval } from '@/components/chat/ChatApproval';
 import { CallCard } from '@/components/chat/CallCard';
@@ -569,7 +570,17 @@ export default function ChatScreen() {
           sender={bubble.own ? 'You' : name}
           own={bubble.own}
           onLink={setUrl}
-        />
+        >
+          {bubble.files && (
+            <SealedAttachments
+              files={bubble.files}
+              open={(file) =>
+                chatController()?.openSealedFile(id, file) ??
+                Promise.resolve({ error: 'couldnt_open' as const })
+              }
+            />
+          )}
+        </Bubble>
       );
       const interrupted = interruptedNotice(message, bubble, name);
       if (!gap && !interrupted) return bubbleView;

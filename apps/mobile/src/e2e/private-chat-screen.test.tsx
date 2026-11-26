@@ -17,6 +17,7 @@ vi.mock('@/components/PrimaryButton', () => ({ PrimaryButton: 'PrimaryButton' })
 vi.mock('@/e2e/private-state', () => import('./private-state'));
 
 import { PrivateBanner, VoiceNoteWarning } from '../components/chat/PrivateChat';
+import { sealedBubble } from './private-state';
 
 type Props = { children?: ReactNode; [key: string]: unknown };
 function elements(node: ReactNode): ReactElement<Props>[] {
@@ -57,5 +58,29 @@ describe('private chat screen pieces (Task 24)', () => {
     (cancel?.props.onPress as () => void)();
     expect(onSend).toHaveBeenCalledOnce();
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('a photo-only agent message is shown', () => {
+    const id = 'msg_' + 'p'.repeat(20);
+    const message = { id, kind: 'sealed', author: 'agent' } as unknown as Parameters<
+      typeof sealedBubble
+    >[0];
+    const file = {
+      file_id: 'fil_aaaaaaaaaaaaaaaaaaaa',
+      key: 'k',
+      name: 'a.jpg',
+      mime: 'image/jpeg',
+      size: 3,
+    };
+    const bubble = sealedBubble(
+      message,
+      new Map([[id, { id, author: 'agent', state: 'ok', text: '', files: [file] }]]),
+      'Claude',
+    );
+    expect(bubble).toMatchObject({ text: '', own: false, opened: true, files: [file] });
+    // Still nothing for a stopped reply with no text and no files.
+    expect(
+      sealedBubble(message, new Map([[id, { id, author: 'agent', state: 'ok', text: '' }]]), 'C'),
+    ).toBeUndefined();
   });
 });

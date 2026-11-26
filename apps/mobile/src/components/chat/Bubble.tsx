@@ -1,5 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { font } from '@/theme/fonts';
 import { usePalette, radius, type } from '@/theme/tokens';
@@ -28,6 +28,7 @@ export function Bubble({
   onAction,
   onLongPress,
   muted,
+  children,
 }: {
   text: string;
   time: string;
@@ -49,6 +50,8 @@ export function Bubble({
   onLongPress?: () => void;
   /** A private message this phone could not open: a plain line, never rendered as markdown. */
   muted?: boolean;
+  /** A private message's photos and files, drawn above the text (`SealedAttachments`). */
+  children?: ReactNode;
 }) {
   const palette = usePalette();
   const [all, setAll] = useState(false);
@@ -57,7 +60,7 @@ export function Bubble({
   return (
     <View style={[styles.wrap, { alignItems: own ? 'flex-end' : 'flex-start' }]}>
       <Pressable
-        accessible={!attachments?.length && !pendingFiles?.length}
+        accessible={!attachments?.length && !pendingFiles?.length && !children}
         accessibilityLabel={`${sender}, ${time}: ${quote ? `replying to ${quote.from}, ` : ''}${text}`}
         accessibilityActions={actions}
         onAccessibilityAction={(event) => onAction?.(event.nativeEvent.actionName)}
@@ -101,6 +104,7 @@ export function Bubble({
             pending={!!pendingFiles}
           />
         )}
+        {children}
         {!!text && muted && (
           <Text style={[styles.muted, { color: palette.textSecondary, fontStyle: 'italic' }]}>
             {text}

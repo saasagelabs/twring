@@ -142,3 +142,37 @@ describe('exporting a private chat on the phone (Task 23)', () => {
     );
   });
 });
+
+describe('exporting sealed files (ADR-045)', () => {
+  it('export lists sealed files by name', () => {
+    const file = (name: string, mime: string) => ({
+      file_id: 'fil_aaaaaaaaaaaaaaaaaaaa',
+      key: 'k',
+      name,
+      mime,
+      size: 3,
+    });
+    const text = renderChatMarkdown([sealed(A, 1, 'agent'), sealed(B, 2, 'user')], {
+      agentName: 'Claude',
+      exportedAt: new Date(at),
+      formatTime: () => 't',
+      opened: new Map<string, OpenedMessage>([
+        [
+          A,
+          {
+            id: A,
+            author: 'agent',
+            state: 'ok',
+            text: 'here',
+            files: [file('plan.pdf', 'application/pdf'), file('cat.jpg', 'image/jpeg')],
+          },
+        ],
+        [B, { id: B, author: 'user', state: 'ok', text: '', files: [file('me.png', 'image/png')] }],
+      ]),
+    });
+    expect(text).toContain('> here');
+    expect(text).toContain('[File: plan.pdf]');
+    expect(text).toContain('[Photo: cat.jpg]');
+    expect(text).toContain('[Photo: me.png]');
+  });
+});

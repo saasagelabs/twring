@@ -110,6 +110,7 @@ for (const [path, name] of [
   ['chat/DateSeparator', 'DateSeparator'],
   ['chat/LinkSheet', 'LinkSheet'],
   ['chat/Notice', 'Notice'],
+  ['chat/SealedAttachments', 'SealedAttachments'],
   ['chat/StatusLine', 'StatusLine'],
   ['chat/WorkingRow', 'StreamingReply'],
   ['CallButton', 'CallButton'],
