@@ -3,7 +3,7 @@ import type * as ReactModule from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-  const params: { agentId?: string } = {};
+  const params: { agentId?: string; approve?: string } = {};
   return {
     state: [] as unknown[],
     cursor: 0,
@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => {
     loadTrusted: vi.fn(),
     restoreOffer: vi.fn(),
     requestApproval: vi.fn(),
+    twringApi: vi.fn(),
+    otherPhones: vi.fn(),
     push: vi.fn(),
     replace: vi.fn(),
     effects: 0,
@@ -85,7 +87,7 @@ vi.mock('@/e2e/approve', async () => ({
   ...(await import('./approve')),
   requestApproval: mocks.requestApproval,
 }));
-vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: vi.fn() }));
+vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: () => Promise.resolve(undefined) }));
 vi.mock('@/e2e/recovery', () => ({
   RECOVERY_COPY: {
     offer: "Save a recovery key? Without it, a new phone can't read old private messages.",
@@ -97,8 +99,12 @@ vi.mock('@/e2e/recovery', () => ({
 vi.mock('@/threads/chats', () => ({
   privateKeychain: () => ({ deviceOnly: true }),
   resetPrivateChats: vi.fn(),
+  chatController: () => undefined,
 }));
-vi.mock('@/api', () => ({ twringApi: () => undefined }));
+vi.mock('@/api', () => ({ twringApi: mocks.twringApi }));
+vi.mock('@/e2e/devices', () => ({ listDevices: vi.fn() }));
+vi.mock('@/e2e/other-phones', () => ({ otherPhones: mocks.otherPhones }));
+vi.mock('@/e2e/share-history', () => ({ shareHistory: vi.fn() }));
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
@@ -176,6 +182,9 @@ beforeEach(() => {
   mocks.restoreOffer.mockReset().mockResolvedValue({ kind: 'none' });
   mocks.push.mockReset();
   mocks.replace.mockReset();
+  mocks.requestApproval.mockReset().mockResolvedValue({ ok: true, approval: { id: 'pap_x' } });
+  mocks.twringApi.mockReset().mockReturnValue({ privateDevices: () => Promise.resolve({}) });
+  mocks.otherPhones.mockReset().mockResolvedValue([]);
   mocks.effects = 0;
 });
 
@@ -222,6 +231,63 @@ describe('recovery key on the pairing screen', () => {
     expect(text(tree)).toContain('REMOVED_COPY');
     expect(text(tree)).not.toContain('Use my recovery key');
     expect(labelled(tree, 'Scan the code on your computer')).toBeDefined();
+  });
+});
+
+describe('another phone with private chats', () => {
+  it('leads with approve when another phone exists', async () => {
+    mocks.otherPhones.mockResolvedValue([{ id: 'dev_p', name: 'iPhone' }]);
+    render();
+    await flush();
+    const tree = render();
+    const footer = elements(tree).filter((e) => e.type === 'PrimaryButton');
+    expect(footer.map((e) => e.props.label)).toEqual(['Approve from my other phone']);
+    expect(text(tree)).toContain(
+      'You already have private chats on iPhone. Approve this phone from there, so both phones can read the same chats.',
+    );
+    expect(labelled(tree, 'Scan the code on your computer').type).toBe('GhostButton');
+    expect(labelled(tree, 'Type the code instead').type).toBe('GhostButton');
+  });
+
+  it('says "your other phone" when there are two or more', async () => {
+    mocks.otherPhones.mockResolvedValue([
+      { id: 'dev_p', name: 'iPhone' },
+      { id: 'dev_q', name: 'Pixel' },
+    ]);
+    render();
+    await flush();
+    expect(text(render())).toContain('You already have private chats on your other phone.');
+  });
+
+  it('keeps scan first when no other phone', async () => {
+    render();
+    await flush();
+    const tree = render();
+    expect(
+      elements(tree)
+        .filter((e) => e.type === 'PrimaryButton')
+        .map((e) => e.props.label),
+    ).toEqual(['Scan the code on your computer']);
+    expect(text(tree)).not.toContain('You already have private chats');
+  });
+
+  it('keeps scan first when the list fails to load', async () => {
+    mocks.otherPhones.mockRejectedValue(new Error('offline'));
+    render();
+    await flush();
+    expect(
+      elements(render())
+        .filter((e) => e.type === 'PrimaryButton')
+        .map((e) => e.props.label),
+    ).toEqual(['Scan the code on your computer']);
+  });
+
+  it('starts approval at once from the devices screen', async () => {
+    mocks.params = { approve: '1' };
+    render();
+    await flush();
+    expect(mocks.requestApproval).toHaveBeenCalledTimes(1);
+    expect(text(render())).toContain('Waiting for your other phone');
   });
 });
 
