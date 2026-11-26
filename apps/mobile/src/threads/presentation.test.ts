@@ -182,6 +182,12 @@ describe('chat presentation', () => {
     expect(messageStatus('failed', 'Hermes', 'agent_failed')).toBe(
       "Didn't go through: the agent could not reply",
     );
+    expect(messageStatus('failed', 'Hermes', 'private_files')).toBe(
+      "Didn't go through: photos and files can't be sent in a private chat yet.",
+    );
+    expect(messageStatus('failed', 'Hermes', 'private_thread')).toBe(
+      "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+    );
   });
   it('segments links, fences, bold, and leaves HTML as text', () => {
     expect(segmentText('Hi **bold** https://example.com <b>x</b>\n```ts\nlet x = 1\n```')).toEqual([

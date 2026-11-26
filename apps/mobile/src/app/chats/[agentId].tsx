@@ -710,7 +710,10 @@ export default function ChatScreen() {
             {heldVoice && (
               <VoiceNoteWarning
                 onSend={() => {
-                  chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id);
+                  // The person's consent: the server may read this voice note.
+                  chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id, {
+                    serverReadable: true,
+                  });
                   heldUri.current = undefined;
                   setReplyTo(undefined);
                   setHeldVoice(undefined);

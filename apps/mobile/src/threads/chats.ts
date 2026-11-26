@@ -98,6 +98,7 @@ export class ChatController {
                 message.voice.uri,
                 signal,
                 message.replyTo,
+                message.voice.serverReadable,
               )
             : await this.api.sendMessage(agentId, message, signal);
         // Shown at once from the reply; the socket and catch-up only refresh it.
@@ -454,8 +455,14 @@ export class ChatController {
   sendFiles(agentId: string, text: string, files: PreparedFile[], replyTo?: string): string {
     return this.outbox.sendFiles(agentId, text, files, replyTo);
   }
-  sendVoice(agentId: string, uri: string, durationMs: number, replyTo?: string): string {
-    return this.outbox.sendVoice(agentId, uri, durationMs, replyTo);
+  sendVoice(
+    agentId: string,
+    uri: string,
+    durationMs: number,
+    replyTo?: string,
+    options?: { serverReadable?: boolean },
+  ): string {
+    return this.outbox.sendVoice(agentId, uri, durationMs, replyTo, options);
   }
   /** Deletes a message everywhere; throws the server's refusal (409 while it is answered). */
   async deleteMessage(agentId: string, messageId: string): Promise<void> {
@@ -772,8 +779,12 @@ export function useChat(agentId: string) {
     send: (text: string, replyTo?: string) => active?.send(agentId, text, replyTo),
     sendFiles: (text: string, files: PreparedFile[], replyTo?: string) =>
       active?.sendFiles(agentId, text, files, replyTo),
-    sendVoice: (uri: string, durationMs: number, replyTo?: string) =>
-      active?.sendVoice(agentId, uri, durationMs, replyTo),
+    sendVoice: (
+      uri: string,
+      durationMs: number,
+      replyTo?: string,
+      options?: { serverReadable?: boolean },
+    ) => active?.sendVoice(agentId, uri, durationMs, replyTo, options),
     deleteMessage: (messageId: string) =>
       active ? active.deleteMessage(agentId, messageId) : Promise.resolve(),
     retry: (clientId: string) => active?.retry(clientId),

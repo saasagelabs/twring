@@ -393,7 +393,9 @@ describe('a private chat', () => {
     expect(mocks.chat.sendVoice).not.toHaveBeenCalled();
     const warning = of(render().all, 'VoiceNoteWarning')[0];
     (warning.props.onSend as () => void)();
-    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined, {
+      serverReadable: true,
+    });
     expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
     expect(mocks.deleted).toEqual([]);
   });
