@@ -1088,7 +1088,9 @@ export class ThreadService {
     // A chunk resent after a reconnect is already stored: nothing changed, nothing to count.
     if (saved === 'duplicate') return;
     if (saved === 'after_final' || saved === 'too_large') return reject(saved);
-    if (frame.final) this.idle.end(frame.turn_id);
+    // Only a complete reply ends the silence clock: a final chunk that beat a missing one keeps it
+    // running, so the turn is interrupted if that chunk never comes.
+    if (saved.complete) this.idle.end(frame.turn_id);
     else if (
       this.idle.tracks(frame.turn_id) ||
       this.options.privateChats?.computerHas?.(record, SEALED_WORKING_FEATURE) === true
