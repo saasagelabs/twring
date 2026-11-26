@@ -71,6 +71,7 @@ function reply(
   to: Uint8Array[],
   texts: string[] = [`reply ${n}`],
   chunked = texts.length > 1,
+  v2 = false,
 ): SealedThreadMessage {
   const key = newMessageKey();
   const sealed: SealedEnvelopeV1[] = texts.map((text, index) => {
@@ -81,6 +82,7 @@ function reply(
       senderDevice: COMPUTER_ID,
       senderSeq: n,
       ...(chunk !== undefined && { chunk: chunk.index }),
+      ...(chunk !== undefined && v2 && { final: chunk.final }),
     });
     const { nonce, body } = sealBody(key, { text }, aad);
     return {
@@ -212,6 +214,25 @@ describe('re-wrapping older private messages for an approved phone (C3 #11, Task
     );
     expect(openMessage(ctx, chunked)).toMatchObject({ state: 'ok', text: 'Hello, world!' });
     expect(openMessage(ctx, plain)).toMatchObject({ state: 'ok', text: 'reply 3' });
+  });
+
+  it('re-wraps a reply sealed under the v2 AAD (final flag bound)', async () => {
+    const { store, me } = await approvingPhone();
+    const chunked = reply(1, [me.publicKey], ['Hello, ', 'world', '!'], true, true);
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    let items: SealedKeysUpload['items'] = [];
+    await runRewrapJobs(
+      deps(store, [chunked], async (_a, body) => {
+        items = body.items;
+        return { status: 204, body: undefined };
+      }),
+    );
+    expect(items.map((i) => i.message_id)).toEqual([chunked.id]);
+    const ctx = newPhoneCtx(
+      [device('computer', computer.publicKey), device('phone', me.publicKey)],
+      new Map(items.map((i) => [i.message_id, { by: me.deviceId, wrapped: i.wrapped }])),
+    );
+    expect(openMessage(ctx, chunked)).toMatchObject({ state: 'ok', text: 'Hello, world!' });
   });
 });
 

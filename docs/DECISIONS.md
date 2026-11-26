@@ -1406,6 +1406,30 @@ transcription, Listen and AI apps connected online are never labelled end-to-end
   message exists in the chat.
 - Message sealing calls @noble directly with an AAD; `seal-core.ts` (push sealing) is unchanged.
 
+### Amendment: the final flag of a streamed reply is sealed (2026-11-27)
+
+Why: the v1 associated data binds a chunk's index but not its `final` flag, which travels in
+clear on the envelope. A server could drop the last chunks of a streamed reply and mark an earlier
+one final, and the phone would show a cut reply as complete (with the files of the real last chunk
+lost); or mark the real last chunk not final, so a complete reply shows as unfinished.
+
+The v2 associated data for a chunk is `["twring-e2e-v2", account, agent, sender, seq, chunk,
+final]`. `messageAad` gives it only when both a chunk index and a final flag are passed; without
+the flag it is byte for byte the v1 form, so unchunked messages and every existing seal are
+unchanged.
+
+Rollout in two phases. Phase 1 (this build): the phone opens each chunk, key and body, under v2
+with the envelope's own final flag first, then under v1. Re-wrapping for a newly approved phone
+unwraps its own wraps the same way, and the re-wrap itself stays under the first envelope's v1
+associated data, as before. Phase 2 (a later computer release, once every phone runs phase 1): the
+computer seals chunks under v2. The version tag is part of the associated data, so a chunk sealed
+under v2 never opens under v1: once a computer seals v2, a flipped flag on its chunks cannot be
+hidden by a downgrade. Until then, v1 chunks keep the old weakness.
+
+Also from the same review: the author shown for a private message comes from the verified sender
+(this phone or a trusted phone is the person, a trusted computer allowed for the chat is the
+agent); a server label that disagrees shows the message as could not open.
+
 ### Recovery key (C3 #11, 2026-11-25)
 
 Optional. The phone shows 12 English BIP39 words (128 bits with a checksum, `@scure/bip39`, same

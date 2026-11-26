@@ -164,6 +164,35 @@ function aadFor(ctx: PhoneSealContext, sender: string, seq: number, chunk?: numb
   });
 }
 
+/**
+ * The AADs a chunk may be sealed under, in order: v2 with the envelope's own final flag (a
+ * flipped flag then fails to open), then v1 for computers that still seal the old way (ADR-044
+ * amendment, phase 1). An unchunked envelope has only v1.
+ */
+export function aadsToTry(
+  ids: { accountId: string; agentId: string },
+  e: SealedEnvelopeV1,
+): Uint8Array[] {
+  const base = {
+    accountId: ids.accountId,
+    agentId: ids.agentId,
+    senderDevice: e.sender_device,
+    senderSeq: e.sender_seq,
+  };
+  if (e.chunk === undefined) return [messageAad(base)];
+  return [
+    messageAad({ ...base, chunk: e.chunk.index, final: e.chunk.final }),
+    messageAad({ ...base, chunk: e.chunk.index }),
+  ];
+}
+
+/** Who a verified sender speaks as: this phone or another phone is the person, a computer the agent. */
+function authorOf(ctx: PhoneSealContext, sender: string): 'user' | 'agent' | undefined {
+  if (sender === ctx.me.deviceId) return 'user';
+  const kind = ctx.trusted.find((d) => d.id === sender)?.kind;
+  return kind === 'phone' ? 'user' : kind === 'computer' ? 'agent' : undefined;
+}
+
 function senderKey(ctx: PhoneSealContext, device: string): Uint8Array | undefined {
   if (device === ctx.me.deviceId) return ctx.me.publicKey;
   const found = ctx.trusted.find((d) => d.id === device);
@@ -237,6 +266,8 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
     !computerAllowed(ctx.trusted, sender, ctx.accountId)
   )
     return { ok: false, replay: false };
+  // The shown author comes from the verified sender; a server label that disagrees fails (R4-3).
+  if (m.author !== authorOf(ctx, sender)) return { ok: false, replay: false };
   const saved = ctx.savedIds.get(`${sender}:${seq}`);
   for (const e of envelopes) {
     const owner = ctx.owners.get(replayKey(sender, seq, e.chunk?.index)) ?? saved;
@@ -255,23 +286,37 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   let rewrap: Rewrap | undefined;
   for (const e of envelopes) {
     const mine = e.keys.find((k) => k.device === ctx.me.deviceId);
-    const aad = aadFor(ctx, sender, seq, e.chunk?.index);
-    let key: Uint8Array;
     if (mine === undefined) {
       rewrapped ??= rewrappedKey(ctx, m, first);
       if (rewrapped === undefined) return { ok: false, replay: false };
       rewrap = ctx.rewraps?.get(m.id);
-      key = rewrapped;
-    } else {
+    }
+    // v2 first, then v1 (ADR-044 amendment): the key and the body open under the same AAD.
+    let key: Uint8Array | undefined;
+    let aad: Uint8Array | undefined;
+    let payload: SealedPayload | undefined;
+    for (const candidate of aadsToTry(ctx, e)) {
+      let k: Uint8Array | undefined = rewrapped;
+      if (mine !== undefined) {
+        try {
+          k = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, candidate);
+        } catch {
+          continue;
+        }
+      }
+      if (k === undefined) continue;
+      key = k;
+      aad = candidate;
       try {
-        key = unwrapKey(mine.wrapped, ctx.me.privateKey, theirKey, aad);
+        payload = openBody(k, e.nonce, e.body, candidate);
+        break;
       } catch {
-        return { ok: false, replay: false };
+        // A re-wrapped key does not tell v1 from v2, so the body decides.
       }
     }
-    try {
-      payloads.push(openBody(key, e.nonce, e.body, aad));
-    } catch {
+    if (key === undefined || aad === undefined) return { ok: false, replay: false };
+    if (payload !== undefined) payloads.push(payload);
+    else {
       // Only a single sealed agent message from another device may be an approval (C3 #11).
       // and only from a computer this phone paired, never from another phone.
       if (
