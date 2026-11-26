@@ -183,6 +183,8 @@ export class RelayClient {
     ws.on('close', (code: number) => {
       if (this.ws !== ws) return;
       this.ws = null;
+      // The next gateway may be older: until its ready, assume it supports nothing new.
+      this.features = new Set();
       clearTimeout(this.silenceTimer);
       this.closeSessions('link');
       if (code === RELAY_CLOSE.revoked) fatal = 'revoked';

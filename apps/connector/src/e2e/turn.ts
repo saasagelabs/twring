@@ -13,9 +13,12 @@ import {
   DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
+  SEALED_WORKING_FEATURE,
+  SEALED_WORKING_INTERVAL_MS,
   TEXT_TURN_TAG,
   type RelayConnectorMessage,
   type RelayGatewayMessage,
+  type RelaySealedWorking,
   type SealedPayload,
 } from '@twring/contracts';
 
@@ -124,7 +127,13 @@ export class FailureBudget {
 export function helloFeatures(e2e: E2eConfig | undefined): string[] {
   const phones = e2e?.devices.some((device) => device.kind === 'phone') ?? false;
   return phones
-    ? [SCOPED_SESSIONS_FEATURE, SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE, DEVICES_CHANGED_FEATURE]
+    ? [
+        SCOPED_SESSIONS_FEATURE,
+        SEALED_CHAT_FEATURE,
+        SEALED_CANCEL_FEATURE,
+        DEVICES_CHANGED_FEATURE,
+        SEALED_WORKING_FEATURE,
+      ]
     : [SCOPED_SESSIONS_FEATURE];
 }
 
@@ -155,7 +164,12 @@ export interface PrivateChatsOptions {
     runExclusive(agentId: string, fn: () => Promise<void>): Promise<void>;
   };
   /** Sends one frame now; false when the link is down. */
-  send: (frame: SealedReplyFrame | SealedApprovalFrame) => boolean;
+  send: (frame: SealedReplyFrame | SealedApprovalFrame | RelaySealedWorking) => boolean;
+  /**
+   * Whether the connected gateway listed this feature in its ready. The working frame goes only
+   * to one that did: an older gateway drops the socket on a frame type it does not know.
+   */
+  gatewaySupports?: (feature: string) => boolean;
   outbox: ResultOutbox;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -205,9 +219,22 @@ export class PrivateChats {
         // Kept from the first moment, so a Stop that arrives while this turn waits is not lost.
         const controller = new AbortController();
         this.turns.set(frame.message_id, { agent: frame.agent, controller });
+        // Tells the server this turn is alive, also while it waits behind another of this agent.
+        // A failed send is dropped, never held: the next beat says the same.
+        const beat = setInterval(() => {
+          if (controller.signal.aborted) return;
+          if (this.options.gatewaySupports?.(SEALED_WORKING_FEATURE) !== true) return;
+          this.options.send({
+            type: 'sealed.working',
+            agent: frame.agent,
+            turn_id: frame.message_id,
+          });
+        }, SEALED_WORKING_INTERVAL_MS);
+        beat.unref?.();
         try {
           return await this.receiveMessage(frame, controller.signal);
         } finally {
+          clearInterval(beat);
           if (this.turns.get(frame.message_id)?.controller === controller)
             this.turns.delete(frame.message_id);
         }

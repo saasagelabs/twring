@@ -43,7 +43,13 @@ import { OnCallChip } from '@/components/OnCallChip';
 import { useOnCall } from '@/call/on-call';
 import { ErrorNotice } from '@/components/ErrorNotice';
 import { noticeAction } from '@/e2e/devices';
-import { labelFor, MISSING_MESSAGE, sealedBubble, SERVER_READABLE_MARK } from '@/e2e/private-state';
+import {
+  interruptedNotice,
+  labelFor,
+  MISSING_MESSAGE,
+  sealedBubble,
+  SERVER_READABLE_MARK,
+} from '@/e2e/private-state';
 import { PrivateBanner, VoiceNoteWarning } from '@/components/chat/PrivateChat';
 import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
@@ -552,11 +558,21 @@ export default function ChatScreen() {
           onLink={setUrl}
         />
       );
-      if (!gap) return bubbleView;
+      const interrupted = interruptedNotice(message, bubble, name);
+      if (!gap && !interrupted) return bubbleView;
       return (
         <View>
           {gapRow}
           {bubbleView}
+          {interrupted && (
+            <Notice
+              text={interrupted.text}
+              {...(interrupted.draft && {
+                action: 'Ask again',
+                onPress: () => setDraft(interrupted.draft),
+              })}
+            />
+          )}
         </View>
       );
     }

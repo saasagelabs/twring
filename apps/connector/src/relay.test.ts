@@ -7,6 +7,7 @@ import {
   RELAY_CLOSE,
   RELAY_PAIRING_HEADER,
   RELAY_PAIRING_REVOKED,
+  SEALED_WORKING_FEATURE,
   type AgentEvent,
 } from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -99,6 +100,15 @@ const waitFor = async (check: () => boolean) => {
   }
 };
 
+const readyFrame = (features: string[]) =>
+  JSON.stringify({
+    type: 'connector.ready',
+    protocol: 'cord-relay/1',
+    connector_id: `con_${'a'.repeat(20)}`,
+    name: 'Laptop',
+    features,
+  });
+
 describe('relay client', () => {
   it('uses features from the latest ready frame after reconnect', async () => {
     let connections = 0;
@@ -127,6 +137,68 @@ describe('relay client', () => {
       () => connections === 2 && statuses.filter((s) => s.kind === 'connected').length === 2,
     );
     expect(c.supports('messages')).toBe(false);
+  });
+  // The 20 s still-working beat asks supports() on every tick (ADR-045). Between a reconnect and
+  // the next ready, an older gateway would drop the socket on the unknown frame type.
+  it("forgets the gateway's features when the link drops", async () => {
+    let connections = 0;
+    const url = await server((ws) => {
+      connections++;
+      const current = connections;
+      ws.on('message', () => {
+        if (current > 1) return; // the second connection never says ready
+        ws.send(readyFrame([SEALED_WORKING_FEATURE]));
+        setTimeout(() => ws.close(), 10);
+      });
+    });
+    const statuses: RelayStatus[] = [];
+    const c = client(url, statuses);
+    c.start();
+    await waitFor(() => c.supports(SEALED_WORKING_FEATURE));
+    await waitFor(() => connections === 2);
+    expect(c.supports(SEALED_WORKING_FEATURE)).toBe(false);
+  });
+  it('sends no working frame between reconnect and ready', async () => {
+    let connections = 0;
+    let holdReady: (() => void) | undefined;
+    const url = await server((ws) => {
+      connections++;
+      const current = connections;
+      ws.on('message', () => {
+        if (current === 1) {
+          ws.send(readyFrame([SEALED_WORKING_FEATURE]));
+          setTimeout(() => ws.close(), 10);
+          return;
+        }
+        // The new socket is open and hello arrived; the beat fires before this ready.
+        holdReady = () => ws.send(readyFrame([SEALED_WORKING_FEATURE]));
+      });
+    });
+    const c = client(url, []);
+    c.start();
+    await waitFor(() => connections === 2 && holdReady !== undefined);
+    expect(c.supports(SEALED_WORKING_FEATURE)).toBe(false);
+    holdReady!();
+    await waitFor(() => c.supports(SEALED_WORKING_FEATURE));
+  });
+  it("stops working frames when the new gateway's ready lacks the word", async () => {
+    let connections = 0;
+    const url = await server((ws) => {
+      connections++;
+      const current = connections;
+      ws.on('message', () => {
+        ws.send(readyFrame(current === 1 ? [SEALED_WORKING_FEATURE] : []));
+        if (current === 1) setTimeout(() => ws.close(), 10);
+      });
+    });
+    const statuses: RelayStatus[] = [];
+    const c = client(url, statuses);
+    c.start();
+    await waitFor(() => c.supports(SEALED_WORKING_FEATURE));
+    await waitFor(
+      () => connections === 2 && statuses.filter((s) => s.kind === 'connected').length === 2,
+    );
+    expect(c.supports(SEALED_WORKING_FEATURE)).toBe(false);
   });
   it('authenticates, says hello, and answers a call over a channel', async () => {
     const frames: Record<string, unknown>[] = [];

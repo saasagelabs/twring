@@ -379,6 +379,36 @@ describe('a private chat', () => {
     ]);
   });
 
+  it('shows the interrupted notice, with Ask again, under an own private message', () => {
+    const own = { ...sealed('s1', 1, 'user'), status: 'interrupted' } as unknown as ThreadMessage;
+    setChat({
+      private: true,
+      messages: [own],
+      opened: [{ id: 's1', author: 'user', state: 'ok', text: 'do it' }],
+    });
+    const notices = of(render().items, 'Notice');
+    expect(notices).toHaveLength(1);
+    expect(notices[0].props.text).toBe(
+      'Interrupted: Hermes may have started this. Its answer will appear here if it finishes.',
+    );
+    expect(notices[0].props.action).toBe('Ask again');
+    expect(typeof notices[0].props.onPress).toBe('function');
+  });
+
+  it('an interrupted private message that could not be opened has the notice but no action', () => {
+    const own = { ...sealed('s1', 1, 'user'), status: 'interrupted' } as unknown as ThreadMessage;
+    setChat({
+      private: true,
+      messages: [own],
+      opened: [{ id: 's1', author: 'user', state: 'couldnt_open' }],
+    });
+    const notices = of(render().items, 'Notice');
+    expect(notices).toHaveLength(1);
+    expect(notices[0].props.text).toMatch(/^Interrupted: Hermes may have started this/);
+    expect(notices[0].props.action).toBeUndefined();
+    expect(notices[0].props.onPress).toBeUndefined();
+  });
+
   it("shows no gap row for the phone's own messages", () => {
     setChat({
       private: true,

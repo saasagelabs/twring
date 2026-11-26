@@ -514,6 +514,7 @@ function run(config: ConnectorConfig): Promise<number> {
       runExclusive: (id, fn) => pool.runExclusive(id, fn),
     },
     send: (frame) => client.sendFrame(frame),
+    gatewaySupports: (feature) => client.supports(feature) === true,
     outbox,
     log,
   });

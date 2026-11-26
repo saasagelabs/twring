@@ -281,6 +281,20 @@ export const relaySealedCancelSchema = z
   .strict();
 
 /**
+ * Connector to gateway: the computer is still on this private turn (ADR-045). Carries nothing
+ * from the turn. Sent every SEALED_WORKING_INTERVAL_MS, only to a gateway whose ready said
+ * `sealed_working` (an older hub drops the socket on an unknown type).
+ */
+export const relaySealedWorkingSchema = z
+  .object({
+    type: z.literal('sealed.working'),
+    agent: localAgentIdSchema,
+    turn_id: sealedMessageIdSchema,
+  })
+  .strict();
+export type RelaySealedWorking = z.infer<typeof relaySealedWorkingSchema>;
+
+/**
  * Gateway to connector: a device was removed from the account's private chats (C3 #11), so the
  * computer reads the device list again now. Not sealed and carries nothing: the server can only
  * take trust away. Sent only to a computer that said `devices_changed`.
@@ -295,6 +309,7 @@ export const relayConnectorMessageSchema = z.discriminatedUnion('type', [
   relayChannelCloseSchema,
   relaySealedReplySchema,
   relaySealedApprovalSchema,
+  relaySealedWorkingSchema,
 ]);
 export type RelayConnectorMessage = z.infer<typeof relayConnectorMessageSchema>;
 

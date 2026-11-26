@@ -1442,3 +1442,33 @@ with delete my data, and never hands out a wrap whose maker is no longer active.
 Server-side quotes, export, transcription, MCP reads and ring text do not work for private
 chats; the phone does quotes, export and search. Lost keys without a recovery key lose history.
 Connector and app must both ship before the feature turns on.
+
+## ADR-045: Private chats: silence timeout, approving an already-paired phone, sealed files and the computer's own messages (2026-11-26)
+
+### Context
+The first device walkthrough of private chats (ADR-044) found a private reply that stays
+"Working" forever when the computer drops mid-reply, two phones that each paired with the
+computer but never trust each other, and photos, files and the computer's own messages going
+into a private chat readable by the server.
+
+### Decision
+- A computer that says `sealed_working` sends a content-free "still working" frame every 20 s
+  during a private turn; the gateway marks a private turn interrupted after 60 s with no reply
+  chunk or frame. A late reply or frame revives it. Computers without the word are never timed out.
+- A phone already in the account's device list may ask another phone to approve it (same code
+  comparison and signed trust note as a new phone). After approval each phone shares the message
+  keys it holds with the other.
+- Files in a private chat are sealed on the sending device with a fresh key per file
+  (XChaCha20-Poly1305, `fileAad`); the server stores opaque blobs (name `sealed.bin`, type
+  `application/octet-stream`) and never lists them as attachments. Id, key, name, type and size
+  ride inside the sealed message.
+- The computer's own messages (`message`, files, scheduled and background results) are sealed by
+  the connector. A new connector marks plain posts `twring-can-seal: 1`; the gateway refuses
+  those into a private chat (409 `seal_required`) and the connector posts them sealed. Posts
+  without the mark keep the "Sent through Twring" marker.
+
+### Consequences
+The server still sees file sizes, counts and timing (as ADR-044's threat model says). A private
+reply from a computer that is gone for over a minute shows "Interrupted". Photos to a computer
+with an older connector fail with "update Twring on your computer". The Media screen shows
+ordinary-chat photos only.
