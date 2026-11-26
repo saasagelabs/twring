@@ -44,6 +44,14 @@ vi.mock('expo-file-system', () => {
       if (entry === 'folder' || entry === undefined) throw new Error('missing');
       return Promise.resolve(entry.bytes.buffer.slice(0) as ArrayBuffer);
     }
+    get size() {
+      const entry = fs.entries.get(this.path) as Entry | undefined;
+      return entry === undefined || entry === 'folder' ? 0 : entry.bytes.length;
+    }
+    move(to: File) {
+      fs.entries.set(to.path, fs.entries.get(this.path));
+      fs.entries.delete(this.path);
+    }
     write(bytes: Uint8Array) {
       fs.entries.set(this.path, { bytes });
     }
@@ -142,5 +150,47 @@ describe('opening sealed files (ADR-045)', () => {
     expect(fs.entries.size).toBeGreaterThan(0);
     await clearSealedFiles();
     expect([...fs.entries.keys()].filter((key) => key.includes('sealed-files'))).toEqual([]);
+  });
+
+  it('a clear during a download leaves nothing on disk', async () => {
+    const file = entry('fil_gggggggggggggggggggg');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const slow = { source: async (a: string, id: string) => (await gate, source(a, id)) };
+    const pending = openSealedFile(agentId, file, ids, slow);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await clearSealedFiles();
+    release();
+    expect(await pending).toEqual({ error: 'couldnt_open' });
+    expect([...fs.entries.keys()]).toEqual([]);
+  });
+
+  it('a blob sealed for another chat shows couldnt_open', async () => {
+    const key = newFileKey();
+    const file = {
+      ...entry('fil_hhhhhhhhhhhhhhhhhhhh'),
+      key: base64urlEncode(key),
+    };
+    fs.remote.set(
+      'https://example.test/fil_hhhhhhhhhhhhhhhhhhhh',
+      sealFile(key, plain, fileAad({ accountId: ids.accountId, agentId: 'other' })),
+    );
+    expect(await openSealedFile(agentId, file, ids, { source })).toEqual({ error: 'couldnt_open' });
+  });
+
+  it('refuses a file id that is not a server id, with no download', async () => {
+    const file = { ...entry('fil_iiiiiiiiiiiiiiiiiiii'), file_id: '../x' };
+    expect(await openSealedFile(agentId, file, ids, { source })).toEqual({ error: 'couldnt_open' });
+    expect(fs.downloads).toBe(0);
+  });
+
+  it('a cached copy of the wrong size is opened again', async () => {
+    const file = entry('fil_jjjjjjjjjjjjjjjjjjjj');
+    await openSealedFile(agentId, file, ids, { source });
+    const key = [...fs.entries.keys()].find((k) => k.endsWith('fil_jjjjjjjjjjjjjjjjjjjj'))!;
+    fs.entries.set(key, { bytes: new Uint8Array([9]) });
+    await openSealedFile(agentId, file, ids, { source });
+    expect((fs.entries.get(key) as { bytes: Uint8Array }).bytes).toEqual(plain);
+    expect(fs.downloads).toBe(2);
   });
 });

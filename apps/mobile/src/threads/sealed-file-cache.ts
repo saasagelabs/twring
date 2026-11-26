@@ -55,6 +55,8 @@ async function defaultDeps(): Promise<SealedFileDeps> {
   };
 }
 
+/** Bumped by a clear: a download that began before it must not write anything after it. */
+let generation = 0;
 const inFlight = new Map<string, Promise<{ uri: string } | { error: 'couldnt_open' }>>();
 
 /**
@@ -70,12 +72,21 @@ export function openSealedFile(
 ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
   const found = inFlight.get(file.file_id);
   if (found) return found;
-  const work = openOnce(agentId, file, ids, deps)
+  const work: Promise<{ uri: string } | { error: 'couldnt_open' }> = openOnce(
+    agentId,
+    file,
+    ids,
+    deps,
+  )
     .catch((): { error: 'couldnt_open' } => ({ error: 'couldnt_open' }))
-    .finally(() => inFlight.delete(file.file_id));
+    .finally(() => {
+      if (inFlight.get(file.file_id) === work) inFlight.delete(file.file_id);
+    });
   inFlight.set(file.file_id, work);
   return work;
 }
+
+const FILE_ID = /^fil_[a-z2-7]{20}$/;
 
 async function openOnce(
   agentId: string,
@@ -83,14 +94,23 @@ async function openOnce(
   ids: { accountId: string; agentId: string },
   given: SealedFileDeps | undefined,
 ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
+  // A name from the server never reaches a path unless it is exactly a file id.
+  if (!FILE_ID.test(file.file_id)) return { error: 'couldnt_open' };
+  const started = generation;
   const { Directory, File, Paths } = await import('expo-file-system');
   const folder = new Directory(Paths.cache, CACHE_FOLDER);
-  const target = new File(folder, cacheName(file.file_id));
-  if (target.exists) return { uri: target.uri };
-  const temp = new File(folder, `${cacheName(file.file_id)}.download`);
+  const name = cacheName(file.file_id);
+  const target = new File(folder, name);
+  if (target.exists) {
+    // A copy cut short by a crash or a full disk is not trusted: open it again.
+    if (target.size === file.size) return { uri: target.uri };
+    target.delete();
+  }
+  // Outside the folder, so a clear that runs meanwhile has nothing to recreate.
+  const temp = new File(Paths.cache, `sealed-${name}.download`);
+  const part = new File(folder, `${name}.part`);
   try {
     const deps = given ?? (await defaultDeps());
-    if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
     const source = await deps.source(agentId, file.file_id);
     await File.downloadFileAsync(source.uri, temp, {
       ...(source.headers && { headers: source.headers }),
@@ -98,20 +118,27 @@ async function openOnce(
     });
     const blob = new Uint8Array(await temp.arrayBuffer());
     const plain = openFile(base64urlDecode(file.key), blob, fileAad(ids));
-    if (plain.length !== file.size) return { error: 'couldnt_open' };
-    target.write(plain);
+    if (plain.length !== file.size || started !== generation) return { error: 'couldnt_open' };
+    if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
+    part.write(plain);
+    // Moved into place whole: the name only ever holds a complete file.
+    await part.move(target);
     return { uri: target.uri };
   } finally {
-    try {
-      if (temp.exists) temp.delete();
-    } catch {
-      /* already gone */
+    for (const leftover of [temp, part]) {
+      try {
+        if (leftover.exists) leftover.delete();
+      } catch {
+        /* already gone */
+      }
     }
   }
 }
 
 /** Sign-out, removing this phone and clearing a chat: no opened file stays behind. */
 export async function clearSealedFiles(): Promise<void> {
+  generation += 1;
+  inFlight.clear();
   try {
     const { Directory, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.cache, CACHE_FOLDER);

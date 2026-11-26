@@ -1,5 +1,4 @@
 import { Image } from 'expo-image';
-import * as Sharing from 'expo-sharing';
 import { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import {
@@ -11,6 +10,7 @@ import {
 import { font } from '@/theme/fonts';
 import { usePalette, radius, type } from '@/theme/tokens';
 import { humanSize } from '@/threads/files';
+import { shareSealedFile } from '@/threads/share-sealed-file';
 import { ImageViewer } from './ImageViewer';
 
 export const COULDNT_OPEN_FILE = "Couldn't open this file";
@@ -32,7 +32,7 @@ export function SealedAttachments({
 }) {
   const palette = usePalette();
   const [states, setStates] = useState<Record<string, State>>({});
-  const [viewer, setViewer] = useState<{ id: string; name: string; uri: string }>();
+  const [viewer, setViewer] = useState<{ id: string; name: string; mime: string; uri: string }>();
   const set = useCallback(
     (file: SealedFileEntry, state: State) =>
       setStates((previous) => ({ ...previous, [file.file_id]: state })),
@@ -41,10 +41,7 @@ export function SealedAttachments({
   const share = useCallback(
     async (file: SealedFileEntry, uri: string) => {
       try {
-        await Sharing.shareAsync(uri, {
-          mimeType: file.mime,
-          dialogTitle: displayFileName(file.name),
-        });
+        await shareSealedFile(uri, file);
       } catch {
         set(file, { error: 'couldnt_open' });
       }
@@ -107,7 +104,7 @@ export function SealedAttachments({
                 accessibilityRole="button"
                 accessibilityLabel={`Photo, ${name}`}
                 disabled={uri === undefined}
-                onPress={() => uri && setViewer({ id: file.file_id, name, uri })}
+                onPress={() => uri && setViewer({ id: file.file_id, name, mime: file.mime, uri })}
                 style={[
                   styles.tile,
                   { width: side, height: side, backgroundColor: palette.surfaceRaised },
@@ -167,7 +164,7 @@ export function SealedAttachments({
         onClose={() => setViewer(undefined)}
         onShare={() =>
           viewer
-            ? Sharing.shareAsync(viewer.uri, { dialogTitle: viewer.name })
+            ? shareSealedFile(viewer.uri, viewer)
             : Promise.reject(new Error('File unavailable'))
         }
       />
