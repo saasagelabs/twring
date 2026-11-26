@@ -146,14 +146,19 @@ export function failedSendText(
   errorCode: string | undefined,
   errorMessage: string | undefined,
 ): string {
-  if (errorCode !== undefined && errorCode in KNOWN_ERRORS)
+  if (errorCode !== undefined && hasCopy(errorCode))
     return `Didn't go through: ${errorCopy(errorCode)}`;
   if (errorMessage !== undefined) return `Didn't go through: ${errorMessage}`;
   return messageStatus('failed', name, errorCode);
 }
 
 function errorCopy(code: string): string {
-  return KNOWN_ERRORS[code] ?? 'please try again later';
+  return (hasCopy(code) ? KNOWN_ERRORS[code] : undefined) ?? 'please try again later';
+}
+
+/** Own keys only: a code such as `constructor` is not a known failure. */
+function hasCopy(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_ERRORS, code);
 }
 
 const KNOWN_ERRORS: Record<string, string> = {

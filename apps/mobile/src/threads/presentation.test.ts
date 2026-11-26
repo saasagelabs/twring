@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agentRowLine,
   dateLabel,
+  failedSendText,
   callCardLine,
   callDuration,
   messageStatus,
@@ -241,5 +242,14 @@ describe('rowTime', () => {
   it('writes older dates the way Recents and agent pages do', () => {
     expect(rowTime(at(8), now)).toBe('Nov 4');
     expect(rowTime(new Date(2025, 9, 29, 9).toISOString(), now)).toBe('Oct 29, 2025');
+  });
+});
+
+describe('failedSendText', () => {
+  it('treats a code named like a built-in property as unknown', () => {
+    expect(failedSendText('Claude Code', 'constructor', undefined)).not.toMatch(/function/);
+    expect(failedSendText('Claude Code', 'toString', 'The server said no.')).toBe(
+      "Didn't go through: The server said no.",
+    );
   });
 });
