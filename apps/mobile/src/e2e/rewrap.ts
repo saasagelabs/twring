@@ -43,6 +43,8 @@ const jobSchema = z
   .object({
     for: e2eDeviceIdSchema,
     public_key: publicKeySchema,
+    /** Set by each approve, so a run that started earlier never saves over a newer approve. */
+    queued: z.string().max(40).optional(),
     /** The server said the new phone is gone: never tried again. */
     stopped: z.boolean().optional(),
     chats: z.record(z.string().max(64), chatCursorSchema),
@@ -94,11 +96,14 @@ export async function queueRewrap(
   const jobs = (await loadJobs(store)).filter((j) => j.for !== device.id);
   await saveJobs(
     store,
-    [...jobs, { for: device.id, public_key: device.public_key, chats: {} }].slice(
-      -MAX_PAIRED_DEVICES,
-    ),
+    [
+      ...jobs,
+      { for: device.id, public_key: device.public_key, queued: newQueuedMark(), chats: {} },
+    ].slice(-MAX_PAIRED_DEVICES),
   );
 }
+
+const newQueuedMark = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 /** Whether any job still has work, so the app knows to run them when it opens. */
 export async function hasRewrapWork(store: SecureKeyValue): Promise<boolean> {
@@ -148,11 +153,25 @@ async function runAll(deps: RewrapDeps): Promise<void> {
       deps.log?.('e2e_rewrap_stopped', { device_id: job.for });
       continue;
     }
+    let ended: 'stopped' | 'superseded' | undefined;
     for (const chat of chats) {
       if (job.chats[chat.agentId]?.done === true) continue;
-      if ((await runChat(deps, me, job, chat.agentId, chat.ids)) === 'stopped') break;
+      let result: Awaited<ReturnType<typeof runChat>>;
+      try {
+        result = await runChat(deps, me, job, chat.agentId, chat.ids);
+      } catch {
+        // This chat could not be read now (offline, a server error): its cursor stays, so the
+        // next open tries it again, and the other chats still go ahead.
+        deps.log?.('e2e_rewrap_chat_failed', { device_id: job.for });
+        continue;
+      }
+      if (result === 'stopped' || result === 'superseded') {
+        ended = result;
+        break;
+      }
     }
-    if (!job.stopped && finished(job)) deps.log?.('e2e_rewrap_done', { device_id: job.for });
+    if (ended === undefined && !job.stopped && finished(job))
+      deps.log?.('e2e_rewrap_done', { device_id: job.for });
   }
   // Finished jobs are dropped; a stopped one is kept so it is never started again by mistake.
   await saveJobs(
@@ -161,13 +180,17 @@ async function runAll(deps: RewrapDeps): Promise<void> {
   );
 }
 
-/** Saves this job's state (re-read first, so another job's saved progress is kept). */
-async function saveJob(store: SecureKeyValue, job: Job): Promise<void> {
+/**
+ * Saves this job's state (re-read first, so another job's saved progress is kept). False when the
+ * job is gone or the phone was approved again since this run read it: that newer job is kept.
+ */
+async function saveJob(store: SecureKeyValue, job: Job): Promise<boolean> {
   const jobs = await loadJobs(store);
   const at = jobs.findIndex((j) => j.for === job.for);
-  if (at === -1) return;
+  if (at === -1 || jobs[at].queued !== job.queued) return false;
   jobs[at] = job;
   await saveJobs(store, jobs);
+  return true;
 }
 
 function errorCode(body: unknown): string | undefined {
@@ -182,7 +205,7 @@ async function runChat(
   job: Job,
   agentId: string,
   ids: { accountId: string; agentId: string },
-): Promise<'done' | 'stopped' | 'failed'> {
+): Promise<'done' | 'stopped' | 'failed' | 'superseded'> {
   const trusted = await loadTrusted(deps.store);
   const target = base64urlDecode(job.public_key);
   let cursor = job.chats[agentId] ?? {};
@@ -225,7 +248,7 @@ async function runChat(
     // replaces row for row, so nothing is stored twice.
     cursor = { ...(before !== undefined && { before }), ...(end && { done: true }) };
     job.chats[agentId] = cursor;
-    await saveJob(deps.store, job);
+    if (!(await saveJob(deps.store, job))) return 'superseded';
     if (end) return 'done';
   }
 }

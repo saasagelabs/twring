@@ -125,6 +125,11 @@ function body(message: ThreadMessage, opened?: ReadonlyMap<string, OpenedMessage
     case 'sealed': {
       // Opened on this phone only; the server never sees the text.
       const found = opened?.get(message.id);
+      // A private approval: the server knows only whether it was answered, not the answer.
+      if (found?.state === 'approval') {
+        const answered = message.approval?.state === 'answered';
+        return `_Asked to approve: ${escapeInline(found.title)} (${answered ? 'answered' : 'not answered'})_`;
+      }
       if (found?.state !== 'ok') return COULDNT_OPEN_EXPORT;
       return found.text.length ? quote(found.text) : '';
     }

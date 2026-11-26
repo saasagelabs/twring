@@ -88,6 +88,34 @@ describe('exporting a private chat on the phone (Task 23)', () => {
     expect(written.text).toContain('> plain reply');
   });
 
+  it('a private approval exports as what was asked, like an ordinary one', () => {
+    const ask = (id: string, state: 'pending' | 'answered') =>
+      ({
+        ...(sealed(id, 1, 'agent') as object),
+        approval: { state, expires_at: at },
+      }) as unknown as ThreadMessage;
+    const card = (id: string): OpenedMessage => ({
+      id,
+      author: 'agent',
+      state: 'approval',
+      approvalId: 'apr_' + 'a'.repeat(20),
+      title: 'Run *the* migration',
+      expiresAt: at,
+    });
+    const md = renderChatMarkdown([ask(A, 'answered'), ask(B, 'pending')], {
+      agentName: 'Claude',
+      exportedAt: new Date(at),
+      formatTime: () => 't',
+      opened: new Map([
+        [A, card(A)],
+        [B, card(B)],
+      ]),
+    });
+    expect(md).not.toContain(COULDNT_OPEN_EXPORT);
+    expect(md).toContain('_Asked to approve: Run \\*the\\* migration (answered)_');
+    expect(md).toContain('_Asked to approve: Run \\*the\\* migration (not answered)_');
+  });
+
   it('every sealed message the phone could not open says so', () => {
     const md = renderChatMarkdown([sealed(A, 1, 'agent'), sealed(B, 2, 'user')], {
       agentName: 'Claude',
