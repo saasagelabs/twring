@@ -340,6 +340,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       if (
         request.routeOptions.url !== '/v1/connectors/messages' &&
         request.routeOptions.url !== '/v1/connectors/files' &&
+        request.routeOptions.url !== '/v1/connectors/files/:fileId' &&
         request.routeOptions.url !== '/v1/files/:fileId'
       )
         await auth.hook(request, reply);
@@ -353,6 +354,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         PUBLIC_ROUTES.has(route) ||
         route === '/v1/connectors/messages' ||
         route === '/v1/connectors/files' ||
+        route === '/v1/connectors/files/:fileId' ||
         route === '/v1/me/access' ||
         route === '/v1/me/invite' ||
         route === '/v1/files/:fileId'

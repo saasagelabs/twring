@@ -6,9 +6,10 @@ import {
   declineRequestSchema,
   deviceIdSchema,
   deviceRegistrationSchema,
-  fileUploadQuerySchema,
   fileUploadResponseSchema,
   MAX_AGENT_KEYTERMS,
+  CAN_SEAL_HEADER,
+  fileIdSchema,
   MAX_FILE_BYTES,
   inviteIdSchema,
   localAgentIdSchema,
@@ -38,6 +39,12 @@ import type { CallStarter } from '../calls/routes';
 import { hashConnectorToken } from '../connectors/pairing';
 import type { ConnectorRecord } from '../connectors/store';
 import { FixedWindowLimiter, rateKey } from '../rate-limit';
+import {
+  parseUploadQuery,
+  sealedSizeRefusal,
+  sealedUploadBody,
+  sendSealedBytes,
+} from '../files/sealed';
 import { sniffFile } from '../files/sniff';
 import type { FileService } from '../files/service';
 import { FileStoreError } from '../threads/store';
@@ -323,11 +330,12 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           const connector = authenticated.get(request);
           if (!connector) return sendError(reply, 401, 'connector_invalid', 'Pair again.');
           const localAgent = request.query.local_agent;
-          const query = fileUploadQuerySchema.safeParse({
+          const query = parseUploadQuery({
             client_id: request.query.client_id,
             name: request.query.name,
+            ...(request.query.sealed !== undefined && { sealed: request.query.sealed }),
           });
-          if (!query.success || !localAgentIdSchema.safeParse(localAgent).success)
+          if (!query || !localAgentIdSchema.safeParse(localAgent).success)
             return sendError(reply, 400, 'bad_request', 'Invalid file request.');
           const url = connectorEndpointUrl(connector.id, localAgent as string);
           const agent = (await stores!.agents.list(connector.user_id)).find(
@@ -336,13 +344,24 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           if (!agent) return sendError(reply, 404, 'not_found', 'No such saved agent.');
           const recipient = await recipientFor(connector, request.query.session_scope);
           if (recipient === undefined) return sendError(reply, 400, 'bad_request', SCOPE_REFUSED);
+          const privateChat = await options.files!.store.isPrivate(recipient, agent.id);
+          if (query.sealed && !privateChat)
+            return sendError(reply, 409, 'not_private', 'This chat is not private.');
+          // A computer that can seal must not leave plain bytes in a private chat: it seals the
+          // file and uploads it again (ADR-045). Older connectors send no mark and are served.
+          if (!query.sealed && privateChat && request.headers[CAN_SEAL_HEADER] === '1')
+            return sendError(reply, 409, 'seal_required', 'This chat is private: seal the file.');
           if (!fileLimiter.tryAcquire(connector.id)) return tooMany(reply);
+          const refusal = query.sealed ? sealedSizeRefusal(request.body) : undefined;
+          if (refusal) return sendError(reply, refusal.status, refusal.code, refusal.message);
           if (!Buffer.isBuffer(request.body) || request.body.length === 0)
             return sendError(reply, 400, 'bad_request', 'File is empty.');
-          if (request.body.length > MAX_FILE_BYTES)
+          if (!query.sealed && request.body.length > MAX_FILE_BYTES)
             return sendError(reply, 413, 'file_too_large', 'The file is too large.');
-          const type = sniffFile(request.body, request.headers['content-type'], query.data.name);
-          if (!type)
+          const type = query.sealed
+            ? undefined
+            : sniffFile(request.body, request.headers['content-type'], query.name);
+          if (!query.sealed && !type)
             return sendError(
               reply,
               415,
@@ -353,18 +372,24 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
             const result = await options.files!.upload({
               userId: recipient,
               agentId: agent.id,
-              clientId: query.data.client_id,
-              name: query.data.name,
-              mimeType: type.mimeType,
+              clientId: query.client_id,
+              name: query.name,
               bytes: request.body,
               direction: 'agent',
-              ...('width' in type && { width: type.width }),
-              ...('height' in type && { height: type.height }),
+              ...(type
+                ? {
+                    mimeType: type.mimeType,
+                    ...('width' in type && { width: type.width }),
+                    ...('height' in type && { height: type.height }),
+                  }
+                : { sealed: true as const }),
             });
             return reply.code(result.created ? 201 : 200).send(
-              fileUploadResponseSchema.parse({
-                file: options.files!.store.attachment(result.file),
-              }),
+              query.sealed
+                ? sealedUploadBody(result.file)
+                : fileUploadResponseSchema.parse({
+                    file: options.files!.store.attachment(result.file),
+                  }),
             );
           } catch (cause) {
             if (cause instanceof FileStoreError)
@@ -374,6 +399,41 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
                   ? sendError(reply, 400, 'bad_request', 'Invalid file request.')
                   : sendError(reply, 429, 'files_daily_limit', 'Daily file limit reached.');
             throw cause;
+          }
+        },
+      );
+      // The computer reads a phone's sealed blob for its own agent (ADR-045): only one attached to
+      // a sealed message in that agent's private chat, sent by the phone.
+      filesApp.get<{ Params: { fileId: string }; Querystring: Record<string, unknown> }>(
+        '/v1/connectors/files/:fileId',
+        async (request, reply) => {
+          const connector = authenticated.get(request);
+          if (!connector) return sendError(reply, 401, 'connector_invalid', 'Pair again.');
+          const localAgent = request.query.local_agent;
+          if (
+            !fileIdSchema.safeParse(request.params.fileId).success ||
+            !localAgentIdSchema.safeParse(localAgent).success
+          )
+            return sendError(reply, 400, 'bad_request', 'Invalid file request.');
+          const url = connectorEndpointUrl(connector.id, localAgent as string);
+          const agent = (await stores!.agents.list(connector.user_id)).find(
+            (a) => a.protocol === 'cord-connector' && a.endpoint_url === url,
+          );
+          const recipient = await recipientFor(connector, request.query.session_scope);
+          if (!agent || recipient === undefined)
+            return sendError(reply, 404, 'not_found', 'File not found.');
+          if (!fileLimiter.tryAcquire(connector.id)) return tooMany(reply);
+          const file = options.files!.store.findReadableSealedFile(
+            recipient,
+            agent.id,
+            request.params.fileId,
+            'owner',
+          );
+          if (!file) return sendError(reply, 404, 'not_found', 'File not found.');
+          try {
+            return sendSealedBytes(reply, await options.files!.bytes(file));
+          } catch {
+            return sendError(reply, 404, 'not_found', 'File not found.');
           }
         },
       );

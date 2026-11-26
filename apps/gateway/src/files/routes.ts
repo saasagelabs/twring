@@ -1,6 +1,5 @@
 import {
   fileIdSchema,
-  fileUploadQuerySchema,
   fileUploadResponseSchema,
   MAX_FILE_BYTES,
   type Attachment,
@@ -13,6 +12,7 @@ import { devUserResolver, type UserResolver } from '../auth';
 import { FixedWindowLimiter } from '../rate-limit';
 import type { AgentRepository } from '../store/repositories';
 import { FileStoreError } from '../threads/store';
+import { parseUploadQuery, sealedSizeRefusal, sealedUploadBody, sendSealedBytes } from './sealed';
 import { sniffFile } from './sniff';
 import type { FileService } from './service';
 
@@ -81,32 +81,47 @@ export function registerFileRoutes(app: FastifyInstance, options: FileRoutesOpti
         const userId = userFor(request);
         if (!(await options.agents.get(userId, request.params.agentId)))
           return error(reply, 404, 'not_found', 'No such agent.');
-        const query = fileUploadQuerySchema.safeParse(request.query);
-        if (!query.success) return error(reply, 400, 'bad_request', 'Invalid file request.');
+        const query = parseUploadQuery(request.query);
+        if (!query) return error(reply, 400, 'bad_request', 'Invalid file request.');
+        if (
+          query.sealed &&
+          !(await options.service.store.isPrivate(userId, request.params.agentId))
+        )
+          return error(reply, 409, 'not_private', 'This chat is not private.');
         if (!uploads.tryAcquire(userId))
           return error(reply, 429, 'rate_limited', 'Too many uploads. Try again later.');
+        const refusal = query.sealed ? sealedSizeRefusal(request.body) : undefined;
+        if (refusal) return error(reply, refusal.status, refusal.code, refusal.message);
         if (!Buffer.isBuffer(request.body) || request.body.length === 0)
           return error(reply, 400, 'bad_request', 'File is empty.');
-        if (request.body.length > MAX_FILE_BYTES)
+        if (!query.sealed && request.body.length > MAX_FILE_BYTES)
           return error(reply, 413, 'file_too_large', 'The file is too large.');
-        const type = sniffFile(request.body, request.headers['content-type'], query.data.name);
-        if (!type)
+        const type = query.sealed
+          ? undefined
+          : sniffFile(request.body, request.headers['content-type'], query.name);
+        if (!query.sealed && !type)
           return error(reply, 415, 'unsupported_file_type', 'This file type is not supported.');
         try {
           const result = await options.service.upload({
             userId,
             agentId: request.params.agentId,
-            clientId: query.data.client_id,
-            name: query.data.name,
-            mimeType: type.mimeType,
+            clientId: query.client_id,
+            name: query.name,
             bytes: request.body,
-            ...('width' in type && { width: type.width }),
-            ...('height' in type && { height: type.height }),
+            ...(type
+              ? {
+                  mimeType: type.mimeType,
+                  ...('width' in type && { width: type.width }),
+                  ...('height' in type && { height: type.height }),
+                }
+              : { sealed: true as const }),
           });
           return reply.code(result.created ? 201 : 200).send(
-            fileUploadResponseSchema.parse({
-              file: options.service.store.attachment(result.file),
-            }),
+            query.sealed
+              ? sealedUploadBody(result.file)
+              : fileUploadResponseSchema.parse({
+                  file: options.service.store.attachment(result.file),
+                }),
           );
         } catch (cause) {
           if (cause instanceof FileStoreError)
@@ -137,7 +152,16 @@ export function registerFileRoutes(app: FastifyInstance, options: FileRoutesOpti
       if (!file || file.agentId !== request.params.agentId)
         return error(reply, 404, 'not_found', 'File not found.');
       try {
-        return sendBytes(reply, await options.service.bytes(file), file);
+        // A sealed blob is served only once it is attached to a sealed message in this private
+        // chat, and only as opaque bytes (ADR-045).
+        if (file.sealed) {
+          if (
+            !options.service.store.findReadableSealedFile(userId, request.params.agentId, file.id)
+          )
+            return error(reply, 404, 'not_found', 'File not found.');
+          return sendSealedBytes(reply, await options.service.bytes(file));
+        }
+        return sendBytes(reply, await options.service.bytes(file), file as Attachment);
       } catch {
         return error(reply, 404, 'not_found', 'File not found.');
       }
@@ -162,9 +186,10 @@ export function registerFileRoutes(app: FastifyInstance, options: FileRoutesOpti
       if (!reads.tryAcquire(owner.userId))
         return error(reply, 429, 'rate_limited', 'Too many requests. Try again later.');
       const file = options.service.store.findFile(owner.userId, fileId);
-      if (!file) return error(reply, 404, 'not_found', 'File not found.');
+      // A sealed blob has no signed link: only the two device reads serve it (ADR-045).
+      if (!file || file.sealed) return error(reply, 404, 'not_found', 'File not found.');
       try {
-        return sendBytes(reply, await options.service.bytes(file), file);
+        return sendBytes(reply, await options.service.bytes(file), file as Attachment);
       } catch {
         return error(reply, 404, 'not_found', 'File not found.');
       }

@@ -63,11 +63,16 @@ export class FileService {
     agentId: string;
     clientId: string;
     name: string;
-    mimeType: Attachment['mime_type'];
+    mimeType?: Attachment['mime_type'];
     bytes: Buffer;
     direction?: 'owner' | 'agent';
     width?: number;
     height?: number;
+    /**
+     * A blob sealed on a device (ADR-045): stored as it is, with no sniffing and no real name or
+     * type, so the server never learns them.
+     */
+    sealed?: true;
   }): Promise<{ file: FileRow; created: boolean }> {
     const id = newId();
     const sealed = sealBlob(
@@ -84,8 +89,9 @@ export class FileService {
         agentId: input.agentId,
         clientId: input.clientId,
         direction: input.direction ?? 'owner',
-        name: cleanFileName(input.name, input.mimeType),
-        mime_type: input.mimeType,
+        name: input.sealed ? 'sealed.bin' : cleanFileName(input.name, input.mimeType!),
+        mime_type: input.sealed ? 'application/octet-stream' : input.mimeType!,
+        ...(input.sealed && { sealed: true as const }),
         size_bytes: input.bytes.length,
         sha256: createHash('sha256').update(input.bytes).digest('hex'),
         ...(input.width && { width: input.width }),

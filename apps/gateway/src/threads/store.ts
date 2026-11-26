@@ -40,7 +40,11 @@ export type MediaRow = Attachment & {
   createdAt: string;
 };
 
-export type FileRow = Attachment & {
+export type FileRow = Omit<Attachment, 'mime_type'> & {
+  /** A sealed file is stored as `application/octet-stream`, never an attachment (ADR-045). */
+  mime_type: Attachment['mime_type'] | 'application/octet-stream';
+  /** Sealed on a device: an opaque blob the server cannot read, never listed as an attachment. */
+  sealed: boolean;
   userId: string;
   agentId: string;
   messageId: string | null;
@@ -56,7 +60,8 @@ type StoredFile = {
   message_id: string | null;
   direction: 'owner' | 'agent';
   client_id: string | null;
-  mime_type: Attachment['mime_type'];
+  mime_type: FileRow['mime_type'];
+  sealed: number;
   size_bytes: number;
   width: number | null;
   height: number | null;
@@ -174,6 +179,10 @@ export class SqliteThreadStore {
     const columns = this.db.prepare('PRAGMA table_info(threads)').all() as { name: string }[];
     if (!columns.some((column) => column.name === 'private'))
       this.db.exec('ALTER TABLE threads ADD COLUMN private INTEGER NOT NULL DEFAULT 0');
+    // Sealed files (ADR-045). Added in place, so an existing database keeps every file.
+    const fileColumns = this.db.prepare('PRAGMA table_info(files)').all() as { name: string }[];
+    if (!fileColumns.some((column) => column.name === 'sealed'))
+      this.db.exec('ALTER TABLE files ADD COLUMN sealed INTEGER NOT NULL DEFAULT 0');
     // Re-wrapped message keys for a phone approved later (C3 #11 Task 28). They go with their
     // message (and so with the thread and with delete my data) through the foreign key.
     this.db.exec(`
@@ -332,7 +341,7 @@ export class SqliteThreadStore {
           ? attachmentIds.flatMap((id) => {
               if (typeof id !== 'string') return [];
               const file = this.findFile(row.user_id, id);
-              return file?.messageId === row.id ? [this.attachment(file)] : [];
+              return file?.messageId === row.id && !file.sealed ? [this.attachment(file)] : [];
             })
           : [];
       return threadMessageSchema.parse({
@@ -371,6 +380,7 @@ export class SqliteThreadStore {
       direction: row.direction,
       clientId: row.client_id,
       mime_type: row.mime_type,
+      sealed: row.sealed === 1,
       size_bytes: row.size_bytes,
       ...(row.width && { width: row.width }),
       ...(row.height && { height: row.height }),
@@ -384,6 +394,10 @@ export class SqliteThreadStore {
   }
 
   attachment(file: FileRow): Attachment {
+    // The one gate every file-to-Attachment mapper passes through: older apps parse attachments
+    // with a closed list of types, so a sealed blob must never be shown as one (ADR-045).
+    if (file.sealed || file.mime_type === 'application/octet-stream')
+      throw new FileStoreError('bad_attachment');
     return {
       id: file.id,
       name: file.name,
@@ -394,7 +408,10 @@ export class SqliteThreadStore {
     };
   }
 
-  insertFile(input: Omit<FileRow, 'messageId' | 'createdAt'>): { file: FileRow; created: boolean } {
+  insertFile(input: Omit<FileRow, 'messageId' | 'createdAt' | 'sealed'> & { sealed?: true }): {
+    file: FileRow;
+    created: boolean;
+  } {
     return this.transaction(() => {
       if (input.clientId) {
         const old = this.db
@@ -420,8 +437,8 @@ export class SqliteThreadStore {
       const name = JSON.stringify(this.cipher.seal(input.name, fileAad(input.userId, input.id)));
       this.db
         .prepare(
-          `INSERT INTO files(id,user_id,agent_id,message_id,direction,client_id,mime_type,size_bytes,width,height,name,sha256,created_at)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          `INSERT INTO files(id,user_id,agent_id,message_id,direction,client_id,mime_type,size_bytes,width,height,name,sha256,created_at,sealed)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .run(
           input.id,
@@ -437,6 +454,7 @@ export class SqliteThreadStore {
           name,
           input.sha256,
           at,
+          input.sealed ? 1 : 0,
         );
       this.db
         .prepare(
@@ -463,18 +481,34 @@ export class SqliteThreadStore {
     return row && { userId: row.user_id, agentId: row.agent_id, attached: row.message_id !== null };
   }
 
-  attachFiles(userId: string, agentId: string, messageId: string, fileIds: string[]): void {
+  /**
+   * Links files to a message. A sealed message takes only sealed files and a plain one only plain
+   * files (ADR-045); `direction` is given for a sealed message ('owner' for the phone, 'agent' for
+   * the computer) and otherwise follows the message kind.
+   */
+  attachFiles(
+    userId: string,
+    agentId: string,
+    messageId: string,
+    fileIds: string[],
+    direction?: 'owner' | 'agent',
+  ): void {
     const kind = this.db
       .prepare('SELECT kind FROM messages WHERE id=? AND user_id=?')
       .get(messageId, userId) as { kind: string } | undefined;
-    const direction = kind?.kind === 'agent_text' ? 'agent' : 'owner';
+    const sealedMessage = kind?.kind === 'sealed';
+    const expected = direction ?? (kind?.kind === 'agent_text' ? 'agent' : 'owner');
     for (const id of fileIds) {
       const file = this.db
-        .prepare('SELECT direction,message_id FROM files WHERE id=? AND user_id=? AND agent_id=?')
-        .get(id, userId, agentId) as { direction: string; message_id: string | null } | undefined;
+        .prepare(
+          'SELECT direction,message_id,sealed FROM files WHERE id=? AND user_id=? AND agent_id=?',
+        )
+        .get(id, userId, agentId) as
+        { direction: string; message_id: string | null; sealed: number } | undefined;
       if (
         !file ||
-        file.direction !== direction ||
+        file.direction !== expected ||
+        (file.sealed === 1) !== sealedMessage ||
         (file.message_id && file.message_id !== messageId)
       )
         throw new FileStoreError('bad_attachment');
@@ -482,6 +516,26 @@ export class SqliteThreadStore {
         .prepare('UPDATE files SET message_id=? WHERE id=? AND user_id=? AND agent_id=?')
         .run(messageId, id, userId, agentId);
     }
+  }
+
+  /**
+   * A sealed file that may be read: attached to a sealed message in this person's private chat with
+   * this agent (ADR-045). `direction` limits it to the phone's ('owner') or the computer's ('agent').
+   */
+  findReadableSealedFile(
+    userId: string,
+    agentId: string,
+    fileId: string,
+    direction?: 'owner' | 'agent',
+  ): FileRow | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT f.* FROM files f JOIN messages m ON m.id=f.message_id AND m.user_id=f.user_id
+          JOIN threads t ON t.id=m.thread_id AND t.user_id=f.user_id AND t.agent_id=f.agent_id
+          WHERE f.id=? AND f.user_id=? AND f.agent_id=? AND f.sealed=1 AND m.kind='sealed' AND t.private=1${direction ? ' AND f.direction=?' : ''}`,
+      )
+      .get(fileId, userId, agentId, ...(direction ? [direction] : [])) as StoredFile | undefined;
+    return row && this.file(row);
   }
 
   staleUnattachedFiles(olderThan: Date): string[] {
@@ -1205,7 +1259,7 @@ export class SqliteThreadStore {
       .prepare(
         `SELECT f.* FROM files f JOIN messages m ON m.id=f.message_id AND m.user_id=f.user_id
           JOIN threads t ON t.id=m.thread_id AND t.user_id=f.user_id AND t.agent_id=f.agent_id
-          WHERE f.user_id=? AND f.agent_id=?${before ? ' AND (f.created_at<? OR (f.created_at=? AND f.id<?))' : ''}
+          WHERE f.user_id=? AND f.agent_id=? AND f.sealed=0${before ? ' AND (f.created_at<? OR (f.created_at=? AND f.id<?))' : ''}
           ORDER BY f.created_at DESC, f.id DESC LIMIT ?`,
       )
       .all(
