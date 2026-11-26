@@ -62,7 +62,45 @@ export const APPROVE_OUTDATED =
   'That phone needs the latest Twring. Update Twring on the new phone, then ask again from it.';
 
 const SECRET_KEY_PREFIX = 'twring.e2e.approval_secret.v1.';
-const NONCE_KEY_PREFIX = 'twring.e2e.approval_nonce.v1.';
+/** Approving phone: its nonce with the request it was made for, written before it is sent. */
+const CLAIM_KEY_PREFIX = 'twring.e2e.approval_claim.v1.';
+/** New phone: the approver and nonce it revealed against, written before the reveal is sent. */
+const REVEAL_KEY_PREFIX = 'twring.e2e.approval_reveal.v1.';
+
+const claimRecordSchema = z
+  .object({
+    nonce: approvalBytesSchema,
+    device_id: z.string().min(1).max(128),
+    public_key: z.string().min(1).max(128),
+    commitment: approvalBytesSchema,
+  })
+  .strict();
+type ClaimRecord = z.infer<typeof claimRecordSchema>;
+
+const revealRecordSchema = z
+  .object({
+    approver_id: z.string().min(1).max(128),
+    approver_key: z.string().min(1).max(128),
+    nonce: approvalBytesSchema,
+  })
+  .strict();
+type RevealRecord = z.infer<typeof revealRecordSchema>;
+
+/** 'missing' when nothing is stored; 'bad' when something is stored but unreadable. */
+async function loadRecord<T>(
+  store: SecureKeyValue,
+  key: string,
+  schema: z.ZodType<T>,
+): Promise<T | 'missing' | 'bad'> {
+  const raw = await store.getItemAsync(key);
+  if (raw === null) return 'missing';
+  try {
+    const parsed = schema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : 'bad';
+  } catch {
+    return 'bad';
+  }
+}
 
 /** The new phone's secret for this approval, kept until the approval ends. */
 export async function loadApprovalSecret(
@@ -72,11 +110,12 @@ export async function loadApprovalSecret(
   return loadBytes(store, SECRET_KEY_PREFIX + id);
 }
 
-/** Drops this approval's secret (new phone) and nonce (approving phone), if any. */
+/** Drops this approval's secret and reveal record (new phone) and claim (approving phone). */
 export async function forgetApprovalSecrets(store: SecureKeyValue, id: string): Promise<void> {
   await Promise.all([
     store.deleteItemAsync(SECRET_KEY_PREFIX + id).catch(() => undefined),
-    store.deleteItemAsync(NONCE_KEY_PREFIX + id).catch(() => undefined),
+    store.deleteItemAsync(REVEAL_KEY_PREFIX + id).catch(() => undefined),
+    store.deleteItemAsync(CLAIM_KEY_PREFIX + id).catch(() => undefined),
   ]);
 }
 
@@ -244,7 +283,9 @@ export function approverUpdate(
 
 /**
  * The new phone reveals its secret, now that the approver's nonce is fixed, before it shows the
- * code. Already revealed (a restart) is fine when it is this phone's own secret.
+ * code. It first stores the approver and nonce it reveals against; once revealed (a dropped
+ * answer, a restart) it shows a code only for exactly those, since the server learned the secret
+ * and could otherwise pick a new nonce to match a swapped key's code.
  */
 export async function revealApproval(
   deps: { api: Pick<ApproveApi, 'reveal'>; store: SecureKeyValue; log?: Log },
@@ -255,8 +296,25 @@ export async function revealApproval(
   if (me === undefined || secret === undefined || approval.approver_nonce === undefined)
     return { ok: false, code: 'mismatch' };
   const mine = base64urlEncode(secret);
+  const approver = approval.approver;
+  if (approver === undefined) return { ok: false, code: 'mismatch' };
+  const binding: RevealRecord = {
+    approver_id: approver.id,
+    approver_key: approver.public_key,
+    nonce: approval.approver_nonce,
+  };
+  const key = REVEAL_KEY_PREFIX + approval.id;
+  const stored = await loadRecord(deps.store, key, revealRecordSchema);
+  if (stored === 'bad') return { ok: false, code: 'mismatch' };
+  if (stored !== 'missing' && !sameBinding(stored, binding)) {
+    deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: 'rebound' });
+    return { ok: false, code: 'mismatch' };
+  }
   if (approval.reveal !== undefined)
-    return approval.reveal === mine ? { ok: true } : { ok: false, code: 'mismatch' };
+    return approval.reveal === mine && stored !== 'missing'
+      ? { ok: true }
+      : { ok: false, code: 'mismatch' };
+  if (stored === 'missing') await deps.store.setItemAsync(key, JSON.stringify(binding));
   const answer = await call(() => deps.api.reveal(approval.id, me.deviceId, mine));
   if (!answer.ok) return answer;
   const out = approvalFrom(answer.body);
@@ -265,6 +323,12 @@ export async function revealApproval(
     return { ok: false, code: 'mismatch' };
   deps.log?.('e2e_phone_approval_revealed', { approval_id: approval.id });
   return { ok: true };
+}
+
+function sameBinding(a: RevealRecord, b: RevealRecord): boolean {
+  return (
+    a.approver_id === b.approver_id && a.approver_key === b.approver_key && a.nonce === b.nonce
+  );
 }
 
 /**
@@ -422,14 +486,34 @@ export async function claimWaiting(
     return { ok: false, code: 'outdated' };
   }
   deps.log?.('e2e_phone_approval_claimed', { approval_id: id });
-  // A nonce kept from before a restart is reused; the server takes only one.
-  const kept = await loadBytes(deps.store, NONCE_KEY_PREFIX + id);
-  const nonce = base64urlEncode(kept ?? newApprovalSecret());
+  // A nonce kept from before a restart is reused (the server takes only one), but only for the
+  // exact request it was first sent for: the server knows it, so it must not pick a new key.
+  const key = CLAIM_KEY_PREFIX + id;
+  const kept = await loadRecord(deps.store, key, claimRecordSchema);
+  if (kept === 'bad') return { ok: false, code: 'mismatch' };
+  const record: ClaimRecord =
+    kept === 'missing'
+      ? {
+          nonce: base64urlEncode(newApprovalSecret()),
+          device_id: approval.device_id,
+          public_key: approval.public_key,
+          commitment: approval.commitment,
+        }
+      : kept;
+  if (
+    record.device_id !== approval.device_id ||
+    record.public_key !== approval.public_key ||
+    record.commitment !== approval.commitment
+  ) {
+    deps.log?.('e2e_phone_approval_failed', { approval_id: id, reason: 'rebound' });
+    return { ok: false, code: 'mismatch' };
+  }
+  const nonce = record.nonce;
   if (approval.approver_nonce !== undefined)
-    return approval.approver_nonce === nonce
+    return approval.approver_nonce === nonce && kept !== 'missing'
       ? { ok: true, claimed: { approval, nonce } }
       : { ok: false, code: 'mismatch' };
-  if (kept === undefined) await deps.store.setItemAsync(NONCE_KEY_PREFIX + id, nonce);
+  if (kept === 'missing') await deps.store.setItemAsync(key, JSON.stringify(record));
   const sent = await call(() => deps.api.nonce(id, me.deviceId, nonce));
   if (!sent.ok) return sent;
   const after = approvalFrom(sent.body);

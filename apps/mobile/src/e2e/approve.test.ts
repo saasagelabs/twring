@@ -352,6 +352,101 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     });
   });
 
+  it('N refuses a new approver nonce after its reveal answer was dropped', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    const first = env.row();
+    // The server stores the reveal but the phone sees a network error.
+    const dropping: ApproveApi = {
+      ...env.api,
+      reveal: async (id, device, reveal) => {
+        await env.api.reveal(id, device, reveal);
+        throw new Error('dropped');
+      },
+    };
+    expect(await revealApproval({ api: dropping, store: env.nStore }, first)).toEqual({
+      ok: false,
+      code: 'network',
+    });
+    const regrind = { ...env.row(), approver_nonce: base64urlEncode(new Uint8Array(32).fill(7)) };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, regrind)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    const evil = other();
+    const swapped = { ...env.row(), approver: { id: evil.id, name: 'X', public_key: evil.key } };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, swapped)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    // The same approver and nonce it revealed against still show (a restart, no shown step).
+    expect(await revealApproval({ api: env.api, store: env.nStore }, env.row())).toEqual({
+      ok: true,
+    });
+  });
+
+  it('N refuses an already revealed approval it never revealed against', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const secret = (await loadApprovalSecret(env.nStore, APPROVAL))!;
+    const row = {
+      ...env.row(),
+      state: 'claimed' as const,
+      approver: env.approver,
+      approver_nonce: base64urlEncode(new Uint8Array(32).fill(2)),
+      reveal: base64urlEncode(secret),
+    };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, row)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+  });
+
+  it('A re-claiming with its kept nonce refuses a different key or commitment', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    const base = env.row();
+    const swapped = other();
+    const fake = new Uint8Array(32).fill(4);
+    for (const next of [
+      {
+        ...base,
+        device_id: swapped.id,
+        public_key: swapped.key,
+        commitment: base64urlEncode(approvalCommitment(swapped.publicKey, fake)),
+      },
+      { ...base, commitment: base64urlEncode(approvalCommitment(env.n.publicKey, fake)) },
+    ]) {
+      env.setRow(next);
+      expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+        ok: false,
+        code: 'mismatch',
+      });
+    }
+    env.setRow(base);
+    const again = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    expect(again.ok && again.claimed.nonce).toBe(claimed.claimed.nonce);
+  });
+
+  it('A refuses a claim that already has a nonce it did not keep', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    env.setRow({
+      ...env.row(),
+      state: 'claimed',
+      approver: env.approver,
+      approver_nonce: base64urlEncode(new Uint8Array(32).fill(3)),
+    });
+    expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+  });
+
   it('a removed phone listed active again with its old note is not trusted again', async () => {
     const env = await setup();
     const pStore = memoryStore();
