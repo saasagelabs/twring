@@ -196,7 +196,10 @@ export default function PrivateDevicesScreen() {
           : await denyWaiting(deps, id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
       if (!out.ok) setError(APPROVE_FAILED);
-      if (!out.ok && out.code !== 'network') await forgetApprovalSecrets(deps.store, id);
+      // Only an approval that is over for good drops its saved nonce and claim: after 'cap' (a
+      // device freed up) or a network failure, tapping the waiting phone again carries on.
+      if (!out.ok && ['mismatch', 'closed', 'expired'].includes(out.code))
+        await forgetApprovalSecrets(deps.store, id);
       // The new phone's older private messages: shared in the background, resumed on next open.
       const api = twringApi();
       if (out.ok && approve && api !== undefined) {

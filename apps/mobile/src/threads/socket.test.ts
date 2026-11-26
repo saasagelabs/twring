@@ -81,7 +81,7 @@ describe('thread socket', () => {
     socket.close();
     expect(vi.getTimerCount()).toBe(0);
   });
-  it('waits for reconnect() after 4409, so devices do not push each other out in a loop', async () => {
+  it('after 4409 tries once slowly, then waits for reconnect(), so devices never loop', async () => {
     vi.useFakeTimers();
     const states: string[] = [];
     const socket = connectThreadSocket({
@@ -96,11 +96,17 @@ describe('thread socket', () => {
     FakeSocket.instances[0].end(4409);
     expect(states).toEqual(['stopped']);
     expect(socket.stopped()).toBe(true);
-    await vi.advanceTimersByTimeAsync(60_000);
+    // Nothing for 45 s, then one try.
+    await vi.advanceTimersByTimeAsync(44_000);
     expect(FakeSocket.instances).toHaveLength(1);
-    // Back in front: the app reopens the same handle.
-    socket.reconnect();
+    await vi.advanceTimersByTimeAsync(16_000);
     expect(FakeSocket.instances).toHaveLength(2);
+    // Pushed out again within 10 minutes: no more tries until the app is in front again.
+    FakeSocket.instances[1].end(4409);
+    await vi.advanceTimersByTimeAsync(30 * 60_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    socket.reconnect();
+    expect(FakeSocket.instances).toHaveLength(3);
     expect(socket.stopped()).toBe(false);
     socket.close();
   });

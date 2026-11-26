@@ -30,6 +30,11 @@ export interface ThreadSocketOptions {
   WebSocketImpl?: SocketConstructor;
 }
 
+/** After a 4409: one try 45 to 60 s later, again only once a socket stayed open 10 minutes. */
+const EVICTION_RETRY_MS = 45_000;
+const EVICTION_JITTER_MS = 15_000;
+const EVICTION_SETTLED_MS = 10 * 60_000;
+
 export function connectThreadSocket(options: ThreadSocketOptions): {
   setFocus(agentId: string | null): void;
   /** True after close() or a refusal (4403, 4409): only reconnect() opens it again. */
@@ -52,6 +57,8 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
   let stopped = false;
   let blocked = false;
   let retryStep = 0;
+  let evictionRetried = false;
+  let openedAt: number | undefined;
   let focus: string | null = null;
   let generation = 0;
   const delays = [1_000, 2_000, 5_000, 10_000, 30_000];
@@ -67,10 +74,12 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
     if (stopped || blocked) return;
     clearTimers();
     const current = ++generation;
+    openedAt = undefined;
     const ws = new WebSocketClass(url, null, { headers: options.headers() });
     socket = ws;
     ws.onopen = () => {
       if (current !== generation) return;
+      openedAt = timers.now();
       options.onState('connected');
       sendFocus();
       resetTimer = timers.setTimeout(() => {
@@ -114,6 +123,21 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
         clearTimers();
         blocked = true;
         options.onState('stopped');
+        // One slow try after a 4409, so a phone left open gets back in once a dead socket has aged
+        // out. A device pushed out again before it stayed 10 minutes waits for reconnect().
+        const settled = openedAt !== undefined && timers.now() - openedAt >= EVICTION_SETTLED_MS;
+        if (event.code === 4409 && (!evictionRetried || settled)) {
+          evictionRetried = true;
+          retryTimer = timers.setTimeout(
+            () => {
+              retryTimer = undefined;
+              if (stopped || !blocked) return;
+              blocked = false;
+              connect();
+            },
+            EVICTION_RETRY_MS + Math.floor(Math.random() * EVICTION_JITTER_MS),
+          );
+        }
         return;
       }
       retryLater();
@@ -144,6 +168,7 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
       if (stopped) return;
       blocked = false;
       retryStep = 0;
+      evictionRetried = false;
       clearTimers();
       generation++;
       socket?.close();

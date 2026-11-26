@@ -103,8 +103,15 @@ export class PhoneSocketHub {
 
   private accept(userId: string, ws: WebSocket): void {
     const entries = this.users.get(userId) ?? [];
-    // Evicted at once, not when its close handshake ends, so a slow client can't hold the limit.
-    while (entries.length >= 3) entries.shift()?.ws.close(4409, 'Too many connections');
+    // Evicted at once, not when its close handshake ends, so a slow client can't hold the limit. A
+    // socket that has not answered the last ping (often one a phone lost on a network change) goes
+    // before a live one; otherwise the oldest.
+    while (entries.length >= 3) {
+      const stale = entries.findIndex(
+        (entry) => !entry.alive || entry.ws.readyState !== WebSocket.OPEN,
+      );
+      entries.splice(stale === -1 ? 0 : stale, 1)[0]?.ws.close(4409, 'Too many connections');
+    }
     const connection: PhoneConnection = {
       ws,
       focus: null,

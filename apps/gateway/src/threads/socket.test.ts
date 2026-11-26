@@ -203,6 +203,19 @@ describe('phone socket', () => {
     expect(await binaryClosed).toBe(1003);
   });
 
+  it('evicts a socket that missed its ping before a live one', async () => {
+    const { connect } = await setup({ pingMs: 200 });
+    const oldest = await connect();
+    const lost = await connect('alice', false);
+    await connect();
+    // After one ping the lost socket has not answered; the next ping would end it.
+    await tick(300);
+    const lostClosed = closed(lost);
+    await connect();
+    expect(await lostClosed).toBe(4409);
+    expect(oldest.readyState).toBe(WebSocket.OPEN);
+  });
+
   it('terminates an unresponsive socket and expires a connection', async () => {
     const { connect } = await setup({ pingMs: 30, lifetimeMs: 200 });
     const idle = await connect('alice', false);

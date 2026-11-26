@@ -374,13 +374,28 @@ describe('second-phone approval: commit, then reveal (ADR-046)', () => {
     addPhone(g, 'u1', 1);
     const id = await committed(g);
     await claim(g, id, 1);
-    // An older approving app skips both steps and shows the code that can be ground.
-    expect((await accept(g, id, 1)).json().error.code).toBe('approval_closed');
+    // A phone that follows the steps: nonce, reveal, then accept.
     await nonce(g, id, 1);
-    expect((await accept(g, id, 1)).json().error.code).toBe('approval_closed');
     await reveal(g, id, 9);
     expect((await accept(g, id, 1)).statusCode).toBe(200);
     expect((await status(g, id, 9)).json().state).toBe('accepted');
+  });
+
+  it('an accept that skips the nonce or the reveal turns the request down', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    // An older approving app skips both steps and shows the code that can be ground.
+    const early = await committed(g);
+    await claim(g, early, 1);
+    expect((await accept(g, early, 1)).json().error.code).toBe('approval_closed');
+    // The new phone sees the end at once, not after the 10 minutes.
+    expect((await status(g, early, 9)).json().state).toBe('denied');
+    const halfway = await committed(g, 'u1', 8);
+    await claim(g, halfway, 1);
+    await nonce(g, halfway, 1);
+    expect((await accept(g, halfway, 1)).json().error.code).toBe('approval_closed');
+    expect((await status(g, halfway, 8)).json().state).toBe('denied');
+    expect((await reveal(g, halfway, 8)).statusCode).toBe(409);
   });
 
   it('refuses a reveal that does not open the commitment', async () => {

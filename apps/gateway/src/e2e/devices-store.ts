@@ -574,7 +574,8 @@ export class E2eDeviceStore {
    * the note on its row, and the approval keeps the note for the new phone's next poll. Throws
    * E2eDeviceError at the device cap (nothing changes then). A request that carries a commitment
    * (ADR-046) is accepted only after the nonce and the reveal, so an older approving app, which
-   * shows the code that can be ground, cannot add a phone that is waiting for the new code.
+   * shows the code that can be ground, cannot add a phone that is waiting for the new code. Such a
+   * try turns the request down, so the new phone ends at once instead of when it expires.
    */
   acceptApproval(userId: string, id: string, approverId: string, note: TrustNote): boolean {
     return this.transaction(() => {
@@ -583,7 +584,14 @@ export class E2eDeviceStore {
           "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>? AND (commitment IS NULL OR (approver_nonce IS NOT NULL AND reveal IS NOT NULL))",
         )
         .get(id, userId, approverId, this.now().toISOString()) as ApprovalRow | undefined;
-      if (row === undefined) return false;
+      if (row === undefined) {
+        this.db
+          .prepare(
+            "UPDATE e2e_phone_approvals SET state='denied' WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND commitment IS NOT NULL AND (approver_nonce IS NULL OR reveal IS NULL)",
+          )
+          .run(id, userId, approverId);
+        return false;
+      }
       this.insertDevice(
         userId,
         { id: row.device_id, kind: 'phone', name: row.name, public_key: row.public_key },
