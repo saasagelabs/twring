@@ -7,6 +7,7 @@ import {
   MAX_STORED_AGENT_MESSAGE_CHARS,
   parseConnectorEndpoint,
   SEALED_TURN_IDLE_MS,
+  SEALED_FILES_FEATURE,
   SEALED_WORKING_FEATURE,
   sanitizeRingText,
   truncateRingText,
@@ -690,7 +691,12 @@ export class ThreadService {
   async sendSealed(
     userId: string,
     agentId: string,
-    input: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+    input: {
+      clientId: string;
+      sealed: SealedEnvelopeV1;
+      replyTo?: string;
+      attachmentIds?: string[];
+    },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const key = keyOf(userId, agentId);
     const prior = this.sendLocks.get(key);
@@ -709,17 +715,29 @@ export class ThreadService {
       const waiting = (await this.options.store.queuedSealed()).some(
         (entry) => entry.userId === userId && entry.agentId === agentId,
       );
-      const ready = !waiting && this.options.privateChats?.computerSupports(record) === true;
+      const online = !waiting && this.options.privateChats?.computerSupports(record) === true;
+      // Files go only to a computer that can open them: otherwise the message fails, never
+      // delivered with its files dropped (ADR-045). Offline, it waits and is checked on return.
+      const files = input.attachmentIds !== undefined && input.attachmentIds.length > 0;
+      const cannotOpen =
+        online &&
+        files &&
+        this.options.privateChats?.computerHas?.(record, SEALED_FILES_FEATURE) !== true;
+      const ready = online && !cannotOpen;
       let result: { message: ThreadMessage; created: boolean };
       try {
         result = await this.options.store.appendSealedMessage(userId, agentId, {
           author: 'user',
           sealed: input.sealed,
           clientId: input.clientId,
-          status: ready ? 'sent' : 'queued',
+          status: cannotOpen ? 'failed' : ready ? 'sent' : 'queued',
+          ...(cannotOpen && { errorCode: 'computer_update' }),
+          ...(input.attachmentIds !== undefined && { attachmentIds: input.attachmentIds }),
           ...(input.replyTo !== undefined && { replyTo: input.replyTo }),
         });
       } catch (error) {
+        if (error instanceof FileStoreError && error.code === 'bad_attachment')
+          throw new ThreadServiceError('bad_attachment');
         if (error instanceof ThreadStoreError && error.code === 'queue_full')
           throw new ThreadServiceError('queue_full');
         if (error instanceof ThreadStoreError && error.code === 'reply_to_not_found')
@@ -744,6 +762,7 @@ export class ThreadService {
           message_id: result.message.id,
           keys: input.sealed.keys.length,
           length: input.sealed.body.length,
+          files: input.attachmentIds?.length ?? 0,
           status: result.message.kind === 'sealed' ? result.message.status : undefined,
         },
         'thread_sealed_received',
@@ -765,6 +784,7 @@ export class ThreadService {
           turn_id: string;
           sealed: SealedEnvelopeV1;
           final: boolean;
+          file_ids?: string[];
         }
       | {
           type: 'sealed.approval';
@@ -940,7 +960,13 @@ export class ThreadService {
    */
   async receiveSealedReply(
     from: { connectorId: string; userId: string },
-    frame: { agent: string; turn_id: string; sealed: SealedEnvelopeV1; final: boolean },
+    frame: {
+      agent: string;
+      turn_id: string;
+      sealed: SealedEnvelopeV1;
+      final: boolean;
+      file_ids?: string[];
+    },
   ): Promise<void> {
     const reject = (reason: string) => {
       this.sealedRepliesRejected++;
@@ -956,11 +982,20 @@ export class ThreadService {
     if (turn === undefined) return;
     const { agentId, record } = turn;
     const found = { message: turn.message };
-    const saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
-      turnId: frame.turn_id,
-      sealed: frame.sealed,
-      final: frame.final,
-    });
+    let saved;
+    try {
+      saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
+        turnId: frame.turn_id,
+        sealed: frame.sealed,
+        final: frame.final,
+        ...(frame.file_ids !== undefined && { fileIds: frame.file_ids }),
+      });
+    } catch (error) {
+      // A file that is not this computer's sealed upload: the whole reply is dropped.
+      if (error instanceof FileStoreError && error.code === 'bad_attachment')
+        return reject('bad_attachment');
+      throw error;
+    }
     // A chunk resent after a reconnect is already stored: nothing changed, nothing to count.
     if (saved === 'duplicate') return;
     if (saved === 'after_final' || saved === 'too_large') return reject(saved);
@@ -1007,6 +1042,20 @@ export class ThreadService {
       const record = await this.options.agents.get(userId, agentId);
       if (!record || !privateChats.computerSupports(record) || !message.sealed[0]) {
         blocked.add(key);
+        continue;
+      }
+      if (
+        privateChats.computerHas?.(record, SEALED_FILES_FEATURE) !== true &&
+        this.options.store.hasSealedFiles(userId, message.id)
+      ) {
+        // The computer came back without the word: its files can't be opened, so the message
+        // fails here and is never delivered with them dropped (ADR-045).
+        const failed = await this.options.store.updateUserMessage(userId, message.id, {
+          status: 'failed',
+          errorCode: 'computer_update',
+          from: ['queued'],
+        });
+        if (failed) this.upsert(userId, failed);
         continue;
       }
       // Marked sent before it goes out, and only while still queued: a Stop (or expiry) that

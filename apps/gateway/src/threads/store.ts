@@ -583,6 +583,8 @@ export class SqliteThreadStore {
       turnId?: string;
       meta?: Record<string, unknown>;
       attachmentIds?: string[];
+      /** Whose files these are; given for a sealed message (ADR-045). */
+      attachmentDirection?: 'owner' | 'agent';
       quote?: Quote;
     },
   ): ThreadMessage {
@@ -624,7 +626,7 @@ export class SqliteThreadStore {
       )
       .run(at, thread.id, userId);
     if (data.attachmentIds?.length)
-      this.attachFiles(userId, thread.agent_id, id, data.attachmentIds);
+      this.attachFiles(userId, thread.agent_id, id, data.attachmentIds, data.attachmentDirection);
     this.db
       .prepare(
         `DELETE FROM messages WHERE id IN (SELECT id FROM messages WHERE thread_id=? AND user_id=? AND (status IS NULL OR status!='queued') ORDER BY seq DESC LIMIT -1 OFFSET ?)`,
@@ -723,6 +725,10 @@ export class SqliteThreadStore {
       replyTo?: string;
       /** A computer's sealed approval request (C3 #11): stored pending until this time. */
       approvalExpiresAt?: string;
+      /** Sealed files uploaded first (ADR-045), linked to this message; owner files only. */
+      attachmentIds?: string[];
+      /** Why a `failed` message failed, e.g. `computer_update`. */
+      errorCode?: string;
     },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     return this.transaction(() => {
@@ -752,8 +758,14 @@ export class SqliteThreadStore {
         ...(input.status !== undefined && { status: input.status }),
         ...(input.clientId !== undefined && { clientId: input.clientId }),
         ...(input.turnId !== undefined && { turnId: input.turnId }),
+        // Never `meta.attachment_ids`: older apps parse it (ADR-045). The link lives on the file.
+        ...(input.attachmentIds?.length && {
+          attachmentIds: input.attachmentIds,
+          attachmentDirection: input.author === 'user' ? ('owner' as const) : ('agent' as const),
+        }),
         meta: {
           author: input.author,
+          ...(input.errorCode !== undefined && { error_code: input.errorCode }),
           ...(input.replyTo !== undefined && { reply_to: input.replyTo }),
           ...(input.approvalExpiresAt !== undefined && {
             approval: { state: 'pending', expires_at: input.approvalExpiresAt },
@@ -789,7 +801,7 @@ export class SqliteThreadStore {
   async upsertSealedReply(
     userId: string,
     agentId: string,
-    input: { turnId: string; sealed: SealedEnvelopeV1; final: boolean },
+    input: { turnId: string; sealed: SealedEnvelopeV1; final: boolean; fileIds?: string[] },
   ): Promise<
     | { message: ThreadMessage; created: boolean; complete: boolean }
     | 'duplicate'
@@ -835,10 +847,16 @@ export class SqliteThreadStore {
         const message = this.insert(userId, thread, 'sealed', {
           text: JSON.stringify(sealed),
           turnId: input.turnId,
+          ...(input.fileIds?.length && {
+            attachmentIds: input.fileIds,
+            attachmentDirection: 'agent' as const,
+          }),
           meta,
         });
         return { message, created: true, complete };
       }
+      if (input.fileIds?.length)
+        this.attachFiles(userId, agentId, existing.id, input.fileIds, 'agent');
       this.db
         .prepare('UPDATE messages SET body=?,meta=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
         .run(
@@ -859,6 +877,15 @@ export class SqliteThreadStore {
         .get(existing.id, userId) as Row;
       return { message: this.decode(row, agentId), created: false, complete };
     });
+  }
+
+  /** True when sealed files are linked to this message (ADR-045). */
+  hasSealedFiles(userId: string, messageId: string): boolean {
+    return (
+      this.db
+        .prepare('SELECT 1 AS yes FROM files WHERE message_id=? AND user_id=? AND sealed=1 LIMIT 1')
+        .get(messageId, userId) !== undefined
+    );
   }
 
   /** Sealed user messages waiting for their computer, oldest first. */
