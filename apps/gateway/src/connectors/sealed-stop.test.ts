@@ -51,8 +51,11 @@ async function waitFor(check: () => boolean | Promise<boolean>, ms = 3_000): Pro
 
 const BOTH = [SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE];
 
-async function privateThread(features: string[] = BOTH) {
-  const g = await startConnectorGateway({ threads: {}, ring: {}, env: FLAG_ON });
+async function privateThread(
+  features: string[] = BOTH,
+  threads: { sweepIntervalMs?: number } = {},
+) {
+  const g = await startConnectorGateway({ threads, ring: {}, env: FLAG_ON });
   gateways.push(g);
   const { connectorId, token, connector } = await g.connect('u1', { features });
   const agentId = await g.createAgent('u1', connectorId);
@@ -185,7 +188,9 @@ describe('stop in a private chat', () => {
   });
 
   it('a Stop that lands while the sweep is delivering is never overwritten or delivered', async () => {
-    const t = await privateThread();
+    // Only this test's own sweep may run: the harness sweeps every 20 ms, and a sweep already
+    // running when the test calls sweep() reads the queue before the hook below is in place.
+    const t = await privateThread(BOTH, { sweepIntervalMs: 60_000 });
     t.connector.terminate();
     await waitFor(() => !t.g.hub.isOnline('u1', t.connectorId));
     const m = await t.post();
