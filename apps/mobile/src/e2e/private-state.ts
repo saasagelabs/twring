@@ -113,6 +113,23 @@ export interface SealedBubble {
   actions: ('reply' | 'copy' | 'share')[];
 }
 
+/**
+ * The notice under an own private message the computer may have started but went silent on (the
+ * gateway marks it `interrupted`). `draft` is the text to put back in the box, when it opened.
+ */
+export function interruptedNotice(
+  message: ThreadMessage,
+  bubble: SealedBubble,
+  agentName: string,
+): { text: string; draft: string } | undefined {
+  if (message.kind !== 'sealed' || !bubble.own || message.status !== 'interrupted')
+    return undefined;
+  return {
+    text: `Interrupted: ${agentName} may have started this. Its answer will appear here if it finishes.`,
+    draft: bubble.opened ? bubble.text : '',
+  };
+}
+
 /** How a private message is drawn; undefined while the keys load (nothing is drawn yet). */
 export function sealedBubble(
   message: ThreadMessage,

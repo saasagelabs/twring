@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   COULDNT_OPEN,
+  interruptedNotice,
   labelFor,
   PRIVATE_LABEL,
   PRIVATE_LABEL_EXCEPT,
@@ -107,6 +108,25 @@ describe('sealed message bubbles', () => {
       'Claude',
     );
     expect(bubble).toEqual({ text: COULDNT_OPEN, own: false, opened: false, actions: [] });
+  });
+
+  it('shows the interrupted notice under an own private message', () => {
+    const own = { ...message, author: 'user', status: 'interrupted' } as unknown as ThreadMessage;
+    const entry = opened({ id, author: 'user', state: 'ok', text: 'do it' });
+    const bubble = sealedBubble(own, entry, 'Claude Code')!;
+    expect(interruptedNotice(own, bubble, 'Claude Code')).toEqual({
+      text: 'Interrupted: Claude Code may have started this. Its answer will appear here if it finishes.',
+      draft: 'do it',
+    });
+    // Not for a sent message, nor for the agent's own message.
+    const sent = { ...own, status: 'sent' } as unknown as ThreadMessage;
+    expect(interruptedNotice(sent, bubble, 'Claude Code')).toBeUndefined();
+    const agent = sealedBubble(
+      message,
+      opened({ id, author: 'agent', state: 'ok', text: 'x' }),
+      'C',
+    )!;
+    expect(interruptedNotice(own, agent, 'Claude Code')).toBeUndefined();
   });
 
   it('draws nothing while the keys are still loading', () => {
