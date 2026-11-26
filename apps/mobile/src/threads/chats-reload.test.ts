@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ApiError, type TwringApi } from '../api/client';
 
 const sockets: { onState: (state: string) => void }[] = [];
+const appListeners = vi.hoisted(() => [] as ((state: string) => void)[]);
 vi.mock('./search-store', () => ({
   sqliteSearchStore: () => undefined,
   deleteSearchDatabase: () => Promise.resolve(),
@@ -16,7 +17,12 @@ vi.mock('./socket', () => ({
 }));
 vi.mock('expo-router', () => ({ useFocusEffect: () => undefined }));
 vi.mock('react-native', () => ({
-  AppState: { addEventListener: () => ({ remove: () => undefined }) },
+  AppState: {
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      appListeners.push(listener);
+      return { remove: () => undefined };
+    },
+  },
 }));
 vi.mock('@/api', () => ({ ApiError }));
 vi.mock('@/auth', () => ({ addBeforeSignOut: () => undefined, authHeaders: () => ({}) }));
@@ -24,6 +30,7 @@ vi.mock('@/config/env', () => ({ mobileEnv: { ok: false } }));
 vi.mock('@/hooks/useResource', () => ({ STATUS_POLL_MS: 20_000 }));
 
 import { ChatController } from './chats';
+import { memoryStore } from './outbox-storage';
 
 const agent = 'agt_abcdefghij0123456789';
 const message = (seq: number): ThreadMessage => ({
@@ -109,5 +116,34 @@ describe('delete failures', () => {
     await controller.catchUp(agent);
     await expect(controller.deleteMessage(agent, message(1).id)).rejects.toBeInstanceOf(ApiError);
     expect(controller.getChat(agent).messages.map((entry) => entry.seq)).toEqual([1]);
+  });
+});
+
+describe('going to the background', () => {
+  it('writes a pending outbox save at once', async () => {
+    const store = memoryStore();
+    const never = () => new Promise<never>(() => undefined);
+    const api = {
+      listMessages: vi.fn().mockResolvedValue({ messages: [], hasMore: false }),
+      listThreads: vi.fn().mockResolvedValue({ threads: [], files: false }),
+      markRead: vi.fn().mockResolvedValue(undefined),
+      sendMessage: vi.fn(never),
+    } as unknown as TwringApi;
+    // Timers that never fire: only the background flush can write.
+    const timers = { setTimeout: () => 0, clearTimeout: () => undefined, now: () => Date.now() };
+    const controller = new ChatController(
+      api,
+      { url: 'wss://x', requireSecureMedia: true },
+      { outbox: store },
+      timers,
+    );
+    await controller.open(agent);
+    await settle();
+    controller.send(agent, 'hello');
+    await settle();
+    expect(store.saves).toBe(0);
+    appListeners.at(-1)!('background');
+    await settle();
+    expect(store.saves).toBe(1);
   });
 });

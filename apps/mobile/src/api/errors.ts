@@ -59,6 +59,11 @@ export function apiErrorCopy(
       return { message: 'The server took too long to answer. Try again.', retryable: true };
     case 'cancelled':
       return { message: 'The request was cancelled.', retryable: true };
+    case 'file_missing':
+      return {
+        message: 'This file is no longer on your phone. Attach it again.',
+        retryable: false,
+      };
     case 'invalid_response':
       return withDetail({
         message: 'Twring got an unexpected reply from its server. Try again, or update the app.',

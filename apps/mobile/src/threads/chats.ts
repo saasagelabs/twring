@@ -372,6 +372,8 @@ export class ChatController {
       // A chat left open behind the home screen is not being read: let the server notify again.
       if (state !== 'active') {
         this.socket?.setFocus(null);
+        // iOS may suspend the app next: a pending save (a Delete) is written now.
+        void this.outbox.flush();
         return;
       }
       this.socket?.setFocus([...this.focusCounts.keys()].at(-1) ?? null);

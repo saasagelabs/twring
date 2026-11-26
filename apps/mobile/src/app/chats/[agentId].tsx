@@ -61,6 +61,7 @@ import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { font } from '@/theme/fonts';
 import { type, usePalette } from '@/theme/tokens';
 import { chatController, useChat, useDraft } from '@/threads/chats';
+import { canRetry } from '@/threads/outbox';
 import {
   firstUnreadSeq,
   initialPill,
@@ -105,7 +106,7 @@ type Row =
       clientId: string;
       state: 'sending' | 'failed';
       createdAt: string;
-      voice?: { uri: string; durationMs: number };
+      voice?: { uri: string; durationMs: number; serverReadable?: true };
       files?: PreparedFile[];
       error?: unknown;
       errorCode?: string;
@@ -484,7 +485,7 @@ export default function ChatScreen() {
                   item.error ? apiErrorCopy(item.error).message : undefined,
                 )}
               </Text>
-              {item.errorCode === 'private_unsent' ? (
+              {!canRetry(item) ? (
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Delete"

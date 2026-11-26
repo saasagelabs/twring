@@ -18,6 +18,11 @@ export interface OutboxFiles {
    */
   keep(clientId: string, uri: string, key?: string): Promise<string>;
   exists(uri: string): boolean;
+  /**
+   * Where a saved copy is now: `uri` itself, or the same copy under today's document folder (iOS
+   * moves the app's folder on an update). Undefined when neither exists.
+   */
+  locate?(uri: string): string | undefined;
   remove(uri: string): void;
 }
 
@@ -59,6 +64,19 @@ export function storageScope(
 
 const STATE_FOLDER = 'chat-state';
 const OUTBOX_FOLDER = 'outbox';
+
+/**
+ * A kept copy's uri moved under `currentDocumentUri`: `.../outbox/<clientId>/<file>` keeps its
+ * last three segments. Undefined for a uri that is not a kept copy.
+ */
+export function rebaseOutboxUri(savedUri: string, currentDocumentUri: string): string | undefined {
+  const marker = `/${OUTBOX_FOLDER}/`;
+  const at = savedUri.lastIndexOf(marker);
+  if (at < 0 || currentDocumentUri === '') return undefined;
+  const tail = savedUri.slice(at + 1);
+  if (!/^outbox\/[^/]+\/[^/]+$/.test(tail)) return undefined;
+  return `${currentDocumentUri.replace(/\/+$/, '')}/${tail}`;
+}
 
 /**
  * `<document>/chat-state/<kind>-<scope>.json`. A save writes `<name>.json.tmp` first and then
@@ -110,6 +128,13 @@ export function fileStore(kind: 'outbox' | 'drafts' | 'private', scope: string):
 /** Files under `<document>/outbox/<clientId>/`. */
 export async function deviceOutboxFiles(): Promise<OutboxFiles> {
   const { Directory, File, Paths } = await import('expo-file-system');
+  const exists = (uri: string) => {
+    try {
+      return new File(uri).exists;
+    } catch {
+      return false;
+    }
+  };
   return {
     async keep(clientId, uri, key) {
       const folder = new Directory(Paths.document, OUTBOX_FOLDER, clientId);
@@ -119,12 +144,11 @@ export async function deviceOutboxFiles(): Promise<OutboxFiles> {
       await source.copy(copy, { overwrite: true });
       return copy.uri;
     },
-    exists(uri) {
-      try {
-        return new File(uri).exists;
-      } catch {
-        return false;
-      }
+    exists,
+    locate(uri) {
+      if (exists(uri)) return uri;
+      const moved = rebaseOutboxUri(uri, Paths.document.uri);
+      return moved !== undefined && moved !== uri && exists(moved) ? moved : undefined;
     },
     remove(uri) {
       try {
