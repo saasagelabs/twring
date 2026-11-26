@@ -275,6 +275,44 @@ describe('sealed files on the gateway (ADR-045)', () => {
     expect((await read(`fil_${'a'.repeat(20)}`)).statusCode).toBe(404);
   });
 
+  it('a computer can read more sealed files in a minute than it can upload', async () => {
+    const t = await setup();
+    const fileId = t.idOf(await t.phoneUpload(blob(50)));
+    const message = await t.sealedMessage('user');
+    t.store.attachFiles('u1', t.agentId, message.id, [fileId], 'owner');
+    const codes: number[] = [];
+    for (let i = 0; i < 31; i++) {
+      const res = await t.g.send('GET', `/v1/connectors/files/${fileId}?local_agent=claude-code`, {
+        headers: t.auth,
+      });
+      codes.push(res.statusCode);
+    }
+    expect(codes.every((c) => c === 200)).toBe(true);
+  });
+
+  it('uploads still hit the upload limit', async () => {
+    const t = await setup();
+    const codes: number[] = [];
+    for (let i = 0; i < 31; i++) codes.push((await t.computerUpload(blob(100))).statusCode);
+    expect(codes[29]).toBe(201);
+    expect(codes[30]).toBe(429);
+  });
+
+  it('the phone can read more sealed files in a minute than it can upload', async () => {
+    const t = await setup();
+    const fileId = t.idOf(await t.phoneUpload(blob(50)));
+    const message = await t.sealedMessage('user');
+    t.store.attachFiles('u1', t.agentId, message.id, [fileId], 'owner');
+    const codes: number[] = [];
+    for (let i = 0; i < 31; i++) {
+      const res = await t.g.send('GET', `/v1/agents/${t.agentId}/files/${fileId}`, {
+        user: 'u1',
+      });
+      codes.push(res.statusCode);
+    }
+    expect(codes.every((c) => c === 200)).toBe(true);
+  });
+
   it('only sealed rows link to sealed messages, and only plain rows to plain ones', async () => {
     const t = await setup();
     const sealedId = t.idOf(await t.phoneUpload(blob()));

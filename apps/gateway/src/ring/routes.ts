@@ -330,6 +330,8 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
     await stores.connectors.noteScopedRef(connector.id, sessionRef, scope);
   };
   const fileLimiter = new FixedWindowLimiter(30, 60_000);
+  // Reads are cheap and bursty (up to 5 files per message, many queued messages on reconnect).
+  const fileReadLimiter = new FixedWindowLimiter(120, 60_000);
   if (options.files)
     app.register((filesApp, _opts, done) => {
       filesApp.removeAllContentTypeParsers();
@@ -449,7 +451,7 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           const recipient = await recipientFor(connector, request.query.session_scope);
           if (!agent || recipient === undefined)
             return sendError(reply, 404, 'not_found', 'File not found.');
-          if (!fileLimiter.tryAcquire(connector.id)) return tooMany(reply);
+          if (!fileReadLimiter.tryAcquire(connector.id)) return tooMany(reply);
           const file = options.files!.store.findReadableSealedFile(
             recipient,
             agent.id,
