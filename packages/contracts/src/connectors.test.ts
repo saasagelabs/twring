@@ -13,7 +13,19 @@ import {
   linkQrPayload,
   normalizePairingCode,
   parseLinkInput,
+  CAN_SEAL_HEADER,
+  MAX_SEALED_REPLY_CHUNKS,
+  SEALED_FILES_FEATURE,
 } from './index';
+
+const envelope = {
+  v: 1,
+  sender_device: 'dev_aaaaaaaaaaaaaaaaaaaa',
+  sender_seq: 1,
+  nonce: 'AAAA',
+  body: 'BBBB',
+  keys: [{ device: 'dev_bbbbbbbbbbbbbbbbbbbb', wrapped: 'CC' }],
+};
 
 describe('typed code dashes', () => {
   it.each([
@@ -138,6 +150,71 @@ describe('per-person sessions on shared agents', () => {
     expect(
       connectorMessageRequestSchema.safeParse({ ...message, session_scope: 'x' }).success,
     ).toBe(false);
+  });
+  it('a sealed reply may name up to 5 file ids', () => {
+    const reply = {
+      type: 'sealed.reply',
+      agent: 'claude-code',
+      turn_id: 'turn-1',
+      sealed: envelope,
+      final: true,
+    };
+    const id = (c: string) => `fil_${c.repeat(20)}`;
+    const ids = ['a', 'b', 'c', 'd', 'e'].map(id);
+    expect(relayConnectorMessageSchema.safeParse(reply).success).toBe(true);
+    expect(relayConnectorMessageSchema.safeParse({ ...reply, file_ids: ids }).success).toBe(true);
+    expect(
+      relayConnectorMessageSchema.safeParse({ ...reply, file_ids: [...ids, id('f')] }).success,
+    ).toBe(false);
+    expect(relayConnectorMessageSchema.safeParse({ ...reply, file_ids: ['bad'] }).success).toBe(
+      false,
+    );
+  });
+  describe('connector message post body, sealed', () => {
+    const plain = { local_agent: 'claude-code', text: 'Done', origin: 'agent' };
+    const sealedBody = { local_agent: 'claude-code', sealed: [envelope], origin: 'agent' };
+    const fileId = 'fil_abcdefghijklmnopqrst';
+    it('still parses an old body with only text', () => {
+      expect(connectorMessageRequestSchema.parse(plain)).toEqual(plain);
+      expect(
+        connectorMessageRequestSchema.safeParse({ ...plain, text: '', file_ids: [fileId] }).success,
+      ).toBe(true);
+    });
+    it('parses sealed, with file ids', () => {
+      expect(connectorMessageRequestSchema.safeParse(sealedBody).success).toBe(true);
+      expect(
+        connectorMessageRequestSchema.safeParse({ ...sealedBody, file_ids: [fileId] }).success,
+      ).toBe(true);
+    });
+    it('needs exactly one of text or sealed', () => {
+      expect(
+        connectorMessageRequestSchema.safeParse({ ...sealedBody, text: 'readable' }).success,
+      ).toBe(false);
+      expect(
+        connectorMessageRequestSchema.safeParse({ local_agent: 'claude-code', origin: 'agent' })
+          .success,
+      ).toBe(false);
+    });
+    it('bounds the sealed chunks and refuses unknown fields', () => {
+      expect(connectorMessageRequestSchema.safeParse({ ...sealedBody, sealed: [] }).success).toBe(
+        false,
+      );
+      expect(
+        connectorMessageRequestSchema.safeParse({
+          ...sealedBody,
+          sealed: Array.from({ length: MAX_SEALED_REPLY_CHUNKS + 1 }, () => envelope),
+        }).success,
+      ).toBe(false);
+      expect(connectorMessageRequestSchema.safeParse({ ...plain, extra: 1 }).success).toBe(false);
+      expect(connectorMessageRequestSchema.safeParse({ ...sealedBody, extra: 1 }).success).toBe(
+        false,
+      );
+    });
+  });
+  it('names the sealed files feature word and the can-seal header', () => {
+    expect(SEALED_FILES_FEATURE).toBe('sealed_files');
+    expect(SEALED_FILES_FEATURE.length).toBeLessThanOrEqual(32);
+    expect(CAN_SEAL_HEADER).toBe('twring-can-seal');
   });
   it('has the computer_link_outdated error code', () => {
     expect(errorCodeSchema.safeParse('computer_link_outdated').success).toBe(true);

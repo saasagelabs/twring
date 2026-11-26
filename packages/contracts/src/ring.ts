@@ -4,6 +4,7 @@ import { agentIdSchema, agentKeytermSchema, MAX_AGENT_KEYTERMS } from './agents'
 import { createCallResponseSchema } from './calls';
 import { localAgentIdSchema, SESSION_REF_PATTERN, sessionScopeSchema } from './connectors';
 import { fileIdSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './files';
+import { MAX_SEALED_REPLY_CHUNKS, sealedAgentEnvelopeV1Schema } from './sealed-chat';
 import { MAX_STORED_AGENT_MESSAGE_CHARS, threadMessageIdSchema } from './threads';
 
 /**
@@ -314,7 +315,10 @@ export const connectorMessageRequestSchema = z
           .join('')
           .trim(),
       )
-      .pipe(z.string().max(MAX_STORED_AGENT_MESSAGE_CHARS)),
+      .pipe(z.string().max(MAX_STORED_AGENT_MESSAGE_CHARS))
+      .optional(),
+    /** A private chat's message (ADR-045): envelopes sharing one seq, instead of `text`. */
+    sealed: z.array(sealedAgentEnvelopeV1Schema).min(1).max(MAX_SEALED_REPLY_CHUNKS).optional(),
     origin: z.enum(['call_turn', 'text_turn', 'agent']),
     turn_id: z.string().max(128).optional(),
     session_ref: sessionRefSchema.optional(),
@@ -324,10 +328,15 @@ export const connectorMessageRequestSchema = z
     file_ids: z.array(fileIdSchema).min(1).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   })
   .strict()
-  .refine((message) => message.text.length > 0 || message.file_ids !== undefined, {
-    message: 'text or file_ids required',
+  .refine((message) => (message.text === undefined) !== (message.sealed === undefined), {
+    message: 'exactly one of text or sealed',
     path: ['text'],
   })
+  .refine(
+    (message) =>
+      message.sealed !== undefined || message.text !== '' || message.file_ids !== undefined,
+    { message: 'text or file_ids required', path: ['text'] },
+  )
   .refine((message) => new Set(message.file_ids ?? []).size === (message.file_ids?.length ?? 0), {
     message: 'file_ids must be distinct',
     path: ['file_ids'],

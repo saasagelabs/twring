@@ -89,6 +89,26 @@ export function fileAad(a: { accountId: string; agentId: string }): Uint8Array {
   return utf8.encode(JSON.stringify(['twring-e2e-file-v1', a.accountId, a.agentId]));
 }
 
+/** Bytes a sealed file adds: the 24-byte nonce in front and the 16-byte tag (ADR-045). */
+export const SEALED_FILE_OVERHEAD = NONCE_BYTES + 16;
+
+export function newFileKey(): Uint8Array {
+  return randomBytes(KEY_BYTES);
+}
+
+/** A file sealed with its own key: nonce || ciphertext || tag. The key rides in the sealed message. */
+export function sealFile(key: Uint8Array, bytes: Uint8Array, aad: Uint8Array): Uint8Array {
+  if (key.length !== KEY_BYTES) throw new SealError('could not seal contents');
+  return aeadSeal(key, bytes, aad);
+}
+
+/** Files are never empty: the phone and the connector refuse 0-byte files before sealing. */
+export function openFile(key: Uint8Array, blob: Uint8Array, aad: Uint8Array): Uint8Array {
+  if (key.length !== KEY_BYTES || blob.length <= SEALED_FILE_OVERHEAD)
+    throw new SealError('could not open sealed contents');
+  return aeadOpen(key, blob.subarray(0, NONCE_BYTES), blob.subarray(NONCE_BYTES), aad);
+}
+
 /**
  * The wrap key depends only on (my private key, their public key), and one X25519 costs about
  * 3 ms, so opening a long thread would spend seconds on it. Cache it in memory, bounded, keyed by

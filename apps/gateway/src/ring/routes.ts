@@ -405,6 +405,9 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
         return sendError(reply, 400, 'bad_request', SCOPE_REFUSED);
       await noteScoped(connector, parsed.data.session_scope, parsed.data.session_ref);
       // A call reply can end with the agent's hang-up marker; it is never shown.
+      // Sealed posts arrive with the gateway part of ADR-045; until then they are refused.
+      if (parsed.data.text === undefined)
+        return sendError(reply, 400, 'bad_request', 'The message is invalid.');
       const text = stripHangupMarkers(parsed.data.text);
       if (text === '' && !parsed.data.file_ids?.length)
         return sendError(reply, 400, 'bad_request', 'The message is empty.');

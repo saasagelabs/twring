@@ -12,6 +12,10 @@ export const SEALED_CHAT_FEATURE = 'sealed_chat';
 export const SEALED_CANCEL_FEATURE = 'sealed_cancel';
 /** A computer that sends a content-free "still working" frame during a private turn (ADR-045). */
 export const SEALED_WORKING_FEATURE = 'sealed_working';
+/** A computer that opens sealed files in private chats (`sealed_files`, ADR-045). */
+export const SEALED_FILES_FEATURE = 'sealed_files';
+/** Request header a connector sends to say it can seal; a new gateway then refuses plain posts into a private chat. */
+export const CAN_SEAL_HEADER = 'twring-can-seal';
 export const SEALED_WORKING_INTERVAL_MS = 20_000;
 /** A private turn with no reply chunk and no working frame for this long is interrupted. */
 export const SEALED_TURN_IDLE_MS = 60_000;

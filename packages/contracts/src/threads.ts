@@ -232,6 +232,8 @@ export const sendSealedMessageRequestSchema = z
     client_id: z.uuid(),
     sealed: sealedEnvelopeV1Schema,
     reply_to: threadMessageIdSchema.optional(),
+    /** Sealed files uploaded first with `?sealed=1`; their keys are inside `sealed` (ADR-045). */
+    attachment_ids: z.array(fileIdSchema).min(1).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   })
   .strict();
 export type SendSealedMessageRequest = z.infer<typeof sendSealedMessageRequestSchema>;
