@@ -167,7 +167,6 @@ Real-device tests are mandatory for audio behavior.
 
 - Expo dev builds: https://docs.expo.dev/develop/development-builds/introduction/
 - Expo native customization: https://docs.expo.dev/workflow/customizing/
-- EAS Build: https://docs.expo.dev/build/introduction/
 - LiveKit Expo: https://docs.livekit.io/transport/sdk-platforms/expo/
 - LiveKit pipeline types: https://docs.livekit.io/agents/models/pipelines/
 - LiveKit Deepgram STT: https://docs.livekit.io/agents/models/stt/deepgram/
