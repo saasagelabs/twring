@@ -11,7 +11,13 @@ export function workingText(label: string | undefined): string {
 
 export type StatusLineContent =
   | { kind: 'working'; text: string; label?: string }
-  | { kind: 'status'; text: string; tone: 'tertiary' | 'danger'; retryClientId?: string }
+  | {
+      kind: 'status';
+      text: string;
+      tone: 'tertiary' | 'danger';
+      retryClientId?: string;
+      deleteClientId?: string;
+    }
   | { kind: 'empty' };
 
 export interface StatusLineInput {
@@ -42,7 +48,12 @@ export function latestOwn(
         working: m.status === 'working',
       };
     if (m.kind === 'sealed' && m.author === 'user' && m.status !== undefined)
-      return { id: m.id, status: m.status, working: m.status === 'sent' || m.status === 'working' };
+      return {
+        id: m.id,
+        status: m.status,
+        ...(m.error_code !== undefined && { errorCode: m.error_code }),
+        working: m.status === 'sent' || m.status === 'working',
+      };
   }
   return undefined;
 }
@@ -59,7 +70,10 @@ export function statusLineContent(input: StatusLineInput): StatusLineContent {
       return {
         kind: 'status',
         tone: 'danger',
-        retryClientId: pending.clientId,
+        // Its text is gone after a restart: Retry would do nothing, so Delete is the one action.
+        ...(pending.errorCode === 'private_unsent'
+          ? { deleteClientId: pending.clientId }
+          : { retryClientId: pending.clientId }),
         text: failedSendText(
           name,
           pending.errorCode,

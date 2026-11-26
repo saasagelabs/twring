@@ -531,7 +531,8 @@ export class Outbox {
   /**
    * ADR-045, ruling 16: seal and upload each file, save its id and key, and only then seal the
    * envelope that names them. A file already uploaded (a retry) is not sent again. An ApiError
-   * from the upload goes to the caller's retry; any other failure fails the message here.
+   * from the upload goes to the caller's retry; a failure that is not an ApiError propagates to
+   * `attempt`'s catch, which fails the message there.
    */
   private async sealPrivateFiles(clientId: string, signal: AbortSignal): Promise<boolean> {
     const sealer = this.sealer;
