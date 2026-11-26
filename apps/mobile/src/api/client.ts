@@ -167,6 +167,8 @@ export interface TwringApi {
     fileUri: string,
     signal?: AbortSignal,
     replyTo?: string,
+    /** The person chose "Send anyway" in a private chat: the server may read this voice note. */
+    serverReadable?: boolean,
   ): Promise<ThreadMessage>;
   /** Deletes one message from Twring (the agent may still remember it). Idempotent. */
   deleteMessage?(agentId: string, messageId: string, signal?: AbortSignal): Promise<void>;
@@ -732,7 +734,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         throw error;
       }
     },
-    async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo) {
+    async sendVoiceNote(agentId, clientId, durationMs, fileUri, signal, replyTo, serverReadable) {
       let rawBody: Blob;
       try {
         const fileResponse = await doFetch(fileUri, { method: 'GET', signal });
@@ -745,6 +747,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
       }
       const query = new URLSearchParams({ client_id: clientId, duration_ms: String(durationMs) });
       if (replyTo !== undefined) query.set('reply_to', replyTo);
+      if (serverReadable === true) query.set('server_readable', '1');
       return parse(
         z.object({ message: threadMessageSchema }),
         await request('POST', `${agentPath(agentId)}/voice-notes?${query}`, {

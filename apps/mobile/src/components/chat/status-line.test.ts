@@ -111,3 +111,19 @@ it('a plain message works as before', () => {
   } as unknown as ThreadMessage;
   expect(latestOwn([plain])).toEqual({ id: 'msg_p', status: 'sent', working: false });
 });
+
+it('a failure code with its own copy wins over the server text', () => {
+  expect(
+    statusLineContent({
+      ...base,
+      pending: {
+        clientId: 'c1',
+        state: 'failed',
+        error: new Error('server text'),
+        errorCode: 'private_thread',
+      },
+    }),
+  ).toMatchObject({
+    text: "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+  });
+});

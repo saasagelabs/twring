@@ -87,7 +87,9 @@ vi.mock('@/agents/ai-app', () => ({
 }));
 vi.mock('@/threads/auto-listen', () => ({ autoListenTarget: () => undefined }));
 vi.mock('@/api', () => ({ ApiError: class {}, twringApi: () => undefined }));
-vi.mock('@/api/errors', () => ({ apiErrorCopy: () => ({ message: '' }) }));
+vi.mock('@/api/errors', () => ({
+  apiErrorCopy: () => ({ message: 'This chat is private. Update Twring to send messages in it.' }),
+}));
 vi.mock('@/call/call-agent', () => ({ callAgent: vi.fn() }));
 vi.mock('@/call/session', () => ({
   callController: () => undefined,
@@ -169,7 +171,8 @@ vi.mock('@/threads/scroll-state', () => ({
   replyIds: () => [],
   shouldAnnounce: () => false,
 }));
-vi.mock('@/threads/presentation', () => ({
+vi.mock('@/threads/presentation', async () => ({
+  ...(await import('./presentation')),
   callDuration: () => '0:05',
   dateLabel: () => 'Today',
   messageStatus: () => '',
@@ -217,6 +220,7 @@ function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: 
     sendFiles: vi.fn(),
     sendVoice: vi.fn(),
     retry: vi.fn(),
+    discard: vi.fn(),
     stop: vi.fn(),
     loadOlder: vi.fn(),
     deleteMessage: vi.fn(),
@@ -393,7 +397,9 @@ describe('a private chat', () => {
     expect(mocks.chat.sendVoice).not.toHaveBeenCalled();
     const warning = of(render().all, 'VoiceNoteWarning')[0];
     (warning.props.onSend as () => void)();
-    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined, {
+      serverReadable: true,
+    });
     expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
     expect(mocks.deleted).toEqual([]);
   });
@@ -413,5 +419,67 @@ describe('a private chat', () => {
     composer(render().all).onVoiceSend('file:///one.m4a', 3000);
     composer(render().all).onVoiceSend('file:///two.m4a', 3000);
     expect(mocks.deleted).toContain('file:///one.m4a');
+  });
+});
+
+describe('a failed send', () => {
+  const failedVoice = (clientId: string, createdAt: string) => ({
+    clientId,
+    agentId: 'agt_a',
+    text: 'Voice note',
+    state: 'failed' as const,
+    createdAt,
+    voice: { uri: 'file:///v.m4a', durationMs: 3000 },
+    error: { code: 'private_thread' },
+    errorCode: 'private_thread',
+  });
+  const texts = (items: ReactElement<Props>[]) =>
+    of(items, 'Text').flatMap((t) => Children.toArray(t.props.children).map(String));
+
+  it('a voice note refused as private shows the plain copy, not the server text', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.pending = [
+      failedVoice('c1', '2026-11-25T09:00:00.000Z'),
+      { ...failedVoice('c2', '2026-11-25T11:00:00.000Z'), state: 'sending' },
+    ];
+    const shown = texts(render().items);
+    expect(shown).toContain(
+      "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+    );
+    expect(shown.join(' ')).not.toContain('Update Twring');
+  });
+
+  it('deletes a failed message from this phone after asking', async () => {
+    const { Alert } = await import('react-native');
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.pending = [failedVoice('c1', '2026-11-25T09:00:00.000Z')];
+    const bubble = of(render().items, 'Bubble').find((b) => b.props.sender === 'You')!;
+    (bubble.props.onAction as (name: string) => void)('delete');
+    const alert = vi.mocked(Alert.alert).mock.calls.at(-1)!;
+    expect(alert[0]).toBe('Delete message?');
+    const buttons = alert[2] as { text: string; onPress?: () => void }[];
+    buttons.find((b) => b.text === 'Delete')!.onPress!();
+    expect(mocks.chat.discard).toHaveBeenCalledWith('c1');
+  });
+
+  it('keeps a failed message where it was sent; a sending one stays at the end', () => {
+    setChat({
+      private: false,
+      messages: [userText('m1', 1, 'hello'), agentText('m2', 2, 'hi there')],
+    });
+    (mocks.chat.state as { messages: ThreadMessage[] }).messages = [
+      { ...userText('m1', 1, 'hello'), created_at: '2026-11-25T09:00:00.000Z' },
+      { ...agentText('m2', 2, 'hi there'), created_at: '2026-11-25T11:00:00.000Z' },
+    ];
+    mocks.chat.pending = [
+      failedVoice('late', '2026-11-25T10:00:00.000Z'),
+      { ...failedVoice('now', '2026-11-25T08:00:00.000Z'), state: 'sending' },
+    ];
+    const list = of(render().all, 'FlatList')[0];
+    const keys = (list.props.data as { key: string; kind: string }[])
+      .filter((row) => row.kind === 'message' || row.kind === 'pending')
+      .map((row) => row.key)
+      .reverse();
+    expect(keys).toEqual(['m1', 'late', 'm2', 'now']);
   });
 });

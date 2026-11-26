@@ -242,6 +242,28 @@ describe('private chats in the chat data layer', () => {
     expect(t.controller.getChat(privateAgent).messages.some((m) => m.kind === 'sealed')).toBe(true);
   });
 
+  it('sends a voice note with consent only after "Send anyway"', async () => {
+    const t = await setup();
+    const voice = vi
+      .fn()
+      .mockRejectedValue(new ApiError('http', 'private_thread', undefined, undefined, 409));
+    (t.api as unknown as { sendVoiceNote: typeof voice }).sendVoiceNote = voice;
+    t.controller.sendVoice(privateAgent, 'file:///a.m4a', 2000, undefined, {
+      serverReadable: true,
+    });
+    t.controller.sendVoice(privateAgent, 'file:///b.m4a', 2000);
+    await vi.waitFor(() => expect(voice).toHaveBeenCalledTimes(2));
+    const byUri = new Map(voice.mock.calls.map((call) => [call[3], call[6]]));
+    expect(byUri.get('file:///a.m4a')).toBe(true);
+    expect(byUri.get('file:///b.m4a')).toBeUndefined();
+    await vi.waitFor(() =>
+      expect(t.controller.getPending(privateAgent).map((p) => p.errorCode)).toEqual([
+        'private_thread',
+        'private_thread',
+      ]),
+    );
+  });
+
   it('refuses files in a private chat before anything goes out', async () => {
     const t = await setup();
     t.controller.sendFiles(privateAgent, 'look', [
