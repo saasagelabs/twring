@@ -14,6 +14,7 @@ import {
   MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   newFileKey,
+  newMessageKey,
   sealFile,
   SCOPED_SESSIONS_FEATURE,
   DEVICES_CHANGED_FEATURE,
@@ -190,7 +191,15 @@ export interface PrivateChatsOptions {
   log?: (line: string) => void;
   signal?: AbortSignal;
   now?: () => number;
+  /** Waits between tries to reserve a reply seq; tests pass zeros. */
+  seqRetryDelaysMs?: readonly number[];
 }
+
+/**
+ * Waits between tries to reserve a reply seq when the config is busy or its write failed. They
+ * add up to more than LOCK_STALE_MS (store.ts), so a lock left by a killed process is taken over.
+ */
+export const SEQ_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
 
 /**
  * Private chat turns on this computer (ADR-044): opens a sealed message from a trusted phone,
@@ -287,7 +296,10 @@ export class PrivateChats {
     const log = this.options.log;
     let e2e = this.options.e2e();
     if (e2e === undefined) return;
-    let opened = openIncoming(this.context(e2e, frame.agent), frame.sealed);
+    // The replay window moves only once a reply seq is reserved, so a message this computer
+    // could not answer (config busy) still runs when the phone sends it again.
+    const defer = { accept: false };
+    let opened = openIncoming(this.context(e2e, frame.agent), frame.sealed, defer);
     if (!opened.ok && opened.reason !== 'replay') {
       // Each failure may cost a config write and a reply seq: a flood is dropped quietly.
       const now = (this.options.now ?? Date.now)();
@@ -300,12 +312,20 @@ export class PrivateChats {
     if (!opened.ok && opened.reason === 'unknown_sender') {
       // A phone paired by `private pair` while this copy ran: read the saved list once more.
       e2e = (await this.options.persist((current) => current)) ?? e2e;
-      opened = openIncoming(this.context(e2e, frame.agent), frame.sealed);
+      opened = openIncoming(this.context(e2e, frame.agent), frame.sealed, defer);
     }
     if (!opened.ok) {
       log?.(`private message ${frame.message_id} not opened (${opened.reason})`);
       if (opened.reason !== 'replay')
         await this.reply(frame, async (send) => send({ text: '', notice: 'couldnt_open' }, true));
+      return;
+    }
+    const reserved = await this.reserveSeq(frame);
+    if (reserved === undefined) return;
+    const { sender_device, sender_seq } = frame.sealed;
+    // Another delivery of the same message took it while this one waited.
+    if (!this.window(e2e).accept(sender_device, sender_seq)) {
+      log?.(`private message ${frame.message_id} not opened (replay)`);
       return;
     }
     const highest = this.window(e2e).highest();
@@ -315,7 +335,28 @@ export class PrivateChats {
     }));
     const payload = opened.payload;
     if (stopped.aborted) return;
-    await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks, stopped));
+    await this.reply(
+      frame,
+      (send, chunks) => this.runAgent(frame, payload, send, chunks, stopped),
+      reserved,
+    );
+  }
+
+  /**
+   * Reserves the next seq for a reply, trying again for longer than a stale lock lives. Undefined
+   * when it still failed; that is logged with the message id only.
+   */
+  private async reserveSeq(frame: SealedMessageFrame): Promise<E2eConfig | undefined> {
+    const delays = this.options.seqRetryDelaysMs ?? SEQ_RETRY_DELAYS_MS;
+    for (let attempt = 0; ; attempt++) {
+      const saved = await this.options.persist((current) => ({ ...current, seq: current.seq + 1 }));
+      if (saved !== undefined) return saved;
+      const delay = delays[attempt];
+      if (delay === undefined || this.options.signal?.aborted === true) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    this.options.log?.(`private message ${frame.message_id} not answered (config busy)`);
+    return undefined;
   }
 
   private async runAgent(
@@ -635,6 +676,11 @@ export class PrivateChats {
    * One reply to `frame`: every chunk shares one fresh seq (persisted before use) and gets the
    * next chunk index. Once a send fails, the rest is held and goes out after the next reconnect,
    * in order, so the final chunk reaches the server once.
+   *
+   * Every chunk is sealed with one message key, so a phone approved later gets the whole reply
+   * from one re-wrap (ADR-044). Each piece wraps to the devices trusted now: a device removed
+   * while the agent answers gets none of the pieces sealed after the sync that dropped it
+   * (C3 #11 P4a), and those pieces get a new key it never held (ADR-045 notes the exception).
    */
   private async reply(
     frame: SealedMessageFrame,
@@ -642,17 +688,28 @@ export class PrivateChats {
       send: (payload: SealedPayload, final: boolean, fileIds?: string[]) => Promise<void>,
       chunks: () => number,
     ) => Promise<void>,
+    reserved?: E2eConfig,
   ): Promise<void> {
-    const saved = await this.options.persist((current) => ({ ...current, seq: current.seq + 1 }));
+    const saved = reserved ?? (await this.reserveSeq(frame));
     if (saved === undefined) return;
     const seq = saved.seq;
     const ctx = this.context(saved, frame.agent);
-    // Each piece wraps to the devices trusted now: a device removed while the agent answers
-    // gets none of the pieces sealed after the sync that dropped it (C3 #11 P4a).
     const current = (): SealContext => ({
       ...ctx,
       trusted: this.options.e2e()?.devices ?? ctx.trusted,
     });
+    let key = newMessageKey();
+    // Every device this key was wrapped to so far.
+    const holders = new Set<string>();
+    const keyFor = (trusted: readonly { id: string }[]): Uint8Array => {
+      const ids = new Set(trusted.map((device) => device.id));
+      if ([...holders].some((id) => !ids.has(id))) {
+        key = newMessageKey();
+        holders.clear();
+      }
+      for (const id of ids) holders.add(id);
+      return key;
+    };
     let index = 0;
     const held: SealedReplyFrame[] = [];
     const push = (out: SealedReplyFrame) => {
@@ -671,11 +728,12 @@ export class PrivateChats {
       });
     };
     const sealPiece = (payload: SealedPayload, final: boolean, fileIds?: string[]): void => {
+      const now = current();
       const out: SealedReplyFrame = {
         type: 'sealed.reply',
         agent: frame.agent,
         turn_id: frame.message_id,
-        sealed: sealOutgoing(current(), payload, seq, { index, final }),
+        sealed: sealOutgoing(now, payload, seq, { index, final }, keyFor(now.trusted)),
         final,
         ...(fileIds !== undefined && fileIds.length > 0 && { file_ids: fileIds }),
       };
