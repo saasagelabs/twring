@@ -1077,7 +1077,7 @@ The relay needs a second region, or self-hosters ask for HTTPS on a port other t
 ### Decision
 
 - The public repository `saasagelabs/twring` starts from a fresh history; the earlier history stays private as `saasagelabs/twring-history`.
-- Licenses by folder: the server (`apps/gateway`), the ring relay (`apps/relay`), the self-host kit (`deploy/selfhost`) and `supabase/` are AGPL-3.0-only; the phone app, the computer tool, shared packages, the skill, examples, the site, docs and tooling are Apache-2.0; the site's fonts are OFL-1.1. `LICENSE.md` maps folders to licenses.
+- Licenses by folder: the server (`apps/gateway`), the ring relay (`apps/relay`), the self-host kit (`deploy/selfhost`) and `supabase/` are AGPL-3.0-only; the phone app, the computer tool, shared packages, the skill, examples, the site, docs and tooling are Apache-2.0; the site's fonts are OFL-1.1. `LICENSING.md` maps folders to licenses. (2026-11-26: renamed from `LICENSE.md`, and the root `LICENSE` now holds the Apache-2.0 text, so GitHub detects an OSI license for the repository; each AGPL-3.0 folder, `supabase/` included, has its own `LICENSE`. The licenses themselves did not change.)
 - Contributions are signed off under the Developer Certificate of Origin; there is no contributor license agreement.
 - Internal planning notes and the operations scripts and docs for Twring's own servers stay private.
 - The Twring name, logo and icons are not licensed with the code (`TRADEMARKS.md`).
