@@ -295,6 +295,8 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   else {
     const head = payloads[0];
     const notice = payloads.find((p) => p.notice !== undefined)?.notice;
+    // A streamed reply carries its files on the final chunk (apps/connector/src/e2e/turn.ts).
+    const files = payloads.find((p) => p.files !== undefined)?.files;
     opened = {
       ok: true,
       sender,
@@ -304,6 +306,7 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
         ...head,
         text: payloads.map((p) => p.text).join(''),
         ...(notice !== undefined && { notice }),
+        ...(files !== undefined && { files }),
       },
     };
   }
