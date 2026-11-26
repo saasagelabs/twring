@@ -4,6 +4,7 @@ import {
   MAX_PAIRED_DEVICES,
   messageAad,
   publicKeySchema,
+  REWRAP_PAGE_SIZE,
   sealedKeysPageSchema,
   unwrapKey,
   wrapKey,
@@ -31,11 +32,20 @@ export const REWRAP_JOBS_KEY = 'twring.e2e.rewrap.v1';
 export const REWRAP_BATCH = 200;
 /** Messages per page read; two pages make one batch at most. */
 const PAGE = 100;
+/** Pages of re-wraps the new phone reads per chat (`readRewraps`). */
+export const REWRAP_READ_PAGES = 10;
+/**
+ * Re-wraps the approving phone shares per chat, newest first (R3-7): exactly what the new phone
+ * reads, so nothing is uploaded that it would never see. Older messages stay unopened there.
+ */
+export const MAX_REWRAPS_PER_CHAT = REWRAP_READ_PAGES * REWRAP_PAGE_SIZE;
 
 const chatCursorSchema = z
   .object({
     /** The lowest message seq already shared: the next page starts below it. */
     before: z.number().int().positive().optional(),
+    /** Re-wraps already uploaded for this chat, toward `MAX_REWRAPS_PER_CHAT`. */
+    sent: z.number().int().nonnegative().optional(),
     done: z.boolean().optional(),
   })
   .strict();
@@ -212,15 +222,21 @@ async function runChat(
   for (;;) {
     const items: SealedKeysUpload['items'] = [];
     let before = cursor.before;
-    let end = false;
-    for (let pages = 0; pages < REWRAP_BATCH / PAGE; pages++) {
+    const sent = cursor.sent ?? 0;
+    let end = sent >= MAX_REWRAPS_PER_CHAT;
+    for (let pages = 0; !end && pages < REWRAP_BATCH / PAGE; pages++) {
       const page = await deps.messages(agentId, before);
       for (const m of page.messages) {
+        if (sent + items.length >= MAX_REWRAPS_PER_CHAT) {
+          end = true;
+          break;
+        }
         if (before === undefined || m.seq < before) before = m.seq;
         if (m.kind !== 'sealed') continue;
         const wrapped = rewrapOne(m, { me, trusted, ids, target });
         if (wrapped !== undefined) items.push({ message_id: m.id, wrapped });
       }
+      if (end) break;
       if (!page.hasMore || page.messages.length === 0) {
         end = true;
         break;
@@ -246,7 +262,11 @@ async function runChat(
     }
     // Saved only after the upload: a restart repeats at most this batch, which the server
     // replaces row for row, so nothing is stored twice.
-    cursor = { ...(before !== undefined && { before }), ...(end && { done: true }) };
+    cursor = {
+      ...(before !== undefined && { before }),
+      sent: sent + items.length,
+      ...(end && { done: true }),
+    };
     job.chats[agentId] = cursor;
     if (!(await saveJob(deps.store, job))) return 'superseded';
     if (end) return 'done';
@@ -326,8 +346,9 @@ export async function readRewraps(
 ): Promise<Map<string, Rewrap> | undefined> {
   const out = new Map<string, Rewrap>();
   let after: string | undefined;
-  // Bounded: 2,000 messages per thread at 500 per page.
-  for (let i = 0; i < 10; i++) {
+  // Bounded: REWRAP_READ_PAGES pages of REWRAP_PAGE_SIZE, which is MAX_REWRAPS_PER_CHAT, all the
+  // approving phone ever uploads for one chat (R3-7).
+  for (let i = 0; i < REWRAP_READ_PAGES; i++) {
     const answer = await api.read(agentId, deviceId, after);
     if (answer.status !== 200) return undefined;
     const page = sealedKeysPageSchema.safeParse(answer.body);

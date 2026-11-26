@@ -287,22 +287,64 @@ export async function loadTrusted(store: SecureKeyValue): Promise<TrustedDevice[
   }
 }
 
+/**
+ * Device ids this phone removed from its trusted list (R3-1); read and written by `devices.ts`.
+ * Pairing a computer again takes its id back out.
+ */
+export const REMOVED_KEY_NAME = 'twring.e2e.removed.v1';
+
+const trustLocks = new WeakMap<SecureKeyValue, Promise<unknown>>();
+
+/**
+ * Runs one change to the trusted list (and the removed memory) at a time per store: a sync that
+ * overlaps a removal or a pairing would otherwise save the list it loaded before, bringing a
+ * removed device back. Never call it from inside another locked change.
+ */
+export function withTrustLock<T>(store: SecureKeyValue, run: () => Promise<T>): Promise<T> {
+  const before = trustLocks.get(store) ?? Promise.resolve();
+  const next = before.then(run, run);
+  trustLocks.set(
+    store,
+    next.catch(() => undefined),
+  );
+  return next;
+}
+
 /** After the person said the numbers match: the computer joins this phone's trusted list. */
-export async function confirmPairing(
+export function confirmPairing(
   deps: Pick<PairDeps, 'store' | 'log'>,
   connector: TrustedDevice,
 ): Promise<void> {
-  const current = await loadTrusted(deps.store);
-  // A computer set up again (new key, same connector) replaces its old entry.
-  const others = current.filter(
-    (d) =>
-      d.id !== connector.id &&
-      d.public_key !== connector.public_key &&
-      (connector.connector_id === undefined || d.connector_id !== connector.connector_id),
-  );
-  const next = trustedListSchema.parse([...others, connector].slice(-16));
-  await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(next));
-  deps.log?.('e2e_paired', { device_id: connector.id, trusted: next.length });
+  return withTrustLock(deps.store, async () => {
+    const current = await loadTrusted(deps.store);
+    // A computer set up again (new key, same connector) replaces its old entry: the old key may
+    // have leaked, and only a server marking it removed would drop it otherwise. The connector id
+    // comes from the claim answer, which the pairing checks do not cover (R4-2), but this gives
+    // the server no new power: it can already take any device's trust away by listing it as
+    // removed. It only ever removes trust; it never adds a device the person did not check.
+    const others = current.filter(
+      (d) =>
+        d.id !== connector.id &&
+        d.public_key !== connector.public_key &&
+        (connector.connector_id === undefined || d.connector_id !== connector.connector_id),
+    );
+    const next = trustedListSchema.parse([...others, connector].slice(-16));
+    await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(next));
+    await unremove(deps.store, connector.id);
+    deps.log?.('e2e_paired', { device_id: connector.id, trusted: next.length });
+  });
+}
+
+/** A computer paired again with the same key leaves the removed memory, or a sync would drop it. */
+async function unremove(store: SecureKeyValue, id: string): Promise<void> {
+  let ids: unknown;
+  try {
+    ids = JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]');
+  } catch {
+    return;
+  }
+  if (!Array.isArray(ids) || !ids.includes(id)) return;
+  await store.setItemAsync(REMOVED_KEY_NAME, JSON.stringify(ids.filter((x) => x !== id)));
 }
 
 /** Saves the trusted list as it is now (devices.ts drops revoked ones and binds older ones). */

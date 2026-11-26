@@ -98,7 +98,9 @@ const sealedMsg = (sealed: SealedEnvelopeV1, author: 'user' | 'agent', clientId?
     ...(clientId !== undefined && { client_id: clientId }),
   }) as ThreadMessage;
 
-async function setup(options: { paired?: boolean; sendFails?: boolean } = {}) {
+async function setup(
+  options: { paired?: boolean; sendFails?: boolean; devices?: () => Promise<unknown> } = {},
+) {
   const store = keychain();
   const me = await loadOrCreateDeviceKey(store);
   if (options.paired !== false)
@@ -154,6 +156,7 @@ async function setup(options: { paired?: boolean; sendFails?: boolean } = {}) {
     store,
     replay,
     addressOf: () => Promise.resolve(`cord-connector://${ACCOUNT}/${LOCAL}`),
+    ...(options.devices !== undefined && { devices: options.devices }),
   });
   const controller = new ChatController(api as unknown as TwringApi, undefined, {
     outbox,
@@ -382,6 +385,53 @@ describe('private chats in the chat data layer', () => {
     const [hit] = await t.controller.searchChats('computer');
     expect(hit).toMatchObject({ role: 'agent', text: 'hello from computer' });
     expect(JSON.stringify([...t.searchStore.rows.values()])).not.toContain('hello from computer');
+  });
+
+  it('Remove this phone drops opened text from search and the chat (R3-3)', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(async () =>
+      expect(await t.controller.searchChats('computer')).toHaveLength(1),
+    );
+    await t.controller.forgetPrivateKeys();
+    expect(await t.controller.searchChats('computer')).toHaveLength(0);
+    expect(JSON.stringify(t.controller.getOpened(privateAgent) ?? [])).not.toContain(
+      'hello from computer',
+    );
+  });
+
+  it('a phone removed by another phone drops opened text the same way (R3-4)', async () => {
+    let removed = false;
+    const t = await setup({
+      devices: () =>
+        Promise.resolve({
+          devices: removed
+            ? [
+                {
+                  id: t.me.deviceId,
+                  kind: 'phone',
+                  name: 'Phone',
+                  public_key: base64urlEncode(t.me.publicKey),
+                  added_at: at,
+                  revoked_at: at,
+                },
+              ]
+            : [],
+        }),
+    });
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    await vi.waitFor(async () =>
+      expect(await t.controller.searchChats('computer')).toHaveLength(1),
+    );
+    removed = true;
+    t.controller.resetPrivate();
+    t.controller.getOpened(privateAgent);
+    await vi.waitFor(async () =>
+      expect(await t.controller.searchChats('computer')).toHaveLength(0),
+    );
+    expect(t.replay.value).toBeUndefined();
   });
 
   it('removes opened text an earlier version saved on the phone', async () => {

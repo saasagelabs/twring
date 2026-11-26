@@ -85,6 +85,7 @@ export class ChatController {
     timers: OutboxTimers = systemTimers,
   ) {
     this.privacy = stores.privacy;
+    this.privacy?.onRemoved(() => void this.dropOpenedPrivate());
     this.shareHistory = stores.shareHistory;
     this.sealedFiles = stores.sealedFiles ?? deviceSealedFiles;
     this.outbox = new Outbox(
@@ -271,8 +272,17 @@ export class ChatController {
 
   /** Removing this phone on the devices screen: its private chat keys go (the sign-out path). */
   async forgetPrivateKeys(): Promise<void> {
+    await Promise.all([this.privacy?.forget(), this.dropOpenedPrivate()]);
+  }
+
+  /**
+   * The one wipe of what this phone opened (R3-3, R3-4), for Remove this phone and for a phone
+   * another phone removed: opened text in memory and in search, and opened files on disk.
+   */
+  private async dropOpenedPrivate(): Promise<void> {
     this.opened.clear();
-    await Promise.all([this.privacy?.forget(), clearSealedFiles()]);
+    this.search.forgetPrivate();
+    await clearSealedFiles();
     this.emit();
   }
 
