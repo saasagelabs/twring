@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { RELAY_CLOSE, type SealedPayload } from '@twring/contracts';
@@ -621,4 +621,75 @@ describe('cord-connect', () => {
     expect(saved?.e2e?.devices.map((d) => d.id)).toEqual([phone.id]);
     expect(saved?.e2e?.revoked).toEqual([removed.id]);
   }, 30_000);
+  /**
+   * Holds the config lock (as a running copy mid-change would), lets the command load the config
+   * and reach its write, then changes the private chat part on disk and lets go of the lock.
+   */
+  async function whileLockHeld(path: string, args: string[], change: () => Promise<void>) {
+    const lock = `${path}.lock`;
+    await writeFile(lock, 'held by test');
+    const child = spawn(process.execPath, ['--import', 'tsx', CLI, ...args], {
+      env: { ...process.env, CORD_CONNECT_CONFIG_DIR: dirname(path) },
+      stdio: 'ignore',
+    });
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    cleanups.push(async () => {
+      child.kill();
+      await exited;
+    });
+    // The command loads the config at start, then waits here for the lock.
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    await change();
+    await rm(lock);
+    return exited;
+  }
+
+  it('start with agent flags keeps a private chat change made while it waited (R3-2)', async () => {
+    const dir = await tempDir();
+    const path = join(dir, 'config.json');
+    const fixture = pairedFixture('echo');
+    const phone = fixture.e2e().devices[0]!;
+    const removed = { ...phone, id: `dev_${'r'.repeat(20)}` };
+    await saveConfig(path, {
+      ...config('http://127.0.0.1:9', dir),
+      e2e: { ...fixture.e2e(), seq: 5, devices: [phone, removed] },
+    });
+    void whileLockHeld(path, ['--command', 'echo', '--agents', 'custom'], async () => {
+      const current = (await loadConfig(path))!;
+      await saveConfig(path, {
+        ...current,
+        e2e: { ...current.e2e!, seq: 9, devices: [phone], revoked: [removed.id] },
+      });
+    });
+    let saved = await loadConfig(path);
+    for (let i = 0; i < 600 && !saved?.agents.some((a) => a.id === 'custom'); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      saved = await loadConfig(path).catch(() => undefined);
+    }
+    expect(saved?.agents.map((a) => a.id)).toEqual(['custom']);
+    expect(saved?.e2e?.seq).toBe(9);
+    expect(saved?.e2e?.devices.map((d) => d.id)).toEqual([phone.id]);
+    expect(saved?.e2e?.revoked).toEqual([removed.id]);
+  }, 30_000);
+
+  it('private reset keeps its new key when a running copy was mid-change (R3-2)', async () => {
+    const dir = await tempDir();
+    const path = join(dir, 'config.json');
+    const fixture = pairedFixture('echo');
+    await saveConfig(path, { ...config('http://127.0.0.1:9', dir), e2e: fixture.e2e() });
+    const old = fixture.e2e().public_key;
+    await whileLockHeld(path, ['private', 'reset'], async () => {
+      // The running copy loaded the old key before the reset and now writes its change back.
+      const current = (await loadConfig(path))!;
+      await saveConfig(path, { ...current, e2e: { ...fixture.e2e(), seq: 9 } });
+    });
+    const saved = await loadConfig(path);
+    expect(saved?.e2e?.public_key).toBeDefined();
+    expect(saved?.e2e?.public_key).not.toBe(old);
+  }, 30_000);
+
+  it('cli.ts writes the config only under the lock (R3-2)', async () => {
+    const source = await readFile(CLI, 'utf8');
+    expect(source).not.toMatch(/saveConfig\(/);
+  });
 });

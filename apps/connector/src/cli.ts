@@ -31,7 +31,6 @@ import {
   forgetLastRing,
   loadConfig,
   readLastRing,
-  saveConfig,
   saveLastRing,
   socketUrl,
   type ConnectorConfig,
@@ -1400,9 +1399,14 @@ async function privateCommand(rest: string[]): Promise<number> {
     print(`Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
     return 1;
   }
-  const { config, created } = ensureDeviceKey(saved);
   // Kept before the server hears of it, so the phone never trusts something this computer lost.
-  if (created) await saveConfig(path, config);
+  // Written under the lock from a fresh read, so a running copy's change is never lost or undone.
+  const config = saved.e2e
+    ? saved
+    : await updateConfig(path, (current) => {
+        const base = withCommandFields(current, saved, {});
+        return base.e2e ? base : ensureDeviceKey(base).config;
+      });
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once('SIGINT', stop);
@@ -1467,7 +1471,13 @@ async function privateReset(): Promise<number> {
   }
   const outcome = await resetPrivateKey({
     config: saved,
-    save: (config) => saveConfig(path, config),
+    // Under the lock from a fresh read: a running copy mid-change never puts the old key back.
+    save: async (config) => {
+      await updateConfig(path, (current) => ({
+        ...withCommandFields(current, saved, {}),
+        e2e: config.e2e,
+      }));
+    },
     fetch,
   });
   for (const line of resetLines(outcome.server, CONNECTOR_CLI_NAME)) print(line);
