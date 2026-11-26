@@ -718,7 +718,8 @@ export class SqliteThreadStore {
     agentId: string,
     input: {
       author: 'user' | 'agent';
-      sealed: SealedEnvelopeV1;
+      /** One envelope, or the chunks of a computer's post (one seq, ordered by index). */
+      sealed: SealedEnvelopeV1 | SealedEnvelopeV1[];
       clientId?: string;
       status?: UserMessageStatus;
       turnId?: string;
@@ -754,7 +755,7 @@ export class SqliteThreadStore {
         if (!answered) throw new ThreadStoreError('reply_to_not_found');
       }
       const message = this.insert(userId, thread, 'sealed', {
-        text: JSON.stringify([input.sealed]),
+        text: JSON.stringify(Array.isArray(input.sealed) ? input.sealed : [input.sealed]),
         ...(input.status !== undefined && { status: input.status }),
         ...(input.clientId !== undefined && { clientId: input.clientId }),
         ...(input.turnId !== undefined && { turnId: input.turnId }),

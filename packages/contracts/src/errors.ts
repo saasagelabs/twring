@@ -138,6 +138,8 @@ export const errorCodeSchema = z.enum([
   'private_is_one_way',
   /** A plain post from a computer that can seal, into a private chat: seal it and post again (ADR-045, 409). */
   'seal_required',
+  /** A sealed post whose sender is not this connector's own computer device (ADR-045, 403). */
+  'wrong_device',
 ]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 

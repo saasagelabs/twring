@@ -11,6 +11,7 @@ import {
   CAN_SEAL_HEADER,
   fileIdSchema,
   MAX_FILE_BYTES,
+  MAX_SEALED_REPLY_TOTAL_CHARS,
   inviteIdSchema,
   localAgentIdSchema,
   sessionScopeSchema,
@@ -28,6 +29,7 @@ import {
   type ErrorResponse,
   type Invite,
   type InviteListResponse,
+  type SealedEnvelopeV1,
   type RingResponse,
   type RingSettings,
   type RingStatusResponse,
@@ -48,6 +50,7 @@ import {
 import { sniffFile } from '../files/sniff';
 import type { FileService } from '../files/service';
 import { FileStoreError } from '../threads/store';
+import type { E2eDeviceStore } from '../e2e/devices-store';
 import type { Stores } from '../store/repositories';
 import { addAgentWords } from '../agents/words';
 import type { SharedAgents } from '../agents/shared';
@@ -67,6 +70,8 @@ export interface RingRoutesOptions {
   pushRegistration?: boolean;
   threads?: ThreadService;
   files?: FileService;
+  /** Paired devices: a sealed post must come from this connector's own computer (ADR-045). */
+  e2eDevices?: Pick<E2eDeviceStore, 'list'>;
   /** Starts the answered call with every `POST /v1/calls` rule. Undefined: calling is off (503). */
   startCall: CallStarter | undefined;
   /** Words were added: the owner's live calls pick them up (ADR-042). */
@@ -84,6 +89,28 @@ export interface RingRoutesOptions {
   /** Phone and long-poll reads per client per minute. Unlimited when unset. */
   readRatePerMinute?: number;
   now?: () => Date;
+}
+
+/**
+ * One sealed post is one message: its envelopes share a sender and a seq, a single one carries no
+ * chunk or chunk 0 as final, and several are chunks 0..n-1 with only the last final.
+ */
+function sealedPostShapeOk(sealed: SealedEnvelopeV1[]): boolean {
+  const first = sealed[0];
+  if (first === undefined) return false;
+  if (sealed.length === 1)
+    return first.chunk === undefined || (first.chunk.index === 0 && first.chunk.final);
+  const total = sealed.reduce((sum, e) => sum + e.body.length, 0);
+  return (
+    total <= MAX_SEALED_REPLY_TOTAL_CHARS &&
+    sealed.every(
+      (e, index) =>
+        e.sender_device === first.sender_device &&
+        e.sender_seq === first.sender_seq &&
+        e.chunk?.index === index &&
+        e.chunk.final === (index === sealed.length - 1),
+    )
+  );
 }
 
 function sendError(
@@ -463,16 +490,56 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
         otherMemberSession(connector, parsed.data.session_scope, parsed.data.session_ref)
       )
         return sendError(reply, 400, 'bad_request', SCOPE_REFUSED);
-      await noteScoped(connector, parsed.data.session_scope, parsed.data.session_ref);
-      // A call reply can end with the agent's hang-up marker; it is never shown.
-      // Sealed posts arrive with the gateway part of ADR-045; until then they are refused.
-      if (parsed.data.text === undefined)
-        return sendError(reply, 400, 'bad_request', 'The message is invalid.');
-      const text = stripHangupMarkers(parsed.data.text);
-      if (text === '' && !parsed.data.file_ids?.length)
-        return sendError(reply, 400, 'bad_request', 'The message is empty.');
+      const target = {
+        connectorId: connector.id,
+        localAgent: parsed.data.local_agent,
+        agentName: agent.name,
+      };
       if (parsed.data.file_ids && !options.files)
         return sendError(reply, 400, 'bad_request', 'Files are unavailable.');
+      // A private chat's message from a computer that can seal must arrive sealed (ADR-045). The
+      // refusal comes before anything is stored or noted. Older connectors send no mark.
+      const privateChat = await options.threads.isPrivate(recipient, agent.id);
+      if (parsed.data.sealed === undefined) {
+        if (privateChat && request.headers[CAN_SEAL_HEADER] === '1')
+          return sendError(reply, 409, 'seal_required', 'This chat is private: seal the message.');
+      } else {
+        if (!privateChat) return sendError(reply, 409, 'not_private', 'This chat is not private.');
+        const computers = new Set(
+          (options.e2eDevices?.list(recipient) ?? [])
+            .filter((d) => d.kind === 'computer' && d.connector_id === connector.id)
+            .map((d) => d.id),
+        );
+        if (!parsed.data.sealed.every((e) => computers.has(e.sender_device)))
+          return sendError(reply, 403, 'wrong_device', 'This message is not from this computer.');
+        if (!sealedPostShapeOk(parsed.data.sealed))
+          return sendError(reply, 400, 'bad_request', 'The message is invalid.');
+      }
+      await noteScoped(connector, parsed.data.session_scope, parsed.data.session_ref);
+      if (parsed.data.sealed !== undefined) {
+        let sealedResult;
+        try {
+          sealedResult = await options.threads.deliverSealedResult(recipient, agent.id, {
+            sealed: parsed.data.sealed,
+            ...(parsed.data.file_ids && { fileIds: parsed.data.file_ids }),
+            origin: parsed.data.origin,
+            ...(parsed.data.session_ref !== undefined && { sessionRef: parsed.data.session_ref }),
+            idempotencyKey: key,
+            ring: parsed.data.origin === 'call_turn',
+            target,
+          });
+        } catch (cause) {
+          if (cause instanceof FileStoreError && cause.code === 'bad_attachment')
+            return sendError(reply, 400, 'bad_request', 'Invalid file attachment.');
+          throw cause;
+        }
+        void reply.code(sealedResult.created ? 201 : 200);
+        return { message_id: sealedResult.messageId, delivery: sealedResult.delivery };
+      }
+      // A call reply can end with the agent's hang-up marker; it is never shown.
+      const text = stripHangupMarkers(parsed.data.text ?? '');
+      if (text === '' && !parsed.data.file_ids?.length)
+        return sendError(reply, 400, 'bad_request', 'The message is empty.');
       let result;
       try {
         result = await options.threads.deliverResult(recipient, agent.id, {
@@ -482,11 +549,7 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
           ...(parsed.data.turn_id !== undefined && { turnId: parsed.data.turn_id }),
           ...(parsed.data.session_ref !== undefined && { sessionRef: parsed.data.session_ref }),
           idempotencyKey: key,
-          target: {
-            connectorId: connector.id,
-            localAgent: parsed.data.local_agent,
-            agentName: agent.name,
-          },
+          target,
         });
       } catch (cause) {
         if (cause instanceof FileStoreError && cause.code === 'bad_attachment')

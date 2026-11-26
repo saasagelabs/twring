@@ -652,6 +652,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       pushRegistration: selfhost === undefined,
       ...(threads && { threads: threads.service }),
       ...(env.FILES_ENABLED && files && { files: files.service }),
+      ...(e2e !== undefined && { e2eDevices: e2e.devices }),
       startCall,
       ...(liveCalls !== undefined && {
         resumeAnswer: (userId: string, callId: string) => liveCalls.unjoinedAnswer(userId, callId),
