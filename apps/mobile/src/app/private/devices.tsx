@@ -140,9 +140,13 @@ export default function PrivateDevicesScreen() {
   const openWaiting = async (row: Waiting) => {
     setBusy(true);
     try {
-      const out = await claimWaiting({ api: approveApi(), store: privateKeychain() }, row.id);
+      const deps = { api: approveApi(), store: privateKeychain() };
+      const out = await claimWaiting(deps, row.id);
       if (out.ok) setApproving({ claimed: out.claimed });
       else {
+        // An older app on the new phone would show a code this phone never shows: turn it down,
+        // so that phone says it was not approved instead of waiting until the request expires.
+        if (out.code === 'outdated') await denyWaiting(deps, row.id);
         playCallFeedback('error');
         // After the reload, which clears the error it finds none of its own.
         await load();

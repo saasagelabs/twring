@@ -353,7 +353,8 @@ export class PrivateChats {
       if (saved !== undefined) return saved;
       const delay = delays[attempt];
       if (delay === undefined || this.options.signal?.aborted === true) break;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      // Unref'd: a connector that is shutting down exits at once instead of waiting out a retry.
+      await new Promise((resolve) => setTimeout(resolve, delay).unref?.());
     }
     this.options.log?.(`private message ${frame.message_id} not answered (config busy)`);
     return undefined;

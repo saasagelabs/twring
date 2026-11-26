@@ -251,6 +251,8 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     await flush();
     expect(mocks.state[APPROVING]).toBeUndefined();
     expect(JSON.stringify(mocks.state)).toContain('Update Twring on the new phone');
+    // Turned down, so the older app stops showing a code no phone will match.
+    expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
   });
 });
 
