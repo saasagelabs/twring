@@ -50,6 +50,7 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 ## Guides
 
 - [Blog](https://twring.com/blog/): all guides
+- [How to call your AI agent from your phone](https://twring.com/blog/call-your-ai-agent-from-your-phone/): Call Claude Code, Codex or Hermes from your iPhone or Android phone, with no phone number. Setup in five steps, live calls versus rings, and the limits.
 - [Every way to reach your coding agent from your phone, compared](https://twring.com/blog/reach-your-coding-agent-from-your-phone/): Type, dictate, talk live or get rung: the ways to reach Claude Code, Codex and other coding agents from your phone as of November 2026, and which to pick.
 - [Make Claude Code ring your phone when it needs you](https://twring.com/blog/claude-code-call-me-when-done/): A Claude Code notification hook that rings your phone, full screen even when it's locked, when Claude Code needs permission or is waiting for you.
 - [Call your Hermes agent from your phone, and let its scheduled jobs ring you](https://twring.com/blog/hermes-agent-phone-call/): Install the Twring plugin in Hermes to talk to it in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.
