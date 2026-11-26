@@ -175,7 +175,7 @@
 <p><strong>Official push notifications.</strong> Remote Control in the Claude app can push a notification when a task finishes or needs a decision. For many people that is enough.</p>
 <p><strong>ntfy.</strong> A <a href="https://dev.to/felipeelias/perfect-claude-code-notifications-setup-with-tailscale-and-ntfy-1ii1">guide on dev.to</a> shows a Claude Code hook sending notifications to a self-hosted ntfy server, reached over Tailscale, with the ntfy app on your phone. It needs Docker and a Tailscale account. Good if you like running your own tools and only want a banner. On its paid ntfy.sh plans, ntfy can also phone a verified number and read a message aloud, one way.</p>
 <p><strong>call-me.</strong> <a href="https://github.com/ZeframLou/call-me">call-me</a> is an open source (MIT) Claude Code plugin that phones you through Telnyx or Twilio. It needs a carrier account and number, an OpenAI key for speech (or local speech) and ngrok. <a href="/alternatives/call-me-without-twilio/">More on call-me and similar plugins</a>.</p>
-<p><strong>agentring.</strong> <a href="https://github.com/mutonby/agentring">agentring</a> is an open source (Apache-2.0) Android app that your agent can ring over the internet, with no phone number or Twilio. A realtime speech model does the talking and passes the conversation to your agent. It's Android only for now, hosted for free or on your own server.</p>
+<p><strong>agentring.</strong> <a href="https://github.com/mutonby/agentring">agentring</a> is an open source (Apache-2.0) app for Android and iPhone that your agent can ring over the internet, with no phone number or Twilio. A realtime speech model does the talking and passes the conversation to your agent. It's hosted with a free plan, or on your own server. <a href="/vs/agentring/">Twring vs agentring</a>.</p>
 <p><strong>AgentComms.</strong> <a href="https://github.com/plexusone/agentcomms">AgentComms</a> is an open source (MIT) MCP plugin that lets Claude Code and other coding agents place real phone calls to you through Twilio, or message you on chat apps. You need a Twilio account and number, plus speech service keys and ngrok. Its page lists per-minute costs for the calls.</p>
 <p><strong>OpenClaw voice-call plugin.</strong> If you run OpenClaw, its <a href="https://docs.openclaw.ai/plugins/voice-call">voice-call plugin</a> places and receives real phone calls through Twilio, Telnyx or Plivo. That needs a carrier account, a number and a publicly reachable web address.</p>
 <p><strong>Twring.</strong> Your agent can ring your phone, full screen even when it is locked, when a job is done or needs your OK. You answer and you are straight into a live call with that agent. There is no phone number to buy and no telephony account to set up, because the ring goes to the Twring app over the internet, not over the phone network. It works on iPhone and Android.</p>
@@ -194,7 +194,7 @@
     <tr><td>VoiceMode</td><td>Talk at the desk</td><td>No (runs on the computer)</td><td>No</td><td>Python, audio tools, a speech service key or local models</td><td>Yes (MIT)</td></tr>
     <tr><td>ntfy (dev.to guide)</td><td>Notify</td><td>No</td><td>Push notifications; a one-way read-aloud call on paid plans</td><td>Docker, Tailscale, the ntfy app</td><td>Yes</td></tr>
     <tr><td>call-me</td><td>Claude Code phones you</td><td>Yes, over the phone network</td><td>Real phone calls</td><td>Telnyx or Twilio account and number, OpenAI key, ngrok</td><td>Yes (MIT)</td></tr>
-    <tr><td>agentring</td><td>Your agent rings an app</td><td>Yes, through a realtime speech model</td><td>A ring in its Android app</td><td>An Android phone; hosted or your own server</td><td>Yes (Apache-2.0)</td></tr>
+    <tr><td>agentring</td><td>Your agent rings an app</td><td>Yes, through a realtime speech model</td><td>A ring in its app</td><td>An Android phone or iPhone; hosted or your own server</td><td>Yes (Apache-2.0)</td></tr>
     <tr><td>AgentComms</td><td>Phone calls and chat messages</td><td>Yes, over the phone network</td><td>Real phone calls</td><td>Twilio account and number, speech keys, ngrok</td><td>Yes (MIT)</td></tr>
     <tr><td>OpenClaw voice-call</td><td>Phone calls for OpenClaw</td><td>Yes, over the phone network</td><td>Real phone calls</td><td>Twilio, Telnyx or Plivo account and number</td><td>See OpenClaw</td></tr>
     <tr><td>Twring</td><td>Talk live and get rung</td><td>Yes, over the internet, on iPhone and Android</td><td>Full-screen ring, even on a locked phone</td><td>An invite; your computer on and awake for local agents</td><td>Yes</td></tr>
@@ -208,7 +208,7 @@
   <li><strong>You want to speak instead of type, at the desk:</strong> Claude Code dictation, or VoiceMode for a spoken back-and-forth.</li>
   <li><strong>You use Codex on an iPhone with a paid ChatGPT plan, or Cursor's agents:</strong> try their own voice features first.</li>
   <li><strong>You already pay for Twilio or another carrier and want calls over the phone network:</strong> call-me, AgentComms, or the OpenClaw plugin if you run OpenClaw.</li>
-  <li><strong>You want an app to ring with no phone number, and you're on Android:</strong> agentring or Twring. On iPhone: Twring.</li>
+  <li><strong>You want an app to ring you, with no phone number:</strong> Twring or agentring.</li>
   <li><strong>You want a real conversation with the agent you already run, from anywhere, and a ring you will not miss:</strong> that is what Twring is for. See <a href="/blog/claude-code-call-me-when-done/">how to get a call when Claude Code is done</a>.</li>
 </ul>
 <p>These are not either-or. Plenty of people will use the official app for typing and Twring for talking.</p>
@@ -256,7 +256,7 @@
       <nav class="foot-links" aria-label="Footer">
         <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/blog/">Blog</a><a href="/#faq">FAQ</a></div>
         <div><b>Agents</b><span>Talk live</span><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><span>Rings and messages</span><a href="/connector/">Claude, ChatGPT and Grok Bot</a></div>
-        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
+        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
         <div><b>Contact</b><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a><a href="https://x.com/rishflips" rel="me">X: @rishflips</a></div>
         <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
       </nav>
