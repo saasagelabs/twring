@@ -48,9 +48,11 @@ vi.mock('expo-file-system', () => {
       const entry = fs.entries.get(this.path) as Entry | undefined;
       return entry === undefined || entry === 'folder' ? 0 : entry.bytes.length;
     }
+    // As in expo-file-system 57 on Android and iOS: a moved File points at its new place.
     move(to: File) {
       fs.entries.set(to.path, fs.entries.get(this.path));
       fs.entries.delete(this.path);
+      this.path = to.path;
     }
     write(bytes: Uint8Array) {
       fs.entries.set(this.path, { bytes });
@@ -106,6 +108,14 @@ describe('opening sealed files (ADR-045)', () => {
     const left = [...fs.entries.keys()].filter((key) => key.includes('fil_a'));
     expect(left).toHaveLength(1);
     expect((fs.entries.get(left[0]) as { bytes: Uint8Array }).bytes).toEqual(plain);
+  });
+
+  it('the uri it returns names a file that is still on disk', async () => {
+    const opened = await openSealedFile(agentId, entry('fil_kkkkkkkkkkkkkkkkkkkk'), ids, {
+      source,
+    });
+    if (!('uri' in opened)) throw new Error('did not open');
+    expect(fs.entries.has(opened.uri.replace('file://', ''))).toBe(true);
   });
 
   it('swapped blob shows couldnt_open', async () => {
