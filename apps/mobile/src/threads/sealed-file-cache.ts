@@ -110,8 +110,10 @@ async function openOnce(
     target.delete();
   }
   // Outside the folder, so a clear that runs meanwhile has nothing to recreate.
-  const temp = new File(Paths.cache, `sealed-${name}.download`);
-  const part = new File(folder, `${name}.part`);
+  const tempName = `sealed-${name}.download`;
+  const partName = `${name}.part`;
+  const temp = new File(Paths.cache, tempName);
+  const part = new File(folder, partName);
   try {
     const deps = given ?? (await defaultDeps());
     const source = await deps.source(agentId, file.file_id);
@@ -128,7 +130,9 @@ async function openOnce(
     await part.move(target);
     return { uri: target.uri };
   } finally {
-    for (const leftover of [temp, part]) {
+    // Named again, not `temp` and `part`: a moved File points at its new place, so after the
+    // move `part` is the cached copy itself and deleting it would empty the cache.
+    for (const leftover of [new File(Paths.cache, tempName), new File(folder, partName)]) {
       try {
         if (leftover.exists) leftover.delete();
       } catch {
