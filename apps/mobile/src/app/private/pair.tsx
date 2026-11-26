@@ -24,6 +24,8 @@ import {
   type ShownApprover,
 } from '@/e2e/approve';
 import { loadDeviceKey } from '@/e2e/device-key';
+import { listDevices } from '@/e2e/devices';
+import { otherPhones } from '@/e2e/other-phones';
 import { approveApi, pairApi, recoveryApi } from '@/e2e/pair-api';
 import {
   claimPairing,
@@ -34,9 +36,10 @@ import {
 } from '@/e2e/pairing';
 import type { PairFailure, PairInput, TrustedDevice } from '@/e2e/pairing';
 import { RECOVERY_COPY, restoreOffer } from '@/e2e/recovery';
+import { shareHistory } from '@/e2e/share-history';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
-import { privateKeychain, resetPrivateChats } from '@/threads/chats';
+import { chatController, privateKeychain, resetPrivateChats } from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -107,7 +110,7 @@ function spoken(code: string): string {
  */
 export default function PrivatePairScreen() {
   const palette = usePalette();
-  const params = useLocalSearchParams<{ agentId?: string }>();
+  const params = useLocalSearchParams<{ agentId?: string; approve?: string }>();
   const agentId = typeof params.agentId === 'string' && params.agentId ? params.agentId : undefined;
   const [step, setStep] = useState<Step>({ kind: 'start' });
   const [busy, setBusy] = useState(false);
@@ -119,23 +122,8 @@ export default function PrivatePairScreen() {
   const typedInput = parseTypedPairCode(typed);
   // A phone with no key whose account has a recovery backup can restore instead (C3 #11).
   const [backup, setBackup] = useState<'found' | 'removed' | undefined>();
-
-  useEffect(() => {
-    let live = true;
-    const api = twringApi();
-    // The device list tells a key this phone just made (opening a chat) from one in use.
-    const devices =
-      api?.privateDevices === undefined ? {} : { devices: { list: () => api.privateDevices!() } };
-    restoreOffer({ api: recoveryApi(), store: privateKeychain(), ...devices }).then(
-      (offer) => {
-        if (live && (offer.kind === 'found' || offer.kind === 'removed')) setBackup(offer.kind);
-      },
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, []);
+  // Other phones on this account: one of them can approve this phone (ADR-045).
+  const [others, setOthers] = useState<{ id: string; name: string }[]>([]);
 
   const fail = (message: string, retry: 'scan' | 'type' | 'approve' = 'scan') => {
     playCallFeedback('error');
@@ -159,6 +147,48 @@ export default function PrivatePairScreen() {
       setBusy(false);
     }
   };
+
+  // Opened from the Devices screen ("Connect with ..."): start asking at once.
+  const autoApprove = params.approve === '1';
+  useEffect(() => {
+    let live = true;
+    const api = twringApi();
+    // One list read serves both the recovery offer and the other-phone check.
+    let listed: Promise<unknown> | undefined;
+    const rawList = () => (listed ??= api!.privateDevices!());
+    // The device list tells a key this phone just made (opening a chat) from one in use.
+    const devices = api?.privateDevices === undefined ? {} : { devices: { list: rawList } };
+    restoreOffer({ api: recoveryApi(), store: privateKeychain(), ...devices }).then(
+      (offer) => {
+        if (live && (offer.kind === 'found' || offer.kind === 'removed')) setBackup(offer.kind);
+      },
+      () => undefined,
+    );
+    if (api?.privateDevices !== undefined)
+      loadDeviceKey(privateKeychain())
+        .then(async (me) => {
+          const phones = await otherPhones(() => listDevices({ list: rawList }), me?.deviceId);
+          // A phone this phone is already connected with has nothing to approve; the same rule
+          // as Devices. A trusted list that cannot be read keeps every phone listed.
+          const trusted = await loadTrusted(privateKeychain()).then(
+            (list) => new Set(list.map((t) => t.id)),
+            () => undefined,
+          );
+          return trusted === undefined ? phones : phones.filter((p) => !trusted.has(p.id));
+        })
+        .then(
+          (phones) => {
+            if (live) setOthers(phones);
+          },
+          // A list that will not load leaves today's layout.
+          () => undefined,
+        );
+    if (autoApprove) void Promise.resolve().then(() => (live ? startApprove() : undefined));
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const approveId = step.kind === 'approve' ? step.id : undefined;
   const approveShown = step.kind === 'approve' ? step.shown : undefined;
@@ -184,6 +214,10 @@ export default function PrivatePairScreen() {
         if (!live) return;
         if (done) {
           resetPrivateChats();
+          // Shares this phone's earlier messages with the approver, in the background.
+          const api = twringApi();
+          if (api !== undefined)
+            void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
           playCallFeedback('connected');
           setStep({ kind: 'approved' });
         } else fail(APPROVE_FAILURE_COPY.refused, 'approve');
@@ -443,13 +477,34 @@ export default function PrivatePairScreen() {
       footer={
         step.kind === 'start' ? (
           <View style={styles.actions}>
-            <PrimaryButton
-              label="Scan the code on your computer"
-              accessibilityHint="Opens the camera"
-              onPress={() => setStep({ kind: 'scan' })}
-            />
+            {others.length > 0 && (
+              <PrimaryButton
+                label={APPROVE_PATH}
+                disabled={busy}
+                onPress={() => void startApprove()}
+              />
+            )}
+            {others.length > 0 ? (
+              <GhostButton
+                label="Scan the code on your computer"
+                accessibilityHint="Opens the camera"
+                onPress={() => setStep({ kind: 'scan' })}
+              />
+            ) : (
+              <PrimaryButton
+                label="Scan the code on your computer"
+                accessibilityHint="Opens the camera"
+                onPress={() => setStep({ kind: 'scan' })}
+              />
+            )}
             <GhostButton label="Type the code instead" onPress={() => setStep({ kind: 'type' })} />
-            <GhostButton label={APPROVE_PATH} disabled={busy} onPress={() => void startApprove()} />
+            {others.length === 0 && (
+              <GhostButton
+                label={APPROVE_PATH}
+                disabled={busy}
+                onPress={() => void startApprove()}
+              />
+            )}
             {backup === 'found' && (
               <GhostButton
                 label="Use my recovery key"
@@ -467,6 +522,10 @@ export default function PrivatePairScreen() {
     >
       <View style={styles.step}>
         {heading('Pair with your computer')}
+        {others.length > 0 &&
+          support(
+            `You already have private chats on ${others.length === 1 ? others[0].name : 'your other phone'}. Approve this phone from there, so both phones can read the same chats.`,
+          )}
         {support(HELP)}
         {backup === 'removed' && support(RECOVERY_COPY.removed)}
         {notice !== undefined && <ErrorNotice error={{ message: notice, retryable: true }} />}

@@ -164,7 +164,6 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
       body: { device_id: idOf(8), public_key: key(9), name: 'x' },
     });
     expect(bad.statusCode).toBe(400);
-    expect((await request(g, 'u1', 1)).json().error.code).toBe('already_added');
     const first = (await request(g, 'u1', 9)).json().id as string;
     // A new request from the same phone replaces its open one.
     const again = (await request(g, 'u1', 9)).json().id as string;
@@ -175,6 +174,74 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     await claim(g, again, 1);
     expect((await claim(g, again, 2)).json().error.code).toBe('approval_closed');
     expect((await accept(g, again, 2)).json().error.code).toBe('approval_closed');
+  });
+
+  it('an active phone with another active phone can ask to be approved', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const res = await request(g, 'u1', 1);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().id).toMatch(/^pap_[a-z2-7]{20}$/);
+  });
+
+  it('the only active phone still gets already_added', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    g.e2e.add('u1', { id: idOf(3), kind: 'computer', name: 'PC', public_key: key(3) });
+    const res = await request(g, 'u1', 1);
+    expect(res.statusCode).toBe(409);
+    expect(res.json().error.code).toBe('already_added');
+  });
+
+  it('an active id with another key gets already_added', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const res = await g.send('POST', '/v1/e2e/approvals', {
+      user: 'u1',
+      body: { device_id: idOf(1), public_key: key(7), name: 'x' },
+    });
+    expect(res.statusCode).toBe(400);
+    // The id must match the key, so a swapped key is refused before the store; the store too:
+    expect(() =>
+      g.e2e.requestApproval(
+        'u1',
+        { device_id: idOf(1), public_key: key(7), name: 'x' },
+        new Date(Date.now() + 60_000),
+      ),
+    ).toThrow(expect.objectContaining({ code: 'already_added' }));
+  });
+
+  it('an active requester does not count against the device cap', async () => {
+    const g = await start();
+    for (const n of [1, 2, 3, 4, 5]) addPhone(g, 'u1', n);
+    const res = await request(g, 'u1', 1);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it('accept writes the note on the existing row', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const id = (await request(g, 'u1', 2)).json().id as string;
+    expect((await claim(g, id, 1)).statusCode).toBe(200);
+    expect((await accept(g, id, 1)).statusCode).toBe(200);
+    const withNotes = (
+      await g.send('GET', '/v1/e2e/devices?notes=1', { user: 'u1' })
+    ).json<Devices>();
+    expect(withNotes.devices.find((d) => d.id === idOf(2))?.trust_note).toEqual(note(id, 1));
+    const plain = (await g.send('GET', '/v1/e2e/devices', { user: 'u1' })).json<Devices>();
+    expect(JSON.stringify(plain)).not.toContain('trust_note');
+  });
+
+  it('a phone cannot claim its own request', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const id = (await request(g, 'u1', 2)).json().id as string;
+    expect((await claim(g, id, 2)).statusCode).toBe(404);
+    expect((await claim(g, id, 1)).statusCode).toBe(200);
   });
 
   it('denies, and the new phone sees it; another phone cannot read its status', async () => {

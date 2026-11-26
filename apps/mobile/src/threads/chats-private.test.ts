@@ -494,6 +494,20 @@ describe('private chats in the chat data layer', () => {
     expect(JSON.stringify(t.drafts.value ?? '')).not.toContain('sk-123');
   });
 
+  it('keeps the share job when the chat list has not loaded', async () => {
+    const t = await setup();
+    // Loaded: the private chats are named.
+    expect(t.controller.loadedPrivateAgentIds()).toEqual([privateAgent]);
+    const api = {
+      ...t.api,
+      listThreads: vi.fn().mockRejectedValue(new ApiError('network', 'agent_offline')),
+    };
+    const fresh = new ChatController(api as unknown as TwringApi, undefined, {});
+    await fresh.refreshList();
+    // Never loaded: not an empty list, so no share run may finish a job on it.
+    expect(fresh.loadedPrivateAgentIds()).toBeUndefined();
+  });
+
   it('opens the whole chat for export without moving the replay window', async () => {
     const t = await setup();
     const listed = (await t.api.listMessages()) as { messages: ThreadMessage[] };

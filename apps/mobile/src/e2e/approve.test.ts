@@ -20,6 +20,7 @@ import {
 import { loadOrCreateDeviceKey, type DeviceKey } from './device-key';
 import { syncTrusted } from './devices';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
+import { hasRewrapWork, REWRAP_JOBS_KEY } from './rewrap';
 import { memoryStore } from './test-fixtures';
 
 const APPROVAL = `pap_${'k'.repeat(20)}`;
@@ -115,6 +116,28 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     expect(mine.map((d) => d.id).sort()).toEqual([env.t.deviceId, env.computer.id].sort());
     expect(mine.find((d) => d.id === env.computer.id)?.connector_id).toBe(CON);
     expect(mine.some((d) => d.id === env.n.deviceId)).toBe(false);
+  });
+
+  it('finishApproval queues sharing for the approver', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    const approver = {
+      id: env.t.deviceId,
+      name: 'My Pixel',
+      public_key: base64urlEncode(env.t.publicKey),
+    };
+    const shown = shownApprover(approvalFor(env.n, { state: 'claimed', approver }), env.n)!;
+    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    expect(await hasRewrapWork(env.nStore)).toBe(false);
+    const accepted = approvalFor(env.n, { state: 'accepted', approver, trust_note: env.sent() });
+    expect(await finishApproval({ store: env.nStore, now: () => NOW }, accepted, shown)).toBe(true);
+    expect(await hasRewrapWork(env.nStore)).toBe(true);
+    const job = JSON.parse((await env.nStore.getItemAsync(REWRAP_JOBS_KEY)) ?? '[]') as {
+      for: string;
+    }[];
+    expect(job.map((j) => j.for)).toEqual([env.t.deviceId]);
   });
 
   it('N refuses a note from a device other than the one whose code it showed', async () => {

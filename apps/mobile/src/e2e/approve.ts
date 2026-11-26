@@ -255,6 +255,10 @@ export async function finishApproval(
   const current = await loadTrusted(deps.store);
   const merged = [...current.filter((d) => !learned.some((l) => l.id === d.id)), ...learned];
   await saveTrusted(deps.store, merged);
+  // Earlier private messages this phone sent: shared with the approver next (`rewrap.ts`).
+  await queueRewrap(deps.store, { id: shown.id, public_key: shown.public_key }).catch(() =>
+    deps.log?.('e2e_rewrap_queue_failed', { approval_id: approval.id }),
+  );
   deps.log?.('e2e_phone_approval_done', { approval_id: approval.id, trusted: learned.length });
   return true;
 }

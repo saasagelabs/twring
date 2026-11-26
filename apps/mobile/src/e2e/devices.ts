@@ -63,6 +63,8 @@ export interface DeviceRow {
   name: string;
   kind: 'Phone' | 'Computer';
   thisPhone: boolean;
+  /** False for a phone this phone has not approved (it cannot read that phone's private chats). */
+  connected: boolean;
   /** The added date, for display (`YYYY-MM-DD`). */
   added: string;
 }
@@ -77,7 +79,11 @@ export interface DevicesState {
 }
 
 /** What the devices screen shows: active devices only, this phone marked. */
-export function devicesStateFrom(devices: readonly E2eDevice[], selfId?: string): DevicesState {
+export function devicesStateFrom(
+  devices: readonly E2eDevice[],
+  selfId?: string,
+  trustedIds?: ReadonlySet<string>,
+): DevicesState {
   const active = devices.filter((d) => d.revoked_at === undefined);
   const canAdd = active.length < MAX_PAIRED_DEVICES;
   return {
@@ -86,6 +92,11 @@ export function devicesStateFrom(devices: readonly E2eDevice[], selfId?: string)
       name: d.name,
       kind: d.kind === 'phone' ? 'Phone' : 'Computer',
       thisPhone: d.id === selfId,
+      connected:
+        trustedIds === undefined ||
+        d.id === selfId ||
+        d.kind === 'computer' ||
+        trustedIds.has(d.id),
       added: d.added_at.slice(0, 10),
     })),
     count: `${active.length} of ${MAX_PAIRED_DEVICES} devices`,

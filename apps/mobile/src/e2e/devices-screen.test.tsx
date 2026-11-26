@@ -109,6 +109,7 @@ const ERROR = 1;
 const REMOVING = 2;
 const WAITING = 5;
 const APPROVING = 6;
+const CONNECTING = 7;
 
 beforeEach(() => {
   mocks.state = [];
@@ -225,5 +226,53 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (deny.props.onPress as () => void)();
     await flush();
     expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+  });
+});
+
+describe('phones this phone has not approved (P5b)', () => {
+  const me = dev(0, 'phone', 'Pixel');
+  const other = dev(1, 'phone', 'iPhone');
+  const setup = () => {
+    mocks.state[STATE] = devicesStateFrom([me, other], me.id, new Set([me.id]));
+  };
+
+  it('shows the value and offers to connect, in plain words', () => {
+    setup();
+    const all = render();
+    const row = all.find((e) => e.type === 'SettingsRow' && e.props.label === 'iPhone')!;
+    expect(row.props.value).toBe('Phone, not connected to this phone');
+    (row.props.onPress as () => void)();
+    expect(mocks.state[CONNECTING]).toMatchObject({ name: 'iPhone' });
+    const opened = render();
+    expect(opened.filter((e) => e.type === 'Sheet')[2]?.props).toMatchObject({
+      visible: true,
+      title: 'Connect with iPhone?',
+    });
+    expect(texts(opened)).toContain(
+      'So both phones can read the same private chats. Tap Start, then open Twring on iPhone and approve this phone in Devices.',
+    );
+    expect(opened.filter((e) => e.type === 'GhostButton').map((e) => e.props.label)).toEqual([
+      'Start',
+      'Remove iPhone',
+      'Cancel',
+    ]);
+  });
+
+  it('Start goes to the pair screen in approve mode', () => {
+    setup();
+    mocks.state[CONNECTING] = { ...other, thisPhone: false, kind: 'Phone', added: 'x' };
+    const start = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Start')!;
+    (start.props.onPress as () => void)();
+    expect(mocks.push).toHaveBeenCalledWith('/private/pair?approve=1');
+    expect(mocks.state[CONNECTING]).toBeUndefined();
+  });
+
+  it('Remove still works from the sheet', () => {
+    setup();
+    mocks.state[CONNECTING] = { ...other, thisPhone: false, kind: 'Phone', added: 'x' };
+    const rm = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Remove iPhone')!;
+    (rm.props.onPress as () => void)();
+    expect(mocks.state[CONNECTING]).toBeUndefined();
+    expect(mocks.state[REMOVING]).toMatchObject({ name: 'iPhone' });
   });
 });
