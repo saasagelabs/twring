@@ -1,4 +1,6 @@
 import {
+  approvalCode,
+  approvalCommitment,
   base64urlEncode,
   deviceIdFor,
   generateSealKeyPair,
@@ -9,13 +11,17 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   approveWaiting,
+  checkReveal,
   claimWaiting,
   approverUpdate,
   finishApproval,
+  loadApprovalSecret,
   pollApproval,
   requestApproval,
+  revealApproval,
   shownApprover,
   type ApproveApi,
+  type CheckedApproval,
 } from './approve';
 import { loadOrCreateDeviceKey, type DeviceKey } from './device-key';
 import { syncTrusted } from './devices';
@@ -60,6 +66,7 @@ function approvalFor(n: DeviceKey, extra: Partial<PhoneApproval> = {}): PhoneApp
   };
 }
 
+/** A fake server holding one approval, answering each call the way the gateway does. */
 async function setup() {
   const tStore = memoryStore();
   const nStore = memoryStore();
@@ -68,45 +75,91 @@ async function setup() {
   const computer = other();
   await saveTrusted(tStore, [trustedEntry(computer, 'computer', CON)]);
   let sent: TrustNote | undefined;
+  let row = approvalFor(n);
+  const calls: string[] = [];
+  const ok = () => Promise.resolve({ status: 200, body: row });
+  const approver = { id: t.deviceId, name: 'My Pixel', public_key: base64urlEncode(t.publicKey) };
   const api: ApproveApi = {
-    request: () => Promise.resolve({ status: 200, body: approvalFor(n) }),
-    status: () => Promise.resolve({ status: 200, body: approvalFor(n) }),
-    list: () => Promise.resolve({ status: 200, body: { approvals: [approvalFor(n)] } }),
-    claim: () =>
-      Promise.resolve({
-        status: 200,
-        body: approvalFor(n, {
-          state: 'claimed',
-          approver: { id: t.deviceId, name: 'My Pixel', public_key: base64urlEncode(t.publicKey) },
-        }),
-      }),
+    request: (body) => {
+      calls.push('request');
+      row = approvalFor(n, { commitment: body.commitment });
+      return ok();
+    },
+    status: () => ok(),
+    list: () => Promise.resolve({ status: 200, body: { approvals: [row] } }),
+    claim: () => {
+      calls.push('claim');
+      row = { ...row, state: 'claimed', approver };
+      return ok();
+    },
+    nonce: (_id, _device, nonce) => {
+      calls.push('nonce');
+      row = { ...row, approver_nonce: nonce };
+      return ok();
+    },
+    reveal: (_id, _device, reveal) => {
+      calls.push('reveal');
+      row = { ...row, reveal };
+      return ok();
+    },
     accept: (_id, _device, note) => {
       sent = note;
-      return Promise.resolve({ status: 200, body: approvalFor(n, { state: 'accepted' }) });
+      row = { ...row, state: 'accepted', trust_note: note };
+      return ok();
     },
     deny: () => Promise.resolve({ status: 204, body: undefined }),
   };
-  return { tStore, nStore, t, n, computer, api, sent: () => sent! };
+  return {
+    tStore,
+    nStore,
+    t,
+    n,
+    computer,
+    api,
+    approver,
+    calls,
+    row: () => row,
+    setRow: (next: PhoneApproval) => {
+      row = next;
+    },
+    sent: () => sent!,
+  };
+}
+type Env = Awaited<ReturnType<typeof setup>>;
+
+/** Runs both phones to the codes they show: N's shown approver and A's checked approval. */
+async function toCodes(env: Env) {
+  const asked = await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+  if (!asked.ok) throw new Error('request failed');
+  const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+  if (!claimed.ok) throw new Error('claim failed');
+  expect(await checkReveal({ api: env.api, store: env.tStore }, claimed.claimed)).toEqual({
+    ok: true,
+    waiting: true,
+  });
+  const secret = (await loadApprovalSecret(env.nStore, APPROVAL))!;
+  const shown = shownApprover(env.row(), env.n, secret)!;
+  expect(await revealApproval({ api: env.api, store: env.nStore }, env.row())).toEqual({
+    ok: true,
+  });
+  const checked = await checkReveal({ api: env.api, store: env.tStore }, claimed.claimed);
+  if (!checked.ok || !('checked' in checked)) throw new Error('no code');
+  return { shown, checked: checked.checked, claimed: claimed.claimed };
 }
 
 describe('approving a second phone (C3 #11, Task 27)', () => {
   it('both phones show the same code, and N trusts the approver and what it knows', async () => {
     const env = await setup();
-    const asked = await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
-    expect(asked.ok).toBe(true);
-    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
-    if (!claimed.ok) throw new Error('claim failed');
-    const approver = {
-      id: env.t.deviceId,
-      name: 'My Pixel',
-      public_key: base64urlEncode(env.t.publicKey),
-    };
-    const shown = shownApprover(approvalFor(env.n, { state: 'claimed', approver }), env.n)!;
-    expect(shown.code).toBe(claimed.claimed.code);
+    const approver = env.approver;
+    const { shown, checked } = await toCodes(env);
+    expect(shown.code).toMatch(/^\d{3} \d{3}$/);
+    expect(shown.code).toBe(checked.code);
+    // A sent its nonce only after it held N's commitment; N revealed only after the nonce.
+    expect(env.calls).toEqual(['request', 'claim', 'nonce', 'reveal']);
 
-    expect(
-      await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval),
-    ).toEqual({ ok: true });
+    expect(await approveWaiting({ api: env.api, store: env.tStore }, checked)).toEqual({
+      ok: true,
+    });
     // The approving phone trusts the new phone too.
     expect((await loadTrusted(env.tStore)).map((d) => d.id)).toContain(env.n.deviceId);
 
@@ -116,20 +169,15 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     expect(mine.map((d) => d.id).sort()).toEqual([env.t.deviceId, env.computer.id].sort());
     expect(mine.find((d) => d.id === env.computer.id)?.connector_id).toBe(CON);
     expect(mine.some((d) => d.id === env.n.deviceId)).toBe(false);
+    // Both secrets are gone once the approval ends.
+    expect(await loadApprovalSecret(env.nStore, APPROVAL)).toBeUndefined();
   });
 
   it('finishApproval queues sharing for the approver', async () => {
     const env = await setup();
-    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
-    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
-    if (!claimed.ok) throw new Error('claim failed');
-    const approver = {
-      id: env.t.deviceId,
-      name: 'My Pixel',
-      public_key: base64urlEncode(env.t.publicKey),
-    };
-    const shown = shownApprover(approvalFor(env.n, { state: 'claimed', approver }), env.n)!;
-    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    const approver = env.approver;
+    const { shown, checked } = await toCodes(env);
+    await approveWaiting({ api: env.api, store: env.tStore }, checked);
     expect(await hasRewrapWork(env.nStore)).toBe(false);
     const accepted = approvalFor(env.n, { state: 'accepted', approver, trust_note: env.sent() });
     expect(await finishApproval({ store: env.nStore, now: () => NOW }, accepted, shown)).toBe(true);
@@ -142,9 +190,8 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
 
   it('N refuses a note from a device other than the one whose code it showed', async () => {
     const env = await setup();
-    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
-    if (!claimed.ok) throw new Error('claim failed');
-    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    const { checked } = await toCodes(env);
+    await approveWaiting({ api: env.api, store: env.tStore }, checked);
     const someoneElse = other();
     const shown = {
       id: someoneElse.id,
@@ -161,31 +208,67 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     expect(await loadTrusted(env.nStore)).toEqual([]);
   });
 
-  it('a key swapped by the server gives different codes on the two screens', async () => {
+  it('a substituted key with its own commitment gives different codes for fixed nonces', () => {
+    // The server swaps N's key for Fn and commits to Fn itself. N's code covers Pn, A's covers Fn,
+    // and the server had to fix Fn (and its secret) before it saw A's nonce, so it cannot grind.
+    const pn = generateSealKeyPair().publicKey;
+    const pa = generateSealKeyPair().publicKey;
+    const fn = generateSealKeyPair().publicKey;
+    const rn = new Uint8Array(32).fill(1);
+    const rf = new Uint8Array(32).fill(2);
+    const ra = new Uint8Array(32).fill(3);
+    expect(approvalCommitment(fn, rf)).not.toEqual(approvalCommitment(pn, rn));
+    expect(approvalCode(fn, pa, rf, ra)).not.toBe(approvalCode(pn, pa, rn, ra));
+    expect(approvalCode(fn, pa, rn, ra)).not.toBe(approvalCode(pn, pa, rn, ra));
+  });
+
+  it('A refuses a request without a commitment and never sends a nonce for it', async () => {
     const env = await setup();
+    env.setRow(approvalFor(env.n));
+    const out = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    expect(out).toEqual({ ok: false, code: 'outdated' });
+    expect(env.calls).toEqual(['claim']);
+  });
+
+  it('A refuses a reveal that does not open the commitment', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    env.setRow({ ...env.row(), reveal: base64urlEncode(new Uint8Array(32).fill(9)) });
+    expect(await checkReveal({ api: env.api, store: env.tStore }, claimed.claimed)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    const forged: CheckedApproval = {
+      approval: { ...claimed.claimed.approval, reveal: env.row().reveal },
+      code: '000 000',
+    };
+    expect(await approveWaiting({ api: env.api, store: env.tStore }, forged)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+  });
+
+  it('A stops when the key, commitment or its nonce changes before the reveal', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
     const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
     if (!claimed.ok) throw new Error('claim failed');
     const swapped = other();
-    const shown = shownApprover(
-      approvalFor(env.n, {
-        state: 'claimed',
-        approver: { id: swapped.id, name: 'My Pixel', public_key: swapped.key },
-      }),
-      env.n,
-    )!;
-    expect(shown.code).not.toBe(claimed.claimed.code);
-    // And a claim answer naming another new-phone key gives the approver a different code.
-    const mitm = other();
-    const api = {
-      claim: () =>
-        Promise.resolve({
-          status: 200,
-          body: approvalFor(env.n, { device_id: mitm.id, public_key: mitm.key, state: 'claimed' }),
-        }),
-    };
-    const theirs = await claimWaiting({ api, store: env.tStore }, APPROVAL);
-    if (!theirs.ok) throw new Error('claim failed');
-    expect(theirs.claimed.code).not.toBe(shown.code);
+    const base = env.row();
+    const fake = new Uint8Array(32).fill(4);
+    for (const next of [
+      { ...base, device_id: swapped.id, public_key: swapped.key },
+      { ...base, commitment: base64urlEncode(approvalCommitment(swapped.publicKey, fake)) },
+      { ...base, approver_nonce: base64urlEncode(fake) },
+    ]) {
+      env.setRow(next);
+      expect(await checkReveal({ api: env.api, store: env.tStore }, claimed.claimed)).toEqual({
+        ok: false,
+        code: 'mismatch',
+      });
+    }
   });
 
   it('another trusted phone trusts the new phone from the note on the server list', async () => {
@@ -194,9 +277,8 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     const p = await loadOrCreateDeviceKey(pStore);
     await saveTrusted(env.tStore, [trustedEntry(keyOf(p), 'phone')]);
     await saveTrusted(pStore, [trustedEntry(keyOf(env.t), 'phone')]);
-    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
-    if (!claimed.ok) throw new Error('claim failed');
-    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    const { checked } = await toCodes(env);
+    await approveWaiting({ api: env.api, store: env.tStore }, checked);
     const row = {
       id: env.n.deviceId,
       kind: 'phone' as const,
@@ -247,12 +329,122 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     }
   });
 
-  it('a claim whose approver changes after a code was shown is refused, not shown', () => {
-    const a = { id: 'a', name: 'A', public_key: 'ka', code: '111111' };
+  it('a claim whose approver, key or nonce changes after a code was shown is refused', () => {
+    const a = { id: 'a', name: 'A', public_key: 'ka', nonce: 'na', code: '111111' };
     expect(approverUpdate(undefined, a)).toBe('show');
     expect(approverUpdate(a, { ...a })).toBe('same');
     expect(approverUpdate(a, { ...a, public_key: 'kb' })).toBe('changed');
     expect(approverUpdate(a, { ...a, id: 'b' })).toBe('changed');
+    expect(approverUpdate(a, { ...a, nonce: 'nb' })).toBe('changed');
+  });
+
+  it('N shows no code before the nonce, and refuses a reveal that is not its own', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const secret = (await loadApprovalSecret(env.nStore, APPROVAL))!;
+    const claimedRow = { ...env.row(), state: 'claimed' as const, approver: env.approver };
+    expect(shownApprover(claimedRow, env.n, secret)).toBeUndefined();
+    const withNonce = { ...claimedRow, approver_nonce: base64urlEncode(new Uint8Array(32)) };
+    const alreadyRevealed = { ...withNonce, reveal: base64urlEncode(new Uint8Array(32).fill(5)) };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, alreadyRevealed)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+  });
+
+  it('N refuses a new approver nonce after its reveal answer was dropped', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    const first = env.row();
+    // The server stores the reveal but the phone sees a network error.
+    const dropping: ApproveApi = {
+      ...env.api,
+      reveal: async (id, device, reveal) => {
+        await env.api.reveal(id, device, reveal);
+        throw new Error('dropped');
+      },
+    };
+    expect(await revealApproval({ api: dropping, store: env.nStore }, first)).toEqual({
+      ok: false,
+      code: 'network',
+    });
+    const regrind = { ...env.row(), approver_nonce: base64urlEncode(new Uint8Array(32).fill(7)) };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, regrind)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    const evil = other();
+    const swapped = { ...env.row(), approver: { id: evil.id, name: 'X', public_key: evil.key } };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, swapped)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    // The same approver and nonce it revealed against still show (a restart, no shown step).
+    expect(await revealApproval({ api: env.api, store: env.nStore }, env.row())).toEqual({
+      ok: true,
+    });
+  });
+
+  it('N refuses an already revealed approval it never revealed against', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const secret = (await loadApprovalSecret(env.nStore, APPROVAL))!;
+    const row = {
+      ...env.row(),
+      state: 'claimed' as const,
+      approver: env.approver,
+      approver_nonce: base64urlEncode(new Uint8Array(32).fill(2)),
+      reveal: base64urlEncode(secret),
+    };
+    expect(await revealApproval({ api: env.api, store: env.nStore }, row)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+  });
+
+  it('A re-claiming with its kept nonce refuses a different key or commitment', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    if (!claimed.ok) throw new Error('claim failed');
+    const base = env.row();
+    const swapped = other();
+    const fake = new Uint8Array(32).fill(4);
+    for (const next of [
+      {
+        ...base,
+        device_id: swapped.id,
+        public_key: swapped.key,
+        commitment: base64urlEncode(approvalCommitment(swapped.publicKey, fake)),
+      },
+      { ...base, commitment: base64urlEncode(approvalCommitment(env.n.publicKey, fake)) },
+    ]) {
+      env.setRow(next);
+      expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+        ok: false,
+        code: 'mismatch',
+      });
+    }
+    env.setRow(base);
+    const again = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
+    expect(again.ok && again.claimed.nonce).toBe(claimed.claimed.nonce);
+  });
+
+  it('A refuses a claim that already has a nonce it did not keep', async () => {
+    const env = await setup();
+    await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' });
+    env.setRow({
+      ...env.row(),
+      state: 'claimed',
+      approver: env.approver,
+      approver_nonce: base64urlEncode(new Uint8Array(32).fill(3)),
+    });
+    expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
   });
 
   it('a removed phone listed active again with its old note is not trusted again', async () => {
@@ -261,9 +453,8 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     const p = await loadOrCreateDeviceKey(pStore);
     await saveTrusted(env.tStore, [trustedEntry(keyOf(p), 'phone')]);
     await saveTrusted(pStore, [trustedEntry(keyOf(env.t), 'phone')]);
-    const claimed = await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL);
-    if (!claimed.ok) throw new Error('claim failed');
-    await approveWaiting({ api: env.api, store: env.tStore }, claimed.claimed.approval);
+    const { checked } = await toCodes(env);
+    await approveWaiting({ api: env.api, store: env.tStore }, checked);
     const row = {
       id: env.n.deviceId,
       kind: 'phone' as const,

@@ -77,6 +77,9 @@ type ApprovalRow = {
   approver_name: string | null;
   approver_key: string | null;
   note: string | null;
+  commitment?: string | null;
+  approver_nonce?: string | null;
+  reveal?: string | null;
 };
 
 /** Open phone approvals (pending or claimed) an account may hold at once (C3 #11 P4b ruling 1). */
@@ -157,6 +160,13 @@ export class E2eDeviceStore {
         approver_key TEXT, note TEXT);
       CREATE INDEX IF NOT EXISTS e2e_phone_approvals_user ON e2e_phone_approvals(user_id, state);
     `);
+    // ADR-046 commit, then reveal: nullable, so rows from older apps read as having none.
+    const approvalColumns = this.db.prepare('PRAGMA table_info(e2e_phone_approvals)').all() as {
+      name: string;
+    }[];
+    for (const column of ['commitment', 'approver_nonce', 'reveal'])
+      if (!approvalColumns.some((c) => c.name === column))
+        this.db.exec(`ALTER TABLE e2e_phone_approvals ADD COLUMN ${column} TEXT`);
   }
 
   private transaction<T>(run: () => T): T {
@@ -431,6 +441,9 @@ export class E2eDeviceStore {
         row.approver_key !== null && {
           approver: { id: row.approver_id, name: row.approver_name, public_key: row.approver_key },
         }),
+      ...(typeof row.commitment === 'string' && { commitment: row.commitment }),
+      ...(typeof row.approver_nonce === 'string' && { approver_nonce: row.approver_nonce }),
+      ...(typeof row.reveal === 'string' && { reveal: row.reveal }),
       ...(row.note !== null && { trust_note: trustNoteSchema.parse(JSON.parse(row.note)) }),
     };
   }
@@ -477,7 +490,7 @@ export class E2eDeviceStore {
       if (open.n >= MAX_OPEN_APPROVALS) throw new E2eDeviceError('approval_cap');
       this.db
         .prepare(
-          "INSERT INTO e2e_phone_approvals(id,user_id,device_id,public_key,name,state,created_at,expires_at) VALUES(?,?,?,?,?,'pending',?,?)",
+          "INSERT INTO e2e_phone_approvals(id,user_id,device_id,public_key,name,state,created_at,expires_at,commitment) VALUES(?,?,?,?,?,'pending',?,?,?)",
         )
         .run(
           id,
@@ -487,6 +500,7 @@ export class E2eDeviceStore {
           request.name,
           now,
           expiresAt.toISOString(),
+          request.commitment ?? null,
         );
     });
     return this.approval(userId, id)!;
@@ -526,6 +540,32 @@ export class E2eDeviceStore {
         this.now().toISOString(),
         approver.id,
       );
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * The approving phone that claimed the approval sets its nonce (ADR-046): once, only while the
+   * approval is claimed by it, open, and carries the new phone's commitment.
+   */
+  setApproverNonce(userId: string, id: string, approverId: string, nonce: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET approver_nonce=? WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND commitment IS NOT NULL AND approver_nonce IS NULL AND expires_at>?",
+      )
+      .run(nonce, id, userId, approverId, this.now().toISOString());
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * The new phone reveals its secret (ADR-046): once, only after the approver's nonce is set,
+   * while the approval is open.
+   */
+  setReveal(userId: string, id: string, deviceId: string, reveal: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET reveal=? WHERE id=? AND user_id=? AND device_id=? AND state='claimed' AND approver_nonce IS NOT NULL AND reveal IS NULL AND expires_at>?",
+      )
+      .run(reveal, id, userId, deviceId, this.now().toISOString());
     return Number(result.changes) > 0;
   }
 

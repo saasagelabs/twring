@@ -59,6 +59,8 @@ export function approveApi(): ApproveApi {
     status: (id, deviceId) => request('GET', `${at(id)}?${as(deviceId)}`),
     list: (deviceId) => request('GET', `/v1/e2e/approvals?${as(deviceId)}`),
     claim: (id, deviceId) => post(`${at(id)}/claim`, { device_id: deviceId }),
+    nonce: (id, deviceId, nonce) => post(`${at(id)}/nonce`, { device_id: deviceId, nonce }),
+    reveal: (id, deviceId, reveal) => post(`${at(id)}/reveal`, { device_id: deviceId, reveal }),
     accept: (id, deviceId, note) => post(`${at(id)}/accept`, { device_id: deviceId, note }),
     deny: (id, deviceId) => post(`${at(id)}/deny`, { device_id: deviceId }),
   };

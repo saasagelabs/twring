@@ -1,6 +1,7 @@
 export * from './agent';
 export * from './access';
 export * from './agents';
+export * from './approval-sas';
 export * from './call-state';
 export * from './calls';
 export * from './connectors';
