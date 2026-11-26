@@ -183,4 +183,32 @@ describe('a private chat on the phone', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(save).toHaveBeenCalledTimes(2);
   });
+
+  it('tries the save again on the next open when it failed', async () => {
+    const store = memoryStore();
+    await store.setItemAsync(
+      DEVICE_KEY_NAME,
+      JSON.stringify({
+        v: 1,
+        public_key: base64urlEncode(phone.publicKey),
+        private_key: base64urlEncode(phone.privateKey),
+      }),
+    );
+    await saveTrusted(store, [{ ...trustedComputer, connector_id: ACCOUNT }]);
+    const save = vi
+      .fn(() => Promise.resolve())
+      .mockImplementationOnce(() => Promise.reject(new Error('disk full')));
+    const chats = new PrivateChats({
+      store,
+      replay: { load: () => Promise.resolve({}), save, remove: () => Promise.resolve() },
+      addressOf: () => Promise.resolve(`cord-connector://${ACCOUNT}/${AGENT}`),
+    });
+    await chats.context(AGENT);
+    const m = message([fromComputer('hello', 1)]);
+    chats.open(AGENT, [m]);
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    chats.open(AGENT, [m]);
+    await vi.waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  });
 });

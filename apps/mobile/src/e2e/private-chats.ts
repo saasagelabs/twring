@@ -420,7 +420,10 @@ export class PrivateChats {
         this.saved = Promise.resolve(all);
         await this.deps.replay.save(all);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // Not saved: the next open tries again, as it did before only changes were saved.
+        ctx.changed = true;
+      });
   }
 
   /**
