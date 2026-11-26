@@ -82,6 +82,21 @@ export interface PhoneSealOptions {
    * id. Used only for a message with no key for this phone, and only from a trusted phone.
    */
   rewraps?: Map<string, Rewrap>;
+  /** What this chat already decrypted, kept with its context (`createPhoneContext` makes one). */
+  decrypted?: WeakMap<SealedThreadMessage, Decrypted>;
+}
+
+/**
+ * A message this context already decrypted, by its object: a changed message (a new chunk, a
+ * fresh copy from the server) is a new object and is decrypted again. Every check still runs on
+ * each open; only the decryption is skipped (C3 #11 Task 31: a chat opens again on every change).
+ */
+export interface Decrypted {
+  opened: OpenedOk;
+  /** The re-wrap that gave the key; the message opens again only while it is still the one. */
+  rewrap?: Rewrap;
+  /** The entry shown for it, given back unchanged so callers can tell what is new. */
+  shown?: OpenedMessage;
 }
 
 export interface Rewrap {
@@ -111,6 +126,9 @@ export interface PhoneSealContext extends PhoneSealOptions {
   shown: Map<string, number>;
   /** `<sender>:<seq>` to message id, saved before a restart. */
   savedIds: Map<string, string>;
+  decrypted: WeakMap<SealedThreadMessage, Decrypted>;
+  /** The replay state moved since it was last saved (`PrivateChats` saves, then clears it). */
+  changed: boolean;
 }
 
 export function createPhoneContext(options: PhoneSealOptions): PhoneSealContext {
@@ -125,6 +143,8 @@ export function createPhoneContext(options: PhoneSealOptions): PhoneSealContext 
     owners: new Map(),
     shown: new Map(Object.entries(options.seen?.floor ?? {})),
     savedIds: new Map(Object.entries(options.seen?.ids ?? {})),
+    decrypted: options.decrypted ?? new WeakMap(),
+    changed: false,
   };
 }
 
@@ -188,6 +208,8 @@ type Opened =
     }
   | { ok: false; replay: boolean };
 
+type OpenedOk = Extract<Opened, { ok: true }>;
+
 /**
  * All chunks of one message: one sender, one seq, indexes 0..n-1 with at most the last final.
  * Replays are checked per (sender, seq, chunk); a chunk this same message opened before is not one.
@@ -221,10 +243,16 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
     if (owner !== undefined ? owner !== m.id : !ctx.window.fresh(sender, seq, e.chunk?.index))
       return { ok: false, replay: true };
   }
+  const known = ctx.decrypted.get(m);
+  if (known !== undefined && stillOpens(ctx, m, sender, known)) {
+    accept(ctx, m.id, sender, seq, envelopes);
+    return known.opened;
+  }
   const payloads: SealedPayload[] = [];
   let control: SealedControlPayload | undefined;
   // Chunks share one message key, so one re-wrap opens every chunk (each under its own AAD).
   let rewrapped: Uint8Array | undefined;
+  let rewrap: Rewrap | undefined;
   for (const e of envelopes) {
     const mine = e.keys.find((k) => k.device === ctx.me.deviceId);
     const aad = aadFor(ctx, sender, seq, e.chunk?.index);
@@ -232,6 +260,7 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
     if (mine === undefined) {
       rewrapped ??= rewrappedKey(ctx, m, first);
       if (rewrapped === undefined) return { ok: false, replay: false };
+      rewrap = ctx.rewraps?.get(m.id);
       key = rewrapped;
     } else {
       try {
@@ -260,27 +289,65 @@ function openAll(ctx: PhoneSealContext, m: SealedThreadMessage): Opened {
   }
   if (control !== undefined && control.kind !== 'approval') return { ok: false, replay: false };
   // Only now does the window move: a forgery cannot use up a real message's seq.
+  accept(ctx, m.id, sender, seq, envelopes);
+  let opened: OpenedOk;
+  if (control !== undefined) opened = { ok: true, approval: control, sender, seq };
+  else {
+    const head = payloads[0];
+    const notice = payloads.find((p) => p.notice !== undefined)?.notice;
+    opened = {
+      ok: true,
+      sender,
+      seq,
+      partial: chunked && envelopes[envelopes.length - 1].chunk!.final !== true,
+      payload: {
+        ...head,
+        text: payloads.map((p) => p.text).join(''),
+        ...(notice !== undefined && { notice }),
+      },
+    };
+  }
+  ctx.decrypted.set(m, { opened, ...(rewrap !== undefined && { rewrap }) });
+  return opened;
+}
+
+/** Moves the replay window for every chunk of a message this context had not accepted yet. */
+function accept(
+  ctx: PhoneSealContext,
+  id: string,
+  sender: string,
+  seq: number,
+  envelopes: readonly SealedEnvelopeV1[],
+): void {
   for (const e of envelopes) {
     const key = replayKey(sender, seq, e.chunk?.index);
     if (!ctx.owners.has(key)) {
       ctx.window.accept(sender, seq, e.chunk?.index);
-      ctx.owners.set(key, m.id);
+      ctx.owners.set(key, id);
+      ctx.changed = true;
     }
   }
-  if (control !== undefined) return { ok: true, approval: control, sender, seq };
-  const head = payloads[0];
-  const notice = payloads.find((p) => p.notice !== undefined)?.notice;
-  return {
-    ok: true,
-    sender,
-    seq,
-    partial: chunked && envelopes[envelopes.length - 1].chunk!.final !== true,
-    payload: {
-      ...head,
-      text: payloads.map((p) => p.text).join(''),
-      ...(notice !== undefined && { notice }),
-    },
-  };
+}
+
+/**
+ * A message decrypted before opens again without decrypting only while what let it open still
+ * holds: the same re-wrap from a phone still trusted, and an approval only from a trusted computer.
+ */
+function stillOpens(
+  ctx: PhoneSealContext,
+  m: SealedThreadMessage,
+  sender: string,
+  known: Decrypted,
+): boolean {
+  if (known.rewrap !== undefined) {
+    if (ctx.rewraps?.get(m.id) !== known.rewrap) return false;
+    const by = known.rewrap.by;
+    if (by === ctx.me.deviceId || !ctx.trusted.some((d) => d.id === by && d.kind === 'phone'))
+      return false;
+  }
+  if ('approval' in known.opened)
+    return ctx.trusted.some((d) => d.id === sender && d.kind === 'computer');
+  return true;
 }
 
 /** Opens one message; `undefined` for a replay, which is dropped without a trace. */
@@ -297,9 +364,21 @@ function openOne(ctx: PhoneSealContext, m: SealedThreadMessage): OpenedMessage[]
       out.push({ id: `${m.id}:gap`, state: 'missing_before', missing: opened.seq - last - 1 });
     if (last === undefined || opened.seq > last) ctx.shown.set(opened.sender, opened.seq);
   }
+  const known = ctx.decrypted.get(m);
+  if (known?.opened === opened && known.shown !== undefined) {
+    out.push(known.shown);
+    return out;
+  }
+  const shown = shownFor(m, opened);
+  if (known?.opened === opened) known.shown = shown;
+  out.push(shown);
+  return out;
+}
+
+function shownFor(m: SealedThreadMessage, opened: OpenedOk): OpenedMessage {
   if ('approval' in opened) {
     const { approval } = opened;
-    out.push({
+    return {
       id: m.id,
       author: 'agent',
       state: 'approval',
@@ -307,11 +386,10 @@ function openOne(ctx: PhoneSealContext, m: SealedThreadMessage): OpenedMessage[]
       title: approval.title,
       ...(approval.description !== undefined && { description: approval.description }),
       expiresAt: approval.expires_at,
-    });
-    return out;
+    };
   }
   const { payload } = opened;
-  out.push({
+  return {
     id: m.id,
     author: m.author,
     state: 'ok',
@@ -320,8 +398,7 @@ function openOne(ctx: PhoneSealContext, m: SealedThreadMessage): OpenedMessage[]
     ...(payload.files !== undefined && { files: payload.files }),
     ...(payload.notice !== undefined && { notice: payload.notice }),
     ...(opened.partial && { partial: true as const }),
-  });
-  return out;
+  };
 }
 
 /** One message as shown. A replay shows as `couldnt_open` here; lists use `openMessages`. */
@@ -334,6 +411,24 @@ export function openMessage(ctx: PhoneSealContext, m: SealedThreadMessage): Open
 /** A thread's sealed messages in order: replays dropped, seq gaps marked before the message. */
 export function openMessages(ctx: PhoneSealContext, list: SealedThreadMessage[]): OpenedMessage[] {
   return list.flatMap((m) => openOne(ctx, m) ?? []);
+}
+
+/**
+ * `openMessages` for a long list (a whole chat for an export): the same result, opened `step`
+ * messages at a time with `pause` between, so the screen keeps answering.
+ */
+export async function openMessagesInSteps(
+  ctx: PhoneSealContext,
+  list: readonly SealedThreadMessage[],
+  pause: () => Promise<void>,
+  step = 100,
+): Promise<OpenedMessage[]> {
+  const out: OpenedMessage[] = [];
+  for (let i = 0; i < list.length; i += step) {
+    if (i > 0) await pause();
+    for (const m of list.slice(i, i + step)) out.push(...(openOne(ctx, m) ?? []));
+  }
+  return out;
 }
 
 /** Seals under a fresh key wrapped to this phone and every computer it trusts. */

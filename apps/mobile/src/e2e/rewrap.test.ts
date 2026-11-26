@@ -28,6 +28,7 @@ import {
 import {
   createPhoneContext,
   openMessage,
+  openMessages,
   type Rewrap,
   type SealedThreadMessage,
 } from './sealed-thread';
@@ -269,6 +270,18 @@ describe('the new phone opening re-wraps', () => {
       new Map([[other.id, { by: me.deviceId, wrapped: items.get(old.id)! }]]),
     );
     expect(openMessage(ctx, other).state).toBe('couldnt_open');
+  });
+
+  it('stops opening a re-wrapped message once the approving phone is removed, after it opened', async () => {
+    const { me, old, items } = await setup();
+    const ctx = newPhoneCtx(
+      [device('computer', computer.publicKey), trustedPhone(me)],
+      new Map([[old.id, { by: me.deviceId, wrapped: items.get(old.id)! }]]),
+    );
+    expect(openMessages(ctx, [old])).toMatchObject([{ state: 'ok', text: 'reply 7' }]);
+    // The same chat, opened again after `syncTrusted` dropped the approving phone.
+    ctx.trusted = [device('computer', computer.publicKey)];
+    expect(openMessages(ctx, [old])).toMatchObject([{ state: 'couldnt_open' }]);
   });
 
   it('refuses a re-wrap after the approving phone was removed', async () => {

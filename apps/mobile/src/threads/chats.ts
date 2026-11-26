@@ -169,7 +169,13 @@ export class ChatController {
       return undefined;
     }
     this.opened.set(agentId, { from: messages, list });
-    this.keepOpenedSearchable(agentId, messages, list);
+    // An unchanged message keeps its opened entry: only new or changed ones go to search again.
+    const before = new Set(cached?.list);
+    this.keepOpenedSearchable(
+      agentId,
+      messages,
+      list.filter((entry) => !before.has(entry)),
+    );
     return list;
   };
 
@@ -293,11 +299,14 @@ export class ChatController {
   /** After an agent is deleted: its chat text leaves the phone too. */
   forgetAgent(agentId: string): Promise<void> {
     this.chats.delete(agentId);
+    this.opened.delete(agentId);
     return this.search.forgetAgent(agentId);
   }
 
   /** After "Delete my data": nothing of the chats stays on the phone. */
   forgetSearch(): Promise<void> {
+    // Private chats hand search only what is new, so a wiped search starts again from scratch.
+    this.opened.clear();
     return this.search.wipe();
   }
 
