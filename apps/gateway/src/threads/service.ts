@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { isAdapterError, type TwringAgentAdapter } from '@twring/agent-adapter';
 import {
@@ -7,6 +7,7 @@ import {
   MAX_STORED_AGENT_MESSAGE_CHARS,
   parseConnectorEndpoint,
   SEALED_TURN_IDLE_MS,
+  SEALED_FILES_FEATURE,
   SEALED_WORKING_FEATURE,
   sanitizeRingText,
   truncateRingText,
@@ -157,6 +158,19 @@ const fileSize = (bytes: number) =>
       ? `${Math.round(bytes / 1024)} KB`
       : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
+/**
+ * A sealed message's `client_id` is a UUID in the wire contract, and a computer's Idempotency-Key
+ * is any printable string. The same key in the same chat always maps to the same UUID, so a retry
+ * stores one message, and the phone's random client ids never collide with it.
+ */
+function sealedPostClientId(userId: string, agentId: string, key: string): string {
+  const hex = createHash('sha256')
+    .update(`twring-sealed-post\0${userId}\0${agentId}\0${key}`)
+    .digest('hex');
+  const variant = ((parseInt(hex.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
 export class ThreadService {
   /** Sealed replies dropped as not this account's, not private, or not a known turn (ADR-044). */
   sealedRepliesRejected = 0;
@@ -228,52 +242,13 @@ export class ThreadService {
         if (answered) this.upsert(userId, answered);
       }
     }
-    let delivery: 'ring' | 'push' | 'none' = 'none';
-    if (!this.options.hasLiveCallToAgent(userId, agentId) && this.options.ring) {
-      const settings = await this.options.ring.settings(userId);
-      // A private chat's ring and push carry fixed words, never the agent's text (ADR-044).
-      const sealedChat = await this.options.store.isPrivate(userId, agentId);
-      if (
-        input.origin === 'call_turn' &&
-        input.text.trim() !== '' &&
-        (settings.after_call_result ?? 'ring') === 'ring'
-      ) {
-        const clean = input.text
-          .replace(/⟪[^⟫]*⟫/gu, '')
-          .replace(/\s+/gu, ' ')
-          .replace(/\s+([.!?])/gu, '$1')
-          .trim();
-        const end = /[.!?](?= |$)/u.exec(clean);
-        const reason = sealedChat
-          ? PRIVATE_RING_REASON
-          : truncateRingText(sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean), 140);
-        const result = await this.options.ring.ring({
-          userId,
-          agentId,
-          ...(input.target.connectorId !== undefined && { connectorId: input.target.connectorId }),
-          ...(input.target.localAgent !== undefined && { localAgent: input.target.localAgent }),
-          agentName: input.target.agentName,
-          reason,
-          messageId,
-          ...(input.sessionRef && { sessionRef: input.sessionRef }),
-        });
-        if ('invite' in result) delivery = 'ring';
-      }
-      if (delivery === 'none' && !this.options.isFocused?.(userId, agentId)) {
-        const attempted = await this.options.ring.pushMessage(userId, {
-          type: 'cord.message',
-          user_ref: userRef(userId),
-          agent_id: agentId,
-          agent_name: input.target.agentName,
-          message_id: messageId,
-          preview: sealedChat
-            ? PRIVATE_PUSH_TEXT
-            : truncateRingText(sanitizeRingText(input.text.split('\n')[0] ?? ''), 120),
-          silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
-        });
-        if (attempted > 0) delivery = 'push';
-      }
-    }
+    const delivery = await this.announceResult(userId, agentId, {
+      messageId,
+      text: input.text,
+      ring: input.origin === 'call_turn' && input.text.trim() !== '',
+      sessionRef: input.sessionRef,
+      target: input.target,
+    });
     this.options.log?.info(
       {
         event: 'result_delivered',
@@ -284,6 +259,121 @@ export class ThreadService {
         length: input.text.length,
       },
       'result_delivered',
+    );
+    return { messageId, delivery, created: true };
+  }
+
+  /** True when this person's chat with the agent is private. */
+  isPrivate(userId: string, agentId: string): Promise<boolean> {
+    return this.options.store.isPrivate(userId, agentId);
+  }
+
+  /**
+   * Rings or pushes for a delivered result, unless a call is live or the chat is on screen. A
+   * private chat's ring and push carry fixed words, never the agent's text (ADR-044); `text` is
+   * undefined for a sealed result, which the server cannot read.
+   */
+  private async announceResult(
+    userId: string,
+    agentId: string,
+    input: {
+      messageId: string;
+      text: string | undefined;
+      ring: boolean;
+      sessionRef?: string;
+      target: { connectorId?: string; localAgent?: string; agentName: string };
+    },
+  ): Promise<'ring' | 'push' | 'none'> {
+    let delivery: 'ring' | 'push' | 'none' = 'none';
+    if (this.options.hasLiveCallToAgent(userId, agentId) || !this.options.ring) return delivery;
+    const settings = await this.options.ring.settings(userId);
+    const sealedChat =
+      input.text === undefined || (await this.options.store.isPrivate(userId, agentId));
+    if (input.ring && (settings.after_call_result ?? 'ring') === 'ring') {
+      const clean = (input.text ?? '')
+        .replace(/⟪[^⟫]*⟫/gu, '')
+        .replace(/\s+/gu, ' ')
+        .replace(/\s+([.!?])/gu, '$1')
+        .trim();
+      const end = /[.!?](?= |$)/u.exec(clean);
+      const reason = sealedChat
+        ? PRIVATE_RING_REASON
+        : truncateRingText(sanitizeRingText(end ? clean.slice(0, end.index + 1) : clean), 140);
+      const result = await this.options.ring.ring({
+        userId,
+        agentId,
+        ...(input.target.connectorId !== undefined && { connectorId: input.target.connectorId }),
+        ...(input.target.localAgent !== undefined && { localAgent: input.target.localAgent }),
+        agentName: input.target.agentName,
+        reason,
+        messageId: input.messageId,
+        ...(input.sessionRef && { sessionRef: input.sessionRef }),
+      });
+      if ('invite' in result) delivery = 'ring';
+    }
+    if (delivery === 'none' && !this.options.isFocused?.(userId, agentId)) {
+      const attempted = await this.options.ring.pushMessage(userId, {
+        type: 'cord.message',
+        user_ref: userRef(userId),
+        agent_id: agentId,
+        agent_name: input.target.agentName,
+        message_id: input.messageId,
+        preview: sealedChat
+          ? PRIVATE_PUSH_TEXT
+          : truncateRingText(sanitizeRingText((input.text ?? '').split('\n')[0] ?? ''), 120),
+        silent: ownerUnavailable(settings, this.options.ring.nowDate()) ? '1' : '0',
+      });
+      if (attempted > 0) delivery = 'push';
+    }
+    return delivery;
+  }
+
+  /**
+   * A computer's own message into a private chat, already sealed by the computer (ADR-045). Stored
+   * as a sealed agent message with no turn. The caller has checked the chat is private and that
+   * every envelope is from this computer. Dedupes by the Idempotency-Key.
+   */
+  async deliverSealedResult(
+    userId: string,
+    agentId: string,
+    input: {
+      sealed: SealedEnvelopeV1[];
+      fileIds?: string[];
+      origin: 'call_turn' | 'text_turn' | 'agent';
+      sessionRef?: string;
+      idempotencyKey: string;
+      /** A background result that rings the phone (with the private reason). */
+      ring?: boolean;
+      target: { connectorId?: string; localAgent?: string; agentName: string };
+    },
+  ): Promise<{ messageId: string; delivery: 'ring' | 'push' | 'none'; created: boolean }> {
+    const saved = await this.options.store.appendSealedMessage(userId, agentId, {
+      author: 'agent',
+      sealed: input.sealed,
+      clientId: sealedPostClientId(userId, agentId, input.idempotencyKey),
+      ...(input.fileIds && { attachmentIds: input.fileIds }),
+    });
+    const messageId = saved.message.id;
+    if (!saved.created) return { messageId, delivery: 'none', created: false };
+    this.upsert(userId, saved.message);
+    const delivery = await this.announceResult(userId, agentId, {
+      messageId,
+      text: undefined,
+      ring: input.ring === true,
+      sessionRef: input.sessionRef,
+      target: input.target,
+    });
+    this.options.log?.info(
+      {
+        event: 'sealed_result_delivered',
+        agent_id: agentId,
+        message_id: messageId,
+        origin: input.origin,
+        delivery,
+        chunks: input.sealed.length,
+        files: input.fileIds?.length ?? 0,
+      },
+      'sealed_result_delivered',
     );
     return { messageId, delivery, created: true };
   }
@@ -690,7 +780,12 @@ export class ThreadService {
   async sendSealed(
     userId: string,
     agentId: string,
-    input: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+    input: {
+      clientId: string;
+      sealed: SealedEnvelopeV1;
+      replyTo?: string;
+      attachmentIds?: string[];
+    },
   ): Promise<{ message: ThreadMessage; created: boolean }> {
     const key = keyOf(userId, agentId);
     const prior = this.sendLocks.get(key);
@@ -709,17 +804,29 @@ export class ThreadService {
       const waiting = (await this.options.store.queuedSealed()).some(
         (entry) => entry.userId === userId && entry.agentId === agentId,
       );
-      const ready = !waiting && this.options.privateChats?.computerSupports(record) === true;
+      const online = !waiting && this.options.privateChats?.computerSupports(record) === true;
+      // Files go only to a computer that can open them: otherwise the message fails, never
+      // delivered with its files dropped (ADR-045). Offline, it waits and is checked on return.
+      const files = input.attachmentIds !== undefined && input.attachmentIds.length > 0;
+      const cannotOpen =
+        online &&
+        files &&
+        this.options.privateChats?.computerHas?.(record, SEALED_FILES_FEATURE) !== true;
+      const ready = online && !cannotOpen;
       let result: { message: ThreadMessage; created: boolean };
       try {
         result = await this.options.store.appendSealedMessage(userId, agentId, {
           author: 'user',
           sealed: input.sealed,
           clientId: input.clientId,
-          status: ready ? 'sent' : 'queued',
+          status: cannotOpen ? 'failed' : ready ? 'sent' : 'queued',
+          ...(cannotOpen && { errorCode: 'computer_update' }),
+          ...(input.attachmentIds !== undefined && { attachmentIds: input.attachmentIds }),
           ...(input.replyTo !== undefined && { replyTo: input.replyTo }),
         });
       } catch (error) {
+        if (error instanceof FileStoreError && error.code === 'bad_attachment')
+          throw new ThreadServiceError('bad_attachment');
         if (error instanceof ThreadStoreError && error.code === 'queue_full')
           throw new ThreadServiceError('queue_full');
         if (error instanceof ThreadStoreError && error.code === 'reply_to_not_found')
@@ -744,6 +851,7 @@ export class ThreadService {
           message_id: result.message.id,
           keys: input.sealed.keys.length,
           length: input.sealed.body.length,
+          files: input.attachmentIds?.length ?? 0,
           status: result.message.kind === 'sealed' ? result.message.status : undefined,
         },
         'thread_sealed_received',
@@ -765,6 +873,7 @@ export class ThreadService {
           turn_id: string;
           sealed: SealedEnvelopeV1;
           final: boolean;
+          file_ids?: string[];
         }
       | {
           type: 'sealed.approval';
@@ -940,7 +1049,13 @@ export class ThreadService {
    */
   async receiveSealedReply(
     from: { connectorId: string; userId: string },
-    frame: { agent: string; turn_id: string; sealed: SealedEnvelopeV1; final: boolean },
+    frame: {
+      agent: string;
+      turn_id: string;
+      sealed: SealedEnvelopeV1;
+      final: boolean;
+      file_ids?: string[];
+    },
   ): Promise<void> {
     const reject = (reason: string) => {
       this.sealedRepliesRejected++;
@@ -956,11 +1071,20 @@ export class ThreadService {
     if (turn === undefined) return;
     const { agentId, record } = turn;
     const found = { message: turn.message };
-    const saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
-      turnId: frame.turn_id,
-      sealed: frame.sealed,
-      final: frame.final,
-    });
+    let saved;
+    try {
+      saved = await this.options.store.upsertSealedReply(from.userId, agentId, {
+        turnId: frame.turn_id,
+        sealed: frame.sealed,
+        final: frame.final,
+        ...(frame.file_ids !== undefined && { fileIds: frame.file_ids }),
+      });
+    } catch (error) {
+      // A file that is not this computer's sealed upload: the whole reply is dropped.
+      if (error instanceof FileStoreError && error.code === 'bad_attachment')
+        return reject('bad_attachment');
+      throw error;
+    }
     // A chunk resent after a reconnect is already stored: nothing changed, nothing to count.
     if (saved === 'duplicate') return;
     if (saved === 'after_final' || saved === 'too_large') return reject(saved);
@@ -1007,6 +1131,20 @@ export class ThreadService {
       const record = await this.options.agents.get(userId, agentId);
       if (!record || !privateChats.computerSupports(record) || !message.sealed[0]) {
         blocked.add(key);
+        continue;
+      }
+      if (
+        privateChats.computerHas?.(record, SEALED_FILES_FEATURE) !== true &&
+        this.options.store.hasSealedFiles(userId, message.id)
+      ) {
+        // The computer came back without the word: its files can't be opened, so the message
+        // fails here and is never delivered with them dropped (ADR-045).
+        const failed = await this.options.store.updateUserMessage(userId, message.id, {
+          status: 'failed',
+          errorCode: 'computer_update',
+          from: ['queued'],
+        });
+        if (failed) this.upsert(userId, failed);
         continue;
       }
       // Marked sent before it goes out, and only while still queued: a Stop (or expiry) that

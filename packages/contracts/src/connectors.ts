@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { fileIdSchema, MAX_ATTACHMENTS_PER_MESSAGE } from './files';
 import { MAX_NATIVE_MESSAGE_BYTES } from './native-protocol';
 import { sealedAgentEnvelopeV1Schema, sealedEnvelopeV1Schema } from './sealed-chat';
 
@@ -241,6 +242,8 @@ export const relaySealedReplySchema = z.object({
   message_id: sealedMessageIdSchema.optional(),
   sealed: sealedAgentEnvelopeV1Schema,
   final: z.boolean(),
+  /** Sealed files uploaded first (ADR-045); only sent when the gateway said `sealed_files`. */
+  file_ids: z.array(fileIdSchema).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
 });
 
 /**

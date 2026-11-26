@@ -131,6 +131,8 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
       sealed: z.array(sealedAgentEnvelopeV1Schema).min(1).max(MAX_SEALED_REPLY_CHUNKS),
       status: userMessageStatusSchema.optional(),
       turn_id: z.string().max(128).optional(),
+      /** Why a sealed message failed, e.g. `computer_update` for a computer that can't open its files. */
+      error_code: z.string().max(64).optional(),
       /** The message this one answers; the quote itself is inside `sealed`, never on the server. */
       reply_to: threadMessageIdSchema.optional(),
       /**
@@ -232,6 +234,8 @@ export const sendSealedMessageRequestSchema = z
     client_id: z.uuid(),
     sealed: sealedEnvelopeV1Schema,
     reply_to: threadMessageIdSchema.optional(),
+    /** Sealed files uploaded first with `?sealed=1`; their keys are inside `sealed` (ADR-045). */
+    attachment_ids: z.array(fileIdSchema).min(1).max(MAX_ATTACHMENTS_PER_MESSAGE).optional(),
   })
   .strict();
 export type SendSealedMessageRequest = z.infer<typeof sendSealedMessageRequestSchema>;

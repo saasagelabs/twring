@@ -340,6 +340,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       if (
         request.routeOptions.url !== '/v1/connectors/messages' &&
         request.routeOptions.url !== '/v1/connectors/files' &&
+        request.routeOptions.url !== '/v1/connectors/files/:fileId' &&
         request.routeOptions.url !== '/v1/files/:fileId'
       )
         await auth.hook(request, reply);
@@ -353,6 +354,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
         PUBLIC_ROUTES.has(route) ||
         route === '/v1/connectors/messages' ||
         route === '/v1/connectors/files' ||
+        route === '/v1/connectors/files/:fileId' ||
         route === '/v1/me/access' ||
         route === '/v1/me/invite' ||
         route === '/v1/files/:fileId'
@@ -650,6 +652,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       pushRegistration: selfhost === undefined,
       ...(threads && { threads: threads.service }),
       ...(env.FILES_ENABLED && files && { files: files.service }),
+      ...(e2e !== undefined && { e2eDevices: e2e.devices }),
       startCall,
       ...(liveCalls !== undefined && {
         resumeAnswer: (userId: string, callId: string) => liveCalls.unjoinedAnswer(userId, callId),

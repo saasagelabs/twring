@@ -234,6 +234,7 @@ export function registerThreadRoutes(app: FastifyInstance, options: ThreadRoutes
         clientId: body.data.client_id,
         sealed: body.data.sealed,
         ...(body.data.reply_to !== undefined && { replyTo: body.data.reply_to }),
+        ...(body.data.attachment_ids !== undefined && { attachmentIds: body.data.attachment_ids }),
       });
       if (!result.created) counted.release();
       return reply

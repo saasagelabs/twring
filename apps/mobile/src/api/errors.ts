@@ -333,6 +333,8 @@ export function apiErrorCopy(
     case 'waitlist_full':
     case 'bad_request':
     case 'invalid_request':
+    case 'seal_required':
+    case 'wrong_device':
       return withDetail({
         message: "Some of the details aren't valid. Check them and try again.",
         retryable: false,

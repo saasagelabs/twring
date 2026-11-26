@@ -5,6 +5,7 @@ import {
   MAX_SEALED_REPLY_TOTAL_CHARS,
   relayConnectorMessageSchema,
   relayGatewayMessageSchema,
+  sendSealedMessageRequestSchema,
   threadMessageSchema,
 } from './index';
 import { newMessageKey, sealBody } from './message-seal';
@@ -100,5 +101,30 @@ describe('sealed kind', () => {
         final: true,
       }).type,
     ).toBe('sealed.reply');
+  });
+});
+
+describe('sealed send request files', () => {
+  const body = { client_id: 'be8f4ca2-54aa-4aaa-8a6b-4b7e348834ed', sealed };
+  const id = (c: string) => `fil_${c.repeat(20)}`;
+  it('parses without and with attachment ids', () => {
+    expect(sendSealedMessageRequestSchema.safeParse(body).success).toBe(true);
+    expect(
+      sendSealedMessageRequestSchema.safeParse({ ...body, attachment_ids: [id('a')] }).success,
+    ).toBe(true);
+  });
+  it('allows at most 5 attachment ids, refuses bad ids and unknown fields', () => {
+    const six = ['a', 'b', 'c', 'd', 'e', 'f'].map(id);
+    expect(
+      sendSealedMessageRequestSchema.safeParse({ ...body, attachment_ids: six.slice(0, 5) })
+        .success,
+    ).toBe(true);
+    expect(sendSealedMessageRequestSchema.safeParse({ ...body, attachment_ids: six }).success).toBe(
+      false,
+    );
+    expect(
+      sendSealedMessageRequestSchema.safeParse({ ...body, attachment_ids: ['x'] }).success,
+    ).toBe(false);
+    expect(sendSealedMessageRequestSchema.safeParse({ ...body, extra: 1 }).success).toBe(false);
   });
 });
