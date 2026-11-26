@@ -420,7 +420,7 @@ describe('a stuck message after a restart', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  for (const errorCode of ['private_thread', 'file_missing', 'voice_missing', 'http']) {
+  for (const errorCode of ['private_thread', 'http']) {
     it(`keeps a saved ${errorCode} failure failed and does not send it`, async () => {
       const { outbox, send } = await restart(savedItem({ errorCode }), [
         `${oldDoc}/outbox/c-1/rec.m4a`,
@@ -430,7 +430,22 @@ describe('a stuck message after a restart', () => {
     });
   }
 
-  for (const errorCode of ['network', 'agent_offline', 'timeout', 'rate_limited']) {
+  for (const errorCode of ['file_missing', 'voice_missing']) {
+    it(`keeps a saved ${errorCode} failure failed while its file is still gone`, async () => {
+      const { outbox, send } = await restart(savedItem({ errorCode }), []);
+      expect(outbox.list(agent)).toMatchObject([{ state: 'failed', errorCode: VOICE_MISSING }]);
+      expect(send).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const errorCode of [
+    'network',
+    'agent_offline',
+    'timeout',
+    'rate_limited',
+    'file_missing',
+    'voice_missing',
+  ]) {
     it(`resends a saved ${errorCode} failure`, async () => {
       const { send } = await restart(savedItem({ errorCode }), [`${oldDoc}/outbox/c-1/rec.m4a`]);
       expect(send).toHaveBeenCalledTimes(1);

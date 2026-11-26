@@ -495,9 +495,13 @@ export class Outbox {
       // Its text was never saved, and the envelope was not: nothing can be sent (ADR-045).
       const unsent = item.privateChat === true && item.sealed === undefined;
       // A failure that will not clear by itself stays failed, with its reason; never resent.
+      // A file reported missing that is found again now is sent again (a read can fail once).
       const keptFailure =
         item.state === 'failed' &&
-        (item.errorCode === undefined || !TEMPORARY_FAILURES.includes(item.errorCode));
+        (item.errorCode === undefined ||
+          (!TEMPORARY_FAILURES.includes(item.errorCode) &&
+            item.errorCode !== FILE_MISSING &&
+            item.errorCode !== VOICE_MISSING));
       // The saved clientId is resent as is, never a new one: the server dedupes on it.
       this.items.set(item.clientId, {
         clientId: item.clientId,
