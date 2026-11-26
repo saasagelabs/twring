@@ -29,11 +29,13 @@ export function StatusLine({
   content,
   onStop,
   onRetry,
+  onDelete,
 }: {
   name: string;
   content: StatusLineContent;
   onStop: () => void;
   onRetry: (clientId: string) => void;
+  onDelete: (clientId: string) => void;
 }) {
   const palette = usePalette();
   const reduced = useReducedMotion();
@@ -82,6 +84,16 @@ export function StatusLine({
               onPress={() => onRetry(content.retryClientId!)}
             >
               <Text style={[styles.retryLabel, { color: palette.accent }]}>Retry</Text>
+            </Pressable>
+          )}
+          {content.deleteClientId !== undefined && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Delete"
+              style={styles.retry}
+              onPress={() => onDelete(content.deleteClientId!)}
+            >
+              <Text style={[styles.retryLabel, { color: palette.accent }]}>Delete</Text>
             </Pressable>
           )}
         </>

@@ -110,6 +110,7 @@ for (const [path, name] of [
   ['chat/DateSeparator', 'DateSeparator'],
   ['chat/LinkSheet', 'LinkSheet'],
   ['chat/Notice', 'Notice'],
+  ['chat/SealedAttachments', 'SealedAttachments'],
   ['chat/StatusLine', 'StatusLine'],
   ['chat/WorkingRow', 'StreamingReply'],
   ['CallButton', 'CallButton'],
@@ -490,6 +491,40 @@ describe('a failed send', () => {
     const buttons = alert[2] as { text: string; onPress?: () => void }[];
     buttons.find((b) => b.text === 'Delete')!.onPress!();
     expect(mocks.chat.discard).toHaveBeenCalledWith('c1');
+  });
+
+  it('a private_unsent item offers Delete, not Retry', async () => {
+    const { Alert } = await import('react-native');
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    const unsent = (clientId: string, createdAt: string) => ({
+      ...failedVoice(clientId, createdAt),
+      voice: undefined,
+      text: 'hello',
+      error: undefined,
+      errorCode: 'private_unsent',
+    });
+    mocks.chat.pending = [
+      unsent('c1', '2026-11-25T09:00:00.000Z'),
+      unsent('c2', '2026-11-25T11:00:00.000Z'),
+    ];
+    const { all, items } = render();
+    const labels = (els: ReactElement<Props>[]) =>
+      of(els, 'Pressable').map((p) => p.props.accessibilityLabel);
+    // The older one is a row of its own; the newest sits in the status line.
+    expect(labels(items)).toEqual(['Delete']);
+    const row = of(items, 'Pressable')[0];
+    (row.props.onPress as () => void)();
+    const alert = vi.mocked(Alert.alert).mock.calls.at(-1)!;
+    (alert[2] as { text: string; onPress?: () => void }[]).find((b) => b.text === 'Delete')!
+      .onPress!();
+    expect(mocks.chat.discard).toHaveBeenCalledWith('c1');
+    // The line's own content is built by statusLineContent (tested there); here its Delete.
+    const line = of(all, 'StatusLine')[0];
+    (line.props.onDelete as (id: string) => void)('c2');
+    const second = vi.mocked(Alert.alert).mock.calls.at(-1)!;
+    (second[2] as { text: string; onPress?: () => void }[]).find((b) => b.text === 'Delete')!
+      .onPress!();
+    expect(mocks.chat.discard).toHaveBeenCalledWith('c2');
   });
 
   it('keeps a failed message where it was sent; a sending one stays at the end', () => {

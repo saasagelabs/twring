@@ -25,6 +25,7 @@ import { callAgent } from '@/call/call-agent';
 import { callController, useCallView } from '@/call/session';
 import { Avatar } from '@/components/Avatar';
 import { ComputerCallHint } from '@/components/ComputerCallHint';
+import { SealedAttachments } from '@/components/chat/SealedAttachments';
 import { Bubble } from '@/components/chat/Bubble';
 import { ChatApproval, ChatSealedApproval } from '@/components/chat/ChatApproval';
 import { CallCard } from '@/components/chat/CallCard';
@@ -370,6 +371,11 @@ export default function ChatScreen() {
     const target = chat.state.progress?.messageId ?? latestId;
     if (target) void chat.stop(target);
   };
+  const confirmDiscard = (clientId: string) =>
+    Alert.alert('Delete message?', DISCARD_CONFIRM, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => chat.discard(clientId) },
+    ]);
   const openActions = (target: ActionTarget) => {
     if (!target.actions.length) return;
     void Haptics.selectionAsync().catch(() => undefined);
@@ -393,10 +399,7 @@ export default function ChatScreen() {
       case 'delete': {
         const clientId = target.clientId;
         if (clientId) {
-          Alert.alert('Delete message?', DISCARD_CONFIRM, [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Delete', style: 'destructive', onPress: () => chat.discard(clientId) },
-          ]);
+          confirmDiscard(clientId);
           return;
         }
         const messageId = target.id;
@@ -481,14 +484,25 @@ export default function ChatScreen() {
                   item.error ? apiErrorCopy(item.error).message : undefined,
                 )}
               </Text>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Retry"
-                style={styles.retry}
-                onPress={() => chat.retry(item.clientId)}
-              >
-                <Text style={[styles.retryLabel, { color: palette.accent }]}>Retry</Text>
-              </Pressable>
+              {item.errorCode === 'private_unsent' ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Delete"
+                  style={styles.retry}
+                  onPress={() => confirmDiscard(item.clientId)}
+                >
+                  <Text style={[styles.retryLabel, { color: palette.accent }]}>Delete</Text>
+                </Pressable>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry"
+                  style={styles.retry}
+                  onPress={() => chat.retry(item.clientId)}
+                >
+                  <Text style={[styles.retryLabel, { color: palette.accent }]}>Retry</Text>
+                </Pressable>
+              )}
             </View>
           )}
         </View>
@@ -556,7 +570,17 @@ export default function ChatScreen() {
           sender={bubble.own ? 'You' : name}
           own={bubble.own}
           onLink={setUrl}
-        />
+        >
+          {bubble.files && (
+            <SealedAttachments
+              files={bubble.files}
+              open={(file) =>
+                chatController()?.openSealedFile(id, file) ??
+                Promise.resolve({ error: 'couldnt_open' as const })
+              }
+            />
+          )}
+        </Bubble>
       );
       const interrupted = interruptedNotice(message, bubble, name);
       if (!gap && !interrupted) return bubbleView;
@@ -794,6 +818,7 @@ export default function ChatScreen() {
               content={statusContent}
               onStop={stop}
               onRetry={(clientId) => chat.retry(clientId)}
+              onDelete={confirmDiscard}
             />
             <Composer
               name={name}

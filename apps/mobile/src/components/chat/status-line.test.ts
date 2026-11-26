@@ -127,3 +127,30 @@ it('a failure code with its own copy wins over the server text', () => {
     text: "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
   });
 });
+
+it('a sealed message failed with computer_update shows the update copy', () => {
+  const failed = {
+    id: 'msg_s',
+    kind: 'sealed',
+    author: 'user',
+    status: 'failed',
+    error_code: 'computer_update',
+    sealed: [],
+  } as unknown as ThreadMessage;
+  const latest = latestOwn([failed]);
+  expect(latest).toMatchObject({ errorCode: 'computer_update' });
+  expect(statusLineContent({ ...base, latest })).toMatchObject({
+    kind: 'status',
+    tone: 'danger',
+    text: "Didn't go through: update Twring on your computer to send photos and files in a private chat.",
+  });
+});
+
+it('a private_unsent failure offers Delete in the status line, not Retry', () => {
+  const content = statusLineContent({
+    ...base,
+    pending: { clientId: 'c1', state: 'failed', errorCode: 'private_unsent' },
+  });
+  expect(content).toMatchObject({ kind: 'status', tone: 'danger', deleteClientId: 'c1' });
+  expect(content).not.toHaveProperty('retryClientId');
+});

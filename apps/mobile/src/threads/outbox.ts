@@ -1,7 +1,9 @@
 import {
+  MAX_FILE_BYTES,
   sealedEnvelopeV1Schema,
   type Attachment,
   type SealedEnvelopeV1,
+  type SealedPayload,
   type ThreadMessage,
 } from '@twring/contracts';
 import { z } from 'zod';
@@ -41,8 +43,23 @@ export interface OutboxSealer {
   known(agentId: string): boolean;
   isPrivate(agentId: string): Promise<boolean>;
   /** Throws an error with a stable `code` when it cannot seal. */
-  /** `replyTo`: the answered message, quoted inside the sealed payload. */
-  seal(agentId: string, text: string, replyTo?: string): Promise<SealedEnvelopeV1>;
+  /** `replyTo`: the answered message, quoted inside the sealed payload. `files`: the uploaded files. */
+  seal(
+    agentId: string,
+    text: string,
+    replyTo?: string,
+    files?: SealedPayload['files'],
+  ): Promise<SealedEnvelopeV1>;
+  /** Reads a file and seals it with a fresh key (ADR-045); throws an error with a stable `code`. */
+  sealFile(agentId: string, file: PreparedFile): Promise<{ blob: Uint8Array; key: string }>;
+  /** Uploads a sealed blob; `clientId` is the file's own, so a resend never stores it twice. */
+  uploadSealed(
+    agentId: string,
+    file: { clientId: string; bytes: Uint8Array },
+    signal: AbortSignal,
+  ): Promise<{ id: string }>;
+  /** Keeps the sent file's copy under its server id, so this phone never downloads it. */
+  cacheOwnFile(fileId: string, localUri: string): Promise<void>;
   openOwn(agentId: string, sealed: SealedEnvelopeV1): Promise<string | undefined>;
 }
 export interface OutboxVoice {
@@ -55,8 +72,10 @@ export interface OutboxVoice {
   serverReadable?: true;
 }
 
-/** Files in a private chat are not sealed yet: refused before anything goes out. */
+/** Saved by an older build, which refused files in a private chat. */
 export const PRIVATE_FILES = 'private_files';
+/** A private file message restored after the app closed before its envelope was saved (ADR-045). */
+export const PRIVATE_UNSENT = 'private_unsent';
 /** The server refused something that reached a private chat unsealed (a voice note without consent). */
 export const PRIVATE_THREAD = 'private_thread';
 
@@ -76,6 +95,8 @@ const storedOutbox = z.object({
         agentId: z.string().min(1).max(100),
         text: z.string().max(20_000),
         sealed: sealedEnvelopeV1Schema.optional(),
+        /** A private file message not yet sealed: no text is saved, it comes back failed. */
+        privateChat: z.literal(true).optional(),
         state: z.enum(['sending', 'failed']),
         createdAt: z.string().max(100),
         voice: z
@@ -95,6 +116,9 @@ const storedOutbox = z.object({
               sizeBytes: z.number().nonnegative(),
               width: z.number().optional(),
               height: z.number().optional(),
+              sealedUpload: z
+                .object({ id: z.string().min(1).max(64), key: z.string().max(64) })
+                .optional(),
             }),
           )
           .max(20)
@@ -144,6 +168,13 @@ export const systemTimers: OutboxTimers = {
 
 export class Outbox {
   private readonly items = new Map<string, PendingMessage>();
+  /**
+   * A private file sealed once, by the file's client id, until its upload succeeds. The gateway
+   * keeps the first blob it stored for a client id, so a retry must send that same blob and key
+   * (a new key would name a file the computer cannot open). Memory only: after a restart the
+   * item becomes `private_unsent`.
+   */
+  private readonly sealedBlobs = new Map<string, { blob: Uint8Array; key: string }>();
   private readonly waits = new Set<() => void>();
   private readonly controllers = new Set<AbortController>();
   private readonly store?: JsonStore;
@@ -246,9 +277,15 @@ export class Outbox {
   retry(clientId: string): void {
     const item = this.items.get(clientId);
     if (!item || item.state !== 'failed') return;
+    // Its text is gone: only Delete is left (the person writes it again).
+    if (item.errorCode === PRIVATE_UNSENT) return;
     this.items.set(clientId, { ...item, state: 'sending', error: undefined, errorCode: undefined });
     this.notify();
     void this.attempt(clientId);
+  }
+
+  private dropSealedBlobs(item: PendingMessage): void {
+    for (const file of item.files ?? []) this.sealedBlobs.delete(file.clientId);
   }
 
   /** Removes a failed message from this phone only (it never reached the server), with its files. */
@@ -256,6 +293,7 @@ export class Outbox {
     const item = this.items.get(clientId);
     if (!item || item.state !== 'failed') return;
     this.items.delete(clientId);
+    this.dropSealedBlobs(item);
     if (item.voice) this.removeFile(item.voice.uri);
     for (const file of item.files ?? []) this.removeFile(file.uri);
     this.notify();
@@ -267,6 +305,7 @@ export class Outbox {
     const item = this.items.get(message.client_id);
     if (item?.agentId === message.agent_id) {
       this.items.delete(message.client_id);
+      this.dropSealedBlobs(item);
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
       this.notify();
@@ -284,6 +323,7 @@ export class Outbox {
       for (const file of item.files ?? []) this.removeFile(file.uri);
     }
     this.items.clear();
+    this.sealedBlobs.clear();
     this.changed();
     const store = this.store;
     if (store) await this.saving.then(() => store.remove()).catch(() => undefined);
@@ -299,6 +339,7 @@ export class Outbox {
     this.stopWork();
     const writing = loaded ? this.write() : this.saving;
     this.items.clear();
+    this.sealedBlobs.clear();
     this.changed();
     await writing;
   }
@@ -311,6 +352,7 @@ export class Outbox {
     for (const item of [...this.items.values()]) {
       if (item.agentId !== agentId) continue;
       this.items.delete(item.clientId);
+      this.dropSealedBlobs(item);
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
     }
@@ -330,16 +372,20 @@ export class Outbox {
     const store = this.store;
     if (!store) return this.saving;
     // A private chat's message is saved only once sealed, and then only sealed: never its text.
+    // One with files is saved earlier, without text, so its uploaded files can be told apart.
     const kept = [...this.items.values()].filter(
-      (item) => item.sealed !== undefined || item.privateChat !== true,
+      (item) =>
+        item.sealed !== undefined || item.privateChat !== true || (item.files?.length ?? 0) > 0,
     );
     const items = kept.slice(-OUTBOX_LIMIT).map((item) => {
       const errorCode = item.errorCode ?? errorCodeOf(item.error);
       return {
         clientId: item.clientId,
         agentId: item.agentId,
-        text: item.sealed !== undefined ? '' : item.text,
+        text: item.sealed !== undefined || item.privateChat === true ? '' : item.text,
         ...(item.sealed !== undefined && { sealed: item.sealed }),
+        ...(item.sealed === undefined &&
+          item.privateChat === true && { privateChat: true as const }),
         state: item.state,
         createdAt: item.createdAt,
         ...(item.voice && { voice: item.voice }),
@@ -400,26 +446,34 @@ export class Outbox {
     const resend: string[] = [];
     for (const item of saved?.items ?? []) {
       if (this.items.has(item.clientId)) continue;
+      // A file already uploaded sealed is only needed again for the person's own copy.
       const uris = [
         ...(item.voice ? [item.voice.uri] : []),
-        ...(item.files ?? []).map((file) => file.uri),
+        ...(item.files ?? [])
+          .filter((file) => file.sealedUpload === undefined || item.sealed === undefined)
+          .map((file) => file.uri),
       ];
       const missing = uris.some((uri) => !(files?.exists(uri) ?? false));
+      // Its text was never saved, and the envelope was not: nothing can be sent (ADR-045).
+      const unsent = item.privateChat === true && item.sealed === undefined;
       // The saved clientId is resent as is, never a new one: the server dedupes on it.
       this.items.set(item.clientId, {
         clientId: item.clientId,
         agentId: item.agentId,
         text: item.text,
-        ...(item.sealed !== undefined && { sealed: item.sealed, privateChat: true as const }),
+        ...((item.sealed !== undefined || unsent) && { privateChat: true as const }),
+        ...(item.sealed !== undefined && { sealed: item.sealed }),
         createdAt: item.createdAt,
         ...(item.voice && { voice: item.voice }),
         ...(item.files && { files: item.files.map((file) => ({ ...file })) }),
         ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
-        ...(missing
-          ? { state: 'failed' as const, errorCode: FILE_MISSING }
-          : { state: 'sending' as const }),
+        ...(unsent
+          ? { state: 'failed' as const, errorCode: PRIVATE_UNSENT }
+          : missing
+            ? { state: 'failed' as const, errorCode: FILE_MISSING }
+            : { state: 'sending' as const }),
       });
-      if (!missing) resend.push(item.clientId);
+      if (!missing && !unsent) resend.push(item.clientId);
       if (item.sealed !== undefined) this.restoreText(item.clientId, item.agentId, item.sealed);
     }
     this.notify();
@@ -455,17 +509,14 @@ export class Outbox {
       }
     }
     if (!isPrivate) return true;
-    const fail = (errorCode: string) => {
-      const current = this.items.get(clientId);
-      if (!current) return false;
-      this.items.set(clientId, { ...current, privateChat: true, state: 'failed', errorCode });
-      this.notify();
-      return false;
-    };
-    if (item.files?.length) return fail(PRIVATE_FILES);
     // A voice note goes as it is: the server asks for the person's consent first.
     if (item.voice) return true;
     if (item.privateChat !== true) this.items.set(clientId, { ...item, privateChat: true });
+    // Files are sealed and uploaded first, then the envelope names them (`sealPrivateFiles`).
+    if (item.files?.length) {
+      this.notify();
+      return true;
+    }
     try {
       const sealed = await this.sealer.seal(item.agentId, item.text, item.replyTo);
       const current = this.items.get(clientId);
@@ -474,8 +525,86 @@ export class Outbox {
       this.notify();
       return true;
     } catch (error) {
-      const code = (error as { code?: unknown } | undefined)?.code;
-      return fail(typeof code === 'string' ? code : 'seal_failed');
+      return this.failPrivate(clientId, error);
+    }
+  }
+
+  /** A private message that cannot go out is failed here, never sent as text. */
+  private failPrivate(clientId: string, error: unknown): false {
+    const code = (error as { code?: unknown } | undefined)?.code;
+    const current = this.items.get(clientId);
+    if (!current) return false;
+    this.items.set(clientId, {
+      ...current,
+      privateChat: true,
+      state: 'failed',
+      errorCode: typeof code === 'string' ? code : 'seal_failed',
+    });
+    this.notify();
+    return false;
+  }
+
+  /**
+   * ADR-045, ruling 16: seal and upload each file, save its id and key, and only then seal the
+   * envelope that names them. A file already uploaded (a retry) is not sent again. An ApiError
+   * from the upload goes to the caller's retry; a failure that is not an ApiError propagates to
+   * `attempt`'s catch, which fails the message there.
+   */
+  private async sealPrivateFiles(clientId: string, signal: AbortSignal): Promise<boolean> {
+    const sealer = this.sealer;
+    const item = this.items.get(clientId);
+    if (!sealer || !item?.files) return false;
+    for (const file of item.files) {
+      if (file.sealedUpload !== undefined) continue;
+      // Refused before sealing; a file of the wrong size never costs an upload.
+      if (file.sizeBytes < 1) return this.failPrivate(clientId, { code: 'unsupported_file_type' });
+      if (file.sizeBytes > MAX_FILE_BYTES)
+        return this.failPrivate(clientId, { code: 'file_too_large' });
+    }
+    for (const file of item.files) {
+      if (file.sealedUpload !== undefined) continue;
+      let sealedFile = this.sealedBlobs.get(file.clientId);
+      if (sealedFile === undefined) {
+        try {
+          sealedFile = await sealer.sealFile(item.agentId, file);
+        } catch (error) {
+          return this.failPrivate(clientId, error);
+        }
+        this.sealedBlobs.set(file.clientId, sealedFile);
+      }
+      const uploaded = await sealer.uploadSealed(
+        item.agentId,
+        { clientId: file.clientId, bytes: sealedFile.blob },
+        signal,
+      );
+      this.sealedBlobs.delete(file.clientId);
+      if (!this.items.has(clientId)) return false;
+      file.sealedUpload = { id: uploaded.id, key: sealedFile.key };
+      this.notify();
+      // The person's own photo then shows from this copy, never from a download.
+      await sealer.cacheOwnFile(uploaded.id, file.uri).catch(() => undefined);
+    }
+    if (item.sealed !== undefined) return true;
+    try {
+      const sealed = await sealer.seal(
+        item.agentId,
+        item.text,
+        item.replyTo,
+        item.files.map((file) => ({
+          file_id: file.sealedUpload!.id,
+          key: file.sealedUpload!.key,
+          name: file.name,
+          mime: file.mimeType,
+          size: file.sizeBytes,
+        })),
+      );
+      const current = this.items.get(clientId);
+      if (!current) return false;
+      this.items.set(clientId, { ...current, sealed });
+      this.notify();
+      return true;
+    } catch (error) {
+      return this.failPrivate(clientId, error);
     }
   }
 
@@ -547,12 +676,18 @@ export class Outbox {
     if (!(await this.sealFirst(clientId))) return;
     const delays = [1_000, 3_000, 10_000];
     for (let attempt = 0; attempt <= delays.length; attempt++) {
-      const item = this.items.get(clientId);
-      if (!item || this.disposed) return;
+      const first = this.items.get(clientId);
+      if (!first || this.disposed) return;
       const controller = new AbortController();
       this.controllers.add(controller);
       try {
-        if (item.files?.length) {
+        let item = first;
+        if (item.privateChat === true && item.files?.length) {
+          if (!(await this.sealPrivateFiles(clientId, controller.signal))) return;
+          const sealed = this.items.get(clientId);
+          if (!sealed) return;
+          item = sealed;
+        } else if (item.files?.length) {
           if (!this.upload) throw new Error('File upload unavailable');
           for (const file of item.files) {
             if (file.uploaded) continue;
@@ -568,7 +703,7 @@ export class Outbox {
             ...(item.sealed !== undefined && { sealed: item.sealed }),
             ...(item.voice && { voice: item.voice }),
             ...(item.files?.length && {
-              attachmentIds: item.files.map((file) => file.uploaded!.id),
+              attachmentIds: item.files.map((file) => (file.sealedUpload ?? file.uploaded)!.id),
             }),
             ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
           },
@@ -577,7 +712,9 @@ export class Outbox {
         this.reconcile(message);
         return;
       } catch (error) {
-        if (!this.items.has(clientId)) return;
+        // The newest state: files may have been uploaded and an envelope sealed this attempt.
+        const item = this.items.get(clientId);
+        if (!item) return;
         if (
           error instanceof ApiError &&
           error.code === 'reply_to_not_found' &&

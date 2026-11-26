@@ -3,6 +3,7 @@ import type { Agent, ThreadMessage } from '@twring/contracts';
 import { ApiError } from '../api/client';
 import { apiErrorCopy } from '../api/errors';
 import type { TrustedDevice } from './pairing';
+import type { SealedFileEntry } from './sealed-files';
 import type { OpenedMessage } from './sealed-thread';
 
 /**
@@ -110,6 +111,8 @@ export interface SealedBubble {
   /** False for "Couldn't open this message": no reply, copy or share. */
   opened: boolean;
   quote?: { from: string; text: string };
+  /** The message's photos and files, opened by `SealedAttachments`. */
+  files?: SealedFileEntry[];
   actions: ('reply' | 'copy' | 'share')[];
 }
 
@@ -140,12 +143,15 @@ export function sealedBubble(
   const found = opened.get(message.id);
   const own = message.author === 'user';
   if (found?.state !== 'ok') return { text: COULDNT_OPEN, own, opened: false, actions: [] };
+  const files = found.files !== undefined && found.files.length > 0 ? found.files : undefined;
   // A reply stopped before the agent said anything still ends with an empty final part.
-  if (!own && found.text.trim() === '' && found.quote === undefined) return undefined;
+  if (!own && found.text.trim() === '' && found.quote === undefined && files === undefined)
+    return undefined;
   return {
     text: found.text,
     own,
     opened: true,
+    ...(files !== undefined && { files }),
     ...(found.quote !== undefined && {
       quote: { from: found.quote.from === 'agent' ? agentName : 'You', text: found.quote.text },
     }),

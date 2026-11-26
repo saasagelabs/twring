@@ -190,6 +190,15 @@ describe('chat presentation', () => {
       "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
     );
   });
+  it('computer_update and private_unsent have copy', () => {
+    expect(messageStatus('failed', 'Hermes', 'private_unsent')).toBe(
+      "Didn't go through: the app closed before this was sent. Send it again.",
+    );
+    expect(messageStatus('failed', 'Hermes', 'computer_update')).toBe(
+      "Didn't go through: update Twring on your computer to send photos and files in a private chat.",
+    );
+    expect(messageStatus('failed', 'Hermes', 'private_files')).toContain('private chat yet');
+  });
   it('segments links, fences, bold, and leaves HTML as text', () => {
     expect(segmentText('Hi **bold** https://example.com <b>x</b>\n```ts\nlet x = 1\n```')).toEqual([
       { kind: 'text', value: 'Hi ' },

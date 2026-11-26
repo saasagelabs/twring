@@ -85,6 +85,11 @@ import {
   type RingSettings,
 } from '../ring/protocol';
 
+/** A sealed upload answers with the stored row only: no name, type or Attachment. */
+const sealedUploadResponseSchema = z.object({
+  file: z.object({ id: z.string().min(1).max(64), size_bytes: z.number().int().nonnegative() }),
+});
+
 /**
  * Why a Twring API request failed. Carries only the stable code and request id, never server text:
  * user copy comes from `apiErrorCopy`.
@@ -132,6 +137,12 @@ export interface TwringApi {
     file: { clientId: string; uri: string; name: string; mimeType: string },
     signal?: AbortSignal,
   ): Promise<Attachment>;
+  /** A private chat's file (ADR-045): already sealed, sent as raw bytes; the server sees no name or type. */
+  uploadSealedFile?(
+    agentId: string,
+    file: { clientId: string; bytes: Uint8Array },
+    signal?: AbortSignal,
+  ): Promise<{ id: string }>;
   listThreads(signal?: AbortSignal): Promise<{ threads: ThreadSummary[]; files: boolean }>;
   listMessages(
     agentId: string,
@@ -146,7 +157,12 @@ export interface TwringApi {
   /** A private chat's message (ADR-044): only the sealed body goes out, never the text. */
   sendSealedMessage?(
     agentId: string,
-    message: { clientId: string; sealed: SealedEnvelopeV1; replyTo?: string },
+    message: {
+      clientId: string;
+      sealed: SealedEnvelopeV1;
+      attachmentIds?: string[];
+      replyTo?: string;
+    },
     signal?: AbortSignal,
   ): Promise<ThreadMessage>;
   /** `PUT /v1/agents/:agentId/private { on: true }`; refusals keep their machine code. */
@@ -428,7 +444,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
   type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   type RequestInit = {
     body?: object;
-    rawBody?: Blob;
+    rawBody?: Blob | Uint8Array;
     contentType?: string;
     signal?: AbortSignal;
     timeoutMs?: number;
@@ -472,7 +488,8 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
             ...(init.contentType && { 'content-type': init.contentType }),
           },
           ...(init.body !== undefined && { body: JSON.stringify(init.body) }),
-          ...(init.rawBody !== undefined && { body: init.rawBody }),
+          // React Native's fetch sends a typed array as is; the DOM typings only know Blob.
+          ...(init.rawBody !== undefined && { body: init.rawBody as Blob }),
           ...(options.rejectRedirects === true && { redirect: 'error' as const }),
           signal: controller.signal,
         });
@@ -655,6 +672,19 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         }),
       ).file;
     },
+    async uploadSealedFile(agentId, file, signal) {
+      const query = new URLSearchParams({ client_id: file.clientId, sealed: '1' });
+      const result = parse(
+        sealedUploadResponseSchema,
+        await request('POST', `${agentPath(agentId)}/files?${query}`, {
+          rawBody: file.bytes,
+          contentType: 'application/octet-stream',
+          signal,
+          timeoutMs: 60_000,
+        }),
+      );
+      return { id: result.file.id };
+    },
     async listThreads(signal) {
       const result = parse(
         threadListResponseSchema,
@@ -699,6 +729,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
           body: {
             client_id: message.clientId,
             sealed: message.sealed,
+            ...(message.attachmentIds?.length && { attachment_ids: message.attachmentIds }),
             ...(message.replyTo !== undefined && { reply_to: message.replyTo }),
           },
           signal,

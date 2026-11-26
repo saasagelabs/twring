@@ -1,6 +1,12 @@
 import {
+  base64urlEncode,
+  fileAad,
+  MAX_FILE_BYTES,
   MAX_USER_MESSAGE_CHARS,
+  newFileKey,
+  sealFile,
   type SealedEnvelopeV1,
+  type SealedPayload,
   type ThreadMessage,
 } from '@twring/contracts';
 import { z } from 'zod';
@@ -46,7 +52,13 @@ import { readRewraps, type RewrapApi } from './rewrap';
  */
 
 /** Why a message could not be sealed; it then stays in the outbox as failed, never sent as text. */
-export type SealFailure = 'pair_again' | 'not_computer' | 'too_long' | 'seal_failed';
+export type SealFailure =
+  | 'pair_again'
+  | 'not_computer'
+  | 'too_long'
+  | 'seal_failed'
+  | 'file_too_large'
+  | 'unsupported_file_type';
 export class SealError extends Error {
   constructor(readonly code: SealFailure) {
     super(code);
@@ -259,7 +271,12 @@ export class PrivateChats {
    * Seals one message. The seq comes from the keychain counter and is saved there before the
    * post goes out (P3b ruling 2): a failed send uses a seq, never reuses one.
    */
-  async seal(agentId: string, text: string, quote?: PhoneQuote): Promise<SealedEnvelopeV1> {
+  async seal(
+    agentId: string,
+    text: string,
+    quote?: PhoneQuote,
+    files?: SealedPayload['files'],
+  ): Promise<SealedEnvelopeV1> {
     if (text.length > MAX_USER_MESSAGE_CHARS) throw new SealError('too_long');
     let ctx: PhoneSealContext | undefined;
     try {
@@ -287,8 +304,38 @@ export class PrivateChats {
     try {
       return sealOutgoing(
         { ...ctx, nextSeq: () => seq },
-        { text, ...(quote !== undefined && { quote }) },
+        {
+          text,
+          ...(quote !== undefined && { quote }),
+          ...(files !== undefined && files.length > 0 && { files }),
+        },
       );
+    } catch {
+      throw new SealError('seal_failed');
+    }
+  }
+
+  /**
+   * Seals one file's bytes with a fresh key before upload (ADR-045). The key goes into the
+   * message's payload, never to the server. A 0-byte or over-limit file is refused first.
+   */
+  async sealFileBytes(
+    agentId: string,
+    bytes: Uint8Array,
+  ): Promise<{ blob: Uint8Array; key: string }> {
+    if (bytes.length < 1) throw new SealError('unsupported_file_type');
+    if (bytes.length > MAX_FILE_BYTES) throw new SealError('file_too_large');
+    let ids: { accountId: string; agentId: string } | undefined;
+    try {
+      const address = await this.deps.addressOf(agentId);
+      ids = address === undefined ? undefined : aadIdsFor(address);
+    } catch {
+      throw new SealError('seal_failed');
+    }
+    if (ids === undefined) throw new SealError('seal_failed');
+    try {
+      const key = newFileKey();
+      return { blob: sealFile(key, bytes, fileAad(ids)), key: base64urlEncode(key) };
     } catch {
       throw new SealError('seal_failed');
     }
