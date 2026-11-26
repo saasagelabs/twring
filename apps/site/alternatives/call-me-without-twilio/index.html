@@ -71,7 +71,7 @@
      "name": "Can Claude Code call my phone without Twilio?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "Yes. Twring and agentring ring an app on your phone over the internet, so there is no phone number or carrier account. Twring works on iPhone and Android; agentring is on Android."
+      "text": "Yes. Twring and agentring ring an app on your phone over the internet, so there is no phone number or carrier account. Both have apps for iPhone and Android."
      }
     },
     {
@@ -147,7 +147,7 @@
 <h2>Ringing an app, with no phone number</h2>
 <ul>
   <li><strong>Twring</strong> (open source): a phone app for iPhone and Android. Claude Code, Codex, Hermes and AI apps can <a href="/agent-calls-you/">ring it</a> full screen, even on a locked phone. Answer and you're in a live call with that agent: your words go to it as text, and its own reply is spoken back. Free while it launches, by invite.</li>
-  <li><strong><a href="https://github.com/mutonby/agentring">agentring</a></strong> (Apache-2.0): rings its own Android app over the internet, with no phone number or Twilio. A realtime speech model does the talking and passes the conversation to your agent. Android only for now; hosted for free at agentring.io, or on your own server.</li>
+  <li><strong><a href="https://github.com/mutonby/agentring">agentring</a></strong> (Apache-2.0): rings its own app (Android and iPhone) over the internet, with no phone number or Twilio. A realtime speech model does the talking and passes the conversation to your agent. Hosted at agentring.io with a free plan, or on your own server. <a href="/vs/agentring/">Twring vs agentring</a>.</li>
 </ul>
 
 <h2>Just a notification</h2>
@@ -164,11 +164,11 @@
     <tr><td>Phone number or carrier account</td><td>Yes (Twilio or Telnyx)</td><td>No</td><td>No (only for its paid call feature)</td><td>No</td></tr>
     <tr><td>Talk back</td><td>Yes</td><td>Yes</td><td>No</td><td>Yes, a live call</td></tr>
     <tr><td>Who speaks for your agent</td><td>A speech service or realtime voice model</td><td>A realtime speech model</td><td>n/a</td><td>Your agent's own reply, read aloud</td></tr>
-    <tr><td>Phones</td><td>Any phone</td><td>Android</td><td>Its own app</td><td>Android and iPhone</td></tr>
-    <tr><td>Per-minute cost</td><td>Carrier and speech fees</td><td>Free hosted, or your server</td><td>Free; calls on paid plans</td><td>Free while it launches</td></tr>
+    <tr><td>Phones</td><td>Any phone</td><td>Android and iPhone</td><td>Its own app</td><td>Android and iPhone</td></tr>
+    <tr><td>Per-minute cost</td><td>Carrier and speech fees</td><td>Free hosted plan, or your own server</td><td>Free; calls on paid plans</td><td>Free while it launches</td></tr>
   </tbody>
 </table>
-<p>Facts about other products come from their own pages and READMEs as of 24 November 2026.</p>
+<p>Facts about other products come from their own pages and READMEs as of 24 November 2026 (agentring as of 26 November).</p>
 
 <h2>Which to pick</h2>
 <ul>
@@ -181,7 +181,7 @@
       <h2>Questions</h2>
     </div>
     <div class="faq faq-tight">
-      <details><summary>Can Claude Code call my phone without Twilio?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring and agentring ring an app on your phone over the internet, so there is no phone number or carrier account. Twring works on iPhone and Android; agentring is on Android.</p></div></details>
+      <details><summary>Can Claude Code call my phone without Twilio?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Yes. Twring and agentring ring an app on your phone over the internet, so there is no phone number or carrier account. Both have apps for iPhone and Android.</p></div></details>
       <details><summary>When is a real phone call better?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>When you want to reach a regular phone number without installing an app, or you already pay for a carrier account. Plugins like call-me, AgentComms and Better Call Claude do that.</p></div></details>
       <details><summary>What does a phone-network call cost?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>It depends on the carrier. As of October 2026, Twilio's US price for an outbound call was $0.0140 a minute, plus a monthly number. The call-me README estimates about $0.03 to $0.04 a minute in total with OpenAI speech.</p></div></details>
       <details><summary>Is a notification enough?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Often, yes. Remote Control can push a notification to the Claude app, and ntfy can push to your phone from a Claude Code hook. A ring is for the moments you must not miss, and lets you talk back.</p></div></details>
@@ -200,7 +200,7 @@
       <nav class="foot-links" aria-label="Footer">
         <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/blog/">Blog</a><a href="/#faq">FAQ</a></div>
         <div><b>Agents</b><span>Talk live</span><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><span>Rings and messages</span><a href="/connector/">Claude, ChatGPT and Grok Bot</a></div>
-        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
+        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
         <div><b>Contact</b><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a><a href="https://x.com/rishflips" rel="me">X: @rishflips</a></div>
         <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
       </nav>

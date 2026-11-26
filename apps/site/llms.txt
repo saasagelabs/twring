@@ -40,10 +40,14 @@ Twring is made by SaaSage Labs. It is free while it launches, and access is by i
 - [Why didn't my phone ring?](https://twring.com/support/phone-did-not-ring/): every check in order: Twring's Calls settings, notifications, quiet hours, same account, limits (6 rings an hour per agent), the computer and hooks
 - [Pricing](https://twring.com/pricing/): free while launching; daily calling-time limit; what you still pay others for; self-hosting charge later
 - [Compare](https://twring.com/compare/): how Twring compares with Remote Control, voice dictation, VoiceMode, call-me plugins, agentring and ntfy, by job
+- [Twring vs Codex in the ChatGPT app](https://twring.com/vs/codex-chatgpt-mobile/): OpenAI's iPhone app for typing to Codex and approving commands vs talking to the Codex CLI on any phone
+- [Twring vs agentring](https://twring.com/vs/agentring/): both ring an app with no phone number; agentring's voice AI talks for your agent, Twring lets you talk to your agent itself
+- [Twring vs ntfy](https://twring.com/vs/ntfy/): push notifications vs a full-screen ring you can answer and talk through
 - [Twring vs Claude Code Remote Control](https://twring.com/vs/claude-code-remote-control/): typing and steering your session (Remote Control) vs talking and getting rung (Twring)
 - [Claude Code voice mode alternatives](https://twring.com/alternatives/claude-code-voice-mode/): Claude Code has dictation, not a talking voice mode; VoiceMode at the desk, Twring on the phone
 - [Claude Code call-me alternatives](https://twring.com/alternatives/call-me-without-twilio/): phone-network plugins (call-me, AgentComms) vs app rings with no phone number (Twring, agentring)
 - [About](https://twring.com/about/): who makes Twring, the rules it is built on, open source, where it is listed
+- [Security](https://twring.com/security/): no call recordings, encrypted keys and chats, never runs your agent's tools, how to report a problem
 - [Privacy notice](https://twring.com/privacy): what Twring keeps and for how long
 - [Terms of service](https://twring.com/terms/)
 

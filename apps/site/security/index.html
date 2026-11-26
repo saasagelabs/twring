@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Twring security: no recordings, encrypted keys | Twring</title>
+<meta name="description" content="How Twring keeps your calls, keys and chats safe: no call recordings, encrypted keys and chats, and it never runs your agent's tools. How to report a problem.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/security/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://twring.com/security/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Twring security: no recordings, encrypted keys | Twring">
+<meta property="og:description" content="How Twring keeps your calls, keys and chats safe: no call recordings, encrypted keys and chats, and it never runs your agent's tools. How to report a problem.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=10">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebPage",
+   "@id": "https://twring.com/security/#page",
+   "url": "https://twring.com/security/",
+   "name": "Security at Twring",
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "dateModified": "2026-11-26",
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Security",
+      "item": "https://twring.com/security/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/security/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "Does Twring record my calls?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring listens only while a call is on, and never records or keeps your audio or a transcript of the call."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Can Twring run commands on my computer?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "No. Twring never runs your agent's tools. Your words reach your agent as text, and your agent decides what to do under its own permissions."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How are my keys stored?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Encrypted on the Twring server with AES-256-GCM. They're never shown again and never written to logs."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How do I delete my data?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "In Twring, open Settings and tap Delete my data."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "How do I report a security problem?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Email support@twring.com with \"Security\" in the subject. We reply within 2 working days."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+<article class="wrap">
+    <p class="post-meta">Updated <time datetime="2026-11-26">26 November 2026</time></p>
+    <h1>Security at Twring</h1>
+    <p class="lead">Twring handles the voice between you and your agent, and nothing more. It doesn't record your calls, it stores keys and chats encrypted, and it never runs your agent's tools: your agent keeps its own permissions and decides what it does. The <a href="/privacy">privacy notice</a> lists everything Twring keeps.</p>
+
+    <div class="prose">
+<h2>Your calls</h2>
+<ul>
+  <li><strong>No recordings.</strong> Twring listens only while a call is on, and never records or keeps your audio. It keeps no transcript of what was said on a call either: a call shows in your chat as a card with its time, length and outcome.</li>
+  <li><strong>Speech services.</strong> Call audio goes to a speech service (Deepgram) to become text, and your agent's reply goes to it to become speech. If you add your own xAI key, xAI does this for your calls only.</li>
+  <li><strong>No double sends.</strong> If the network drops, Twring doesn't re-send your words to your agent, so a risky action is never run twice because of a reconnect.</li>
+</ul>
+
+<h2>Your agent</h2>
+<ul>
+  <li><strong>Twring never runs your agent's tools.</strong> Your words reach your agent as text, the same as if you had typed. Your agent keeps its own model, memory, tools and permissions.</li>
+  <li><strong>Careful defaults on your computer.</strong> On a call, Claude Code can read your files but not change them, unless you add <code>--claude-allow-edits</code>. Codex runs in a read-only sandbox unless you add <code>--codex-sandbox workspace-write</code>.</li>
+  <li><strong>Nothing secret written down.</strong> The short guide Twring gives your agent tells it to write down what you ask for on a call, but never passwords or keys.</li>
+</ul>
+
+<h2>Your keys and data</h2>
+<ul>
+  <li><strong>Keys are encrypted.</strong> An agent's key, and any speech account key you add, is encrypted on the Twring server (AES-256-GCM), never shown again and never logged.</li>
+  <li><strong>Chats and files are encrypted.</strong> Messages and files are stored encrypted on the Twring server, and only your account can read them. Photos have their location data removed on your phone before they're sent.</li>
+  <li><strong>Only you.</strong> Your agents, chats and calls are tied to your account, and only you can see and call your agents.</li>
+  <li><strong>Sign-in.</strong> You sign in with Google, or Apple on iPhone. Twring never sees your password.</li>
+  <li><strong>Logs leave secrets out.</strong> Keys, tokens and web address query strings are removed from logs and crash reports.</li>
+  <li><strong>Delete any time.</strong> Delete my data in the app's Settings removes your data.</li>
+</ul>
+
+<h2>Open source, and your own server</h2>
+<p>The source is public on <a href="https://github.com/saasagelabs/twring">GitHub</a>: the app and the computer tool are Apache-2.0, and the server, relay and self-host kit are AGPL-3.0. If you'd rather keep chats, files and agents on your own machine, <a href="/self-hosting/">run Twring on your own server</a>.</p>
+
+<h2>Report a security problem</h2>
+<p>Email <a href="mailto:support@twring.com">support@twring.com</a> with "Security" in the subject, and please don't open a public issue. Tell us what you found, how to reproduce it and what it affects. We reply within 2 working days, keep you posted until it's fixed, and credit you once a fix is out if you'd like.</p>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>Does Twring record my calls?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio or a transcript of the call.</p></div></details>
+      <details><summary>Can Twring run commands on my computer?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring never runs your agent's tools. Your words reach your agent as text, and your agent decides what to do under its own permissions.</p></div></details>
+      <details><summary>How are my keys stored?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Encrypted on the Twring server with AES-256-GCM. They're never shown again and never written to logs.</p></div></details>
+      <details><summary>How do I delete my data?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>In Twring, open Settings and tap Delete my data.</p></div></details>
+      <details><summary>How do I report a security problem?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Email support@twring.com with "Security" in the subject. We reply within 2 working days.</p></div></details>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div class="foot-brand">
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the AI agents you already run. Let them ring you when it matters.</p>
+        <a class="foot-cta" href="/beta/">Get an invite</a>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/blog/">Blog</a><a href="/#faq">FAQ</a></div>
+        <div><b>Agents</b><span>Talk live</span><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><span>Rings and messages</span><a href="/connector/">Claude, ChatGPT and Grok Bot</a></div>
+        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
+        <div><b>Contact</b><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a><a href="https://x.com/rishflips" rel="me">X: @rishflips</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by <a href="https://x.com/rishflips" rel="me">Rish</a> at <a href="https://saasage.in">SaaSage Labs</a>. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>
