@@ -56,6 +56,17 @@ describe('the Private label (Task 24)', () => {
     expect(labelFor({ private: false, messages: [sealedOk()] })).toBeUndefined();
   });
 
+  it('counts readable messages the server reports outside the loaded page', () => {
+    const sealedPage = [sealedOk(), sealedOk()];
+    expect(labelFor({ private: true, messages: sealedPage, readableMessages: true })!.text).toBe(
+      'Private, except messages marked as sent through Twring',
+    );
+    // An older server leaves the flag out: the loaded page decides, as before.
+    expect(labelFor({ private: true, messages: sealedPage })!.text).toBe(
+      'Private: only your phone and your computer can read this',
+    );
+  });
+
   it('never shows the label for an AI app agent', () => {
     expect(labelFor({ private: false, messages: [] })).toBeUndefined();
   });

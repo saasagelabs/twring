@@ -1,7 +1,8 @@
 import type { ThreadMessage } from '@twring/contracts';
-import { File, Paths } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 
+import { CHAT_EXPORT_FOLDER } from './sealed-file-cache';
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import {
   collectThread,
@@ -46,8 +47,12 @@ export async function exportChat(
     }),
   });
   if (options.signal.aborted) return { capped };
-  const file = new File(Paths.cache, exportFileName(agent.name, now));
+  // Its own folder: the start-up sweep, sign-out and removing this phone delete what a killed
+  // share sheet leaves behind.
+  const folder = new Directory(Paths.cache, CHAT_EXPORT_FOLDER);
+  const file = new File(folder, exportFileName(agent.name, now));
   try {
+    if (!folder.exists) folder.create({ intermediates: true, idempotent: true });
     if (file.exists) file.delete();
     file.write(markdown);
     await Sharing.shareAsync(file.uri, {

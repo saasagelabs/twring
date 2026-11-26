@@ -220,7 +220,11 @@ export default function ChatScreen() {
     () => (chat.opened ? new Map(chat.opened.map((entry) => [entry.id, entry])) : undefined),
     [chat.opened],
   );
-  const privateLabel = labelFor({ private: chat.private, messages });
+  const privateLabel = labelFor({
+    private: chat.private,
+    messages,
+    readableMessages: chat.readableMessages,
+  });
   // The read marker as the chat opened: later reads move it, but the divider stays put.
   const [openedReadSeq] = useState(
     () =>

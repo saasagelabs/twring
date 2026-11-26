@@ -471,6 +471,30 @@ describe('push registration', () => {
     );
   });
 
+  it('retries a failed sign-out unregister on the next start while still signed out', async () => {
+    const { deps, registration } = setup();
+    let pending: string | null = null;
+    deps.getPendingDeviceId.mockImplementation(() => Promise.resolve(pending));
+    deps.setPendingDeviceId.mockImplementation((id) => {
+      pending = id;
+      return Promise.resolve();
+    });
+    await registration.signedIn('user-1');
+    deps.unregister.mockRejectedValueOnce(new Error('offline'));
+    await registration.signedOut();
+    expect(pending).toBe('dev_1');
+    // The next app start, nobody signed in: the app reports signed out again.
+    const next = new PushRegistration(deps);
+    await next.signedOut();
+    expect(deps.unregister).toHaveBeenCalledTimes(2);
+    expect(deps.unregister).toHaveBeenLastCalledWith('dev_1');
+    expect(pending).toBeNull();
+    expect(deps.setRingAccount).toHaveBeenLastCalledWith(null);
+    // Nothing pending: a later signed-out start sends nothing.
+    await next.signedOut();
+    expect(deps.unregister).toHaveBeenCalledTimes(2);
+  });
+
   it('does nothing without Firebase, and a failed register is retried next time', async () => {
     const none = setup(null);
     await none.registration.signedIn('user-1');

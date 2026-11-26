@@ -2,7 +2,12 @@
 import type { ThreadMessage } from '@twring/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const fs = vi.hoisted(() => ({ files: new Set<string>(), writes: 0, failWrite: false }));
+const fs = vi.hoisted(() => ({
+  files: new Set<string>(),
+  dirs: new Set<string>(),
+  writes: 0,
+  failWrite: false,
+}));
 const sharing = vi.hoisted(() => ({
   available: true,
   shareAsync: vi.fn<(uri: string) => Promise<void>>(async () => undefined),
@@ -10,10 +15,22 @@ const sharing = vi.hoisted(() => ({
 
 vi.mock('expo-file-system', () => ({
   Paths: { cache: 'cache' },
-  File: class {
+  Directory: class {
     uri: string;
     constructor(dir: string, name: string) {
       this.uri = `${dir}/${name}`;
+    }
+    get exists() {
+      return fs.dirs.has(this.uri);
+    }
+    create() {
+      fs.dirs.add(this.uri);
+    }
+  },
+  File: class {
+    uri: string;
+    constructor(dir: string | { uri: string }, name: string) {
+      this.uri = `${typeof dir === 'string' ? dir : dir.uri}/${name}`;
     }
     get exists() {
       return fs.files.has(this.uri);
@@ -166,6 +183,8 @@ describe('exportChat', () => {
     const signal = new AbortController().signal;
     await exportChat(api, agent, { signal, onProgress: vi.fn() });
     expect(fs.files.size).toBe(0);
+    // Its own folder, so a start-up sweep or sign-out removes one left by a killed share sheet.
+    expect(sharing.shareAsync.mock.calls[0][0]).toMatch(/^cache\/chat-export\/[^/]+\.md$/);
     sharing.shareAsync.mockRejectedValueOnce(new Error('sheet failed'));
     await expect(exportChat(api, agent, { signal, onProgress: vi.fn() })).rejects.toThrow();
     expect(fs.files.size).toBe(0);

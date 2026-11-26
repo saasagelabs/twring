@@ -97,15 +97,17 @@ export function serverReadable(message: ThreadMessage): boolean {
  * The header label of a chat, or undefined. Only a private chat gets one (never an AI app), and
  * it claims "only your phone and your computer" only while no message there was server-readable.
  * Calls, rings, approvals and notices are cards, not messages, and do not change it.
+ * `readableMessages` is the server's word for the whole chat, so older messages not loaded yet
+ * count too; an older server leaves it out and the loaded messages decide.
  */
 export function labelFor(input: {
   private: boolean;
   messages: readonly ThreadMessage[];
+  readableMessages?: boolean;
 }): { text: string } | undefined {
   if (!input.private) return undefined;
-  return {
-    text: input.messages.some(serverReadable) ? PRIVATE_LABEL_EXCEPT : PRIVATE_LABEL,
-  };
+  const readable = input.readableMessages === true || input.messages.some(serverReadable);
+  return { text: readable ? PRIVATE_LABEL_EXCEPT : PRIVATE_LABEL };
 }
 
 export interface SealedBubble {

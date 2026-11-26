@@ -117,7 +117,15 @@ export class PushRegistration {
     this.cancelRetry();
     this.deps.setRingAccount(null);
     return this.run(async () => {
-      if (!wasActive) return;
+      if (!wasActive) {
+        // App start while signed out: a sign-out whose unregister failed is tried again, so the
+        // server stops sending the old account's alerts to this phone.
+        const pending = await this.deps.getPendingDeviceId();
+        if (pending === null) return;
+        await this.deps.unregister(pending);
+        await this.deps.setPendingDeviceId(null);
+        return;
+      }
       this.registeredToken = undefined;
       this.registeredAlert = undefined;
       const id = await this.deps.deviceId();

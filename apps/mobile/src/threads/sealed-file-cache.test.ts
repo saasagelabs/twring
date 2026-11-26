@@ -162,6 +162,22 @@ describe('opening sealed files (ADR-045)', () => {
     expect([...fs.entries.keys()].filter((key) => key.includes('sealed-files'))).toEqual([]);
   });
 
+  it('clearSealedFiles removes a chat export left by a killed share sheet', async () => {
+    fs.entries.set('cache/chat-export', 'folder');
+    fs.entries.set('cache/chat-export/Hermes-chat-2026-11-27.md', { bytes: plain });
+    await clearSealedFiles();
+    expect([...fs.entries.keys()].filter((key) => key.includes('chat-export'))).toEqual([]);
+  });
+
+  it('the first sweep of a process removes a leftover chat export', async () => {
+    vi.resetModules();
+    const fresh = await import('./sealed-file-cache');
+    fs.entries.set('cache/chat-export', 'folder');
+    fs.entries.set('cache/chat-export/Hermes-chat-2026-11-26.md', { bytes: plain });
+    await fresh.sweepShareCopiesOnce();
+    expect([...fs.entries.keys()].filter((key) => key.includes('chat-export'))).toEqual([]);
+  });
+
   it('a clear during a download leaves nothing on disk', async () => {
     const file = entry('fil_gggggggggggggggggggg');
     let release: () => void = () => undefined;
