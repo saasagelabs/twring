@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { RELAY_CLOSE } from '@twring/contracts';
+import { RELAY_CLOSE, type SealedPayload } from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { WebSocketServer } from 'ws';
 
+import { openIncoming } from './e2e/sealed';
+import { pairedFixture } from './e2e/test-fixtures';
 import { deleteConfigIfOwned, saveConfig, type ConnectorConfig } from './config';
 import { readStatus } from './service';
 
@@ -191,6 +193,96 @@ describe('cord-connect', () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toBe("Storage is full: the owner's file space is used up.\n");
     expect(requests).toHaveLength(1);
+  }, 30_000);
+
+  /** A gateway for a private chat: plain uploads and plain posts are refused, sealed ones kept. */
+  async function privateGateway() {
+    const requests: {
+      url: string;
+      headers: Record<string, string | string[] | undefined>;
+      body: Buffer;
+    }[] = [];
+    const server = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const body = Buffer.concat(chunks);
+        requests.push({ url: req.url ?? '', headers: req.headers, body });
+        const isUpload = req.url?.startsWith('/v1/connectors/files') === true;
+        const sealedUpload = req.url?.includes('sealed=1') === true;
+        if (isUpload && !sealedUpload) {
+          res.writeHead(409, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'seal_required', message: 'private' } }));
+        } else if (isUpload) {
+          res.writeHead(201, { 'content-type': 'application/json' });
+          const n = requests.filter((request) => request.url.includes('sealed=1')).length;
+          res.end(
+            JSON.stringify({
+              file: {
+                id: `fil_${String.fromCharCode(96 + n).repeat(20)}`,
+                size_bytes: body.length,
+              },
+            }),
+          );
+        } else if (body.toString('utf8').includes('"sealed"')) {
+          res.writeHead(201, { 'content-type': 'application/json' });
+          res.end('{}');
+        } else {
+          res.writeHead(409, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error: { code: 'seal_required', message: 'private' } }));
+        }
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    return { url: `http://localhost:${(server.address() as AddressInfo).port}`, requests };
+  }
+
+  it('message --file into a private chat: the plain upload gets seal_required and every file is sealed', async () => {
+    const dir = await tempDir();
+    const gateway = await privateGateway();
+    const fixture = pairedFixture('echo');
+    await saveConfig(join(dir, 'config.json'), {
+      ...config(gateway.url, dir, fixture.config.connector_id),
+      e2e: fixture.e2e(),
+    });
+    const first = join(dir, 'first.txt');
+    const second = join(dir, 'second.txt');
+    await writeFile(first, 'plain-one');
+    await writeFile(second, 'plain-two');
+    const result = await runCli(dir, ['message', '--file', first, '--file', second, 'Caption']);
+    expect(result.code).toBe(0);
+    const plain = gateway.requests.filter(
+      (request) =>
+        request.url.startsWith('/v1/connectors/files') && !request.url.includes('sealed=1'),
+    );
+    // Only the one refused try was plain; it stored nothing and carried the mark.
+    expect(plain).toHaveLength(1);
+    expect(plain[0]!.headers['twring-can-seal']).toBe('1');
+    const sealedUploads = gateway.requests.filter((request) => request.url.includes('sealed=1'));
+    expect(sealedUploads).toHaveLength(2);
+    for (const upload of sealedUploads) {
+      expect(upload.body.includes('plain-')).toBe(false);
+      expect(upload.url).not.toContain('name=');
+    }
+    const message = gateway.requests.at(-1)!;
+    expect(message.url).toBe('/v1/connectors/messages');
+    expect(message.headers['idempotency-key']).toMatch(/:sealed$/);
+    expect(message.body.includes('Caption')).toBe(false);
+    const body = JSON.parse(message.body.toString('utf8')) as {
+      sealed: Parameters<typeof openIncoming>[1][];
+      file_ids: string[];
+      text?: string;
+    };
+    expect(body.text).toBeUndefined();
+    expect(body.file_ids).toEqual([`fil_${'a'.repeat(20)}`, `fil_${'b'.repeat(20)}`]);
+    const opened = openIncoming(
+      { ...fixture.phoneCtx, accountId: fixture.config.connector_id },
+      body.sealed[0]!,
+    );
+    const payload = (opened as { payload: SealedPayload }).payload;
+    expect(payload.text).toBe('Caption');
+    expect(payload.files?.map((file) => file.name)).toEqual(['first.txt', 'second.txt']);
   }, 30_000);
 
   it('sends shared: true on the claim only with --shared', async () => {

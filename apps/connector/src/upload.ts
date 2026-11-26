@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname } from 'node:path';
 
 import {
+  CAN_SEAL_HEADER,
   MAX_FILE_BYTES,
   SEALED_FILE_OVERHEAD,
   errorResponseSchema,
@@ -32,6 +33,11 @@ const sealedUploadResponseSchema = z.object({
   file: z.object({ id: fileIdSchema, size_bytes: z.number().int().nonnegative() }),
 });
 
+/** The file type a name's extension stands for, or undefined when Twring cannot send it. */
+export function mimeForName(name: string): FileMimeType | undefined {
+  return TYPES[extname(name).toLowerCase()];
+}
+
 export class UploadError extends Error {
   constructor(
     readonly code: string,
@@ -57,6 +63,11 @@ export interface UploadFileOptions {
    * name and no type, so the gateway learns neither. Its limit is the file limit plus the seal.
    */
   sealed?: true;
+  /**
+   * A plain upload that tells the gateway this connector can seal: a private chat refuses it with
+   * `seal_required` (stores nothing) instead of keeping the file readable.
+   */
+  canSeal?: true;
   clientId: string;
   signal?: AbortSignal;
   fetch?: typeof fetch;
@@ -112,6 +123,7 @@ export async function uploadFile(options: UploadFileOptions): Promise<string> {
       method: 'POST',
       headers: {
         authorization: `Bearer ${options.token}`,
+        ...(options.canSeal === true && options.sealed !== true && { [CAN_SEAL_HEADER]: '1' }),
         'content-type':
           parsedType.success && options.sealed !== true
             ? parsedType.data
