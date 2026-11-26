@@ -49,12 +49,14 @@ async function waitFor(check: () => boolean | Promise<boolean>, ms = 3_000): Pro
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Wide margins: frames come far faster than the limit, and silence is waited out well past it.
+const IDLE_MS = 600;
 const ALL = [SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE, SEALED_WORKING_FEATURE];
 const UNKNOWN_TURN = `msg_${'z'.repeat(20)}`;
 
 async function privateThread(features: string[] = ALL) {
   const g = await startConnectorGateway({
-    threads: { privateIdleMs: 200, sweepIntervalMs: 20 },
+    threads: { privateIdleMs: IDLE_MS, sweepIntervalMs: 20 },
     ring: {},
     env: FLAG_ON,
   });
@@ -118,9 +120,9 @@ describe('private turn silence', () => {
     const t = await privateThread();
     const m = await t.post();
     await waitFor(() => t.connector.sealed.length === 1);
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 15; i++) {
       t.working(t.connector, m.id);
-      await sleep(100);
+      await sleep(60);
     }
     expect(await t.statusOf(m.id)).toBe('sent');
     t.reply(t.connector, m.id, true);
@@ -131,7 +133,7 @@ describe('private turn silence', () => {
     const t = await privateThread([SEALED_CHAT_FEATURE, SEALED_CANCEL_FEATURE]);
     const m = await t.post();
     await waitFor(() => t.connector.sealed.length === 1);
-    await sleep(700);
+    await sleep(IDLE_MS + 400);
     expect(await t.statusOf(m.id)).toBe('sent');
   });
 
@@ -148,7 +150,16 @@ describe('private turn silence', () => {
     const m = await t.post();
     await waitFor(async () => (await t.statusOf(m.id)) === 'interrupted');
     t.working(t.connector, m.id);
-    await waitFor(async () => (await t.statusOf(m.id)) === 'working');
+    // Seen on the phone socket: a poll of the live status could land after the turn idled again.
+    await waitFor(() =>
+      t.g.threadFrames.some(
+        (f) =>
+          f.frame.type === 'message.upserted' &&
+          f.frame.message.kind === 'sealed' &&
+          f.frame.message.id === m.id &&
+          f.frame.message.status === 'working',
+      ),
+    );
   });
 
   it("a working frame for another agent's or account's turn changes nothing and keeps the socket", async () => {
@@ -168,7 +179,7 @@ describe('private turn silence', () => {
     const m = await t.post();
     await waitFor(() => t.connector.sealed.length === 1);
     expect((await t.stop(m.id)).statusCode).toBe(200);
-    await sleep(700);
+    await sleep(IDLE_MS + 400);
     expect(await t.statusOf(m.id)).toBe('stopped');
   });
 });
