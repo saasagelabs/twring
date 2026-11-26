@@ -197,6 +197,35 @@ describe('sealed photos and files from the phone', () => {
     ]);
   });
 
+  it('a retry after a lost upload response reuses the first key', async () => {
+    const t = await setup();
+    // The gateway stores the first blob and dedupes the retry to it, but the response is lost.
+    t.api.uploadSealedFile.mockImplementationOnce(
+      (_a: string, file: { clientId: string; bytes: Uint8Array }) => {
+        t.uploads.push(file);
+        return Promise.reject(new ApiError('network'));
+      },
+    );
+    t.api.uploadSealedFile.mockImplementationOnce(
+      (_a: string, file: { clientId: string; bytes: Uint8Array }) => {
+        t.uploads.push(file);
+        return Promise.resolve({ id: `fil_${'a'.repeat(19)}1` });
+      },
+    );
+    t.controller.sendFiles(privateAgent, 'look', [PHOTO]);
+    await vi.waitFor(() => expect(t.posts).toHaveLength(1), { timeout: 5000 });
+    expect(t.uploads).toHaveLength(2);
+    // The retry sent the same blob, so the envelope's key opens the first (stored) one.
+    expect(Buffer.from(t.uploads[1].bytes).equals(Buffer.from(t.uploads[0].bytes))).toBe(true);
+    const payload = openPayloadAsComputer(t.posts[0].sealed, t.me.publicKey);
+    const opened = openFile(
+      base64urlDecode(payload.files![0].key),
+      t.uploads[0].bytes,
+      fileAad({ accountId: ACCOUNT, agentId: LOCAL }),
+    );
+    expect(Buffer.from(opened).equals(Buffer.from(PLAIN))).toBe(true);
+  });
+
   it('a 0-byte or over-10 MB file is refused before sealing', async () => {
     const t = await setup();
     t.controller.sendFiles(privateAgent, '', [{ ...PHOTO, sizeBytes: 0 }]);

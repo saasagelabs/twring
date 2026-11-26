@@ -17,7 +17,8 @@ vi.mock('expo-file-system', () => {
       return state.entries.has(this.path);
     }
     create() {
-      state.entries.add(this.path);
+      const parts = this.path.split('/');
+      for (let i = 1; i <= parts.length; i++) state.entries.add(parts.slice(0, i).join('/'));
     }
     delete() {
       for (const key of [...state.entries])
@@ -49,6 +50,7 @@ vi.mock('expo-sharing', () => ({
   },
 }));
 
+import { clearSealedFiles } from './sealed-file-cache';
 import { shareName, shareSealedFile } from './share-sealed-file';
 
 beforeEach(() => {
@@ -58,25 +60,33 @@ beforeEach(() => {
 });
 
 describe('sharing opened files', () => {
-  it('sharing a sealed PDF uses its name with an extension and removes the copy', async () => {
+  it('a share copy stays after the share and is removed by the next share', async () => {
     await shareSealedFile('file://cache/sealed-files/fil_x', {
       name: 'plan',
       mime: 'application/pdf',
     });
     expect(state.shared).toHaveLength(1);
-    expect(state.shared[0].uri).toMatch(/\/plan\.pdf$/);
+    expect(state.shared[0].uri).toMatch(/plan.pdf$/);
     expect(state.shared[0].mime).toBe('application/pdf');
     expect(state.shared[0].existedWhenShared).toBe(true);
-    expect([...state.entries]).toEqual([]);
+    // Still there: a slow receiver may be reading it.
+    const first = state.shared[0].uri.replace('file://', '');
+    expect(state.entries.has(first)).toBe(true);
+    await shareSealedFile('file://cache/sealed-files/fil_y', { name: 'b', mime: 'text/plain' });
+    expect(state.entries.has(first)).toBe(false);
+    expect(state.shared[1].uri).toMatch(/b.txt$/);
+    expect(state.entries.has(state.shared[1].uri.replace('file://', ''))).toBe(true);
   });
 
-  it('removes the copy when the share fails, and keeps an extension the name has', async () => {
-    state.failShare = true;
-    await expect(
-      shareSealedFile('file://cache/x', { name: 'a/b.png', mime: 'image/png' }),
-    ).rejects.toThrow();
-    expect([...state.entries]).toEqual([]);
+  it('keeps an extension the name has, cleans path characters, and leaves a cancelled share sweepable', () => {
     expect(shareName('a/b.png', 'image/png')).toBe('a_b.png');
     expect(shareName('..', 'application/pdf')).toBe('file.pdf');
+  });
+
+  it('clearSealedFiles removes share copies', async () => {
+    await shareSealedFile('file://cache/x', { name: 'a', mime: 'text/csv' });
+    expect([...state.entries].some((key) => key.includes('sealed-share'))).toBe(true);
+    await clearSealedFiles();
+    expect([...state.entries].filter((key) => key.includes('sealed-share'))).toEqual([]);
   });
 });

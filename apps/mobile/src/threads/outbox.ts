@@ -168,6 +168,13 @@ export const systemTimers: OutboxTimers = {
 
 export class Outbox {
   private readonly items = new Map<string, PendingMessage>();
+  /**
+   * A private file sealed once, by the file's client id, until its upload succeeds. The gateway
+   * keeps the first blob it stored for a client id, so a retry must send that same blob and key
+   * (a new key would name a file the computer cannot open). Memory only: after a restart the
+   * item becomes `private_unsent`.
+   */
+  private readonly sealedBlobs = new Map<string, { blob: Uint8Array; key: string }>();
   private readonly waits = new Set<() => void>();
   private readonly controllers = new Set<AbortController>();
   private readonly store?: JsonStore;
@@ -277,11 +284,16 @@ export class Outbox {
     void this.attempt(clientId);
   }
 
+  private dropSealedBlobs(item: PendingMessage): void {
+    for (const file of item.files ?? []) this.sealedBlobs.delete(file.clientId);
+  }
+
   /** Removes a failed message from this phone only (it never reached the server), with its files. */
   discard(clientId: string): void {
     const item = this.items.get(clientId);
     if (!item || item.state !== 'failed') return;
     this.items.delete(clientId);
+    this.dropSealedBlobs(item);
     if (item.voice) this.removeFile(item.voice.uri);
     for (const file of item.files ?? []) this.removeFile(file.uri);
     this.notify();
@@ -293,6 +305,7 @@ export class Outbox {
     const item = this.items.get(message.client_id);
     if (item?.agentId === message.agent_id) {
       this.items.delete(message.client_id);
+      this.dropSealedBlobs(item);
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
       this.notify();
@@ -310,6 +323,7 @@ export class Outbox {
       for (const file of item.files ?? []) this.removeFile(file.uri);
     }
     this.items.clear();
+    this.sealedBlobs.clear();
     this.changed();
     const store = this.store;
     if (store) await this.saving.then(() => store.remove()).catch(() => undefined);
@@ -325,6 +339,7 @@ export class Outbox {
     this.stopWork();
     const writing = loaded ? this.write() : this.saving;
     this.items.clear();
+    this.sealedBlobs.clear();
     this.changed();
     await writing;
   }
@@ -337,6 +352,7 @@ export class Outbox {
     for (const item of [...this.items.values()]) {
       if (item.agentId !== agentId) continue;
       this.items.delete(item.clientId);
+      this.dropSealedBlobs(item);
       if (item.voice) this.removeFile(item.voice.uri);
       for (const file of item.files ?? []) this.removeFile(file.uri);
     }
@@ -547,17 +563,21 @@ export class Outbox {
     }
     for (const file of item.files) {
       if (file.sealedUpload !== undefined) continue;
-      let sealedFile: { blob: Uint8Array; key: string };
-      try {
-        sealedFile = await sealer.sealFile(item.agentId, file);
-      } catch (error) {
-        return this.failPrivate(clientId, error);
+      let sealedFile = this.sealedBlobs.get(file.clientId);
+      if (sealedFile === undefined) {
+        try {
+          sealedFile = await sealer.sealFile(item.agentId, file);
+        } catch (error) {
+          return this.failPrivate(clientId, error);
+        }
+        this.sealedBlobs.set(file.clientId, sealedFile);
       }
       const uploaded = await sealer.uploadSealed(
         item.agentId,
         { clientId: file.clientId, bytes: sealedFile.blob },
         signal,
       );
+      this.sealedBlobs.delete(file.clientId);
       if (!this.items.has(clientId)) return false;
       file.sealedUpload = { id: uploaded.id, key: sealedFile.key };
       this.notify();

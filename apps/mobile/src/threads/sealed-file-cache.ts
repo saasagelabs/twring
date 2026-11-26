@@ -7,6 +7,8 @@ import { base64urlDecode, fileAad, openFile, type SealedPayload } from '@twring/
  * blob, opened with the key inside the sealed message and kept here.
  */
 const CACHE_FOLDER = 'sealed-files';
+/** Named copies made for the share sheet, each in its own folder under this one. */
+export const SHARE_FOLDER = 'sealed-share';
 
 /** The phone's reading and copying of local files, replaceable in tests. */
 export interface SealedFiles {
@@ -96,6 +98,7 @@ async function openOnce(
 ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
   // A name from the server never reaches a path unless it is exactly a file id.
   if (!FILE_ID.test(file.file_id)) return { error: 'couldnt_open' };
+  await sweepShareCopiesOnce();
   const started = generation;
   const { Directory, File, Paths } = await import('expo-file-system');
   const folder = new Directory(Paths.cache, CACHE_FOLDER);
@@ -135,10 +138,33 @@ async function openOnce(
   }
 }
 
+let sweptThisProcess = false;
+
+/**
+ * Deletes every share copy. A copy outlives its share (a slow receiver may still be reading it),
+ * so the next share, a clear and the first open or share of a process remove them.
+ */
+export async function removeShareCopies(): Promise<void> {
+  sweptThisProcess = true;
+  try {
+    const { Directory, Paths } = await import('expo-file-system');
+    const folder = new Directory(Paths.cache, SHARE_FOLDER);
+    if (folder.exists) folder.delete();
+  } catch {
+    /* the OS clears the cache anyway */
+  }
+}
+
+/** Start-up cleanup without a start-up hook: the first open or share of the process. */
+export function sweepShareCopiesOnce(): Promise<void> {
+  return sweptThisProcess ? Promise.resolve() : removeShareCopies();
+}
+
 /** Sign-out, removing this phone and clearing a chat: no opened file stays behind. */
 export async function clearSealedFiles(): Promise<void> {
   generation += 1;
   inFlight.clear();
+  await removeShareCopies();
   try {
     const { Directory, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.cache, CACHE_FOLDER);

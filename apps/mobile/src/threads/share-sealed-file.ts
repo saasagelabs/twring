@@ -1,6 +1,7 @@
 import * as Sharing from 'expo-sharing';
 
 import { displayFileName } from '../e2e/sealed-files';
+import { removeShareCopies, SHARE_FOLDER } from './sealed-file-cache';
 
 /** Extensions for the types a private chat shows, so the receiving app sees a real file name. */
 const EXTENSIONS: Record<string, string> = {
@@ -29,27 +30,26 @@ export function shareName(name: string, mime: string): string {
 
 /**
  * Shares an opened file under its own name: the cache is keyed by file id, so a named copy is
- * made for the share sheet and always removed afterwards (also on error or cancel).
+ * made for the share sheet. The copy stays after the share (on Android the sheet can resolve
+ * before a slow receiver has read it); earlier copies go first, and a clear or the next start
+ * removes the rest.
  */
 export async function shareSealedFile(
   uri: string,
   file: { name: string; mime: string },
 ): Promise<void> {
+  await removeShareCopies();
   const { Directory, File, Paths } = await import('expo-file-system');
-  const folder = new Directory(Paths.cache, `sealed-share-${Date.now().toString(36)}`);
-  try {
-    folder.create({ intermediates: true, idempotent: true });
-    const copy = new File(folder, shareName(file.name, file.mime));
-    await new File(uri).copy(copy);
-    await Sharing.shareAsync(copy.uri, {
-      mimeType: file.mime,
-      dialogTitle: displayFileName(file.name),
-    });
-  } finally {
-    try {
-      if (folder.exists) folder.delete();
-    } catch {
-      /* the cache is cleared by the OS anyway */
-    }
-  }
+  const random = Math.random().toString(36).slice(2, 10);
+  const folder = new Directory(
+    new Directory(Paths.cache, SHARE_FOLDER),
+    `${Date.now().toString(36)}-${random}`,
+  );
+  folder.create({ intermediates: true, idempotent: true });
+  const copy = new File(folder, shareName(file.name, file.mime));
+  await new File(uri).copy(copy);
+  await Sharing.shareAsync(copy.uri, {
+    mimeType: file.mime,
+    dialogTitle: displayFileName(file.name),
+  });
 }

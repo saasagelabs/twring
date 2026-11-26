@@ -350,6 +350,44 @@ describe('sealed files on the gateway (ADR-045)', () => {
   });
 });
 
+describe("a sealed file's blob is removed from disk", () => {
+  async function stored() {
+    const t = await setup();
+    const fileId = t.idOf(await t.phoneUpload(blob()));
+    const message = await t.sealedMessage('user');
+    t.store.attachFiles('u1', t.agentId, message.id, [fileId], 'owner');
+    const blobs = (t.g.threads!.service as any).options.files.blobs as FileBlobStore;
+    // The blob is on disk now; it is gone after the action under test.
+    await expect(blobs.read(fileId)).resolves.toBeInstanceOf(Buffer);
+    const gone = () => expect(blobs.read(fileId)).rejects.toMatchObject({ code: 'ENOENT' });
+    return { t, message, gone };
+  }
+
+  it("a sealed file's blob is removed from disk on message delete", async () => {
+    const { t, message, gone } = await stored();
+    await t.g.threads!.service.deleteMessage('u1', t.agentId, message.id);
+    await gone();
+  });
+
+  it("a sealed file's blob is removed from disk on clear chat", async () => {
+    const { t, gone } = await stored();
+    await t.g.threads!.service.clear('u1', t.agentId);
+    await gone();
+  });
+
+  it("a sealed file's blob is removed from disk on delete chat", async () => {
+    const { t, gone } = await stored();
+    await t.g.threads!.service.deleteAgent('u1', t.agentId);
+    await gone();
+  });
+
+  it("a sealed file's blob is removed from disk on delete my data", async () => {
+    const { t, gone } = await stored();
+    await t.g.threads!.service.deleteAllForUser('u1');
+    await gone();
+  });
+});
+
 describe('sealed blobs count against the limits', () => {
   it('quota and daily limits count sealed blobs', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'twring-sealed-quota-'));
