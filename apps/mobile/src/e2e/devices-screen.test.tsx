@@ -242,6 +242,27 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
   });
 
+  it('keeps the codes on screen after a network failure, so tapping again carries on', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed, checked };
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'network' });
+    const approve = () =>
+      render().find((e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve')!;
+    (approve().props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toEqual({ claimed, checked });
+    const shown = render();
+    expect(shown.filter((e) => e.type === 'Sheet')[1]?.props).toMatchObject({ visible: true });
+    expect(texts(shown)).toContain(
+      'Twring could not reach the server. Check your connection and tap again.',
+    );
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: true });
+    (approve().props.onPress as () => void)();
+    await flush();
+    expect(mocks.approveWaiting).toHaveBeenCalledTimes(2);
+    expect(mocks.state[APPROVING]).toBeUndefined();
+  });
+
   it('tells the person to update the new phone when its app is too old', async () => {
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
     mocks.state[WAITING] = [{ id: 'pap_x', name: 'New phone' }];

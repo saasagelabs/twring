@@ -381,6 +381,25 @@ describe('second-phone approval: commit, then reveal (ADR-046)', () => {
     expect((await status(g, id, 9)).json().state).toBe('accepted');
   });
 
+  it('answers an accept repeated after a lost answer the same, and changes nothing twice', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const id = await committed(g);
+    await claim(g, id, 1);
+    await nonce(g, id, 1);
+    await reveal(g, id, 9);
+    expect((await accept(g, id, 1)).statusCode).toBe(200);
+    // The approving phone never heard back and sends the accept again.
+    const again = await accept(g, id, 1);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toMatchObject({ state: 'accepted' });
+    const listed = (await g.send('GET', '/v1/e2e/devices', { user: 'u1' })).json<Devices>();
+    expect(listed.devices.filter((d) => d.id === idOf(9))).toHaveLength(1);
+    // Only the phone that approved gets that answer.
+    expect((await accept(g, id, 2)).json().error.code).toBe('approval_closed');
+  });
+
   it('an accept that skips the nonce or the reveal turns the request down', async () => {
     const g = await start();
     addPhone(g, 'u1', 1);

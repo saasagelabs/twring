@@ -506,6 +506,10 @@ describe('approve from my other phone (C3 #11, Task 27)', () => {
       phoneName: 'Android phone',
     });
     expect(text(render())).toContain('On your other phone, open Devices and approve this phone.');
+    // An older app there can't read the request, so the person is told what to do then.
+    expect(text(render())).toContain(
+      "If it isn't listed there, update Twring on that phone first.",
+    );
     mocks.state[0] = {
       kind: 'approve',
       id: 'pap_x',

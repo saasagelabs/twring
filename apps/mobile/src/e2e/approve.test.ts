@@ -559,6 +559,58 @@ describe('approval and other trust changes, one at a time', () => {
   });
 });
 
+describe('an approve whose answer was lost', () => {
+  it('sends the same note again and finishes, since the server already took it', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    const accept = env.api.accept.bind(env.api);
+    const notes: TrustNote[] = [];
+    env.api.accept = async (id, device, note) => {
+      notes.push(note);
+      const out = await accept(id, device, note);
+      // The first answer never arrives, though the server applied it.
+      if (notes.length === 1) throw new Error('offline');
+      return out;
+    };
+    const waits: number[] = [];
+    const wait = (ms: number) => {
+      waits.push(ms);
+      return Promise.resolve();
+    };
+    expect(await approveWaiting({ api: env.api, store: env.tStore, wait }, checked)).toEqual({
+      ok: true,
+    });
+    expect(waits).toEqual([1_000]);
+    expect(notes).toHaveLength(2);
+    expect(notes[1]).toEqual(notes[0]);
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).toContain(env.n.deviceId);
+    expect(await hasRewrapWork(env.tStore)).toBe(true);
+  });
+
+  it('keeps the claim when every try failed, so tapping again carries on', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    let tries = 0;
+    env.api.accept = () => {
+      tries += 1;
+      return Promise.reject(new Error('offline'));
+    };
+    const waits: number[] = [];
+    const wait = (ms: number) => {
+      waits.push(ms);
+      return Promise.resolve();
+    };
+    expect(await approveWaiting({ api: env.api, store: env.tStore, wait }, checked)).toEqual({
+      ok: false,
+      code: 'network',
+    });
+    expect(tries).toBe(3);
+    expect(waits).toEqual([1_000, 3_000]);
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).not.toContain(env.n.deviceId);
+    expect((await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).ok).toBe(true);
+  });
+});
+
 describe('turning a phone down', () => {
   it('a deny that never got through keeps the claim, so trying again carries on', async () => {
     const env = await setup();

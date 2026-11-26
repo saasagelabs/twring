@@ -44,7 +44,9 @@ import { queueRewrap } from './rewrap';
  */
 
 export const APPROVE_PATH = 'Approve from my other phone';
-export const APPROVE_ASK = 'On your other phone, open Devices and approve this phone.';
+// An older app on the other phone does not list this request at all (it can't read it).
+export const APPROVE_ASK =
+  "On your other phone, open Devices and approve this phone. If it isn't listed there, update Twring on that phone first.";
 export const APPROVE_DONE =
   'This phone can read new private messages. Older ones appear after your other phone shares them, the next time Twring is open there.';
 export const WAITING_TITLE = 'Waiting for approval';
@@ -589,12 +591,18 @@ export async function checkReveal(
  * The codes matched: seal the note naming the new phone, wrapped to it and to every device this
  * phone trusts, send it, and trust the new phone here too.
  */
+/** Waits before the accept goes again after a network failure (its answer may just be lost). */
+const ACCEPT_RETRY_MS = [1_000, 3_000];
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 export async function approveWaiting(
   deps: {
     api: Pick<ApproveApi, 'accept'>;
     store: SecureKeyValue;
     now?: () => number;
     log?: Log;
+    /** Tests replace the waits between tries. */
+    wait?: (ms: number) => Promise<void>;
   },
   checked: CheckedApproval,
 ): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> {
@@ -648,7 +656,14 @@ export async function approveWaiting(
           ...others.map((d) => ({ id: d.id, publicKey: base64urlDecode(d.public_key) })),
         ],
       });
-      const answer = await call(() => deps.api.accept(approval.id, me.deviceId, note));
+      // A network failure may be an answer lost after the server took the accept: the same note
+      // again gets the same answer there, so it goes twice more before this phone gives up.
+      let answer = await call(() => deps.api.accept(approval.id, me.deviceId, note));
+      for (const ms of ACCEPT_RETRY_MS) {
+        if (answer.ok || answer.code !== 'network') break;
+        await (deps.wait ?? pause)(ms);
+        answer = await call(() => deps.api.accept(approval.id, me.deviceId, note));
+      }
       if (!answer.ok) {
         deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: answer.code });
         return answer;

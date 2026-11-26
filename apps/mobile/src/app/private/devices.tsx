@@ -45,6 +45,7 @@ const LOAD_FAILED = 'Twring could not load your devices. Check your connection a
 const REMOVE_FAILED = 'Twring could not remove that device. Check your connection and try again.';
 const APPROVE_FAILED =
   "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
+const DECIDE_OFFLINE = 'Twring could not reach the server. Check your connection and tap again.';
 
 type Waiting = { id: string; name: string };
 /** Claimed and waiting for the new phone's reveal, or checked with the code to compare. */
@@ -188,6 +189,7 @@ export default function PrivateDevicesScreen() {
     if (approving === undefined) return;
     const id = approving.claimed.approval.id;
     setBusy(true);
+    setError(undefined);
     try {
       const deps = { api: approveApi(), store: privateKeychain() };
       const out =
@@ -195,6 +197,12 @@ export default function PrivateDevicesScreen() {
           ? await approveWaiting(deps, approving.checked)
           : await denyWaiting(deps, id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
+      // Nothing is over yet: the sheet stays with the same codes and tapping again carries on (an
+      // accept the server already took gets the same answer again).
+      if (!out.ok && out.code === 'network') {
+        setError(DECIDE_OFFLINE);
+        return;
+      }
       if (!out.ok) setError(APPROVE_FAILED);
       // Only an approval that is over for good drops its saved nonce and claim: after 'cap' (a
       // device freed up) or a network failure, tapping the waiting phone again carries on.
@@ -304,7 +312,9 @@ export default function PrivateDevicesScreen() {
         visible={approving !== undefined}
         title={approving?.claimed.approval.name ?? ''}
         onClose={() => {
-          if (!busy) setApproving(undefined);
+          if (busy) return;
+          setApproving(undefined);
+          setError(undefined);
         }}
       >
         {approving !== undefined && approving.checked === undefined && (
@@ -313,6 +323,9 @@ export default function PrivateDevicesScreen() {
               {approveNewPhoneWaitingCopy(approving.claimed.approval.name)}
             </Text>
             <ActivityIndicator accessibilityLabel="Waiting for the new phone" />
+            {error !== undefined && (
+              <Text style={[type.body, { color: palette.textSecondary }]}>{error}</Text>
+            )}
             <GhostButton
               label={DENY_BUTTON}
               tone="danger"
@@ -332,6 +345,9 @@ export default function PrivateDevicesScreen() {
             <Text style={[type.body, { color: palette.textSecondary }]}>
               {approveSheetCopy(approving.checked.approval.name)}
             </Text>
+            {error !== undefined && (
+              <Text style={[type.body, { color: palette.textSecondary }]}>{error}</Text>
+            )}
             <GhostButton label={APPROVE_BUTTON} disabled={busy} onPress={() => void decide(true)} />
             <GhostButton
               label={DENY_BUTTON}
