@@ -15,7 +15,7 @@ Hermes keeps its own model, memory, tools and permissions. Twring adds the call.
 
 ## Set up (3 steps)
 
-1. Install the Twring app from [twring.com](https://twring.com) and sign in.
+1. Get the Twring app: leave your email at [twring.com/beta](https://twring.com/beta/) and we email the link for your iPhone or Android phone, usually within minutes. It's free while we launch. Install it and sign in with that email.
 2. Link this Hermes to it:
 
    ```sh
