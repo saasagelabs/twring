@@ -212,8 +212,14 @@ export class E2eDeviceStore {
       .prepare('SELECT * FROM e2e_devices WHERE user_id=? AND id=?')
       .get(userId, device.id) as DeviceRow | undefined;
     if (existing) {
-      if (existing.revoked_at === null && existing.public_key === device.public_key)
-        return this.device(existing);
+      if (existing.revoked_at === null && existing.public_key === device.public_key) {
+        if (note === undefined) return this.device(existing);
+        // ADR-045: an approved phone that was already active keeps the note on its row.
+        this.db
+          .prepare('UPDATE e2e_devices SET trust_note=? WHERE user_id=? AND id=?')
+          .run(JSON.stringify(note), userId, device.id);
+        return this.device({ ...existing, trust_note: JSON.stringify(note) });
+      }
       throw new E2eDeviceError('device_conflict');
     }
     const active = this.db
@@ -432,22 +438,32 @@ export class E2eDeviceStore {
   /**
    * A new phone asks to be approved (C3 #11, Task 27). Its open request, if any, is replaced; an
    * account holds at most MAX_OPEN_APPROVALS open ones. Refused when the phone is already active
-   * or the account is at the device cap.
+   * (unless it asks as a second phone, ADR-045) or a new phone finds the account at the device cap.
    */
   requestApproval(userId: string, request: PhoneApprovalRequest, expiresAt: Date): PhoneApproval {
     const now = this.now().toISOString();
     const id = newApprovalId();
     this.transaction(() => {
-      if (
-        this.db
-          .prepare('SELECT 1 FROM e2e_devices WHERE user_id=? AND id=? AND revoked_at IS NULL')
-          .get(userId, request.device_id) !== undefined
-      )
-        throw new E2eDeviceError('already_added');
-      const active = this.db
-        .prepare('SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
-        .get(userId) as { n: number };
-      if (active.n >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
+      const self = this.db
+        .prepare(
+          'SELECT public_key FROM e2e_devices WHERE user_id=? AND id=? AND revoked_at IS NULL',
+        )
+        .get(userId, request.device_id) as { public_key: string } | undefined;
+      if (self !== undefined) {
+        const others = this.db
+          .prepare(
+            "SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND kind='phone' AND id<>? AND revoked_at IS NULL",
+          )
+          .get(userId, request.device_id) as { n: number };
+        // ADR-045: an already-paired phone may ask another phone to approve it.
+        if (self.public_key !== request.public_key || others.n === 0)
+          throw new E2eDeviceError('already_added');
+      } else {
+        const active = this.db
+          .prepare('SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
+          .get(userId) as { n: number };
+        if (active.n >= MAX_PAIRED_DEVICES) throw new E2eDeviceError('device_cap');
+      }
       this.db
         .prepare(
           "DELETE FROM e2e_phone_approvals WHERE user_id=? AND device_id=? AND state IN ('pending','claimed')",
