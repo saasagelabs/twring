@@ -97,7 +97,7 @@ export async function downloadTurnFiles(
 /** Windows refuses these names whatever the extension (CON.txt included). */
 const WINDOWS_RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i;
 
-function cleanName(value: string): string {
+export function cleanName(value: string): string {
   // Path separators, control characters, and the characters Windows refuses in a file name.
   // eslint-disable-next-line no-control-regex -- attachment names may contain control characters
   const replaced = value.replace(/[\\/<>:"|?*\x00-\x1f\x7f-\x9f]/gu, '_');
@@ -109,6 +109,37 @@ function cleanName(value: string): string {
     .replace(/[. ]+$/u, '');
   if (name === '' || name === '.' || name === '..') return 'file';
   return WINDOWS_RESERVED.test(name) ? `_${name}` : name;
+}
+
+const FILE_LABELS: Record<FileMimeType, string> = {
+  'image/jpeg': 'JPEG image',
+  'image/png': 'PNG image',
+  'image/webp': 'WebP image',
+  'application/pdf': 'PDF',
+  'text/plain': 'text',
+  'text/markdown': 'Markdown',
+  'text/csv': 'CSV',
+  'application/json': 'JSON',
+};
+
+const fileSize = (bytes: number) =>
+  bytes < 1024
+    ? `${bytes} B`
+    : bytes < 1024 * 1024
+      ? `${Math.round(bytes / 1024)} KB`
+      : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+/**
+ * The line an agent reads for a file, the same words the gateway puts in an ordinary turn
+ * (`threads/service.ts`). A file that could not be opened has no type or size to give.
+ */
+export function attachedLine(
+  name: string,
+  file?: { mimeType: FileMimeType; sizeBytes: number },
+): string {
+  return file === undefined
+    ? `[Attached: ${name} (could not be opened)]`
+    : `[Attached: ${name} (${FILE_LABELS[file.mimeType]}, ${fileSize(file.sizeBytes)})]`;
 }
 
 export function withFilePaths(text: string, files: readonly LocalFile[]): string {

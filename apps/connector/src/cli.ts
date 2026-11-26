@@ -515,6 +515,7 @@ function run(config: ConnectorConfig): Promise<number> {
     },
     send: (frame) => client.sendFrame(frame),
     gatewaySupports: (feature) => client.supports(feature) === true,
+    files: { server: checkServerUrl(config.server).toString(), token: config.token },
     outbox,
     log,
   });

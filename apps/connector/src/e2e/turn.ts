@@ -13,6 +13,7 @@ import {
   DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
+  SEALED_FILES_FEATURE,
   SEALED_WORKING_FEATURE,
   SEALED_WORKING_INTERVAL_MS,
   TEXT_TURN_TAG,
@@ -24,6 +25,7 @@ import {
 
 import { LocalAgentError, type LocalAgentAdapter, type LocalAgentEvent } from '../events';
 import type { ResultOutbox } from '../outbox';
+import { openSealedFiles } from '../sealed-files';
 import type { E2eConfig } from './keys';
 import {
   openIncoming,
@@ -84,7 +86,6 @@ export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try aga
 export const SIGNED_OUT_TEXT =
   'Claude Code is signed out on this computer. Sign in to Claude Code there, then send your message again.';
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';
-export const FILES_NOT_OPENED_TEXT = "This computer can't open files in private chats yet.";
 
 /** Messages that did not open, per sender device id per minute, that may cost a write or reply. */
 export const UNKNOWN_SENDER_BUDGET = 5;
@@ -133,6 +134,7 @@ export function helloFeatures(e2e: E2eConfig | undefined): string[] {
         SEALED_CANCEL_FEATURE,
         DEVICES_CHANGED_FEATURE,
         SEALED_WORKING_FEATURE,
+        SEALED_FILES_FEATURE,
       ]
     : [SCOPED_SESSIONS_FEATURE];
 }
@@ -170,6 +172,11 @@ export interface PrivateChatsOptions {
    * to one that did: an older gateway drops the socket on a frame type it does not know.
    */
   gatewaySupports?: (feature: string) => boolean;
+  /**
+   * Where this computer reads the sealed files of a private message: the gateway and this
+   * computer's token. Without it every file reaches the agent as could not be opened.
+   */
+  files?: { server: string; token: string; fetch?: typeof fetch };
   outbox: ResultOutbox;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -298,11 +305,6 @@ export class PrivateChats {
       seen: { ...current.seen, ...highest },
     }));
     const payload = opened.payload;
-    if (payload.text.trim() === '' && (payload.files?.length ?? 0) > 0) {
-      log?.(`private message ${frame.message_id} has ${payload.files!.length} files, not opened`);
-      await this.reply(frame, async (send) => send({ text: FILES_NOT_OPENED_TEXT }, true));
-      return;
-    }
     if (stopped.aborted) return;
     await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks, stopped));
   }
@@ -326,6 +328,7 @@ export class PrivateChats {
     const stop = () => controller.abort();
     this.options.signal?.addEventListener('abort', stop, { once: true });
     stopped.addEventListener('abort', stop, { once: true });
+    let cleanup: (() => Promise<void>) | undefined;
     try {
       await pool.runExclusive(frame.agent, async () => {
         // Stopped while it waited behind another turn of this agent: never run, nothing sent.
@@ -334,10 +337,19 @@ export class PrivateChats {
           return;
         }
         try {
+          const opened = await this.openFiles(frame, payload, controller.signal);
+          cleanup = opened?.cleanup;
+          if (controller.signal.aborted) return;
+          const text = [privateTurnText(payload), ...(opened?.lines ?? [])]
+            .filter((part) => part !== '')
+            .join('\n');
           for await (const event of adapter.sendTurn(
-            `${TEXT_TURN_TAG}\n${privateTurnText(payload)}`,
+            `${TEXT_TURN_TAG}\n${text}`,
             controller.signal,
-            { surface: 'text' },
+            {
+              surface: 'text',
+              ...(opened !== undefined && opened.files.length > 0 && { files: opened.files }),
+            },
           )) {
             if (controller.signal.aborted) break;
             if (event.type === 'approval.required') {
@@ -377,10 +389,37 @@ export class PrivateChats {
     } finally {
       this.options.signal?.removeEventListener('abort', stop);
       stopped.removeEventListener('abort', stop);
+      await cleanup?.();
       pool.release(frame.agent);
     }
     if (dropped) return;
     await send({ text: buffered }, true);
+  }
+
+  /**
+   * Opens the files a private message carries into a temp folder the turn removes. Logs carry
+   * counts only. Undefined when the message has no files.
+   */
+  private async openFiles(frame: SealedMessageFrame, payload: SealedPayload, signal: AbortSignal) {
+    const refs = payload.files ?? [];
+    if (refs.length === 0) return undefined;
+    const target = this.options.files;
+    const opened = await openSealedFiles(
+      refs,
+      {
+        accountId: this.options.connectorId,
+        agentId: frame.agent,
+        // Nothing to download from: every file fails the same way and none is fetched.
+        server: target?.server ?? '',
+        token: target?.token ?? '',
+        signal: target === undefined ? AbortSignal.abort() : signal,
+      },
+      target?.fetch === undefined ? {} : { fetch: target.fetch },
+    );
+    this.options.log?.(
+      `private message ${frame.message_id}: ${opened.files.length} of ${refs.length} files opened`,
+    );
+    return opened;
   }
 
   /**
