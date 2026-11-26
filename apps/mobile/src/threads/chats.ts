@@ -247,6 +247,12 @@ export class ChatController {
   getFilesAvailable = (): boolean => this.filesAvailable;
   getRevision = (): number => this.revision;
   getSummaries = (): ThreadSummary[] => this.summaries;
+
+  /** Private chats' agent ids once the list has loaded; undefined before (not an empty list). */
+  loadedPrivateAgentIds = (): string[] | undefined =>
+    this.listLoaded
+      ? this.summaries.filter((t) => t.private === true).map((t) => t.agent_id)
+      : undefined;
   getChat = (agentId: string): ChatState => this.chats.get(agentId) ?? EMPTY_CHAT;
   getPending = (agentId: string): PendingMessage[] => this.outbox.list(agentId);
   private emit(): void {

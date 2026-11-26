@@ -3,7 +3,7 @@ import type * as ReactModule from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => {
-  const params: { agentId?: string } = {};
+  const params: { agentId?: string; approve?: string } = {};
   return {
     state: [] as unknown[],
     cursor: 0,
@@ -17,9 +17,17 @@ const mocks = vi.hoisted(() => {
     loadTrusted: vi.fn(),
     restoreOffer: vi.fn(),
     requestApproval: vi.fn(),
+    twringApi: vi.fn(),
+    otherPhones: vi.fn(),
     push: vi.fn(),
     replace: vi.fn(),
     effects: 0,
+    allEffects: false,
+    approvalStatus: vi.fn(),
+    finishApproval: vi.fn(),
+    shareHistory: vi.fn(),
+    loadedPrivateAgentIds: vi.fn(),
+    hasController: true,
   };
 });
 
@@ -29,7 +37,7 @@ vi.mock('react', async (importOriginal) => {
     ...actual,
     // Effects run once per screen, as on mount.
     useEffect: (effect: () => unknown) => {
-      if (mocks.effects++ === 0) void effect();
+      if (mocks.effects++ === 0 || mocks.allEffects) void effect();
     },
     useState: (initial: unknown) => {
       const slot = mocks.cursor++;
@@ -84,8 +92,14 @@ vi.mock('@/e2e/pair-api', () => ({
 vi.mock('@/e2e/approve', async () => ({
   ...(await import('./approve')),
   requestApproval: mocks.requestApproval,
+  approvalStatus: mocks.approvalStatus,
+  finishApproval: mocks.finishApproval,
+  pollApproval: (check: () => Promise<void>) => {
+    void check();
+    return () => undefined;
+  },
 }));
-vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: vi.fn() }));
+vi.mock('@/e2e/device-key', () => ({ loadDeviceKey: () => Promise.resolve(undefined) }));
 vi.mock('@/e2e/recovery', () => ({
   RECOVERY_COPY: {
     offer: "Save a recovery key? Without it, a new phone can't read old private messages.",
@@ -97,8 +111,13 @@ vi.mock('@/e2e/recovery', () => ({
 vi.mock('@/threads/chats', () => ({
   privateKeychain: () => ({ deviceOnly: true }),
   resetPrivateChats: vi.fn(),
+  chatController: () =>
+    mocks.hasController ? { loadedPrivateAgentIds: mocks.loadedPrivateAgentIds } : undefined,
 }));
-vi.mock('@/api', () => ({ twringApi: () => undefined }));
+vi.mock('@/api', () => ({ twringApi: mocks.twringApi }));
+vi.mock('@/e2e/devices', () => ({ listDevices: vi.fn() }));
+vi.mock('@/e2e/other-phones', () => ({ otherPhones: mocks.otherPhones }));
+vi.mock('@/e2e/share-history', () => ({ shareHistory: mocks.shareHistory }));
 vi.mock('@/servers/active', () => ({ activeServerUrl: () => 'https://api.twring.com' }));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: mocks.feedback }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
@@ -176,7 +195,16 @@ beforeEach(() => {
   mocks.restoreOffer.mockReset().mockResolvedValue({ kind: 'none' });
   mocks.push.mockReset();
   mocks.replace.mockReset();
+  mocks.requestApproval.mockReset().mockResolvedValue({ ok: true, approval: { id: 'pap_x' } });
+  mocks.twringApi.mockReset().mockReturnValue({ privateDevices: () => Promise.resolve({}) });
+  mocks.otherPhones.mockReset().mockResolvedValue([]);
   mocks.effects = 0;
+  mocks.allEffects = false;
+  mocks.hasController = true;
+  mocks.approvalStatus.mockReset();
+  mocks.finishApproval.mockReset().mockResolvedValue(true);
+  mocks.shareHistory.mockReset().mockResolvedValue(undefined);
+  mocks.loadedPrivateAgentIds.mockReset().mockReturnValue(['agt_a']);
 });
 
 describe('recovery key on the pairing screen', () => {
@@ -222,6 +250,85 @@ describe('recovery key on the pairing screen', () => {
     expect(text(tree)).toContain('REMOVED_COPY');
     expect(text(tree)).not.toContain('Use my recovery key');
     expect(labelled(tree, 'Scan the code on your computer')).toBeDefined();
+  });
+});
+
+describe('another phone with private chats', () => {
+  it('leads with approve when another phone exists', async () => {
+    mocks.otherPhones.mockResolvedValue([{ id: 'dev_p', name: 'iPhone' }]);
+    render();
+    await flush();
+    const tree = render();
+    const footer = elements(tree).filter((e) => e.type === 'PrimaryButton');
+    expect(footer.map((e) => e.props.label)).toEqual(['Approve from my other phone']);
+    expect(text(tree)).toContain(
+      'You already have private chats on iPhone. Approve this phone from there, so both phones can read the same chats.',
+    );
+    expect(labelled(tree, 'Scan the code on your computer').type).toBe('GhostButton');
+    expect(labelled(tree, 'Type the code instead').type).toBe('GhostButton');
+  });
+
+  it('does not offer approve when every other phone is already connected', async () => {
+    mocks.otherPhones.mockResolvedValue([{ id: 'dev_p', name: 'iPhone' }]);
+    mocks.loadTrusted.mockResolvedValue([{ id: 'dev_p' }]);
+    render();
+    await flush();
+    const tree = render();
+    const footer = elements(tree).filter((e) => e.type === 'PrimaryButton');
+    expect(footer.map((e) => e.props.label)).toEqual(['Scan the code on your computer']);
+    expect(text(tree)).not.toContain('You already have private chats');
+  });
+
+  it('offers approve for a phone that is not connected yet, among connected ones', async () => {
+    mocks.otherPhones.mockResolvedValue([
+      { id: 'dev_p', name: 'iPhone' },
+      { id: 'dev_q', name: 'Pixel' },
+    ]);
+    mocks.loadTrusted.mockResolvedValue([{ id: 'dev_p' }]);
+    render();
+    await flush();
+    expect(text(render())).toContain('You already have private chats on Pixel.');
+  });
+
+  it('says "your other phone" when there are two or more', async () => {
+    mocks.otherPhones.mockResolvedValue([
+      { id: 'dev_p', name: 'iPhone' },
+      { id: 'dev_q', name: 'Pixel' },
+    ]);
+    render();
+    await flush();
+    expect(text(render())).toContain('You already have private chats on your other phone.');
+  });
+
+  it('keeps scan first when no other phone', async () => {
+    render();
+    await flush();
+    const tree = render();
+    expect(
+      elements(tree)
+        .filter((e) => e.type === 'PrimaryButton')
+        .map((e) => e.props.label),
+    ).toEqual(['Scan the code on your computer']);
+    expect(text(tree)).not.toContain('You already have private chats');
+  });
+
+  it('keeps scan first when the list fails to load', async () => {
+    mocks.otherPhones.mockRejectedValue(new Error('offline'));
+    render();
+    await flush();
+    expect(
+      elements(render())
+        .filter((e) => e.type === 'PrimaryButton')
+        .map((e) => e.props.label),
+    ).toEqual(['Scan the code on your computer']);
+  });
+
+  it('starts approval at once from the devices screen', async () => {
+    mocks.params = { approve: '1' };
+    render();
+    await flush();
+    expect(mocks.requestApproval).toHaveBeenCalledTimes(1);
+    expect(text(render())).toContain('Waiting for your other phone');
   });
 });
 
@@ -409,6 +516,34 @@ describe('approve from my other phone (C3 #11, Task 27)', () => {
     expect(text(compare).replace(/"key":/g, '')).not.toMatch(/device id|trust note|\bkey\b/i);
     mocks.state[0] = { kind: 'approved' };
     expect(text(render())).toContain('This phone can read new private messages.');
+  });
+
+  it('pair calls shareHistory after approval once chats are loaded', async () => {
+    mocks.state[0] = {
+      kind: 'approve',
+      id: 'pap_x',
+      shown: { id: 'dev_t', name: 'Pixel 8', public_key: 'k', code: '123 456' },
+    };
+    mocks.approvalStatus.mockResolvedValue({ ok: true, approval: { state: 'accepted' } });
+    mocks.allEffects = true;
+    render();
+    await flush();
+    expect(mocks.shareHistory).toHaveBeenCalledTimes(1);
+    expect(mocks.shareHistory.mock.calls[0]?.[2]).toEqual(['agt_a']);
+  });
+
+  it('pair hands shareHistory no list while the chats have not loaded', async () => {
+    mocks.state[0] = {
+      kind: 'approve',
+      id: 'pap_x',
+      shown: { id: 'dev_t', name: 'Pixel 8', public_key: 'k', code: '123 456' },
+    };
+    mocks.loadedPrivateAgentIds.mockReturnValue(undefined);
+    mocks.approvalStatus.mockResolvedValue({ ok: true, approval: { state: 'accepted' } });
+    mocks.allEffects = true;
+    render();
+    await flush();
+    expect(mocks.shareHistory.mock.calls[0]?.[2]).toBeUndefined();
   });
 
   it('says plainly when the request could not be made, and offers to try again', async () => {

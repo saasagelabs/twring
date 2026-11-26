@@ -566,6 +566,8 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       if (approver === undefined) return sendError(reply, 404, 'not_found');
       const approval = approvalFor(userId, request.params.id, reply);
       if (approval === undefined) return reply;
+      // ADR-045: a phone that asked to be approved cannot approve itself.
+      if (approval.device_id === approver.id) return sendError(reply, 404, 'not_found');
       if (!devices.claimApproval(userId, approval.id, approver))
         return sendError(reply, 409, 'approval_closed');
       request.log.info(

@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAP_HINT,
   devicesState,
+  devicesStateFrom,
   listDevices,
   reconcileTrusted,
   removeCopy,
@@ -226,5 +227,31 @@ describe('binding older computers (ruling)', () => {
       ],
     );
     expect(out.trusted.filter((d) => d.connector_id === CON)).toHaveLength(1);
+  });
+});
+
+describe('phones this phone has not approved (P5b)', () => {
+  const at = '2026-11-20T10:00:00.000Z';
+  const d = (c: string, kind: 'phone' | 'computer') => ({
+    id: `dev_${c.repeat(20)}`,
+    kind,
+    name: `${kind}-${c}`,
+    public_key: 'k',
+    added_at: at,
+  });
+  const me = d('a', 'phone');
+  const other = d('b', 'phone');
+  const laptop = d('c', 'computer');
+
+  it('marks a phone this phone has not approved', () => {
+    const rows = devicesStateFrom([me, other], me.id, new Set([me.id])).devices;
+    expect(rows.find((r) => r.id === other.id)?.connected).toBe(false);
+  });
+
+  it('does not mark this phone or computers', () => {
+    const rows = devicesStateFrom([me, other, laptop], me.id, new Set([other.id])).devices;
+    expect(rows.find((r) => r.id === me.id)?.connected).toBe(true);
+    expect(rows.find((r) => r.id === other.id)?.connected).toBe(true);
+    expect(rows.find((r) => r.id === laptop.id)?.connected).toBe(true);
   });
 });
