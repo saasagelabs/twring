@@ -3,13 +3,16 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError, type TwringApi } from '../api/client';
 
-const sockets: { onState: (state: string) => void }[] = [];
+const sockets: { onState: (state: string) => void; onFrame: (frame: unknown) => void }[] = [];
 vi.mock('./search-store', () => ({
   sqliteSearchStore: () => undefined,
   deleteSearchDatabase: () => Promise.resolve(),
 }));
 vi.mock('./socket', () => ({
-  connectThreadSocket: (options: { onState: (state: string) => void }) => {
+  connectThreadSocket: (options: {
+    onState: (state: string) => void;
+    onFrame: (frame: unknown) => void;
+  }) => {
     sockets.push(options);
     return { setFocus: () => undefined, close: () => undefined };
   },
@@ -113,44 +116,48 @@ describe('delete failures', () => {
 });
 
 describe('reopening a cached chat after a long gap', () => {
-  it('pages down from the newest page instead of leaving a hole', async () => {
-    const numbered = (seq: number): ThreadMessage => ({
-      ...message(1),
-      id: `msg_${String(seq).padStart(20, '0')}`,
-      seq,
-      rev: seq,
-    });
-    const range = (from: number, to: number) =>
-      Array.from({ length: to - from + 1 }, (_, i) => numbered(from + i));
-    let held = range(1, 60);
-    const listMessages = vi.fn<TwringApi['listMessages']>((_agent, options) => {
-      if (options?.afterRev !== undefined)
-        return Promise.resolve({
-          messages: held.filter((entry) => entry.rev > (options.afterRev ?? 0)),
-          hasMore: false,
-        });
-      const below =
-        options?.beforeSeq !== undefined
-          ? held.filter((entry) => entry.seq < (options.beforeSeq ?? 0))
-          : held;
-      return Promise.resolve({ messages: below.slice(-50), hasMore: below.length > 50 });
-    });
-    const api = {
-      listMessages,
-      listThreads: vi.fn().mockResolvedValue({ threads: [], files: false }),
-      markRead: vi.fn().mockResolvedValue(undefined),
-    } as unknown as TwringApi;
-    const controller = new ChatController(api, { url: 'wss://x', requireSecureMedia: true });
-    await controller.open(agent);
-    await settle();
-    controller.closeChat(agent);
-    held = range(1, 140);
-    await controller.open(agent);
-    await settle();
-    for (let i = 0; i < 5 && controller.getChat(agent).hasOlder; i++)
-      await controller.loadOlder(agent);
-    expect(controller.getChat(agent).messages.map((entry) => entry.seq)).toEqual(
-      range(1, 140).map((entry) => entry.seq),
-    );
-  });
+  it.each([false, true])(
+    'pages down from the newest page instead of leaving a hole (live frame: %s)',
+    async (live) => {
+      const numbered = (seq: number): ThreadMessage => ({
+        ...message(1),
+        id: `msg_${String(seq).padStart(20, '0')}`,
+        seq,
+        rev: seq,
+      });
+      const range = (from: number, to: number) =>
+        Array.from({ length: to - from + 1 }, (_, i) => numbered(from + i));
+      let held = range(1, 60);
+      const listMessages = vi.fn<TwringApi['listMessages']>((_agent, options) => {
+        if (options?.afterRev !== undefined)
+          return Promise.resolve({
+            messages: held.filter((entry) => entry.rev > (options.afterRev ?? 0)),
+            hasMore: false,
+          });
+        const below =
+          options?.beforeSeq !== undefined
+            ? held.filter((entry) => entry.seq < (options.beforeSeq ?? 0))
+            : held;
+        return Promise.resolve({ messages: below.slice(-50), hasMore: below.length > 50 });
+      });
+      const api = {
+        listMessages,
+        listThreads: vi.fn().mockResolvedValue({ threads: [], files: false }),
+        markRead: vi.fn().mockResolvedValue(undefined),
+      } as unknown as TwringApi;
+      const controller = new ChatController(api, { url: 'wss://x', requireSecureMedia: true });
+      await controller.open(agent);
+      await settle();
+      controller.closeChat(agent);
+      held = range(1, 140);
+      if (live) sockets.at(-1)?.onFrame({ type: 'message.upserted', message: numbered(140) });
+      await controller.open(agent);
+      await settle();
+      for (let i = 0; i < 5 && controller.getChat(agent).hasOlder; i++)
+        await controller.loadOlder(agent);
+      expect(controller.getChat(agent).messages.map((entry) => entry.seq)).toEqual(
+        range(1, 140).map((entry) => entry.seq),
+      );
+    },
+  );
 });
