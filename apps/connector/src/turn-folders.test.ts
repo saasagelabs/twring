@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -53,6 +53,15 @@ describe('turn folders', () => {
     expect(existsSync(stray)).toBe(false);
     expect(existsSync(join(mine.directory, 'a.txt'))).toBe(true);
     await mine.cleanup();
+  });
+
+  it('leaves a linked root alone and does not follow it', async () => {
+    const target = join(fake, 'precious');
+    mkdirSync(target);
+    writeFileSync(join(target, 'precious.txt'), 'x');
+    symlinkSync(target, turnFoldersRoot(), 'junction');
+    expect(await sweepTurnFolders()).toBe(0);
+    expect(existsSync(join(target, 'precious.txt'))).toBe(true);
   });
 
   it('removes the folders still open when the process exits', async () => {

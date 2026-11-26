@@ -48,9 +48,7 @@ export async function makeTurnFolder(): Promise<{
   let parent = tmpdir();
   try {
     await mkdir(root, { recursive: true, mode: 0o700 });
-    const info = await lstat(root);
-    const uid = process.getuid?.();
-    if (info.isDirectory() && !info.isSymbolicLink() && (uid === undefined || info.uid === uid)) {
+    if (await ownRoot(root)) {
       await chmod(root, 0o700);
       parent = root;
     }
@@ -71,6 +69,14 @@ export async function makeTurnFolder(): Promise<{
   return { directory, cleanup };
 }
 
+/** True when `root` is a plain folder (not a link or junction) that this user owns. */
+async function ownRoot(root: string): Promise<boolean> {
+  const info = await lstat(root).catch(() => undefined);
+  if (info === undefined) return false;
+  const uid = process.getuid?.();
+  return info.isDirectory() && !info.isSymbolicLink() && (uid === undefined || info.uid === uid);
+}
+
 function running(pid: number): boolean {
   if (pid === process.pid) return true;
   try {
@@ -88,6 +94,8 @@ function running(pid: number): boolean {
  */
 export async function sweepTurnFolders(): Promise<number> {
   const root = turnFoldersRoot();
+  // A linked root would point the sweep at someone else's folder.
+  if (!(await ownRoot(root))) return 0;
   const children = await readdir(root).catch(() => [] as string[]);
   let removed = 0;
   for (const child of children) {
@@ -200,12 +208,19 @@ export function cleanName(value: string): string {
   // Path separators, control characters, and the characters Windows refuses in a file name.
   // eslint-disable-next-line no-control-regex -- attachment names may contain control characters
   const replaced = value.replace(/[\\/<>:"|?*\x00-\x1f\x7f-\x9f]/gu, '_');
-  const name = Array.from(replaced)
-    .slice(0, MAX_FILE_NAME_CHARS)
-    .join('')
-    .trim()
-    // Windows drops trailing dots and spaces, which would change the name on disk.
-    .replace(/[. ]+$/u, '');
+  // A long name loses the end of its stem, not its extension.
+  const trimmed = replaced.trim();
+  const ext = /\.[A-Za-z0-9]{1,5}$/u.exec(trimmed)?.[0] ?? '';
+  const chars = Array.from(trimmed);
+  const cut =
+    chars.length <= MAX_FILE_NAME_CHARS
+      ? trimmed
+      : `${chars
+          .slice(0, MAX_FILE_NAME_CHARS - ext.length)
+          .join('')
+          .replace(/[. ]+$/u, '')}${ext}`;
+  // Windows drops trailing dots and spaces, which would change the name on disk.
+  const name = cut.trim().replace(/[. ]+$/u, '');
   if (name === '' || name === '.' || name === '..') return 'file';
   return WINDOWS_RESERVED.test(name) ? `_${name}` : name;
 }
