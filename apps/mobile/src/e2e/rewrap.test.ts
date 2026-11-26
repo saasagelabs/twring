@@ -5,6 +5,7 @@ import {
   generateSealKeyPair,
   messageAad,
   newMessageKey,
+  REWRAP_PAGE_SIZE,
   sealBody,
   wrapKey,
   type SealedEnvelopeV1,
@@ -19,7 +20,9 @@ import { saveTrusted, type TrustedDevice } from './pairing';
 import { PrivateChats } from './private-chats';
 import {
   hasRewrapWork,
+  MAX_REWRAPS_PER_CHAT,
   queueRewrap,
+  REWRAP_READ_PAGES,
   readRewraps,
   REWRAP_JOBS_KEY,
   runRewrapJobs,
@@ -145,6 +148,30 @@ function newPhoneCtx(trusted: TrustedDevice[], rewraps: Map<string, Rewrap>) {
     rewraps,
   });
 }
+
+describe('sender and reader bounds agree (R3-7)', () => {
+  it('the new phone reads every re-wrap the approving phone may send', () => {
+    expect(MAX_REWRAPS_PER_CHAT).toBe(REWRAP_READ_PAGES * REWRAP_PAGE_SIZE);
+  });
+
+  it('shares at most the newest MAX_REWRAPS_PER_CHAT messages of a chat', async () => {
+    const { store, me } = await approvingPhone();
+    const total = MAX_REWRAPS_PER_CHAT + 150;
+    const history = Array.from({ length: total }, (_, i) => reply(i + 1, [me.publicKey]));
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    const sent: string[] = [];
+    await runRewrapJobs(
+      deps(store, history, async (_agent, body) => {
+        sent.push(...body.items.map((i) => i.message_id));
+        return { status: 204, body: undefined };
+      }),
+    );
+    expect(sent).toHaveLength(MAX_REWRAPS_PER_CHAT);
+    expect(sent).toContain(msgId(total));
+    expect(sent).not.toContain(msgId(1));
+    expect(JSON.parse(store.m.get(REWRAP_JOBS_KEY)!)).toEqual([]);
+  }, 60_000);
+});
 
 describe('re-wrapping older private messages for an approved phone (C3 #11, Task 28)', () => {
   it('resumes from the last done cursor after a restart, with no duplicates', async () => {

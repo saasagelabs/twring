@@ -2,6 +2,7 @@ import {
   base64urlEncode,
   deviceIdFor,
   generateSealKeyPair,
+  sealTrustNote,
   type E2eDevice,
 } from '@twring/contracts';
 import { describe, expect, it } from 'vitest';
@@ -11,7 +12,9 @@ import {
   devicesState,
   devicesStateFrom,
   listDevices,
+  MAX_REMOVED_SEEN,
   reconcileTrusted,
+  REMOVED_KEY_NAME,
   removeCopy,
   removeDevice,
   syncTrusted,
@@ -253,5 +256,114 @@ describe('phones this phone has not approved (P5b)', () => {
     expect(rows.find((r) => r.id === me.id)?.connected).toBe(true);
     expect(rows.find((r) => r.id === other.id)?.connected).toBe(true);
     expect(rows.find((r) => r.id === laptop.id)?.connected).toBe(true);
+  });
+});
+
+describe('a phone this phone removed stays removed (R3-1)', () => {
+  const approval = `pap_${'a'.repeat(20)}`;
+  function key() {
+    const pair = generateSealKeyPair();
+    return { ...pair, id: deviceIdFor(pair.publicKey), pub: base64urlEncode(pair.publicKey) };
+  }
+  type Key = ReturnType<typeof key>;
+  const row = (k: Key): E2eDevice => ({
+    id: k.id,
+    kind: 'phone',
+    name: 'Pixel',
+    public_key: k.pub,
+    added_at: at,
+  });
+  const trustedPhone = (k: Key): TrustedDevice => ({
+    id: k.id,
+    kind: 'phone',
+    name: 'Pixel',
+    public_key: k.pub,
+    verified_at: at,
+  });
+  function setup() {
+    const a = key();
+    const b = key();
+    const c = key();
+    const note = sealTrustNote({
+      payload: {
+        kind: 'trust_add',
+        approval_id: approval,
+        add: { id: b.id, kind: 'phone', name: 'Pixel', public_key: b.pub },
+        known: [],
+      },
+      senderDevice: c.id,
+      senderPrivate: c.privateKey,
+      recipients: [{ id: a.id, publicKey: a.publicKey }],
+    });
+    return { a, b, c, note };
+  }
+  const removeDeps = (store: ReturnType<typeof memoryStore>, selfId: string) => ({
+    api: { remove: () => Promise.resolve() },
+    store,
+    selfId,
+    forgetSelf: () => Promise.resolve(),
+  });
+
+  it('refuses an old trust note for a phone this phone removed', async () => {
+    const { a, b, c, note } = setup();
+    const store = memoryStore();
+    await saveTrusted(store, [trustedPhone(c), trustedPhone(b)]);
+    await removeDevice(removeDeps(store, a.id), b.id);
+    expect(JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]')).toContain(b.id);
+    const events: { event: string; fields?: Record<string, string | number> }[] = [];
+    const out = await syncTrusted(
+      store,
+      [row(a), row(c), { ...row(b), trust_note: note }],
+      (event, fields) => events.push({ event, fields }),
+      { deviceId: a.id, privateKey: a.privateKey },
+    );
+    expect(out.map((d) => d.id)).not.toContain(b.id);
+    expect(events).toContainEqual({
+      event: 'e2e_trust_note_refused',
+      fields: { reason: 'removed' },
+    });
+  });
+
+  it('a server cannot flush the removed memory with other revoked ids', async () => {
+    const { a, b, c, note } = setup();
+    const store = memoryStore();
+    await saveTrusted(store, [trustedPhone(c), trustedPhone(b)]);
+    await syncTrusted(store, [{ ...row(b), revoked_at: at }]);
+    for (let round = 0; round < 10; round++) {
+      await syncTrusted(
+        store,
+        Array.from({ length: 60 }, () => ({ ...row(key()), revoked_at: at })),
+      );
+    }
+    const out = await syncTrusted(
+      store,
+      [row(a), row(c), { ...row(b), trust_note: note }],
+      undefined,
+      { deviceId: a.id, privateKey: a.privateKey },
+    );
+    expect(out.map((d) => d.id)).not.toContain(b.id);
+  });
+
+  it('never drops a removed id the server still lists', async () => {
+    const { a, b, c, note } = setup();
+    const store = memoryStore();
+    await saveTrusted(store, [trustedPhone(c), trustedPhone(b)]);
+    await removeDevice(removeDeps(store, a.id), b.id);
+    for (let i = 0; i < MAX_REMOVED_SEEN + 5; i++) {
+      const other = key();
+      await saveTrusted(store, [trustedPhone(c), trustedPhone(other)]);
+      await syncTrusted(store, [
+        row(c),
+        { ...row(b), trust_note: note },
+        { ...row(other), revoked_at: at },
+      ]);
+    }
+    const out = await syncTrusted(
+      store,
+      [row(a), row(c), { ...row(b), trust_note: note }],
+      undefined,
+      { deviceId: a.id, privateKey: a.privateKey },
+    );
+    expect(out.map((d) => d.id)).not.toContain(b.id);
   });
 });

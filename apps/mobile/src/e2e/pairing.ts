@@ -293,12 +293,13 @@ export async function confirmPairing(
   connector: TrustedDevice,
 ): Promise<void> {
   const current = await loadTrusted(deps.store);
-  // A computer set up again (new key, same connector) replaces its old entry.
+  // Only this computer's own older entry (same id or key) is replaced. The connector id comes
+  // from the server's claim answer, which nothing the person checked covers (R4-2), so it never
+  // removes another computer: a computer set up again (same connector, new key) is bound to that
+  // connector beside its old entry and works at once (`computerAllowed` matches the binding); the
+  // old key leaves when the device list marks it removed.
   const others = current.filter(
-    (d) =>
-      d.id !== connector.id &&
-      d.public_key !== connector.public_key &&
-      (connector.connector_id === undefined || d.connector_id !== connector.connector_id),
+    (d) => d.id !== connector.id && d.public_key !== connector.public_key,
   );
   const next = trustedListSchema.parse([...others, connector].slice(-16));
   await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(next));
