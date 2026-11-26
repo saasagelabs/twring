@@ -16,7 +16,10 @@ const VERSION_NAME = '0.1.0';
 /**
  * APP_VARIANT selects the installable identity so development, staging, and production builds
  * can coexist on one device. It is a build-time switch, separate from EXPO_PUBLIC_CORD_ENV
- * (which backend the JS talks to). EAS profiles set both: see eas.json.
+ * (which backend the JS talks to). Release builds set both to the same value:
+ * scripts/build-android-release.sh from its target, .github/workflows/ios-testflight.yml from its
+ * `app` input, and .github/workflows/android.yml (pull request APKs) to staging. Local development
+ * builds read both from apps/mobile/.env.local; an unset APP_VARIANT means development.
  */
 type AppVariant = 'development' | 'staging' | 'production';
 
@@ -93,8 +96,8 @@ function readIosBuildNumber(value: string | undefined): string {
 /**
  * Firebase config for FCM (incoming agent calls). A path from the environment, never committed:
  * the owner keeps it at %USERPROFILE%/.cord/google-services.json (project cord-push, which covers
- * all three variants); EAS reads it from a file secret. Without it the build still works, but
- * agents cannot ring this phone.
+ * all three variants), and scripts/build-android-release.sh refuses a production build without it.
+ * Without it other builds still work, but agents cannot ring this phone.
  */
 function googleServicesFile(): string | undefined {
   const file = process.env.CORD_GOOGLE_SERVICES_FILE?.trim();

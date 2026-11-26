@@ -6,7 +6,6 @@ Coding agents should re-check official documentation before upgrades or when an 
 
 - Development builds: https://docs.expo.dev/develop/development-builds/introduction/
 - Native code/customization: https://docs.expo.dev/workflow/customizing/
-- EAS Build: https://docs.expo.dev/build/introduction/
 
 Twring requires a development build rather than Expo Go because LiveKit uses native WebRTC modules.
 

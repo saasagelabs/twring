@@ -1,5 +1,7 @@
 # CLAUDE.md: Claude Code project briefing for Twring
 
+Never use em dashes (U+2014) in any text: use a colon, comma, parentheses or a new sentence. `pnpm lint` fails on them.
+
 ## What we are building
 
 Twring is a mobile voice layer for existing AI agents.
@@ -10,29 +12,19 @@ A user connects an agent that already works in text/chat, chooses a voice, press
 
 ## Product constraints
 
-- Android launches first.
-- iOS compatibility begins on day one; do not defer cross-platform architecture.
-- React Native + Expo development builds + TypeScript.
-- LiveKit is the realtime media/session foundation.
-- Deepgram Flux STT + Deepgram streaming TTS are the first voice providers.
-- Cascaded STT → existing agent → TTS; **no S2S model gets control of agent actions.**
+- Android launches first; iOS compatibility begins on day one, so never defer cross-platform architecture.
+- The app runs as Expo development builds, never in Expo Go.
+- Deepgram Flux STT and Deepgram streaming TTS are the first voice providers.
+- Cascaded STT → existing agent → TTS; **no speech-to-speech model gets control of agent actions.**
 - V1 is intentionally narrow. No agent builder, workflow builder, PSTN calling, marketplace, or agent-to-agent network.
 - The experience must feel like a call, not voice-note exchange.
-- Ship a complete simple product before generalized abstractions.
+- Ship a complete simple product before generalized abstractions. No Nx/Turborepo unless measured build pain justifies it.
 
-## Read these before architecture work
+## Docs
 
-- `docs/PRODUCT.md`
-- `docs/ARCHITECTURE.md`
-- `docs/TECH_STACK.md`
-- `docs/VOICE_ARCHITECTURE.md`
-- `docs/AGENT_ADAPTER_SPEC.md`
-
-For scoped work, read only the relevant docs. Use search/grep before loading large unrelated files.
+The design docs live in `docs/`, and its README indexes them (product, architecture, decisions, voice, adapters, security, UX, design system, SLOs, release). Before architecture work, read the ones the task touches; for scoped work read only what is relevant, and search before loading large unrelated files.
 
 ## Rules that must survive refactors
-
-Never use em dashes (U+2014) in any text: use a colon, comma, parentheses or a new sentence. `pnpm lint` fails on them.
 
 1. **Voice is I/O, not intelligence.**
 2. **Twring does not call the connected agent's tools.** The agent calls its own tools.
@@ -43,21 +35,12 @@ Never use em dashes (U+2014) in any text: use a colon, comma, parentheses or a n
 7. **Reconnect is resumable and idempotent where possible.**
 8. **Android-specific functionality is hidden behind platform interfaces.**
 9. **Production simplicity beats speculative scale.**
-10. **A change to these rules requires a recorded decision in `docs/DECISIONS.md`.**
+10. **A change to these rules requires a recorded decision (an ADR in the decisions log).**
 
-## Expected repository shape
+Two more that are cheap to keep and costly to miss:
 
-```text
-apps/mobile       Expo React Native application
-apps/gateway      Node/TS LiveKit voice gateway + HTTP APIs
-packages/contracts
-packages/agent-adapter
-packages/config
-packages/test-fixtures
-docs/
-```
-
-Use pnpm workspaces. Do not add Nx/Turborepo unless measured build pain justifies it.
+- **The connector is not on npm.** Never write `npx twring-connect` or `npx cord-connect` anywhere (the `twring-connector-distribution` skill has the real install command).
+- **Outside contributors:** nothing is posted on GitHub for them (comment, review, label, close, merge) until the owner approves that reply (the `twring-outside-contributions` skill).
 
 ## How to approach implementation
 
@@ -75,7 +58,6 @@ Avoid making broad refactors inside feature tasks unless the existing structure 
 
 ## TypeScript expectations
 
-- strict mode on;
 - no ambient `any` spreading through the codebase;
 - Zod or equivalent runtime validation at network/persistence boundaries;
 - discriminated unions for call and adapter events;
@@ -95,7 +77,7 @@ Do not optimize only “model latency.” Measure the whole perceived path:
 - user speech during agent playout → audible stop;
 - reconnect start → media restored.
 
-Use the budgets in `docs/OBSERVABILITY_AND_SLOS.md`.
+Use the budgets in the observability and SLO doc.
 
 Long agent actions must not create dead air. If the connected agent provides activity/tool events, translate them into concise UI state and optional short spoken bridging only when product rules permit. Never fabricate progress.
 
@@ -111,7 +93,7 @@ Twring is consumer-simple even if the internals are technical.
 - reduced motion, dynamic text, screen readers, and adequate hit targets are mandatory;
 - errors say what happened and what the user can do next.
 
-Read `docs/UX_UI_SPEC.md` and `docs/DESIGN_SYSTEM.md` before implementing presentation-critical work.
+Read the UX spec and the design system doc before presentation-critical work.
 
 ## Security stance
 
@@ -127,69 +109,19 @@ Treat connected agents as external systems, even if user-owned.
 - apply rate and size limits to streaming payloads;
 - never replay a non-idempotent action due to network retry.
 
-Read `docs/SECURITY_AND_PRIVACY.md` before auth, credential, networking, or logging work.
+Read the security and privacy doc before auth, credential, networking, or logging work.
 
-## Multi-agent coding coordination
+## Working with other agents
 
-Claude Code is generally the lead for architecture-heavy vertical slices, cross-package refactors, and complex debugging. Codex can independently implement scoped tasks, tests, reviews, and parallel backlog items. These are workflow defaults, not capability claims.
-
-Do not have both agents edit the same files simultaneously. Use branches/worktrees and task ownership from `docs/ORCHESTRATION.md`.
-
-When delegating/subagenting, keep the parent responsible for integration. Do not allow subagents to independently change architecture contracts unless that change is the explicit task.
+Never have two agents edit the same files at once: give each its own branch or worktree. When delegating or using subagents, the parent stays responsible for integration, and subagents do not change architecture contracts unless that change is the explicit task. Task ownership and which agent leads what are in the orchestration doc (see the `docs/` index).
 
 ## Lessons from production (keep this list current)
 
-- **The connector is not on npm.** Every user-facing command downloads `twring-connect.mjs` from
-  Twring and runs it with Node: `curl -fsSL <server>/downloads/twring-connect.mjs -o
-  twring-connect.mjs && node twring-connect.mjs ...`. Never write `npx twring-connect` or
-  `npx cord-connect` in code, docs, hooks or the app. Both names are held on npm by placeholders
-  (`private/npm-placeholders`) that only print how to reinstall a hook; never publish real code
-  there.
-- **Hooks written into a user's Claude Code or Codex config** run the copied connector with an
-  absolute Node path, POSIX-quoted (Claude Code on Windows runs hooks in Git Bash). Reinstalling
-  replaces an old Twring hook; it never adds a second one.
-- **A change is not done until users can get it.** Gateway changes need a deploy; connector
-  changes need `pnpm --filter @twring/connector bundle`, the file published to `/downloads`, and
-  `scripts/deploy-site.sh` with `DEPLOY_SITE_CONNECTOR` so `apps/site/selfhost/versions.json`
-  records its digest (commit that file); app changes need new Android and iOS builds. If a release
-  step is left, say which one.
-- **Check where the user looks:** the live download, the installed build on a real device, the
-  rendered page or video as a viewer sees it. Passing tests are necessary, not sufficient.
-- **Plugins and integrations** (`integrations/hermes`) ship separately from the app: when a shared
-  behaviour changes, check them too and bump their version only if their own code changed.
-- **Every new version gets a GitHub release.** A self-host image version gets `selfhost-vX.Y.Z`
-  at the commit it was built from (marked Latest) once its digest is live in `versions.json`; a
-  Hermes plugin version gets `hermes-vX.Y.Z` (not Latest) and a `plugin-catalog/twring.yaml` PR on
-  NousResearch/hermes-agent from the `saasagelabs/hermes-agent` fork, pinned at a main commit:
-  `hermes plugins install twring` installs only what that catalog lists.
-- **Outside contributors:** review their pull requests and issues here and write each reply as a
-  draft for the owner. Nothing is posted on GitHub (comment, review, label, close, merge) until the
-  owner approves that reply. Outside PRs are never set to auto-merge.
-- **Windows checkouts:** some tools write CRLF line endings; run `pnpm format:check` before
-  committing. Keep worktrees on short paths (native Android builds fail on deep ones).
-- **iOS TestFlight builds:** GitHub's Apple-silicon macOS runners sometimes run out. A job "not
-  acquired by Runner" is cancelled after about 15 minutes; re-run it, and if that keeps
-  happening, run the job on `macos-15-intel`. Apple requires the iOS 27 SDK (Xcode 27) for
-  uploads from April 2027.
-- **An iOS upload reaches no tester by itself.** The run waits for the owner to approve the
-  `testflight` environment (agents cannot approve it). After Apple processes the build, add it to
-  the external group (Wave 1) and set its notes with the App Store Connect API: internal groups
-  get every build automatically and refuse a manual add, and the notes field is `whatsNew`.
-- **Reloading Caddy on the server drops every computer at once.** It closes all proxied
-  WebSockets: on 2026-11-18 a site change dropped 38 computers, all back within 5 seconds, and the
-  "computers dropping" alert fired. Reload Caddy only at 0 live calls (it also cuts a call), and
-  expect that alert.
-- **Supabase `signOut()` is global by default:** it ends every session of that account, the phone
-  app's included. Web pages (the consent page) sign out with `{ scope: 'local' }`.
-- **Rings go to the account, not the device in your hand.** An AI app connected as one account
-  can't ring a phone signed in to another (`no_ring_phone`). When a ring fails, check which
-  account consented before suspecting the server.
-- **`livekit-client` is patched** (`patches/livekit-client@<version>.patch`, tested by
-  `apps/mobile/scripts/livekit-patch.test.mjs`). Metro bundles only its ESM build, so patch only
-  that file. Upgrading livekit-client means checking upstream for each fix and remaking the patch.
-- **`react-native-reanimated` is patched** (upstream #10435, until we are on 4.8 or newer; tested by
-  `apps/mobile/scripts/reanimated-patch.test.mjs`). An upgrade means checking upstream and
-  remaking or dropping the patch.
+- **A change is not done until users can get it.** A gateway change needs a deploy, a connector change a published bundle, an app change new Android and iOS builds. If a release step is left, say which one. The `twring-release` skill has the steps and the traps.
+- **Check where the user looks:** the live download, the installed build on a real device, the rendered page or video as a viewer sees it. Passing tests are necessary, not sufficient.
+- **Windows checkouts:** some tools write CRLF line endings; run `pnpm format:check` before committing. Keep worktrees on short paths (native Android builds fail on deep ones).
+
+Rarer traps live in project skills that load when a task needs them: releases and server operations, how the connector reaches people, outside contributions, the patched dependencies, and accounts and rings. When you learn a new lesson, add it to the skill it belongs to, or here if it applies to almost every task.
 
 ## Completion checklist
 
