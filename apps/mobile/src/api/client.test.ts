@@ -436,6 +436,44 @@ describe('cord api client', () => {
     });
   });
 
+  it('uploads a sealed blob as raw octet-stream and sends attachment_ids with the sealed body', async () => {
+    const { api, calls } = client((url) =>
+      Promise.resolve(
+        json(
+          200,
+          url.includes('/files?')
+            ? { file: { id: 'fil_aaaaaaaaaaaaaaaaaaaa', size_bytes: 5 } }
+            : { message: { error: 'unused' } },
+        ),
+      ),
+    );
+    const bytes = new Uint8Array([1, 2, 3, 4, 5]);
+    const result = await api.uploadSealedFile?.(
+      AGENT.id,
+      { clientId: '7c5b0190-85e7-4c9c-8d1a-474a35a71df1', bytes },
+      undefined,
+    );
+    expect(result).toEqual({ id: 'fil_aaaaaaaaaaaaaaaaaaaa' });
+    const upload = calls[0];
+    expect(upload.url).toContain('client_id=7c5b0190-85e7-4c9c-8d1a-474a35a71df1&sealed=1');
+    expect(upload.url).not.toContain('name=');
+    expect(upload.init.headers).toMatchObject({ 'content-type': 'application/octet-stream' });
+    expect(upload.init.body).toBe(bytes);
+  });
+
+  it('puts attachment_ids next to the sealed body', async () => {
+    const { api, calls } = client(() => Promise.resolve(json(200, {})));
+    const sealed = { v: 1, sender_device: 'd' } as never;
+    await api
+      .sendSealedMessage?.(AGENT.id, { clientId: 'c1', sealed, attachmentIds: ['fil_a', 'fil_b'] })
+      .catch(() => undefined);
+    expect(JSON.parse(calls[0].init.body as string)).toEqual({
+      client_id: 'c1',
+      sealed,
+      attachment_ids: ['fil_a', 'fil_b'],
+    });
+  });
+
   it('posts a chat approval and carries the current message on conflict', async () => {
     const message = {
       id: 'msg_aaaaaaaaaaaaaaaaaaaa',

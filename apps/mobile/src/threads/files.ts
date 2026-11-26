@@ -9,6 +9,8 @@ export interface PreparedFile {
   width?: number;
   height?: number;
   uploaded?: Attachment;
+  /** A private chat's file already uploaded sealed: its server id and the key it was sealed with. */
+  sealedUpload?: { id: string; key: string };
 }
 
 export const DOCUMENT_TYPES = [

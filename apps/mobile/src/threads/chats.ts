@@ -26,6 +26,7 @@ import {
 } from './outbox';
 import { fileStore, memoryStore, storageScope, type JsonStore } from './outbox-storage';
 import type { PreparedFile } from './files';
+import { deviceSealedFiles, type SealedFiles } from './sealed-file-cache';
 import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
@@ -55,6 +56,7 @@ export class ChatController {
   private filling = new AbortController();
   private readonly privacy?: PrivateChats;
   private shareHistory?: (privateAgentIds: string[]) => void;
+  private readonly sealedFiles: SealedFiles;
   /** Opened private messages per chat, in memory only, for the messages list they came from. */
   private readonly opened = new Map<
     string,
@@ -71,11 +73,14 @@ export class ChatController {
       privacy?: PrivateChats;
       /** Runs re-wrap jobs for these private chats (C3 #11 Task 28); once per controller. */
       shareHistory?: (privateAgentIds: string[]) => void;
+      /** Reads and copies local files for sealing; the device's own when none. */
+      sealedFiles?: SealedFiles;
     } = {},
     timers: OutboxTimers = systemTimers,
   ) {
     this.privacy = stores.privacy;
     this.shareHistory = stores.shareHistory;
+    this.sealedFiles = stores.sealedFiles ?? deviceSealedFiles;
     this.outbox = new Outbox(
       async (agentId, message, signal) => {
         if (message.sealed !== undefined && !this.api.sendSealedMessage)
@@ -86,6 +91,7 @@ export class ChatController {
               {
                 clientId: message.clientId,
                 sealed: message.sealed,
+                ...(message.attachmentIds?.length && { attachmentIds: message.attachmentIds }),
                 ...(message.replyTo !== undefined && { replyTo: message.replyTo }),
               },
               signal,
@@ -134,7 +140,7 @@ export class ChatController {
         if (this.availability === undefined) await this.refreshList();
         return this.isPrivate(agentId);
       },
-      seal: (agentId, text, replyTo) => {
+      seal: (agentId, text, replyTo, files) => {
         if (!this.privacy)
           return Promise.reject(Object.assign(new Error(), { code: 'seal_failed' }));
         // The quote is built here from the opened text; the server never sees it (Task 22).
@@ -142,8 +148,23 @@ export class ChatController {
           replyTo === undefined
             ? undefined
             : this.getOpened(agentId)?.find((message) => message.id === replyTo);
-        return this.privacy.seal(agentId, text, phoneQuote(target));
+        return this.privacy.seal(agentId, text, phoneQuote(target), files);
       },
+      sealFile: async (agentId, file) => {
+        if (!this.privacy) throw Object.assign(new Error(), { code: 'seal_failed' });
+        let bytes: Uint8Array;
+        try {
+          bytes = await this.sealedFiles.read(file.uri);
+        } catch {
+          throw Object.assign(new Error(), { code: 'file_missing' });
+        }
+        return this.privacy.sealFileBytes(agentId, bytes);
+      },
+      uploadSealed: async (agentId, file, signal) => {
+        if (!this.api.uploadSealedFile) throw new Error('Private chats unavailable');
+        return this.api.uploadSealedFile(agentId, file, signal);
+      },
+      cacheOwnFile: (fileId, localUri) => this.sealedFiles.cacheOwn(fileId, localUri),
       openOwn: (agentId, sealed) =>
         this.privacy?.openOwn(agentId, sealed) ?? Promise.resolve(undefined),
     };

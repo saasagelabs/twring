@@ -264,17 +264,6 @@ describe('private chats in the chat data layer', () => {
     );
   });
 
-  it('refuses files in a private chat before anything goes out', async () => {
-    const t = await setup();
-    t.controller.sendFiles(privateAgent, 'look', [
-      { clientId: 'f1', uri: 'file:///x.png', name: 'x.png', mimeType: 'image/png', sizeBytes: 1 },
-    ]);
-    await vi.waitFor(() =>
-      expect(t.controller.getPending(privateAgent)[0]?.errorCode).toBe('private_files'),
-    );
-    expect(t.api.sendMessage).not.toHaveBeenCalled();
-  });
-
   it('after a restart, a sealed queued message shows its text again and resends sealed', async () => {
     const first = await setup({ sendFails: true });
     first.controller.send(privateAgent, 'kept');
