@@ -76,6 +76,8 @@ export type E2eDeviceKind = z.infer<typeof e2eDeviceKindSchema>;
 
 /** An X25519 public key: base64url that decodes to exactly 32 bytes. */
 export const publicKeySchema = z.string().regex(BYTES32_B64URL);
+/** A 32-byte value of the second-phone approval (ADR-046), base64url. */
+export const approvalBytesSchema = z.string().regex(BYTES32_B64URL);
 
 /** A message key wrapped for one device (sender-authenticated, see message-seal.ts). */
 export const wrappedKeySchema = z
@@ -211,12 +213,22 @@ export const phoneApprovalRequestSchema = z
     device_id: e2eDeviceIdSchema,
     public_key: publicKeySchema,
     name: z.string().min(1).max(60),
+    /** ADR-046: SHA-256 commitment to the key and a secret revealed later. Apps before it omit it. */
+    commitment: approvalBytesSchema.optional(),
   })
   .strict();
 export type PhoneApprovalRequest = z.infer<typeof phoneApprovalRequestSchema>;
 
 /** Claim and deny name the trusted phone acting; accept also carries the note. */
 export const phoneApprovalActorSchema = z.object({ device_id: e2eDeviceIdSchema }).strict();
+/** The approving phone's random nonce, sent only once it holds the new phone's commitment. */
+export const phoneApprovalNonceSchema = z
+  .object({ device_id: e2eDeviceIdSchema, nonce: approvalBytesSchema })
+  .strict();
+/** The new phone's secret, revealed only once the approving phone's nonce is fixed. */
+export const phoneApprovalRevealSchema = z
+  .object({ device_id: e2eDeviceIdSchema, reveal: approvalBytesSchema })
+  .strict();
 export const phoneApprovalAcceptSchema = z
   .object({ device_id: e2eDeviceIdSchema, note: trustNoteSchema })
   .strict();
@@ -239,6 +251,10 @@ export const phoneApprovalSchema = z
       })
       .strict()
       .optional(),
+    /** ADR-046 commit, then reveal: the new phone's commitment, the approver's nonce, the reveal. */
+    commitment: approvalBytesSchema.optional(),
+    approver_nonce: approvalBytesSchema.optional(),
+    reveal: approvalBytesSchema.optional(),
     trust_note: trustNoteSchema.optional(),
   })
   .strict();

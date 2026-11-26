@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-unsafe-member-access -- Fastify inject JSON is untyped. */
-import { deviceIdFor } from '@twring/contracts';
+import { approvalCommitment, deviceIdFor } from '@twring/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { startConnectorGateway, type ConnectorGateway } from '../connectors/harness';
@@ -289,5 +289,108 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     const id = (await request(g)).json().id as string;
     g.e2e.deleteAllForUser('u1');
     expect(g.e2e.approval('u1', id)).toBeUndefined();
+  });
+});
+
+describe('second-phone approval: commit, then reveal (ADR-046)', () => {
+  const secret = (n: number) => Buffer.from(new Uint8Array(32).fill(n)).toString('base64url');
+  const commitmentOf = (n: number, s: number) =>
+    Buffer.from(approvalCommitment(keyBytes(n), new Uint8Array(32).fill(s))).toString('base64url');
+
+  async function committed(g: ConnectorGateway, user = 'u1', n = 9) {
+    const res = await g.send('POST', '/v1/e2e/approvals', {
+      user,
+      body: {
+        device_id: idOf(n),
+        public_key: key(n),
+        name: 'New phone',
+        commitment: commitmentOf(n, 50),
+      },
+    });
+    return res.json().id as string;
+  }
+  const nonce = (g: ConnectorGateway, id: string, by: number, user = 'u1', value = secret(60)) =>
+    g.send('POST', `/v1/e2e/approvals/${id}/nonce`, {
+      user,
+      body: { device_id: idOf(by), nonce: value },
+    });
+  const reveal = (g: ConnectorGateway, id: string, by: number, user = 'u1', value = secret(50)) =>
+    g.send('POST', `/v1/e2e/approvals/${id}/reveal`, {
+      user,
+      body: { device_id: idOf(by), reveal: value },
+    });
+  const status = (g: ConnectorGateway, id: string, by: number, user = 'u1') =>
+    g.send('GET', `/v1/e2e/approvals/${id}?device_id=${idOf(by)}`, { user });
+
+  it('carries the commitment, the nonce and the reveal in order', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = await committed(g);
+    expect((await claim(g, id, 1)).json().commitment).toBe(commitmentOf(9, 50));
+    // No reveal before the approver's nonce.
+    expect((await reveal(g, id, 9)).json().error.code).toBe('approval_closed');
+    const withNonce = await nonce(g, id, 1);
+    expect(withNonce.statusCode).toBe(200);
+    expect(withNonce.json().approver_nonce).toBe(secret(60));
+    // The approver reads the approval too, the new phone sees the nonce.
+    expect((await status(g, id, 1)).json().reveal).toBeUndefined();
+    expect((await status(g, id, 9)).json().approver_nonce).toBe(secret(60));
+    expect((await reveal(g, id, 9)).statusCode).toBe(200);
+    expect((await status(g, id, 1)).json().reveal).toBe(secret(50));
+  });
+
+  it('sets the nonce and the reveal once only', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = await committed(g);
+    await claim(g, id, 1);
+    await nonce(g, id, 1);
+    expect((await nonce(g, id, 1, 'u1', secret(61))).statusCode).toBe(409);
+    await reveal(g, id, 9);
+    expect((await reveal(g, id, 9)).statusCode).toBe(409);
+    expect((await status(g, id, 9)).json().approver_nonce).toBe(secret(60));
+  });
+
+  it('allows only the claiming phone and the new phone of the same account', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    addPhone(g, 'u2', 3);
+    const id = await committed(g);
+    await claim(g, id, 1);
+    expect((await nonce(g, id, 2)).statusCode).toBe(404);
+    expect((await nonce(g, id, 9)).statusCode).toBe(404);
+    expect((await nonce(g, id, 3, 'u2')).statusCode).toBe(404);
+    expect((await nonce(g, id, 1, 'u2')).statusCode).toBe(404);
+    await nonce(g, id, 1);
+    expect((await reveal(g, id, 1)).statusCode).toBe(404);
+    expect((await reveal(g, id, 9, 'u2')).statusCode).toBe(404);
+    expect((await status(g, id, 2)).statusCode).toBe(404);
+    expect((await status(g, id, 1, 'u2')).statusCode).toBe(404);
+  });
+
+  it('refuses a reveal that does not open the commitment', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = await committed(g);
+    await claim(g, id, 1);
+    await nonce(g, id, 1);
+    expect((await reveal(g, id, 9, 'u1', secret(51))).statusCode).toBe(400);
+    expect((await reveal(g, id, 9)).statusCode).toBe(200);
+  });
+
+  it('refuses a nonce for a request without a commitment, and after expiry', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-25T10:00:00.000Z'));
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const old = (await request(g)).json().id as string;
+    await claim(g, old, 1);
+    expect((await nonce(g, old, 1)).statusCode).toBe(409);
+    const id = await committed(g, 'u1', 8);
+    await claim(g, id, 1);
+    vi.setSystemTime(new Date('2026-11-25T10:10:00.001Z'));
+    expect((await nonce(g, id, 1)).statusCode).toBe(410);
+    expect((await reveal(g, id, 8)).statusCode).toBe(410);
   });
 });

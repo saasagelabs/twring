@@ -1481,3 +1481,34 @@ The server still sees file sizes, counts and timing (as ADR-044's threat model s
 reply from a computer that is gone for over a minute shows "Interrupted". Photos to a computer
 with an older connector fail with "update Twring on your computer". The Media screen shows
 ordinary-chat photos only.
+
+## ADR-046: Second-phone approval: commit, then reveal (2026-11-27)
+
+### Context
+Approving a second phone (ADR-044, ADR-045) had both phones show a 6-digit code computed from
+the two static public keys. The code has about 20 bits and nothing in it was fixed before the
+server saw both keys, so a hostile server could replace the new phone's key with its own,
+searching offline (about 10^6 tries, seconds) for a key that gives the same 6 digits. The
+approving phone would then trust a server key and tell every other device to trust it.
+
+### Decision
+- The new phone makes a random 32-byte secret and sends SHA-256("twring-approval-commit-v1" ||
+  key || secret) with its request. It keeps the secret in the keychain until the approval ends.
+- The approving phone claims the request and, only once it holds that commitment, sends its own
+  random 32-byte nonce (`POST /v1/e2e/approvals/:id/nonce`, once, by the claiming phone).
+- Once the nonce is fixed, the new phone reveals its secret (`POST .../:id/reveal`, once, by the
+  requesting phone; the gateway checks it against the commitment) and shows the code.
+- The approving phone checks the reveal against the commitment (constant time) and refuses a
+  mismatch. Both phones show SHA-256("twring-approval-sas-v1" || newKey || approverKey ||
+  newSecret || approverNonce) as 6 digits. The person still compares 6 digits and taps
+  "Codes match, approve".
+- A request without a commitment is refused with copy that tells the person to update Twring on
+  the new phone. A key, commitment or nonce that changes after a code is shown stops the flow.
+- The claiming phone may read the approval's status too, and the status poll limit is 80 a
+  minute per account so both phones can poll every 2 s.
+
+### Consequences
+Both phones need an app with this change: build 38 and earlier cannot read the new fields
+(`phoneApprovalSchema` is strict), so mixing versions fails closed with "update Twring".
+Computer pairing by QR or typed code is unchanged: it is keyed by the QR secret the server never
+sees. `safetyCode` itself is left unchanged.

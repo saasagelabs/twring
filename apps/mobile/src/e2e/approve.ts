@@ -1,12 +1,16 @@
 import {
+  approvalBytesSchema,
+  approvalCode,
+  approvalCommitment,
+  approvalCommitmentMatches,
   base64urlDecode,
   base64urlEncode,
   connectorIdSchema,
   keyMatchesId,
   MAX_PAIRED_DEVICES,
+  newApprovalSecret,
   openTrustNote,
   phoneApprovalSchema,
-  safetyCode,
   sealTrustNote,
   type PhoneApproval,
   type TrustNote,
@@ -23,7 +27,13 @@ import { queueRewrap } from './rewrap';
  * new phone asks; a trusted phone takes the request and both show the same 6-digit code; when
  * the person says they match, the trusted phone seals a note naming the new phone, wrapped to the
  * new phone and to every device it trusts. The server only relays: a swapped key gives two
- * different codes. Logs carry ids and states only.
+ * different codes.
+ *
+ * The code is commit, then reveal (ADR-046): the new phone sends a commitment to its key and a
+ * random secret with its request; the approving phone sends its own random nonce only once it
+ * holds that commitment; the new phone reveals its secret only once that nonce is fixed. So a
+ * server that swaps a key cannot search for one that gives the same 6 digits. Logs carry ids and
+ * states only.
  */
 
 export const APPROVE_PATH = 'Approve from my other phone';
@@ -42,16 +52,53 @@ export function approveSheetCopy(newPhoneName: string): string {
   return `Make sure ${newPhoneName} shows the same 6 digits.`;
 }
 
+/** The approving phone, while the new phone has not yet sent what the code needs. */
+export function approveNewPhoneWaitingCopy(newPhoneName: string): string {
+  return `Waiting for ${newPhoneName}. Keep Twring open on it.`;
+}
+
+/** The new phone sent no commitment: an app from before ADR-046, refused (fail closed). */
+export const APPROVE_OUTDATED =
+  'That phone needs the latest Twring. Update Twring on the new phone, then ask again from it.';
+
+const SECRET_KEY_PREFIX = 'twring.e2e.approval_secret.v1.';
+const NONCE_KEY_PREFIX = 'twring.e2e.approval_nonce.v1.';
+
+/** The new phone's secret for this approval, kept until the approval ends. */
+export async function loadApprovalSecret(
+  store: SecureKeyValue,
+  id: string,
+): Promise<Uint8Array | undefined> {
+  return loadBytes(store, SECRET_KEY_PREFIX + id);
+}
+
+/** Drops this approval's secret (new phone) and nonce (approving phone), if any. */
+export async function forgetApprovalSecrets(store: SecureKeyValue, id: string): Promise<void> {
+  await Promise.all([
+    store.deleteItemAsync(SECRET_KEY_PREFIX + id).catch(() => undefined),
+    store.deleteItemAsync(NONCE_KEY_PREFIX + id).catch(() => undefined),
+  ]);
+}
+
+async function loadBytes(store: SecureKeyValue, key: string): Promise<Uint8Array | undefined> {
+  const raw = await store.getItemAsync(key);
+  if (raw === null || !approvalBytesSchema.safeParse(raw).success) return undefined;
+  return base64urlDecode(raw);
+}
+
 /** The signed-in approval calls; the raw answers, checked here. */
 export interface ApproveApi {
   request(body: {
     device_id: string;
     public_key: string;
     name: string;
+    commitment: string;
   }): Promise<{ status: number; body: unknown }>;
   status(id: string, deviceId: string): Promise<{ status: number; body: unknown }>;
   list(deviceId: string): Promise<{ status: number; body: unknown }>;
   claim(id: string, deviceId: string): Promise<{ status: number; body: unknown }>;
+  nonce(id: string, deviceId: string, nonce: string): Promise<{ status: number; body: unknown }>;
+  reveal(id: string, deviceId: string, reveal: string): Promise<{ status: number; body: unknown }>;
   accept(id: string, deviceId: string, note: TrustNote): Promise<{ status: number; body: unknown }>;
   deny(id: string, deviceId: string): Promise<{ status: number; body: unknown }>;
 }
@@ -59,7 +106,7 @@ export interface ApproveApi {
 type Log = (event: string, fields?: Record<string, string | number>) => void;
 
 export type ApproveFailure =
-  'already_added' | 'cap' | 'busy' | 'expired' | 'closed' | 'mismatch' | 'network';
+  'already_added' | 'cap' | 'busy' | 'expired' | 'closed' | 'mismatch' | 'outdated' | 'network';
 
 const errorSchema = z.object({ error: z.object({ code: z.string() }) });
 const listSchema = z.object({ approvals: z.array(phoneApprovalSchema).max(16) });
@@ -106,11 +153,14 @@ export async function requestApproval(deps: {
   log?: Log;
 }): Promise<{ ok: true; approval: PhoneApproval } | { ok: false; code: ApproveFailure }> {
   const me = await loadOrCreateDeviceKey(deps.store, deps.log);
+  const secret = newApprovalSecret();
+  const commitment = base64urlEncode(approvalCommitment(me.publicKey, secret));
   const answer = await call(() =>
     deps.api.request({
       device_id: me.deviceId,
       public_key: base64urlEncode(me.publicKey),
       name: deps.phoneName,
+      commitment,
     }),
   );
   if (!answer.ok) {
@@ -118,7 +168,11 @@ export async function requestApproval(deps: {
     return answer;
   }
   const out = approvalFrom(answer.body);
-  if (out.ok) deps.log?.('e2e_phone_approval_requested', { approval_id: out.approval.id });
+  if (!out.ok) return out;
+  if (out.approval.commitment !== commitment) return { ok: false, code: 'mismatch' };
+  // Kept until the approval ends, so a restart mid-way can still reveal it.
+  await deps.store.setItemAsync(SECRET_KEY_PREFIX + out.approval.id, base64urlEncode(secret));
+  deps.log?.('e2e_phone_approval_requested', { approval_id: out.approval.id });
   return out;
 }
 
@@ -138,31 +192,79 @@ export interface ShownApprover {
   id: string;
   name: string;
   public_key: string;
+  /** The approving phone's nonce the code was made with. */
+  nonce: string;
   code: string;
 }
 
-/** The code the new phone shows for this claim, or undefined when the claim is not usable. */
-export function shownApprover(approval: PhoneApproval, me: DeviceKey): ShownApprover | undefined {
+/**
+ * The code the new phone shows for this claim, or undefined while it is not usable yet: no
+ * approver, or no approver nonce yet (the code needs it).
+ */
+export function shownApprover(
+  approval: PhoneApproval,
+  me: DeviceKey,
+  secret: Uint8Array,
+): ShownApprover | undefined {
   const approver = approval.approver;
-  if (approver === undefined || !keyMatchesId(approver) || approver.id === me.deviceId)
+  const nonce = approval.approver_nonce;
+  if (
+    approver === undefined ||
+    nonce === undefined ||
+    !keyMatchesId(approver) ||
+    approver.id === me.deviceId
+  )
     return undefined;
   return {
     ...approver,
-    code: safetyCode(me.publicKey, base64urlDecode(approver.public_key)),
+    nonce,
+    code: approvalCode(
+      me.publicKey,
+      base64urlDecode(approver.public_key),
+      secret,
+      base64urlDecode(nonce),
+    ),
   };
 }
 
 /**
- * What the new phone does with the approver a claimed answer names: show it the first time, keep
- * it when it is the same phone and key, and stop when it changes after a code was shown (a code
+ * What a phone does with the other phone an answer names: show it the first time, keep it when
+ * it is the same phone, key and nonce, and stop when any changes after a code was shown (a code
  * must never be replaced silently while a person compares it).
  */
 export function approverUpdate(
-  shown: Pick<ShownApprover, 'id' | 'public_key'> | undefined,
-  next: Pick<ShownApprover, 'id' | 'public_key'>,
+  shown: { id: string; public_key: string; nonce?: string } | undefined,
+  next: { id: string; public_key: string; nonce?: string },
 ): 'show' | 'same' | 'changed' {
   if (shown === undefined) return 'show';
-  return shown.id === next.id && shown.public_key === next.public_key ? 'same' : 'changed';
+  return shown.id === next.id && shown.public_key === next.public_key && shown.nonce === next.nonce
+    ? 'same'
+    : 'changed';
+}
+
+/**
+ * The new phone reveals its secret, now that the approver's nonce is fixed, before it shows the
+ * code. Already revealed (a restart) is fine when it is this phone's own secret.
+ */
+export async function revealApproval(
+  deps: { api: Pick<ApproveApi, 'reveal'>; store: SecureKeyValue; log?: Log },
+  approval: PhoneApproval,
+): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> {
+  const me = await loadDeviceKey(deps.store);
+  const secret = await loadApprovalSecret(deps.store, approval.id);
+  if (me === undefined || secret === undefined || approval.approver_nonce === undefined)
+    return { ok: false, code: 'mismatch' };
+  const mine = base64urlEncode(secret);
+  if (approval.reveal !== undefined)
+    return approval.reveal === mine ? { ok: true } : { ok: false, code: 'mismatch' };
+  const answer = await call(() => deps.api.reveal(approval.id, me.deviceId, mine));
+  if (!answer.ok) return answer;
+  const out = approvalFrom(answer.body);
+  if (!out.ok) return out;
+  if (out.approval.reveal !== mine || out.approval.approver_nonce !== approval.approver_nonce)
+    return { ok: false, code: 'mismatch' };
+  deps.log?.('e2e_phone_approval_revealed', { approval_id: approval.id });
+  return { ok: true };
 }
 
 /**
@@ -259,6 +361,7 @@ export async function finishApproval(
   await queueRewrap(deps.store, { id: shown.id, public_key: shown.public_key }).catch(() =>
     deps.log?.('e2e_rewrap_queue_failed', { approval_id: approval.id }),
   );
+  await forgetApprovalSecrets(deps.store, approval.id);
   deps.log?.('e2e_phone_approval_done', { approval_id: approval.id, trusted: learned.length });
   return true;
 }
@@ -278,11 +381,27 @@ export async function listWaiting(deps: {
   return parsed.success ? parsed.data.approvals.filter((a) => a.device_id !== me.deviceId) : [];
 }
 
-export type ClaimedApproval = { approval: PhoneApproval; code: string };
+/** A waiting phone this phone took and sent its nonce for; no code until the new phone reveals. */
+export type ClaimedApproval = { approval: PhoneApproval; nonce: string };
+/** The new phone revealed and it opened its commitment: the code both screens show. */
+export type CheckedApproval = { approval: PhoneApproval; code: string };
 
-/** Takes a waiting phone; the code is the one both screens show. */
+/** Same new phone, key and commitment as when it was claimed. */
+function sameRequest(a: PhoneApproval, b: PhoneApproval): boolean {
+  return (
+    a.id === b.id &&
+    a.device_id === b.device_id &&
+    a.public_key === b.public_key &&
+    a.commitment === b.commitment
+  );
+}
+
+/**
+ * Takes a waiting phone and, only once it holds the new phone's commitment, sends this phone's
+ * random nonce. A request without a commitment (an older app) is refused.
+ */
 export async function claimWaiting(
-  deps: { api: Pick<ApproveApi, 'claim'>; store: SecureKeyValue; log?: Log },
+  deps: { api: Pick<ApproveApi, 'claim' | 'nonce'>; store: SecureKeyValue; log?: Log },
   id: string,
 ): Promise<{ ok: true; claimed: ClaimedApproval } | { ok: false; code: ApproveFailure }> {
   const me = await loadDeviceKey(deps.store);
@@ -298,12 +417,72 @@ export async function claimWaiting(
     approval.device_id === me.deviceId
   )
     return { ok: false, code: 'mismatch' };
+  if (approval.commitment === undefined) {
+    deps.log?.('e2e_phone_approval_failed', { approval_id: id, reason: 'outdated' });
+    return { ok: false, code: 'outdated' };
+  }
   deps.log?.('e2e_phone_approval_claimed', { approval_id: id });
+  // A nonce kept from before a restart is reused; the server takes only one.
+  const kept = await loadBytes(deps.store, NONCE_KEY_PREFIX + id);
+  const nonce = base64urlEncode(kept ?? newApprovalSecret());
+  if (approval.approver_nonce !== undefined)
+    return approval.approver_nonce === nonce
+      ? { ok: true, claimed: { approval, nonce } }
+      : { ok: false, code: 'mismatch' };
+  if (kept === undefined) await deps.store.setItemAsync(NONCE_KEY_PREFIX + id, nonce);
+  const sent = await call(() => deps.api.nonce(id, me.deviceId, nonce));
+  if (!sent.ok) return sent;
+  const after = approvalFrom(sent.body);
+  if (!after.ok) return after;
+  if (!sameRequest(approval, after.approval) || after.approval.approver_nonce !== nonce)
+    return { ok: false, code: 'mismatch' };
+  return { ok: true, claimed: { approval: after.approval, nonce } };
+}
+
+/**
+ * The approving phone asks whether the new phone revealed its secret. `waiting` until it has;
+ * then the secret must open the commitment it held before sending its nonce (else `mismatch`),
+ * and the code is made from what was claimed and checked here, never from a later answer.
+ */
+export async function checkReveal(
+  deps: { api: Pick<ApproveApi, 'status'>; store: SecureKeyValue; log?: Log },
+  claimed: ClaimedApproval,
+): Promise<
+  | { ok: true; waiting: true }
+  | { ok: true; checked: CheckedApproval }
+  | { ok: false; code: ApproveFailure }
+> {
+  const me = await loadDeviceKey(deps.store);
+  if (me === undefined || claimed.approval.commitment === undefined)
+    return { ok: false, code: 'mismatch' };
+  const answer = await call(() => deps.api.status(claimed.approval.id, me.deviceId));
+  if (!answer.ok) return answer;
+  const out = approvalFrom(answer.body);
+  if (!out.ok) return out;
+  const next = out.approval;
+  if (next.state === 'expired') return { ok: false, code: 'expired' };
+  if (next.state !== 'claimed') return { ok: false, code: 'closed' };
+  if (
+    !sameRequest(claimed.approval, next) ||
+    next.approver_nonce !== claimed.nonce ||
+    next.approver?.id !== me.deviceId
+  )
+    return { ok: false, code: 'mismatch' };
+  if (next.reveal === undefined) return { ok: true, waiting: true };
+  const newKey = base64urlDecode(claimed.approval.public_key);
+  const reveal = base64urlDecode(next.reveal);
+  if (!approvalCommitmentMatches(base64urlDecode(claimed.approval.commitment), newKey, reveal)) {
+    deps.log?.('e2e_phone_approval_failed', {
+      approval_id: claimed.approval.id,
+      reason: 'commitment',
+    });
+    return { ok: false, code: 'mismatch' };
+  }
   return {
     ok: true,
-    claimed: {
-      approval,
-      code: safetyCode(me.publicKey, base64urlDecode(approval.public_key)),
+    checked: {
+      approval: { ...claimed.approval, reveal: next.reveal },
+      code: approvalCode(newKey, me.publicKey, reveal, base64urlDecode(claimed.nonce)),
     },
   };
 }
@@ -319,12 +498,21 @@ export async function approveWaiting(
     now?: () => number;
     log?: Log;
   },
-  approval: PhoneApproval,
+  checked: CheckedApproval,
 ): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> {
+  // Only the approval that was claimed and whose reveal opened its commitment (`checkReveal`).
+  const approval = checked.approval;
   const me = await loadDeviceKey(deps.store);
   if (
     me === undefined ||
-    !keyMatchesId({ id: approval.device_id, public_key: approval.public_key })
+    approval.commitment === undefined ||
+    approval.reveal === undefined ||
+    !keyMatchesId({ id: approval.device_id, public_key: approval.public_key }) ||
+    !approvalCommitmentMatches(
+      base64urlDecode(approval.commitment),
+      base64urlDecode(approval.public_key),
+      base64urlDecode(approval.reveal),
+    )
   )
     return { ok: false, code: 'mismatch' };
   const trusted = (await loadTrusted(deps.store)).filter((d) => d.id !== approval.device_id);
@@ -375,6 +563,7 @@ export async function approveWaiting(
   await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
     () => undefined,
   );
+  await forgetApprovalSecrets(deps.store, approval.id);
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
 }
@@ -386,6 +575,7 @@ export async function denyWaiting(
   const me = await loadDeviceKey(deps.store);
   if (me === undefined) return { ok: false, code: 'closed' };
   const answer = await call(() => deps.api.deny(id, me.deviceId));
+  await forgetApprovalSecrets(deps.store, id);
   if (answer.ok) deps.log?.('e2e_phone_approval_denied', { approval_id: id });
   return answer.ok ? { ok: true } : answer;
 }

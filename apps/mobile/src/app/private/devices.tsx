@@ -10,13 +10,18 @@ import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { Sheet } from '@/components/Sheet';
 import {
   APPROVE_BUTTON,
+  APPROVE_OUTDATED,
+  approveNewPhoneWaitingCopy,
   approveSheetCopy,
   approveWaiting,
+  checkReveal,
   claimWaiting,
   DENY_BUTTON,
   denyWaiting,
   listWaiting,
+  pollApproval,
   WAITING_TITLE,
+  type CheckedApproval,
   type ClaimedApproval,
 } from '@/e2e/approve';
 import { loadDeviceKey } from '@/e2e/device-key';
@@ -41,6 +46,10 @@ const APPROVE_FAILED =
   "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
 
 type Waiting = { id: string; name: string };
+/** Claimed and waiting for the new phone's reveal, or checked with the code to compare. */
+type Approving = { claimed: ClaimedApproval; checked?: CheckedApproval };
+/** How often the approving phone asks whether the new phone sent what the code needs. */
+const REVEAL_POLL_MS = 2_000;
 type Loaded = { state: DevicesState; self?: string; waiting: Waiting[] } | { error: string };
 
 /** The list from the server; reading it also drops devices the server removed from this phone. */
@@ -76,7 +85,7 @@ export default function PrivateDevicesScreen() {
   const [busy, setBusy] = useState(false);
   const [selfId, setSelfId] = useState<string | undefined>();
   const [waiting, setWaiting] = useState<Waiting[]>([]);
-  const [approving, setApproving] = useState<ClaimedApproval | undefined>();
+  const [approving, setApproving] = useState<Approving | undefined>();
   const [connecting, setConnecting] = useState<DeviceRow | undefined>();
 
   const apply = useCallback((found: Loaded) => {
@@ -132,25 +141,52 @@ export default function PrivateDevicesScreen() {
     setBusy(true);
     try {
       const out = await claimWaiting({ api: approveApi(), store: privateKeychain() }, row.id);
-      if (out.ok) setApproving(out.claimed);
+      if (out.ok) setApproving({ claimed: out.claimed });
       else {
         playCallFeedback('error');
-        setError(APPROVE_FAILED);
+        // After the reload, which clears the error it finds none of its own.
         await load();
+        setError(out.code === 'outdated' ? APPROVE_OUTDATED : APPROVE_FAILED);
       }
     } finally {
       setBusy(false);
     }
   };
 
+  // Waits for the new phone's reveal; the code exists only once it opened the commitment.
+  const pendingClaim = approving?.checked === undefined ? approving?.claimed : undefined;
+  useEffect(() => {
+    if (pendingClaim === undefined) return;
+    let live = true;
+    const stop = pollApproval(async () => {
+      const out = await checkReveal({ api: approveApi(), store: privateKeychain() }, pendingClaim);
+      if (!live) return;
+      if (out.ok && 'checked' in out) {
+        stop();
+        setApproving({ claimed: pendingClaim, checked: out.checked });
+      } else if (!out.ok && out.code !== 'network') {
+        stop();
+        playCallFeedback('error');
+        setError(APPROVE_FAILED);
+        setApproving(undefined);
+      }
+    }, REVEAL_POLL_MS);
+    return () => {
+      live = false;
+      stop();
+    };
+  }, [pendingClaim]);
+
   const decide = async (approve: boolean) => {
     if (approving === undefined) return;
+    const id = approving.claimed.approval.id;
     setBusy(true);
     try {
       const deps = { api: approveApi(), store: privateKeychain() };
-      const out = approve
-        ? await approveWaiting(deps, approving.approval)
-        : await denyWaiting(deps, approving.approval.id);
+      const out =
+        approve && approving.checked !== undefined
+          ? await approveWaiting(deps, approving.checked)
+          : await denyWaiting(deps, id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
       if (!out.ok) setError(APPROVE_FAILED);
       // The new phone's older private messages: shared in the background, resumed on next open.
@@ -255,21 +291,35 @@ export default function PrivateDevicesScreen() {
       </Sheet>
       <Sheet
         visible={approving !== undefined}
-        title={approving?.approval.name ?? ''}
+        title={approving?.claimed.approval.name ?? ''}
         onClose={() => {
           if (!busy) setApproving(undefined);
         }}
       >
-        {approving !== undefined && (
+        {approving !== undefined && approving.checked === undefined && (
+          <View style={styles.sheet}>
+            <Text style={[type.body, { color: palette.textSecondary }]}>
+              {approveNewPhoneWaitingCopy(approving.claimed.approval.name)}
+            </Text>
+            <ActivityIndicator accessibilityLabel="Waiting for the new phone" />
+            <GhostButton
+              label={DENY_BUTTON}
+              tone="danger"
+              disabled={busy}
+              onPress={() => void decide(false)}
+            />
+          </View>
+        )}
+        {approving?.checked !== undefined && (
           <View style={styles.sheet}>
             <Text
               style={[type.title, { color: palette.textPrimary }]}
-              accessibilityLabel={approving.code.split('').join(' ')}
+              accessibilityLabel={approving.checked.code.split('').join(' ')}
             >
-              {approving.code}
+              {approving.checked.code}
             </Text>
             <Text style={[type.body, { color: palette.textSecondary }]}>
-              {approveSheetCopy(approving.approval.name)}
+              {approveSheetCopy(approving.checked.approval.name)}
             </Text>
             <GhostButton label={APPROVE_BUTTON} disabled={busy} onPress={() => void decide(true)} />
             <GhostButton

@@ -188,11 +188,13 @@ describe('devices screen', () => {
 describe('waiting for approval (C3 #11, Task 27)', () => {
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
   const approval = { id: 'pap_x', name: 'New phone', device_id: 'dev_n', public_key: 'k' };
+  const claimed = { approval, nonce: 'n' };
+  const checked = { approval: { ...approval, reveal: 'r' }, code: '123 456' };
 
   it('lists waiting phones and opens a sheet with the code and both choices', async () => {
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')], dev(0, 'phone', 'Pixel').id);
     mocks.state[WAITING] = [{ id: 'pap_x', name: 'New phone' }];
-    mocks.claimWaiting.mockResolvedValue({ ok: true, claimed: { approval, code: '123 456' } });
+    mocks.claimWaiting.mockResolvedValue({ ok: true, claimed });
     const all = render();
     expect(all.filter((e) => e.type === 'SettingsGroup').map((e) => e.props.title)).toContain(
       'Waiting for approval',
@@ -201,6 +203,18 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (row.props.onPress as () => void)();
     await flush();
     expect(mocks.claimWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+    // No code until the new phone sent what it needs: a short waiting state, and Deny.
+    const waitingSheet = render();
+    expect(waitingSheet.filter((e) => e.type === 'Sheet')[1]?.props).toMatchObject({
+      visible: true,
+      title: 'New phone',
+    });
+    expect(texts(waitingSheet)).toContain('Waiting for New phone. Keep Twring open on it.');
+    expect(texts(waitingSheet)).not.toContain('123 456');
+    expect(waitingSheet.filter((e) => e.type === 'GhostButton').map((e) => e.props.label)).toEqual([
+      'Deny',
+    ]);
+    mocks.state[APPROVING] = { claimed, checked };
     const opened = render();
     const sheets = opened.filter((e) => e.type === 'Sheet');
     expect(sheets[1]?.props).toMatchObject({ visible: true, title: 'New phone' });
@@ -214,18 +228,29 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
 
   it('approves or denies with the choice made', async () => {
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
-    mocks.state[APPROVING] = { approval, code: '123 456' };
+    mocks.state[APPROVING] = { claimed, checked };
     const approve = render().find(
       (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
     )!;
     (approve.props.onPress as () => void)();
     await flush();
-    expect(mocks.approveWaiting.mock.calls[0]?.[1]).toEqual(approval);
-    mocks.state[APPROVING] = { approval, code: '123 456' };
+    expect(mocks.approveWaiting.mock.calls[0]?.[1]).toEqual(checked);
+    mocks.state[APPROVING] = { claimed, checked };
     const deny = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
     (deny.props.onPress as () => void)();
     await flush();
     expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+  });
+
+  it('tells the person to update the new phone when its app is too old', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[WAITING] = [{ id: 'pap_x', name: 'New phone' }];
+    mocks.claimWaiting.mockResolvedValue({ ok: false, code: 'outdated' });
+    const row = render().find((e) => e.type === 'SettingsRow' && e.props.label === 'New phone')!;
+    (row.props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(JSON.stringify(mocks.state)).toContain('Update Twring on the new phone');
   });
 });
 
