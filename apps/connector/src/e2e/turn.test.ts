@@ -7,6 +7,7 @@ import {
   SCOPED_SESSIONS_FEATURE,
   DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
+  SEALED_WORKING_FEATURE,
   SEALED_CHAT_FEATURE,
   type RelayConnectorMessage,
   type SealedPayload,
@@ -463,6 +464,7 @@ describe('helloFeatures', () => {
       SEALED_CHAT_FEATURE,
       SEALED_CANCEL_FEATURE,
       DEVICES_CHANGED_FEATURE,
+      SEALED_WORKING_FEATURE,
     ]);
   });
 });
