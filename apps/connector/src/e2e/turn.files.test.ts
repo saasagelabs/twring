@@ -40,6 +40,8 @@ interface Options {
   gateway?: boolean;
   /** Answers an upload of the nth blob (0 based); default a fresh id. */
   upload?: (n: number) => Response;
+  /** Takes over an upload request (to hold it open). */
+  uploadFetch?: (init: RequestInit) => Promise<Response>;
 }
 
 function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
@@ -96,6 +98,7 @@ function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
         body: new Uint8Array(init.body as Buffer),
         type: new Headers(init.headers).get('content-type'),
       });
+      if (options.uploadFetch !== undefined) return options.uploadFetch(init);
       return Promise.resolve(options.upload?.(n) ?? okUpload(`fil_u${'abcdefgh'[n]}`));
     }
     const blob = blobs[url.pathname.split('/').at(-1)!];
@@ -420,6 +423,41 @@ describe('private turns that send files back', () => {
     const text = payloads.map((p) => p.text).join('');
     expect(linesWith(text, 'f5.png')).toHaveLength(1);
     expect(linesWith(text, 'f6.png')).toHaveLength(1);
+  });
+
+  it('a stop during file uploads cancels them and sends no files', async () => {
+    let seen: AbortSignal | undefined;
+    let started!: () => void;
+    const uploading = new Promise<void>((resolve) => (started = resolve));
+    const run = setup(
+      {},
+      {
+        async *agent() {
+          yield { type: 'text', text: 'partial' };
+          yield agentFile('one.png', PNG);
+          yield agentFile('two.png', PNG);
+          await Promise.resolve();
+        },
+        uploadFetch: (init) => {
+          seen = init.signal ?? undefined;
+          started();
+          return new Promise<Response>((_resolve, reject) =>
+            seen?.addEventListener('abort', () => reject(new Error('aborted')), { once: true }),
+          );
+        },
+      },
+    );
+    const frame = run.frame({ text: 'draw' });
+    const turn = run.chats.receive(frame);
+    await uploading;
+    await run.chats.receive({ type: 'sealed.cancel', agent: AGENT, turn_id: frame.message_id });
+    await turn;
+    expect(seen?.aborted).toBe(true);
+    expect(run.uploads).toHaveLength(1);
+    const { payloads, last } = replyOf(run, frame.message_id);
+    expect(last.file_ids).toBeUndefined();
+    expect(payloads.at(-1)!.files).toBeUndefined();
+    expect(payloads.map((p) => p.text).join('')).not.toContain('Could not send');
   });
 
   it('logs carry counts only, never names or keys', async () => {

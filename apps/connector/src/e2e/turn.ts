@@ -404,13 +404,18 @@ export class PrivateChats {
         }
       });
     } finally {
-      this.options.signal?.removeEventListener('abort', stop);
-      stopped.removeEventListener('abort', stop);
       await cleanup?.();
       pool.release(frame.agent);
     }
-    if (dropped) return;
-    const sent = await this.sealAgentFiles(frame, agentFiles, overflow, controller.signal);
+    // Stop and shutdown stay wired until the uploads are done.
+    let sent: Awaited<ReturnType<typeof this.sealAgentFiles>>;
+    try {
+      if (dropped) return;
+      sent = await this.sealAgentFiles(frame, agentFiles, overflow, controller.signal);
+    } finally {
+      this.options.signal?.removeEventListener('abort', stop);
+      stopped.removeEventListener('abort', stop);
+    }
     if (sent.lines.length > 0)
       buffered = [buffered, sent.lines.join('\n')].filter((part) => part !== '').join('\n\n');
     await send(
@@ -474,6 +479,8 @@ export class PrivateChats {
           size: file.data.byteLength,
         });
       } catch (error) {
+        // Stopped mid-upload: the stopped path sends what it has, no lines for cancelled files.
+        if (signal.aborted) return none;
         this.options.log?.(
           `private file in ${frame.message_id} not sent (${error instanceof UploadError ? error.code : 'seal_failed'})`,
         );
@@ -484,6 +491,7 @@ export class PrivateChats {
       lines.push(
         `Could not send ${cleanName(name)}: at most ${MAX_ATTACHMENTS_PER_MESSAGE} files go in one reply.`,
       );
+    if (signal.aborted) return none;
     return { files: out, lines };
   }
 
