@@ -2,9 +2,10 @@ import type { Agent, ThreadMessage } from '@twring/contracts';
 
 import { ApiError } from '../api/client';
 import { apiErrorCopy } from '../api/errors';
+import { hasComputerFor } from './devices';
 import type { TrustedDevice } from './pairing';
 import type { SealedFileEntry } from './sealed-files';
-import type { OpenedMessage } from './sealed-thread';
+import { aadIdsFor, type OpenedMessage } from './sealed-thread';
 
 /**
  * Turning private chats on for one computer agent (ADR-044, opt-in per agent). Only an agent on
@@ -25,14 +26,9 @@ export function showPrivateRow(input: {
   return input.available && input.agent.protocol === 'cord-connector';
 }
 
-export function hasComputer(trusted: readonly TrustedDevice[]): boolean {
-  return trusted.some((device) => device.kind === 'computer');
-}
-
-/** A private chat with no computer to send to: the key was replaced, or pairing was lost. */
-export function needsPairAgain(isPrivate: boolean, trusted: readonly TrustedDevice[]): boolean {
-  return isPrivate && !hasComputer(trusted);
-}
+/** The agent's address names no computer (not a connector endpoint). */
+export const NO_COMPUTER =
+  'Twring could not find the computer this agent runs on. Try again later.';
 
 export function confirmPrivateCopy(agentName: string): {
   title: string;
@@ -51,14 +47,21 @@ export type TurnOnResult =
   | { status: 'on'; message?: undefined }
   | { status: 'failed'; message: string };
 
-/** With no paired computer, pairing comes first; it returns here (`?agentId=`) to finish. */
+/**
+ * With no paired computer for this agent's connector, pairing comes first; it returns here
+ * (`?agentId=`) to finish. A computer paired for another connector does not count.
+ */
 export async function turnOnPrivate(deps: {
   agentId: string;
+  /** The agent's address; its connector id names the computer it runs on. */
+  endpointUrl: string;
   trusted: readonly TrustedDevice[];
   nav: { push(to: string): unknown };
   api: { setPrivate(agentId: string): Promise<void> };
 }): Promise<TurnOnResult> {
-  if (!hasComputer(deps.trusted)) {
+  const ids = aadIdsFor(deps.endpointUrl);
+  if (ids === undefined) return { status: 'failed', message: NO_COMPUTER };
+  if (!hasComputerFor(deps.trusted, ids.accountId)) {
     deps.nav.push(`/private/pair?agentId=${encodeURIComponent(deps.agentId)}`);
     return { status: 'pair' };
   }

@@ -95,7 +95,12 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const onTurnedOn = vi.fn();
 
 function render(
-  agent = { id: 'a1', name: 'Claude', protocol: 'cord-connector' as const },
+  agent = {
+    id: 'a1',
+    name: 'Claude',
+    protocol: 'cord-connector' as const,
+    endpoint_url: `cord-connector://con_${'a'.repeat(20)}/claude`,
+  },
   extra: { isPrivate?: boolean; ask?: boolean } = {},
 ): ReactElement | null {
   mocks.cursor = 0;
@@ -168,7 +173,9 @@ describe('Make chats private row', () => {
   });
 
   it('is hidden for an AI app connected online', async () => {
-    expect(await loaded({ id: 'a1', name: 'Claude', protocol: 'mcp-app' as never })).toBeNull();
+    expect(
+      await loaded({ id: 'a1', name: 'Claude', protocol: 'mcp-app' as never, endpoint_url: '' }),
+    ).toBeNull();
   });
 
   it('asks first, saying older messages stay as they are', async () => {

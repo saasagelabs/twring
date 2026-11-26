@@ -31,7 +31,7 @@ export function PrivateChatsRow({
   ask,
   onTurnedOn,
 }: {
-  agent: Pick<Agent, 'id' | 'name' | 'protocol'>;
+  agent: Pick<Agent, 'id' | 'name' | 'protocol' | 'endpoint_url'>;
   isPrivate: boolean;
   /** Back from pairing: open the confirmation at once. */
   ask: boolean;
@@ -78,6 +78,7 @@ export function PrivateChatsRow({
     setError(undefined);
     const result = await turnOnPrivate({
       agentId: agent.id,
+      endpointUrl: agent.endpoint_url,
       trusted: await loadTrusted(privateKeychain()).catch(() => trusted),
       nav: router,
       api: { setPrivate: (id) => api.setPrivate!(id) },

@@ -1,5 +1,5 @@
 import type { ThreadMessage } from '@twring/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   COULDNT_OPEN,
@@ -11,7 +11,9 @@ import {
   SPEECH_NOTE,
   VOICE_WARNING,
   sealedBubble,
+  turnOnPrivate,
 } from './private-state';
+import type { TrustedDevice } from './pairing';
 import type { OpenedMessage } from './sealed-thread';
 
 const at = '2026-11-25T10:00:00.000Z';
@@ -138,5 +140,61 @@ describe('sealed message bubbles', () => {
       expect(
         sealedBubble(message, opened({ id, author: 'agent', state: 'ok', text }), 'Claude'),
       ).toBeUndefined();
+  });
+});
+
+describe('turning private on pairs the computer this agent runs on', () => {
+  const MINE = 'con_' + 'm'.repeat(20);
+  const OTHER = 'con_' + 'o'.repeat(20);
+  const endpointUrl = `cord-connector://${MINE}/claude`;
+  const computer = (id: string, connector_id?: string): TrustedDevice => ({
+    id: 'dev_' + id.repeat(20),
+    kind: 'computer',
+    name: 'Computer',
+    public_key: 'A'.repeat(43),
+    verified_at: at,
+    ...(connector_id !== undefined && { connector_id }),
+  });
+  const run = (trusted: TrustedDevice[], url = endpointUrl) => {
+    const push = vi.fn();
+    const setPrivate = vi.fn().mockResolvedValue(undefined);
+    const result = turnOnPrivate({
+      agentId: 'a1',
+      endpointUrl: url,
+      trusted,
+      nav: { push },
+      api: { setPrivate },
+    });
+    return { push, setPrivate, result };
+  };
+
+  it('pairs when the only trusted computer belongs to another connector', async () => {
+    const { push, setPrivate, result } = run([computer('o', OTHER)]);
+    expect(await result).toEqual({ status: 'pair' });
+    expect(push).toHaveBeenCalledWith('/private/pair?agentId=a1');
+    expect(setPrivate).not.toHaveBeenCalled();
+  });
+
+  it("turns on when this agent's computer is trusted", async () => {
+    const { push, setPrivate, result } = run([computer('o', OTHER), computer('m', MINE)]);
+    expect(await result).toEqual({ status: 'on' });
+    expect(setPrivate).toHaveBeenCalledWith('a1');
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it('treats a legacy computer with no connector as paired while none is bound here', async () => {
+    const { setPrivate, result } = run([computer('l')]);
+    expect(await result).toEqual({ status: 'on' });
+    expect(setPrivate).toHaveBeenCalled();
+  });
+
+  it('fails plainly, without pairing, when the agent address is not a computer', async () => {
+    const { push, setPrivate, result } = run([computer('m', MINE)], 'https://example.com');
+    expect(await result).toEqual({
+      status: 'failed',
+      message: 'Twring could not find the computer this agent runs on. Try again later.',
+    });
+    expect(push).not.toHaveBeenCalled();
+    expect(setPrivate).not.toHaveBeenCalled();
   });
 });
