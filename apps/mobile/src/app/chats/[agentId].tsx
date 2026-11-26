@@ -63,7 +63,7 @@ import {
   shouldAnnounce,
   type PillState,
 } from '@/threads/scroll-state';
-import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
+import { callDuration, dateLabel, failedSendText } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
 import { File } from 'expo-file-system';
 import { apiErrorCopy } from '@/api/errors';
@@ -246,12 +246,35 @@ export default function ChatScreen() {
   const rows = useMemo(() => {
     const ordered: Row[] = [];
     let previous = '';
+    // A failed send stays where it was sent, among the messages; one still sending stays last
+    // (the phone's clock may run behind the server's).
+    const failed = chat.pending
+      .filter((pending) => pending.state === 'failed')
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    const placed = new Set<string>();
+    const placeFailedBefore = (createdAt: string) => {
+      for (const pending of failed) {
+        if (
+          placed.has(pending.clientId) ||
+          !(Date.parse(pending.createdAt) < Date.parse(createdAt))
+        )
+          continue;
+        const label = dateLabel(pending.createdAt, now);
+        if (label !== previous) {
+          ordered.push({ key: `date-${pending.clientId}`, kind: 'date', label });
+          previous = label;
+        }
+        ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
+        placed.add(pending.clientId);
+      }
+    };
     for (const message of messages) {
       if (
         message.kind === 'ring' &&
         (message.outcome === 'answered' || message.outcome === 'cancelled')
       )
         continue;
+      placeFailedBefore(message.created_at);
       const label = dateLabel(message.created_at, now);
       if (label !== previous) {
         ordered.push({ key: `date-${message.seq}`, kind: 'date', label });
@@ -261,7 +284,8 @@ export default function ChatScreen() {
       ordered.push({ key: message.id, kind: 'message', message });
     }
     for (const pending of chat.pending)
-      ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
+      if (!placed.has(pending.clientId))
+        ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
     if (streaming) ordered.push({ key: 'working', kind: 'working' });
     return ordered.reverse();
   }, [messages, chat.pending, streaming, now, unreadSeq]);
@@ -429,9 +453,11 @@ export default function ChatScreen() {
                   fontSize: type.microLabel.fontSize,
                 }}
               >
-                {item.error
-                  ? `Didn't go through: ${apiErrorCopy(item.error).message}`
-                  : messageStatus(item.state, name, item.errorCode)}
+                {failedSendText(
+                  name,
+                  item.errorCode,
+                  item.error ? apiErrorCopy(item.error).message : undefined,
+                )}
               </Text>
               <Pressable
                 accessibilityRole="button"

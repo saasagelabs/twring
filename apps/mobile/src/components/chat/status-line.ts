@@ -2,7 +2,7 @@ import type { ThreadMessage, UserMessageStatus } from '@twring/contracts';
 
 import { aiAppReplyStatus } from '../../agents/ai-app';
 import { apiErrorCopy } from '../../api/errors';
-import { messageStatus, workingLabel } from '../../threads/presentation';
+import { failedSendText, messageStatus, workingLabel } from '../../threads/presentation';
 
 /** Reduced motion stops the dots, never the words. */
 export function workingText(label: string | undefined): string {
@@ -20,7 +20,7 @@ export interface StatusLineInput {
   working: boolean;
   activity?: string;
   /** The newest unconfirmed send, if any. */
-  pending?: { clientId: string; state: 'sending' | 'failed'; error?: unknown };
+  pending?: { clientId: string; state: 'sending' | 'failed'; error?: unknown; errorCode?: string };
   /** The newest own message the server knows about. */
   latest?: { status: UserMessageStatus; errorCode?: string };
 }
@@ -60,9 +60,11 @@ export function statusLineContent(input: StatusLineInput): StatusLineContent {
         kind: 'status',
         tone: 'danger',
         retryClientId: pending.clientId,
-        text: pending.error
-          ? `Didn't go through: ${apiErrorCopy(pending.error).message}`
-          : messageStatus('failed', name),
+        text: failedSendText(
+          name,
+          pending.errorCode,
+          pending.error ? apiErrorCopy(pending.error).message : undefined,
+        ),
       };
     return {
       kind: 'status',
