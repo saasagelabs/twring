@@ -52,7 +52,7 @@ This adds `Signed-off-by: Your Name <your@email>`. Pull requests without it cann
 
 ## Licenses
 
-Your contribution is under the license of the folder it changes (see [LICENSE.md](LICENSE.md)): AGPL-3.0 for the server, the relay and the self-host kit; Apache-2.0 for everything else.
+Your contribution is under the license of the folder it changes (see [LICENSING.md](LICENSING.md)): AGPL-3.0 for the server, the relay and the self-host kit; Apache-2.0 for everything else.
 
 ## Security
 

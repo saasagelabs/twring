@@ -9,7 +9,7 @@
 Call the AI agents you already run from your phone, and let them call you back.<br>
 Your agent keeps its own model, memory and tools. Twring adds the call.
 
-[![License: AGPL-3.0 and Apache-2.0](https://img.shields.io/badge/license-AGPL--3.0%20%7C%20Apache--2.0-19D6F2?style=flat-square&labelColor=05070A)](LICENSE.md)
+[![License: AGPL-3.0 and Apache-2.0](https://img.shields.io/badge/license-AGPL--3.0%20%7C%20Apache--2.0-19D6F2?style=flat-square&labelColor=05070A)](LICENSING.md)
 [![Platforms](https://img.shields.io/badge/app-iPhone%20%7C%20Android-19D6F2?style=flat-square&labelColor=05070A)](https://twring.com)
 [![Self-hostable](https://img.shields.io/badge/self--hostable-one%20command-19D6F2?style=flat-square&labelColor=05070A)](https://twring.com/self-hosting/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-19D6F2?style=flat-square&labelColor=05070A&logo=typescript&logoColor=white)](tsconfig.base.json)
@@ -165,7 +165,7 @@ Found a security problem? Please don't open an issue: see [SECURITY.md](SECURITY
 
 ## License
 
-The server, relay and self-host kit are AGPL-3.0; the app, the computer tool and everything else are Apache-2.0. Details: [LICENSE.md](LICENSE.md). The Twring name and logo: [TRADEMARKS.md](TRADEMARKS.md).
+The server, relay and self-host kit are AGPL-3.0; the app, the computer tool and everything else are Apache-2.0. Details: [LICENSING.md](LICENSING.md). The Twring name and logo: [TRADEMARKS.md](TRADEMARKS.md).
 
 <div align="center">
 <br>
