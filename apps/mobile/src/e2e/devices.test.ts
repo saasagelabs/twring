@@ -344,6 +344,50 @@ describe('a phone this phone removed stays removed (R3-1)', () => {
     expect(out.map((d) => d.id)).not.toContain(b.id);
   });
 
+  it('a sync that overlaps a removal never brings the removed phone back', async () => {
+    const { a, b, c } = setup();
+    const d = key();
+    const store = memoryStore();
+    await saveTrusted(store, [trustedPhone(c), trustedPhone(b), trustedPhone(d)]);
+    let release: () => void = () => undefined;
+    let paused: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => (paused = resolve));
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const set = store.setItemAsync;
+    let held = false;
+    store.setItemAsync = async (k: string, v: string) => {
+      if (!held && k === REMOVED_KEY_NAME) {
+        held = true;
+        paused();
+        await gate;
+      }
+      return set(k, v);
+    };
+    // The server marks d removed, so this sync saves the trusted list it loaded.
+    const sync = syncTrusted(store, [row(a), row(b), row(c), { ...row(d), revoked_at: at }]);
+    await reached;
+    const removal = removeDevice(removeDeps(store, a.id), b.id);
+    await Promise.resolve();
+    release();
+    await Promise.all([sync, removal]);
+    const ids = (await loadTrusted(store)).map((x) => x.id);
+    expect(ids).not.toContain(b.id);
+    expect(ids).not.toContain(d.id);
+    // A later sync that lists b as active keeps it out too.
+    const later = await syncTrusted(store, [row(a), row(b), row(c)]);
+    expect(later.map((x) => x.id)).not.toContain(b.id);
+  });
+
+  it('a trusted entry whose id is in the removed memory is dropped on sync', async () => {
+    const { a, b, c } = setup();
+    const store = memoryStore();
+    await store.setItemAsync(REMOVED_KEY_NAME, JSON.stringify([b.id]));
+    await saveTrusted(store, [trustedPhone(c), trustedPhone(b)]);
+    const out = await syncTrusted(store, [row(a), row(b), row(c)]);
+    expect(out.map((x) => x.id)).toEqual([c.id]);
+    expect((await loadTrusted(store)).map((x) => x.id)).toEqual([c.id]);
+  });
+
   it('never drops a removed id the server still lists', async () => {
     const { a, b, c, note } = setup();
     const store = memoryStore();

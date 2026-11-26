@@ -195,7 +195,7 @@ describe('pairing client', () => {
     expect(base64urlDecode(list[0].public_key)).toEqual(computer.publicKey);
   });
 
-  it('a server-named connector id never evicts another trusted computer (R4-2)', async () => {
+  it('a computer set up again replaces its old key for that connector (R4-2 review)', async () => {
     const CON_A = `con_${'a'.repeat(20)}`;
     const a = generateSealKeyPair().publicKey;
     const d = deps(
@@ -220,9 +220,11 @@ describe('pairing client', () => {
     if (!res.ok) throw new Error('expected ok');
     await confirmPairing(d, res.connector);
     const list = await loadTrusted(d.store);
-    expect(list.map((x) => x.id)).toContain(entryA.id);
-    expect(computerAllowed(list, entryA.id, CON_A)).toBe(true);
-    // A computer set up again (same connector, new key) still works after the scan.
+    // The old key is no longer trusted: it may have leaked, and the server might never list it
+    // as removed.
+    expect(list.map((x) => x.id)).not.toContain(entryA.id);
+    expect(computerAllowed(list, entryA.id, CON_A)).toBe(false);
+    // A computer set up again (same connector, new key) works after the scan.
     expect(computerAllowed(list, deviceIdFor(computer.publicKey), CON_A)).toBe(true);
   });
 
