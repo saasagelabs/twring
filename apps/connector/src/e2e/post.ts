@@ -147,7 +147,12 @@ export async function sealedPost(
         throw new PrivatePostError('cancelled', 'Message sending cancelled.');
       // An ordinary chat or an old gateway: the caller sends the whole message plain instead.
       if (error instanceof UploadError && isPlainFallbackCode(error.code))
-        throw new PrivatePostError('not_private', 'This chat is not private.');
+        throw new PrivatePostError(
+          'not_private',
+          error.code === 'not_private'
+            ? 'This chat is not private.'
+            : 'The server could not take a sealed file.',
+        );
       lines.push(
         error instanceof UploadError && error.code === 'file_too_large'
           ? `Could not send ${name}: it is larger than 10 MB.`

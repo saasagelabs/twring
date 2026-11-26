@@ -287,6 +287,38 @@ describe('cord-connect', () => {
     expect(payload.files?.map((file) => file.name)).toEqual(['first.txt', 'second.txt']);
   }, 30_000);
 
+  it('message --file: a sealed refusal followed by seal_required fails with exit 1 and never says Sent', async () => {
+    const dir = await tempDir();
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        requests.push(req.url ?? '');
+        const sealedUpload = req.url?.includes('sealed=1') === true;
+        const code = sealedUpload ? 'bad_request' : 'seal_required';
+        res.writeHead(sealedUpload ? 400 : 409, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ error: { code, message: 'x' } }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const fixture = pairedFixture('echo');
+    await saveConfig(join(dir, 'config.json'), {
+      ...config(
+        `http://localhost:${(server.address() as AddressInfo).port}`,
+        dir,
+        fixture.config.connector_id,
+      ),
+      e2e: fixture.e2e(),
+    });
+    const path = join(dir, 'a.txt');
+    await writeFile(path, 'secret');
+    const result = await runCli(dir, ['message', '--file', path]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).not.toContain('Sent');
+    expect(requests.filter((url) => url.includes('sealed=1'))).toHaveLength(1);
+  }, 30_000);
+
   it('sends shared: true on the claim only with --shared', async () => {
     const claims: unknown[] = [];
     const server = createServer((req, res) => {

@@ -137,7 +137,13 @@ export async function deliverBackgroundResult(
       return true;
     };
     // A computer with a trusted phone seals first, so nothing plain reaches a private chat.
-    if (hasTrustedPhone(config) && !(await seal())) return 'retry';
+    // The saved list, not this copy's: a phone paired after the service started counts.
+    const fresh = deps.store === undefined ? undefined : await deps.store((current) => current);
+    if (
+      hasTrustedPhone(fresh === undefined ? config : { ...config, e2e: fresh }) &&
+      !(await seal())
+    )
+      return 'retry';
     for (let attempt = 0; attempt <= DELIVERY_RETRY_MS.length; attempt++) {
       let response: Response | undefined;
       try {
@@ -177,6 +183,11 @@ export async function deliverBackgroundResult(
         sealed = false;
         attempt--;
         continue;
+      }
+      if (!sealed && sealTried && (await isSealRequired(response))) {
+        // Sealing was refused, then the plain try was: the result waits, never dropped.
+        deps.print('background result not delivered yet: chat is private');
+        return 'retry';
       }
       if (!sealed && !sealTried && (await isSealRequired(response))) {
         if (!(await seal())) return 'retry';

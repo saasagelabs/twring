@@ -876,7 +876,9 @@ async function messageCommand(
       };
       // A computer with a trusted phone seals first, so no plain byte reaches a private chat.
       let sent = false;
+      let sealAttempted = false;
       if (hasTrustedPhone(config)) {
+        sealAttempted = true;
         try {
           sent = (await sealAndPost()) === 'sent';
         } catch (error) {
@@ -923,7 +925,13 @@ async function messageCommand(
             true,
           );
         // Ruling 19: sealing fails without a trusted phone and prints the pair-again line.
-        if (outcome === 'seal_required') await sealAndPost();
+        if (outcome === 'seal_required') {
+          // Never seal twice: a sealed try that already ended in 'plain' means this fails.
+          if (sealAttempted || (await sealAndPost()) !== 'sent')
+            throw new UploadError('message_failed', 'Could not send the message.');
+        } else if (outcome !== 'sent') {
+          throw new UploadError('message_failed', 'Could not send the message.');
+        }
       }
       output('Sent to your Twring chat.');
       return MESSAGE_EXIT.sent;

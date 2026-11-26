@@ -1478,4 +1478,49 @@ describe("the computer's own messages into a private chat", () => {
     expect(unpairedLines).toEqual(['private_post_unpaired']);
     expect(lone.calls).toHaveLength(1);
   });
+
+  it('a background result refused sealed then seal_required stays in the outbox', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([json(400, { error: { code: 'bad_request', message: 'No.' } }), refused()]);
+    const result = await deliverBackgroundResult(
+      fixture.config,
+      'claude-code',
+      'Secret.',
+      undefined,
+      { turnId: 'turn-3', surface: 'text' },
+      {
+        hasOpenChannel: () => false,
+        supports: () => true,
+        print: () => undefined,
+        fetch: t.fetch,
+        store: fixture.store,
+      },
+    );
+    expect(result).toBe('retry');
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('a service paired after start seals its next background result', async () => {
+    const fixture = pairedFixture();
+    // The service loaded its config before the phone was paired: no phone in memory.
+    const stale = { ...fixture.config, e2e: { ...fixture.e2e(), devices: [] } };
+    const t = scripted([json(201, { message_id: `msg_${'a'.repeat(20)}`, delivery: 'push' })]);
+    const result = await deliverBackgroundResult(
+      stale,
+      'claude-code',
+      'Secret.',
+      undefined,
+      { turnId: 'turn-4', surface: 'text' },
+      {
+        hasOpenChannel: () => false,
+        supports: () => true,
+        print: () => undefined,
+        fetch: t.fetch,
+        store: fixture.store,
+      },
+    );
+    expect(result).toBe('delivered');
+    expect(t.calls).toHaveLength(1);
+    expect(isSealed(t.calls[0]!)).toBe(true);
+  });
 });
