@@ -1,4 +1,11 @@
-import { base64urlDecode, fileAad, openFile, type SealedPayload } from '@twring/contracts';
+import {
+  base64urlDecode,
+  fileAad,
+  MAX_FILE_BYTES,
+  openFile,
+  SEALED_FILE_OVERHEAD,
+  type SealedPayload,
+} from '@twring/contracts';
 
 /**
  * Opened copies of private chats' files (ADR-045), under the app's cache folder: one file per
@@ -98,6 +105,9 @@ async function openOnce(
 ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
   // A name from the server never reaches a path unless it is exactly a file id.
   if (!FILE_ID.test(file.file_id)) return { error: 'couldnt_open' };
+  // No file over the cap is ever sealed, so none is downloaded (R4-4).
+  if (!Number.isInteger(file.size) || file.size < 0 || file.size > MAX_FILE_BYTES)
+    return { error: 'couldnt_open' };
   await sweepShareCopiesOnce();
   const started = generation;
   const { Directory, File, Paths } = await import('expo-file-system');
@@ -121,6 +131,8 @@ async function openOnce(
       ...(source.headers && { headers: source.headers }),
       idempotent: true,
     });
+    // A blob of any other size cannot open, so it is never read into memory (R4-4).
+    if (temp.size !== file.size + SEALED_FILE_OVERHEAD) return { error: 'couldnt_open' };
     const blob = new Uint8Array(await temp.arrayBuffer());
     const plain = openFile(base64urlDecode(file.key), blob, fileAad(ids));
     if (plain.length !== file.size || started !== generation) return { error: 'couldnt_open' };

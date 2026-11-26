@@ -16,7 +16,7 @@ import { z } from 'zod';
 import type { SecureKeyValue } from '../auth/storage';
 import { loadDeviceKey, type DeviceKey } from './device-key';
 import { loadTrusted, type TrustedDevice } from './pairing';
-import { aadIdsFor, type Rewrap, type SealedThreadMessage } from './sealed-thread';
+import { aadIdsFor, aadsToTry, type Rewrap, type SealedThreadMessage } from './sealed-thread';
 
 /**
  * Older private messages for a phone approved later (C3 #11 Task 28). The approving phone opens
@@ -278,28 +278,40 @@ export function rewrapOne(
           return found && base64urlDecode(found.public_key);
         })();
   if (senderKey === undefined) return undefined;
-  const aad = (e: SealedEnvelopeV1) =>
-    messageAad({
-      ...a.ids,
-      senderDevice: e.sender_device,
-      senderSeq: e.sender_seq,
-      ...(e.chunk !== undefined && { chunk: e.chunk.index }),
-    });
-  let key: Uint8Array | undefined;
-  try {
-    for (const e of envelopes) {
-      if (e.sender_device !== sender || e.sender_seq !== first.sender_seq) return undefined;
-      const mine = e.keys.find((k) => k.device === a.me.deviceId);
-      if (mine === undefined) return undefined;
-      const k = unwrapKey(mine.wrapped, a.me.privateKey, senderKey, aad(e));
-      if (key === undefined) key = k;
-      else if (!sameBytes(key, k)) return undefined;
+  // Its own wraps open under v2 (final flag bound) or v1; the re-wrap stays under the first
+  // envelope's v1 AAD, which the new phone checks (`rewrappedKey`).
+  const unwrap = (wrapped: string, e: SealedEnvelopeV1): Uint8Array | undefined => {
+    for (const aad of aadsToTry(a.ids, e)) {
+      try {
+        return unwrapKey(wrapped, a.me.privateKey, senderKey, aad);
+      } catch {
+        // Next AAD.
+      }
     }
-  } catch {
     return undefined;
+  };
+  let key: Uint8Array | undefined;
+  for (const e of envelopes) {
+    if (e.sender_device !== sender || e.sender_seq !== first.sender_seq) return undefined;
+    const mine = e.keys.find((k) => k.device === a.me.deviceId);
+    if (mine === undefined) return undefined;
+    const k = unwrap(mine.wrapped, e);
+    if (k === undefined) return undefined;
+    if (key === undefined) key = k;
+    else if (!sameBytes(key, k)) return undefined;
   }
   if (key === undefined) return undefined;
-  return wrapKey(key, a.me.privateKey, a.target, aad(first));
+  return wrapKey(
+    key,
+    a.me.privateKey,
+    a.target,
+    messageAad({
+      ...a.ids,
+      senderDevice: first.sender_device,
+      senderSeq: first.sender_seq,
+      ...(first.chunk !== undefined && { chunk: first.chunk.index }),
+    }),
+  );
 }
 
 function sameBytes(x: Uint8Array, y: Uint8Array): boolean {

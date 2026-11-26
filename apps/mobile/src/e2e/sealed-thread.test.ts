@@ -57,6 +57,7 @@ function sealFromComputer(
   seq = 1,
   chunk?: { index: number; final: boolean },
   signer = computer.privateKey,
+  v2 = false,
 ): SealedEnvelopeV1 {
   const key = newMessageKey();
   const aad = messageAad({
@@ -65,6 +66,7 @@ function sealFromComputer(
     senderDevice: COMPUTER_ID,
     senderSeq: seq,
     ...(chunk !== undefined && { chunk: chunk.index }),
+    ...(chunk !== undefined && v2 && { final: chunk.final }),
   });
   const { nonce, body } = sealBody(key, payload, aad);
   return {
@@ -375,5 +377,72 @@ describe('verifier edge cases', () => {
     );
     expect(openMessage(ctx, sealedMsg([parts[0], forged])).state).toBe('couldnt_open');
     expect(openMessage(ctx, sealedMsg(parts))).toMatchObject({ state: 'ok', text: 'ab' });
+  });
+});
+
+describe('the final flag of a streamed reply (R1-1, v2 AAD)', () => {
+  const v2Reply = (parts: string[], seq = 1) =>
+    parts.map((text, index) =>
+      sealFromComputer(
+        { text },
+        seq,
+        { index, final: index === parts.length - 1 },
+        undefined,
+        true,
+      ),
+    );
+
+  it('opens v2-sealed chunks', () => {
+    expect(openMessage(phoneCtx(), sealedMsg(v2Reply(['a', 'b', 'c'])))).toMatchObject({
+      state: 'ok',
+      text: 'abc',
+    });
+  });
+
+  it('refuses a v2 reply cut short with an earlier chunk marked final', () => {
+    const parts = v2Reply(['a', 'b', 'c']);
+    const cut = [parts[0], { ...parts[1], chunk: { index: 1, final: true } }];
+    expect(openMessage(phoneCtx(), sealedMsg(cut)).state).toBe('couldnt_open');
+  });
+
+  it('refuses a v2 final chunk marked not final', () => {
+    const parts = v2Reply(['a', 'b']);
+    const flipped = [parts[0], { ...parts[1], chunk: { index: 1, final: false } }];
+    expect(openMessage(phoneCtx(), sealedMsg(flipped)).state).toBe('couldnt_open');
+  });
+
+  it('still opens v1-sealed chunks', () => {
+    expect(openMessage(phoneCtx(), sealedMsg(reply(['a', 'b'])))).toMatchObject({
+      state: 'ok',
+      text: 'ab',
+    });
+  });
+});
+
+describe('who a sealed message is shown from (R4-3)', () => {
+  it('shows this phone own message as the person even when the server says agent', () => {
+    const ctx = phoneCtx();
+    const relabeled = sealedMsg(sealOutgoing(ctx, { text: 'yes, delete it' }), 'agent');
+    expect(openMessage(ctx, relabeled).state).toBe('couldnt_open');
+    expect(openMessage(ctx, relabeled).state).toBe('couldnt_open');
+  });
+
+  it('refuses a computer reply the server labels as the person', () => {
+    const ctx = phoneCtx();
+    const relabeled = sealedMsg(sealFromComputer({ text: 'hi' }), 'user');
+    expect(openMessage(ctx, relabeled).state).toBe('couldnt_open');
+    expect(openMessage(ctx, relabeled).state).toBe('couldnt_open');
+  });
+
+  it('opens the same messages under their true author', () => {
+    const ctx = phoneCtx();
+    expect(openMessage(ctx, sealedMsg(sealOutgoing(ctx, { text: 'x' }), 'user'))).toMatchObject({
+      state: 'ok',
+      author: 'user',
+    });
+    expect(openMessage(ctx, sealedMsg(sealFromComputer({ text: 'y' })))).toMatchObject({
+      state: 'ok',
+      author: 'agent',
+    });
   });
 });
