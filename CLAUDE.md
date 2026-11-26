@@ -157,6 +157,11 @@ When delegating/subagenting, keep the parent responsible for integration. Do not
   rendered page or video as a viewer sees it. Passing tests are necessary, not sufficient.
 - **Plugins and integrations** (`integrations/hermes`) ship separately from the app: when a shared
   behaviour changes, check them too and bump their version only if their own code changed.
+- **Every new version gets a GitHub release.** A self-host image version gets `selfhost-vX.Y.Z`
+  at the commit it was built from (marked Latest) once its digest is live in `versions.json`; a
+  Hermes plugin version gets `hermes-vX.Y.Z` (not Latest) and a `plugin-catalog/twring.yaml` PR on
+  NousResearch/hermes-agent from the `saasagelabs/hermes-agent` fork, pinned at a main commit:
+  `hermes plugins install twring` installs only what that catalog lists.
 - **Outside contributors:** review their pull requests and issues here and write each reply as a
   draft for the owner. Nothing is posted on GitHub (comment, review, label, close, merge) until the
   owner approves that reply. Outside PRs are never set to auto-merge.
