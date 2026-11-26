@@ -1467,6 +1467,8 @@ into a private chat readable by the server.
 - A phone already in the account's device list may ask another phone to approve it (same code
   comparison and signed trust note as a new phone). After approval each phone shares the message
   keys it holds with the other.
+- Exception: when a trusted device is removed while a reply streams, the computer seals the rest of
+  that reply under a new key, so that one reply cannot be shared with a phone approved later.
 - Files in a private chat are sealed on the sending device with a fresh key per file
   (XChaCha20-Poly1305, `fileAad`); the server stores opaque blobs (name `sealed.bin`, type
   `application/octet-stream`) and never lists them as attachments. Id, key, name, type and size

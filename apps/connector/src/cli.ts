@@ -79,6 +79,7 @@ import {
   sendMessage,
 } from './ring';
 import { installSkill, refreshInstalledSkills, skillLines, skillTargets } from './skill-install';
+import { sweepTurnFolders } from './turn-files';
 import { WORDS_EXIT, addWords } from './words';
 import {
   clearPid,
@@ -499,6 +500,8 @@ function run(config: ConnectorConfig): Promise<number> {
     }).catch(() => undefined);
   void writePid(dir).catch(() => undefined);
   process.once('exit', () => clearPid(dir));
+  // Files of turns a killed copy never cleaned up (decrypted private files among them).
+  void sweepTurnFolders();
   const inService = process.env[SERVICE_ENV] === '1';
   // A service runs for months: keep its log (launchd, cron) from growing without end. On Windows
   // the launcher does it between runs (cmd.exe's `>>` does not append after a truncation).

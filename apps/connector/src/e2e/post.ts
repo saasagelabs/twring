@@ -119,17 +119,26 @@ export async function sealedPost(
   for (const path of options.paths) {
     const name = cleanName(basename(path));
     const mime = mimeForName(name);
+    // With strict these fail the way a plain upload does (uploadFile), so nothing is posted.
     if (mime === undefined) {
+      if (options.strict === true)
+        throw new UploadError(
+          'unsupported_file_type',
+          'Twring can send photos, PDFs and text files.',
+        );
       lines.push(`Could not send ${name}: Twring can send photos, PDFs and text files.`);
       continue;
     }
     try {
       const size = (await stat(path)).size;
       if (size === 0) {
+        if (options.strict === true) throw new UploadError('empty_file', 'The file is empty.');
         lines.push(`Could not send ${name}: it is empty.`);
         continue;
       }
       if (size > MAX_FILE_BYTES) {
+        if (options.strict === true)
+          throw new UploadError('file_too_large', 'The file is too large (maximum 10 MB).');
         lines.push(`Could not send ${name}: it is larger than 10 MB.`);
         continue;
       }

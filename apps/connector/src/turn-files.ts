@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile, chmod } from 'node:fs/promises';
+import { rmSync } from 'node:fs';
+import { chmod, lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,17 +12,123 @@ import {
 
 export type LocalFile = { path: string; name: string; mimeType: FileMimeType; sizeBytes: number };
 
+/**
+ * The one folder that holds every turn's files on this computer (0700): each turn gets a child
+ * named `<pid>-...`, so a copy that was killed mid-turn leaves nothing a later start cannot find.
+ */
+export function turnFoldersRoot(): string {
+  return join(tmpdir(), `twring-turns-${process.getuid?.() ?? 'user'}`);
+}
+
+/** Turn folders of this process not removed yet; an exit handler removes them synchronously. */
+const liveFolders = new Set<string>();
+let exitHooked = false;
+
+function removeLiveFolders(): void {
+  for (const directory of liveFolders) {
+    try {
+      rmSync(directory, { recursive: true, force: true });
+    } catch {
+      // Best effort: the next start removes what is left.
+    }
+  }
+  liveFolders.clear();
+}
+
+/**
+ * Makes a private folder (0700) for one turn's files under `turnFoldersRoot()`. When that root is
+ * not a plain folder this user owns (another user made it first on a shared temp), the folder is
+ * made straight in the temp folder instead, as before. `cleanup` is safe to call twice.
+ */
+export async function makeTurnFolder(): Promise<{
+  directory: string;
+  cleanup: () => Promise<void>;
+}> {
+  const root = turnFoldersRoot();
+  let parent = tmpdir();
+  try {
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const info = await lstat(root);
+    const uid = process.getuid?.();
+    if (info.isDirectory() && !info.isSymbolicLink() && (uid === undefined || info.uid === uid)) {
+      await chmod(root, 0o700);
+      parent = root;
+    }
+  } catch {
+    // The temp folder itself still works.
+  }
+  const directory = await mkdtemp(join(parent, parent === root ? `${process.pid}-` : 'twring-'));
+  await chmod(directory, 0o700);
+  liveFolders.add(directory);
+  if (!exitHooked) {
+    exitHooked = true;
+    process.once('exit', removeLiveFolders);
+  }
+  const cleanup = async () => {
+    liveFolders.delete(directory);
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
+  };
+  return { directory, cleanup };
+}
+
+function running(pid: number): boolean {
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Removes the turn folders a copy that is no longer running left behind (killed mid-turn, power
+ * lost). Run when the connector starts. Folders of a copy still running are kept. Resolves how
+ * many were removed; never throws.
+ */
+export async function sweepTurnFolders(): Promise<number> {
+  const root = turnFoldersRoot();
+  const children = await readdir(root).catch(() => [] as string[]);
+  let removed = 0;
+  for (const child of children) {
+    const pid = Number(/^(\d+)-/u.exec(child)?.[1]);
+    if (Number.isInteger(pid) && pid > 0 && running(pid)) continue;
+    await rm(join(root, child), { recursive: true, force: true }).then(
+      () => removed++,
+      () => undefined,
+    );
+  }
+  return removed;
+}
+
+/**
+ * A name not in `used` (lower case): `2-report.pdf`, `3-report.pdf`, ... The counter goes before
+ * the stem and the stem is cut, so the extension stays and the name never ends in a dot or space
+ * (Windows drops those, so the path would not be the name on disk).
+ */
+export function uniqueName(base: string, used: ReadonlySet<string>): string {
+  if (!used.has(base.toLowerCase())) return base;
+  const ext = /\.[A-Za-z0-9]{1,5}$/u.exec(base)?.[0] ?? '';
+  const stem = base.slice(0, base.length - ext.length);
+  for (let n = 2; ; n++) {
+    const prefix = `${n}-`;
+    const room = Math.max(1, MAX_FILE_NAME_CHARS - prefix.length - ext.length);
+    const kept = Array.from(stem)
+      .slice(0, room)
+      .join('')
+      .replace(/[. ]+$/u, '');
+    const name = `${prefix}${kept === '' ? 'file' : kept}${ext}`;
+    if (!used.has(name.toLowerCase())) return name;
+  }
+}
+
 export async function downloadTurnFiles(
   attachments: readonly TurnAttachment[],
   options: { server: string | URL; turnId: string; signal: AbortSignal; fetch?: typeof fetch },
 ): Promise<{ files: LocalFile[]; cleanup(): Promise<void> }> {
   const files: LocalFile[] = [];
   const used = new Set<string>();
-  const directory = await mkdtemp(join(tmpdir(), 'twring-'));
-  await chmod(directory, 0o700);
-  const cleanup = async () => {
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
-  };
+  const { directory, cleanup } = await makeTurnFolder();
   let origin: string;
   try {
     origin = new URL(options.server).origin;
@@ -71,15 +178,7 @@ export async function downloadTurnFiles(
       }
       if (signal.aborted || size !== attachment.size_bytes) continue;
       const base = cleanName(attachment.name);
-      let name = base;
-      for (let n = 2; used.has(name.toLowerCase()); n++) {
-        const prefix = `${n}-`;
-        name =
-          prefix +
-          Array.from(base)
-            .slice(0, MAX_FILE_NAME_CHARS - prefix.length)
-            .join('');
-      }
+      const name = uniqueName(base, used);
       const path = join(directory, name);
       await writeFile(path, Buffer.concat(chunks, size), { flag: 'wx', mode: 0o600 });
       await chmod(path, 0o600);

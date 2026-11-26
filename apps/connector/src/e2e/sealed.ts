@@ -62,10 +62,15 @@ function aadFor(ctx: SealContext, sender: string, seq: number, chunk?: number): 
 /**
  * Opens a message sealed by a verified device. The sender's key comes from this computer's own
  * list, never from the server; the replay window moves only after a message opened, so a forgery
- * cannot use up a real message's seq.
+ * cannot use up a real message's seq. With `accept: false` the window does not move: the caller
+ * accepts the seq itself once it can answer, so a message it cannot answer yet stays resendable.
  */
-export function openIncoming(ctx: SealContext, envelope: SealedEnvelopeV1): OpenResult {
-  const opened = openWith(ctx, envelope, openBody);
+export function openIncoming(
+  ctx: SealContext,
+  envelope: SealedEnvelopeV1,
+  options: { accept?: boolean } = {},
+): OpenResult {
+  const opened = openWith(ctx, envelope, openBody, options.accept ?? true);
   return opened.ok ? { ok: true, payload: opened.payload } : opened;
 }
 
@@ -74,13 +79,14 @@ export function openIncomingControl(
   ctx: SealContext,
   envelope: SealedEnvelopeV1,
 ): OpenControlResult {
-  return openWith(ctx, envelope, openControl);
+  return openWith(ctx, envelope, openControl, true);
 }
 
 function openWith<T>(
   ctx: SealContext,
   envelope: SealedEnvelopeV1,
   open: (key: Uint8Array, nonce: string, body: string, aad: Uint8Array) => T,
+  accept: boolean,
 ): { ok: true; payload: T; sender: TrustedDevice } | OpenFailure {
   const mine = envelope.keys.find((key) => key.device === ctx.myDeviceId);
   if (mine === undefined) return { ok: false, reason: 'not_for_me' };
@@ -96,18 +102,23 @@ function openWith<T>(
   } catch {
     return { ok: false, reason: 'bad_ciphertext' };
   }
-  ctx.seen.accept(envelope.sender_device, envelope.sender_seq);
+  if (accept) ctx.seen.accept(envelope.sender_device, envelope.sender_seq);
   return { ok: true, payload, sender };
 }
 
-/** Seals under a fresh message key wrapped to this computer and every device it trusts. */
+/**
+ * Seals under a message key wrapped to this computer and every device it trusts: a fresh one, or
+ * `key` when given, so every chunk of one reply shares its message's key (ADR-044). Each chunk
+ * still has its own AAD and a fresh nonce.
+ */
 export function sealOutgoing(
   ctx: SealContext,
   payload: SealedPayload,
   seq: number,
   chunk?: { index: number; final: boolean },
+  key?: Uint8Array,
 ): SealedEnvelopeV1 {
-  return sealWith(ctx, seq, chunk, (key, aad) => sealBody(key, payload, aad));
+  return sealWith(ctx, seq, chunk, (k, aad) => sealBody(k, payload, aad), key);
 }
 
 /** As `sealOutgoing`, for a sealed approval request (C3 #11); never chunked. */
@@ -124,8 +135,9 @@ function sealWith(
   seq: number,
   chunk: { index: number; final: boolean } | undefined,
   seal: (key: Uint8Array, aad: Uint8Array) => { nonce: string; body: string },
+  messageKey?: Uint8Array,
 ): SealedEnvelopeV1 {
-  const key = newMessageKey();
+  const key = messageKey ?? newMessageKey();
   const aad = aadFor(ctx, ctx.myDeviceId, seq, chunk?.index);
   const recipients = [
     { id: ctx.myDeviceId, public_key: ctx.myPublic },

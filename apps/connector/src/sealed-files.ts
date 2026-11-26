@@ -1,5 +1,4 @@
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {
@@ -16,7 +15,7 @@ import {
 } from '@twring/contracts';
 
 import { apiUrl, checkServerUrl } from './config';
-import { attachedLine, cleanName, type LocalFile } from './turn-files';
+import { attachedLine, cleanName, makeTurnFolder, uniqueName, type LocalFile } from './turn-files';
 
 /** One file row of a sealed message, as the phone sealed it. */
 export type SealedFileRef = NonNullable<SealedPayload['files']>[number];
@@ -135,11 +134,7 @@ export async function openSealedFiles(
   const failed: string[] = [];
   const lines: string[] = [];
   const used = new Set<string>();
-  const directory = await mkdtemp(join(tmpdir(), 'twring-'));
-  await chmod(directory, 0o700);
-  const cleanup = async () => {
-    await rm(directory, { recursive: true, force: true }).catch(() => undefined);
-  };
+  const { directory, cleanup } = await makeTurnFolder();
   const aad = fileAad({ accountId: ctx.accountId, agentId: ctx.agentId });
   for (const ref of refs) {
     const mime = fileMimeTypeSchema.safeParse(ref.mime);
@@ -167,15 +162,7 @@ export async function openSealedFiles(
       });
       const bytes = openFile(key, blob, aad);
       if (bytes.length !== ref.size) throw new Error('size_mismatch');
-      let name = base;
-      for (let n = 2; used.has(name.toLowerCase()); n++) {
-        const prefix = `${n}-`;
-        name =
-          prefix +
-          Array.from(base)
-            .slice(0, MAX_FILE_NAME_CHARS - prefix.length)
-            .join('');
-      }
+      const name = uniqueName(base, used);
       const path = join(directory, name);
       await writeFile(path, bytes, { flag: 'wx', mode: 0o600 });
       await chmod(path, 0o600);
