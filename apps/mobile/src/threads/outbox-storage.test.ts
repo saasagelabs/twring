@@ -49,7 +49,7 @@ vi.mock('expo-file-system', () => {
   return { Directory, File, Paths: { document: 'document' } };
 });
 
-import { fileStore } from './outbox-storage';
+import { fileStore, rebaseOutboxUri } from './outbox-storage';
 
 const NAME = 'outbox-hosted_u1.json';
 const TMP = `${NAME}.tmp`;
@@ -107,5 +107,33 @@ describe('fileStore', () => {
     await fileStore('outbox', 'hosted_u1').remove();
     expect(disk.files.size).toBe(0);
     await expect(fileStore('outbox', 'hosted_u1').load()).resolves.toBeUndefined();
+  });
+});
+
+describe('rebaseOutboxUri', () => {
+  const oldDoc = 'file:///var/mobile/Containers/Data/Application/AAAA-1111/Documents/';
+  const newDoc = 'file:///var/mobile/Containers/Data/Application/BBBB-2222/Documents/';
+
+  it('moves a kept copy from an old iOS container to the current one', () => {
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1/rec.m4a`, newDoc)).toBe(
+      `${newDoc}outbox/c-1/rec.m4a`,
+    );
+    // The current folder without a trailing slash gives the same uri.
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1/rec.m4a`, newDoc.slice(0, -1))).toBe(
+      `${newDoc}outbox/c-1/rec.m4a`,
+    );
+  });
+
+  it('leaves a uri outside the outbox folder alone', () => {
+    expect(rebaseOutboxUri(`${oldDoc}chat-state/outbox-x.json`, newDoc)).toBeUndefined();
+    expect(rebaseOutboxUri('file:///cache/rec.m4a', newDoc)).toBeUndefined();
+  });
+
+  it('refuses malformed uris', () => {
+    expect(rebaseOutboxUri('', newDoc)).toBeUndefined();
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1`, newDoc)).toBeUndefined();
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1/`, newDoc)).toBeUndefined();
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1/a/b.m4a`, newDoc)).toBeUndefined();
+    expect(rebaseOutboxUri(`${oldDoc}outbox/c-1/rec.m4a`, '')).toBeUndefined();
   });
 });

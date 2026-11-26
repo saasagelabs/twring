@@ -84,6 +84,15 @@ export const OUTBOX_LIMIT = 50;
 const SAVE_DEBOUNCE_MS = 300;
 /** A queued voice note or file was no longer on the phone after a restart. */
 export const FILE_MISSING = 'file_missing';
+/** A queued voice note's recording could not be read (gone, or its folder moved out of reach). */
+export const VOICE_MISSING = 'voice_missing';
+/** Failures that may clear by themselves: a restart sends these again. */
+const TEMPORARY_FAILURES: readonly string[] = [
+  'network',
+  'timeout',
+  'rate_limited',
+  'agent_offline',
+];
 
 const storedUri = z.string().min(1).max(2_000);
 const storedOutbox = z.object({
@@ -136,6 +145,29 @@ function errorCodeOf(error: unknown): string | undefined {
   if (error === undefined) return undefined;
   if (error instanceof ApiError) return error.code ?? error.kind;
   return 'unknown';
+}
+
+/**
+ * False when sending again cannot help: the message's text or file is gone, or a private chat
+ * refuses a voice note the person has not agreed to let the server read. Delete is offered then.
+ */
+export function canRetry(pending: {
+  errorCode?: string;
+  error?: unknown;
+  voice?: { serverReadable?: true };
+}): boolean {
+  const code = pending.errorCode ?? errorCodeOf(pending.error);
+  if (code === PRIVATE_UNSENT || code === FILE_MISSING || code === VOICE_MISSING) return false;
+  if (code === PRIVATE_THREAD && pending.voice && pending.voice.serverReadable !== true)
+    return false;
+  return true;
+}
+
+/** Where a saved copy is now (see `OutboxFiles.locate`). */
+function locateFile(files: OutboxFiles | undefined, uri: string): string | undefined {
+  if (!files) return undefined;
+  if (files.locate) return files.locate(uri);
+  return files.exists(uri) ? uri : undefined;
 }
 
 export interface OutboxPersistence {
@@ -277,8 +309,8 @@ export class Outbox {
   retry(clientId: string): void {
     const item = this.items.get(clientId);
     if (!item || item.state !== 'failed') return;
-    // Its text is gone: only Delete is left (the person writes it again).
-    if (item.errorCode === PRIVATE_UNSENT) return;
+    // Its text or file is gone, or the server will refuse it again: only Delete is left.
+    if (!canRetry(item)) return;
     this.items.set(clientId, { ...item, state: 'sending', error: undefined, errorCode: undefined });
     this.notify();
     void this.attempt(clientId);
@@ -297,6 +329,8 @@ export class Outbox {
     if (item.voice) this.removeFile(item.voice.uri);
     for (const file of item.files ?? []) this.removeFile(file.uri);
     this.notify();
+    // Saved at once: iOS may suspend the app before a debounced save, and the message come back.
+    void this.flush();
   }
 
   reconcile(message: ThreadMessage): void {
@@ -446,16 +480,24 @@ export class Outbox {
     const resend: string[] = [];
     for (const item of saved?.items ?? []) {
       if (this.items.has(item.clientId)) continue;
-      // A file already uploaded sealed is only needed again for the person's own copy.
-      const uris = [
-        ...(item.voice ? [item.voice.uri] : []),
-        ...(item.files ?? [])
-          .filter((file) => file.sealedUpload === undefined || item.sealed === undefined)
-          .map((file) => file.uri),
-      ];
-      const missing = uris.some((uri) => !(files?.exists(uri) ?? false));
+      // A kept copy is found again after iOS moved the app's folder (an app update).
+      const voiceUri = item.voice ? locateFile(files, item.voice.uri) : undefined;
+      const voiceMissing = item.voice !== undefined && voiceUri === undefined;
+      let filesMissing = false;
+      const restoredFiles = item.files?.map((file) => {
+        const located = locateFile(files, file.uri);
+        // A file already uploaded sealed is only needed again for the person's own copy.
+        const needed = file.sealedUpload === undefined || item.sealed === undefined;
+        if (needed && located === undefined) filesMissing = true;
+        return { ...file, uri: located ?? file.uri };
+      });
+      const missing = voiceMissing || filesMissing;
       // Its text was never saved, and the envelope was not: nothing can be sent (ADR-045).
       const unsent = item.privateChat === true && item.sealed === undefined;
+      // A failure that will not clear by itself stays failed, with its reason; never resent.
+      const keptFailure =
+        item.state === 'failed' &&
+        (item.errorCode === undefined || !TEMPORARY_FAILURES.includes(item.errorCode));
       // The saved clientId is resent as is, never a new one: the server dedupes on it.
       this.items.set(item.clientId, {
         clientId: item.clientId,
@@ -464,16 +506,21 @@ export class Outbox {
         ...((item.sealed !== undefined || unsent) && { privateChat: true as const }),
         ...(item.sealed !== undefined && { sealed: item.sealed }),
         createdAt: item.createdAt,
-        ...(item.voice && { voice: item.voice }),
-        ...(item.files && { files: item.files.map((file) => ({ ...file })) }),
+        ...(item.voice && { voice: { ...item.voice, uri: voiceUri ?? item.voice.uri } }),
+        ...(restoredFiles && { files: restoredFiles }),
         ...(item.replyTo !== undefined && { replyTo: item.replyTo }),
         ...(unsent
           ? { state: 'failed' as const, errorCode: PRIVATE_UNSENT }
           : missing
-            ? { state: 'failed' as const, errorCode: FILE_MISSING }
-            : { state: 'sending' as const }),
+            ? { state: 'failed' as const, errorCode: voiceMissing ? VOICE_MISSING : FILE_MISSING }
+            : keptFailure
+              ? {
+                  state: 'failed' as const,
+                  ...(item.errorCode !== undefined && { errorCode: item.errorCode }),
+                }
+              : { state: 'sending' as const }),
       });
-      if (!missing && !unsent) resend.push(item.clientId);
+      if (!missing && !unsent && !keptFailure) resend.push(item.clientId);
       if (item.sealed !== undefined) this.restoreText(item.clientId, item.agentId, item.sealed);
     }
     this.notify();
@@ -647,7 +694,7 @@ export class Outbox {
 
   private removeFile(uri: string): void {
     void this.files()
-      .then((files) => files.remove(uri))
+      .then((files) => files.remove(locateFile(files, uri) ?? uri))
       .catch(() => undefined);
   }
 
@@ -729,6 +776,16 @@ export class Outbox {
           this.notify();
           attempt--;
           continue;
+        }
+        if (error instanceof ApiError && error.kind === 'file_missing') {
+          this.items.set(clientId, {
+            ...item,
+            state: 'failed',
+            error,
+            errorCode: item.voice ? VOICE_MISSING : FILE_MISSING,
+          });
+          this.notify();
+          return;
         }
         const retryable =
           error instanceof ApiError &&

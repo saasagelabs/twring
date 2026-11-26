@@ -146,6 +146,32 @@ it('a sealed message failed with computer_update shows the update copy', () => {
   });
 });
 
+it('a failure retrying cannot fix offers Delete; a temporary one offers Retry', () => {
+  const line = (pending: Parameters<typeof statusLineContent>[0]['pending']) =>
+    statusLineContent({ ...base, pending });
+  expect(line({ clientId: 'c1', state: 'failed', errorCode: 'voice_missing' })).toMatchObject({
+    deleteClientId: 'c1',
+    text: "Didn't go through: this recording is no longer on your phone. Record it again.",
+  });
+  expect(line({ clientId: 'c1', state: 'failed', errorCode: 'file_missing' })).toMatchObject({
+    deleteClientId: 'c1',
+  });
+  expect(
+    line({ clientId: 'c1', state: 'failed', errorCode: 'private_thread', voice: {} }),
+  ).toMatchObject({ deleteClientId: 'c1' });
+  expect(
+    line({
+      clientId: 'c1',
+      state: 'failed',
+      errorCode: 'private_thread',
+      voice: { serverReadable: true },
+    }),
+  ).toMatchObject({ retryClientId: 'c1' });
+  const offline = line({ clientId: 'c1', state: 'failed', errorCode: 'agent_offline' });
+  expect(offline).toMatchObject({ retryClientId: 'c1' });
+  expect(offline).not.toHaveProperty('deleteClientId');
+});
+
 it('a private_unsent failure offers Delete in the status line, not Retry', () => {
   const content = statusLineContent({
     ...base,

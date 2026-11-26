@@ -179,6 +179,7 @@ vi.mock('@/threads/presentation', async () => ({
   messageStatus: () => '',
 }));
 vi.mock('@/threads/message-actions', () => import('./message-actions'));
+vi.mock('@/threads/outbox', () => import('./outbox'));
 
 let ChatScreen: () => ReactElement;
 beforeAll(async () => {
@@ -525,6 +526,37 @@ describe('a failed send', () => {
     (second[2] as { text: string; onPress?: () => void }[]).find((b) => b.text === 'Delete')!
       .onPress!();
     expect(mocks.chat.discard).toHaveBeenCalledWith('c2');
+  });
+
+  it('a lost recording offers Delete; a temporary failure offers Retry', async () => {
+    const { Alert } = await import('react-native');
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.pending = [
+      {
+        ...failedVoice('c1', '2026-11-25T09:00:00.000Z'),
+        error: undefined,
+        errorCode: 'voice_missing',
+      },
+      {
+        ...failedVoice('c2', '2026-11-25T10:00:00.000Z'),
+        error: undefined,
+        errorCode: 'agent_offline',
+      },
+      { ...failedVoice('c3', '2026-11-25T11:00:00.000Z'), state: 'sending' },
+    ];
+    const { items } = render();
+    const pressables = of(items, 'Pressable');
+    // The list is drawn bottom-up: the newer failure comes first.
+    expect(pressables.map((p) => p.props.accessibilityLabel)).toEqual(['Retry', 'Delete']);
+    (pressables[1].props.onPress as () => void)();
+    const alert = vi.mocked(Alert.alert).mock.calls.at(-1)!;
+    expect(alert[0]).toBe('Delete message?');
+    (alert[2] as { text: string; onPress?: () => void }[]).find((b) => b.text === 'Delete')!
+      .onPress!();
+    expect(mocks.chat.discard).toHaveBeenCalledWith('c1');
+    expect(texts(items)).toContain(
+      "Didn't go through: this recording is no longer on your phone. Record it again.",
+    );
   });
 
   it('keeps a failed message where it was sent; a sending one stays at the end', () => {

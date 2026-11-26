@@ -2,6 +2,7 @@ import type { ThreadMessage, UserMessageStatus } from '@twring/contracts';
 
 import { aiAppReplyStatus } from '../../agents/ai-app';
 import { apiErrorCopy } from '../../api/errors';
+import { canRetry } from '../../threads/outbox';
 import { failedSendText, messageStatus, workingLabel } from '../../threads/presentation';
 
 /** Reduced motion stops the dots, never the words. */
@@ -26,7 +27,13 @@ export interface StatusLineInput {
   working: boolean;
   activity?: string;
   /** The newest unconfirmed send, if any. */
-  pending?: { clientId: string; state: 'sending' | 'failed'; error?: unknown; errorCode?: string };
+  pending?: {
+    clientId: string;
+    state: 'sending' | 'failed';
+    error?: unknown;
+    errorCode?: string;
+    voice?: { serverReadable?: true };
+  };
   /** The newest own message the server knows about. */
   latest?: { status: UserMessageStatus; errorCode?: string };
 }
@@ -70,8 +77,8 @@ export function statusLineContent(input: StatusLineInput): StatusLineContent {
       return {
         kind: 'status',
         tone: 'danger',
-        // Its text is gone after a restart: Retry would do nothing, so Delete is the one action.
-        ...(pending.errorCode === 'private_unsent'
+        // Retry cannot help (its text or file is gone, or it is refused): Delete is the one action.
+        ...(!canRetry(pending)
           ? { deleteClientId: pending.clientId }
           : { retryClientId: pending.clientId }),
         text: failedSendText(

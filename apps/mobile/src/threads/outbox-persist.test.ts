@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../api/client';
 import { DraftStore } from './drafts';
-import { FILE_MISSING, Outbox } from './outbox';
+import { FILE_MISSING, Outbox, VOICE_MISSING, canRetry } from './outbox';
 import { memoryStore, storageScope, type OutboxFiles } from './outbox-storage';
 
 const agent = 'agt_abcdefghij0123456789';
@@ -180,7 +180,7 @@ describe('durable outbox', () => {
     await second.hydrated;
     await settle();
     expect(second.list(agent)).toMatchObject([
-      { clientId, state: 'failed', errorCode: FILE_MISSING },
+      { clientId, state: 'failed', errorCode: VOICE_MISSING },
     ]);
     expect(send).not.toHaveBeenCalled();
   });
@@ -370,5 +370,133 @@ describe('drafts', () => {
     await drafts.clear();
     await vi.advanceTimersByTimeAsync(1_000);
     expect(store.value).toBeUndefined();
+  });
+});
+
+describe('a stuck message after a restart', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  const oldDoc = 'file:///var/mobile/Containers/Data/Application/OLD/Documents';
+  const newDoc = 'file:///var/mobile/Containers/Data/Application/NEW/Documents';
+  const savedItem = (extra: Record<string, unknown>) => ({
+    clientId: 'c-1',
+    agentId: agent,
+    text: 'Voice note',
+    state: 'failed',
+    createdAt: '2026-11-26T18:52:00.000Z',
+    voice: { uri: `${oldDoc}/outbox/c-1/rec.m4a`, durationMs: 7000 },
+    ...extra,
+  });
+  const restart = async (item: Record<string, unknown>, present: string[]) => {
+    const store = memoryStore();
+    store.value = { version: 1, items: [item] };
+    const files = memoryFiles(present);
+    const locate = (uri: string) => {
+      if (files.present.has(uri)) return uri;
+      const moved = uri.replace(oldDoc, newDoc);
+      return files.present.has(moved) ? moved : undefined;
+    };
+    const send = vi.fn<Send>((_agent, request) => Promise.resolve(echo(request.clientId)));
+    const outbox = new Outbox(send, () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve({ ...files, locate }),
+    });
+    await outbox.hydrated;
+    await settle();
+    return { outbox, send, store, files };
+  };
+
+  it('finds a kept recording again after iOS moves the app folder, and sends it from there', async () => {
+    const moved = `${newDoc}/outbox/c-1/rec.m4a`;
+    const { send } = await restart(savedItem({ state: 'sending' }), [moved]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect((send.mock.calls[0][1] as { voice?: { uri: string } }).voice?.uri).toBe(moved);
+  });
+
+  it('a recording found nowhere comes back failed as voice_missing', async () => {
+    const { outbox, send } = await restart(savedItem({ state: 'sending' }), []);
+    expect(outbox.list(agent)).toMatchObject([{ state: 'failed', errorCode: VOICE_MISSING }]);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  for (const errorCode of ['private_thread', 'file_missing', 'voice_missing', 'http']) {
+    it(`keeps a saved ${errorCode} failure failed and does not send it`, async () => {
+      const { outbox, send } = await restart(savedItem({ errorCode }), [
+        `${oldDoc}/outbox/c-1/rec.m4a`,
+      ]);
+      expect(outbox.list(agent)).toMatchObject([{ state: 'failed', errorCode }]);
+      expect(send).not.toHaveBeenCalled();
+    });
+  }
+
+  for (const errorCode of ['network', 'agent_offline', 'timeout', 'rate_limited']) {
+    it(`resends a saved ${errorCode} failure`, async () => {
+      const { send } = await restart(savedItem({ errorCode }), [`${oldDoc}/outbox/c-1/rec.m4a`]);
+      expect(send).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  it('discarding a restored item deletes the copy at its moved path and saves at once', async () => {
+    const moved = `${newDoc}/outbox/c-1/rec.m4a`;
+    const { outbox, store, files } = await restart(savedItem({ errorCode: 'private_thread' }), [
+      moved,
+    ]);
+    outbox.discard('c-1');
+    await settle();
+    expect(store.value).toBeUndefined();
+    expect(files.present.has(moved)).toBe(false);
+  });
+
+  it('a recording that cannot be read fails as voice_missing, with no retries', async () => {
+    const store = memoryStore();
+    const files = memoryFiles(['cache://rec.m4a']);
+    const send = vi.fn<Send>(() => Promise.reject(new ApiError('file_missing')));
+    const outbox = new Outbox(send, () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await outbox.hydrated;
+    const clientId = outbox.sendVoice(agent, 'cache://rec.m4a', 7_000);
+    await settle();
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(send).toHaveBeenCalledTimes(1);
+    const [item] = outbox.list(agent);
+    expect(item).toMatchObject({ clientId, state: 'failed', errorCode: VOICE_MISSING });
+    expect(canRetry(item)).toBe(false);
+    outbox.retry(clientId);
+    await settle();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(outbox.list(agent)[0].state).toBe('failed');
+  });
+
+  it('a file that cannot be read fails as file_missing', async () => {
+    const upload = vi.fn(() => Promise.reject(new ApiError('file_missing')));
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers, upload);
+    outbox.sendFiles(agent, '', [
+      {
+        clientId: 'f1',
+        uri: 'file:///a.pdf',
+        name: 'a.pdf',
+        mimeType: 'application/pdf',
+        sizeBytes: 3,
+      },
+    ]);
+    await settle();
+    expect(outbox.list(agent)[0]).toMatchObject({ state: 'failed', errorCode: FILE_MISSING });
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it('a private voice note refused without consent cannot be retried', () => {
+    expect(canRetry({ errorCode: 'private_thread', voice: {} })).toBe(false);
+    expect(canRetry({ errorCode: 'private_thread', voice: { serverReadable: true } })).toBe(true);
+    expect(
+      canRetry({
+        error: new ApiError('http', 'private_thread', undefined, undefined, 409),
+        voice: {},
+      }),
+    ).toBe(false);
+    expect(canRetry({ errorCode: 'agent_offline' })).toBe(true);
+    expect(canRetry({ error: new ApiError('network') })).toBe(true);
   });
 });

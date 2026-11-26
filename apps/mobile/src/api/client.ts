@@ -99,7 +99,9 @@ export const SERVER_MESSAGE_MAX = 200;
 
 export class ApiError extends Error {
   constructor(
-    readonly kind: 'network' | 'timeout' | 'cancelled' | 'http' | 'invalid_response',
+    /** `file_missing`: a local file to upload could not be read; resending cannot help. */
+    readonly kind:
+      'network' | 'timeout' | 'cancelled' | 'http' | 'invalid_response' | 'file_missing',
     readonly code?: ErrorCode,
     readonly requestId?: string,
     /** With `daily_limit_reached`: when today's allowance renews. */
@@ -579,7 +581,7 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         if (!response.ok) throw new ApiError('network');
         rawBody = new Blob([await response.blob()], { type: 'image/jpeg' });
       } catch {
-        throw new ApiError(signal?.aborted ? 'cancelled' : 'network');
+        throw new ApiError(signal?.aborted ? 'cancelled' : 'file_missing');
       }
       return parse(
         agentSchema,
@@ -659,7 +661,8 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         if (!fileResponse.ok) throw new ApiError('network');
         rawBody = new Blob([await fileResponse.blob()], { type: file.mimeType });
       } catch {
-        throw new ApiError(signal?.aborted ? 'cancelled' : 'network');
+        // A file on this phone that cannot be read is not a network failure.
+        throw new ApiError(signal?.aborted ? 'cancelled' : 'file_missing');
       }
       const query = new URLSearchParams({ client_id: file.clientId, name: file.name });
       return parse(
@@ -774,7 +777,8 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
         // type goes on the Blob itself.
         rawBody = new Blob([await fileResponse.blob()], { type: 'audio/mp4' });
       } catch {
-        throw new ApiError(signal?.aborted ? 'cancelled' : 'network');
+        // A file on this phone that cannot be read is not a network failure.
+        throw new ApiError(signal?.aborted ? 'cancelled' : 'file_missing');
       }
       const query = new URLSearchParams({ client_id: clientId, duration_ms: String(durationMs) });
       if (replyTo !== undefined) query.set('reply_to', replyTo);

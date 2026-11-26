@@ -367,6 +367,41 @@ describe('cord api client', () => {
     expect((upload?.init.body as Blob).size).toBe(3);
   });
 
+  it('a recording that cannot be read is file_missing, not a network failure', async () => {
+    const { api, calls } = client((url) =>
+      url.startsWith('file:')
+        ? Promise.reject(new TypeError('Network request failed'))
+        : Promise.resolve(json(500, {})),
+    );
+    const error: unknown = await api
+      .sendVoiceNote(AGENT.id, 'c-1', 5000, 'file:///old-container/outbox/c-1/rec.m4a')
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).kind).toBe('file_missing');
+    expect(calls.some((call) => call.url.includes('/voice-notes?'))).toBe(false);
+    const missingUpload: unknown = await api.uploadFile!(
+      AGENT.id,
+      {
+        clientId: 'f1',
+        uri: 'file:///gone.pdf',
+        name: 'gone.pdf',
+        mimeType: 'application/pdf',
+      },
+      new AbortController().signal,
+    ).catch((e: unknown) => e);
+    expect((missingUpload as ApiError).kind).toBe('file_missing');
+  });
+
+  it('a cancelled read stays cancelled', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { api } = client(() => Promise.reject(new Error('aborted')));
+    const error: unknown = await api
+      .sendVoiceNote(AGENT.id, 'c-1', 5000, 'file:///a.m4a', controller.signal)
+      .catch((e: unknown) => e);
+    expect((error as ApiError).kind).toBe('cancelled');
+  });
+
   it("marks a voice note server-readable only with the person's consent", async () => {
     const { api, calls } = client((url) =>
       Promise.resolve(
