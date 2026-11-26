@@ -189,3 +189,64 @@ describe('a removed phone listed again (C3 #11 P4b1 verify)', () => {
     expect(e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
   });
 });
+
+describe('the removed-device memory cannot be flushed by the server (R3-9)', () => {
+  const removedConfig = (): E2eConfig => ({
+    device_id: computer.id,
+    public_key: computer.key,
+    private_key: base64urlEncode(computer.privateKey),
+    devices: trusted(),
+    revoked: [newPhone.id],
+    seq: 0,
+  });
+  const fakeRevoked = (count: number): E2eDeviceWithNote[] =>
+    Array.from({ length: count }, () => {
+      const d = device();
+      return {
+        id: d.id,
+        kind: 'phone' as const,
+        name: 'Other',
+        public_key: d.key,
+        added_at: '2026-11-25T11:00:00.000Z',
+        revoked_at: '2026-11-25T11:30:00.000Z',
+      };
+    });
+  const syncWith = (state: { e2e: E2eConfig }, rows: E2eDeviceWithNote[]) =>
+    syncDevices({
+      server: baseConfig.server,
+      token: baseConfig.token,
+      fetch: () =>
+        Promise.resolve(new Response(JSON.stringify({ devices: rows }), { status: 200 })),
+      now: () => NOW,
+      persist: (change) => {
+        state.e2e = e2eConfigSchema.parse(change(state.e2e));
+        return Promise.resolve(state.e2e);
+      },
+    });
+
+  it('40 fresh revoked ids in one list do not let an old trust note bring a removed phone back', async () => {
+    const state = { e2e: removedConfig() };
+    const out = await syncWith(state, [...fakeRevoked(40), listed(noteFrom(trustedPhone))]);
+    expect(out?.added).toBe(0);
+    expect(state.e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
+    expect(state.e2e.revoked).toEqual([newPhone.id]);
+  });
+
+  it('the same flush spread over two syncs does not bring it back either', async () => {
+    const state = { e2e: removedConfig() };
+    await syncWith(state, fakeRevoked(40));
+    const out = await syncWith(state, [listed(noteFrom(trustedPhone))]);
+    expect(out?.added).toBe(0);
+    expect(state.e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
+  });
+
+  it('still remembers a phone it trusted once the server removes it', async () => {
+    const state = {
+      e2e: { ...removedConfig(), revoked: [], devices: [...trusted(), trustedOf(newPhone)] },
+    };
+    await syncWith(state, [
+      listed(noteFrom(trustedPhone), newPhone, { revoked_at: '2026-11-25T11:59:30.000Z' }),
+    ]);
+    expect(state.e2e.revoked).toEqual([newPhone.id]);
+  });
+});

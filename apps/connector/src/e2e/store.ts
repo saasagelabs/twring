@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { open, readFile, rm, stat } from 'node:fs/promises';
 
-import { loadConfig, saveConfig } from '../config';
+import { loadConfig, saveConfig, type ConnectorConfig } from '../config';
 import { e2eConfigSchema, type E2eConfig } from './keys';
 
 /** How long a change waits for another process's lock before giving up. */
@@ -43,6 +43,43 @@ export function updateE2e(
 }
 
 /**
+ * Changes the whole saved config under the same lock as updateE2e, from a fresh read (undefined
+ * when there is none or it is damaged). A command that loaded the config before slow work (agent
+ * detection, a server request) writes through this, so it never puts back an old private chat
+ * part the running copy changed meanwhile (a removed phone, a used seq).
+ */
+export function updateConfig(
+  path: string,
+  change: (current: ConnectorConfig | undefined) => ConnectorConfig,
+  options: UpdateE2eOptions = {},
+): Promise<ConnectorConfig> {
+  const run = queue.then(() =>
+    withFileLock(`${path}.lock`, options.waitMs ?? LOCK_WAIT_MS, async () => {
+      const current = await loadConfig(path).catch(() => undefined);
+      const config = change(current);
+      await saveConfig(path, config);
+      return config;
+    }),
+  );
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+/**
+ * The fresh config with only what a command changed (name, agents, server, token), keeping its
+ * private chat part. When the file now holds another pairing (or none), `loaded` is the base: the
+ * command's own link is what it just used.
+ */
+export function withCommandFields(
+  current: ConnectorConfig | undefined,
+  loaded: ConnectorConfig,
+  fields: Partial<Pick<ConnectorConfig, 'name' | 'agents' | 'server' | 'token'>>,
+): ConnectorConfig {
+  const base = current?.connector_id === loaded.connector_id ? current : loaded;
+  return { ...base, ...fields };
+}
+
+/**
  * Runs `fn` while holding `lockPath`, made with the exclusive 'wx' flag (atomic on Windows, macOS
  * and Linux). Waits up to `waitMs` for another holder; a lock older than LOCK_STALE_MS is removed.
  * The lock holds a random token and is removed afterwards only if it still holds this one, so a
@@ -62,12 +99,9 @@ async function withFileLock<T>(lockPath: string, waitMs: number, fn: () => Promi
       // Windows answers EPERM while another process is deleting the file.
       if (code !== 'EEXIST' && code !== 'EPERM') throw error;
     }
-    const age = await stat(lockPath).then(
-      (s) => Date.now() - s.mtimeMs,
-      () => 0,
-    );
-    if (age > LOCK_STALE_MS) {
-      await rm(lockPath, { force: true }).catch(() => undefined);
+    const seen = await readFile(lockPath, 'utf8').catch(() => undefined);
+    if (seen !== undefined && (await ageOf(lockPath)) > LOCK_STALE_MS) {
+      await takeOver(lockPath, seen);
       continue;
     }
     if (Date.now() >= deadline) throw new Error('config is busy');
@@ -78,5 +112,35 @@ async function withFileLock<T>(lockPath: string, waitMs: number, fn: () => Promi
   } finally {
     const holder = await readFile(lockPath, 'utf8').catch(() => undefined);
     if (holder === token) await rm(lockPath, { force: true }).catch(() => undefined);
+  }
+}
+
+const ageOf = (path: string): Promise<number> =>
+  stat(path).then(
+    (s) => Date.now() - s.mtimeMs,
+    () => 0,
+  );
+
+/**
+ * Removes a stale lock only while holding `${lockPath}.takeover` (made with 'wx'), and only if it
+ * still holds the `seen` content. Two waiters that both found it stale can then never both remove
+ * it: the second finds the first one's new lock (another token) and leaves it alone. A takeover
+ * lock left by a process that died in those few milliseconds is removed once stale.
+ */
+async function takeOver(lockPath: string, seen: string): Promise<void> {
+  const takeoverPath = `${lockPath}.takeover`;
+  try {
+    const handle = await open(takeoverPath, 'wx', 0o600);
+    await handle.close();
+  } catch {
+    if ((await ageOf(takeoverPath)) > LOCK_STALE_MS)
+      await rm(takeoverPath, { force: true }).catch(() => undefined);
+    return;
+  }
+  try {
+    const now = await readFile(lockPath, 'utf8').catch(() => undefined);
+    if (now === seen) await rm(lockPath, { force: true }).catch(() => undefined);
+  } finally {
+    await rm(takeoverPath, { force: true }).catch(() => undefined);
   }
 }

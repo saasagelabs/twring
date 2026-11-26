@@ -12,7 +12,8 @@ import { WebSocketServer } from 'ws';
 
 import { openIncoming } from './e2e/sealed';
 import { pairedFixture } from './e2e/test-fixtures';
-import { deleteConfigIfOwned, saveConfig, type ConnectorConfig } from './config';
+import { deleteConfigIfOwned, loadConfig, saveConfig, type ConnectorConfig } from './config';
+import { updateE2e } from './e2e/store';
 import { readStatus } from './service';
 
 /** The real `cord-connect` process against a scripted gateway. */
@@ -542,4 +543,82 @@ describe('cord-connect', () => {
     expect(await deleteConfigIfOwned(path, `con_${'n'.repeat(20)}`)).toBe(true);
     expect(await exists(path)).toBe(false);
   });
+
+  it('a re-link keeps a private chat change the running copy made while it waited (R3-2)', async () => {
+    const dir = await tempDir();
+    const path = join(dir, 'config.json');
+    let answer: (() => void) | undefined;
+    let url = '';
+    const claimed = new Promise<void>((resolve) => {
+      const server = createServer((req, res) => {
+        if (req.url !== '/v1/connectors/claim') {
+          res.writeHead(404).end();
+          return;
+        }
+        req.resume();
+        answer = () => {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ connector_id: CONNECTOR_ID, reused: true }));
+        };
+        resolve();
+      });
+      server.listen(0, '127.0.0.1');
+      cleanups.push(() => new Promise<void>((done) => server.close(() => done())));
+      cleanups.push(() => {
+        server.closeAllConnections();
+        return Promise.resolve();
+      });
+      server.once('listening', () => {
+        url = `http://localhost:${(server.address() as AddressInfo).port}`;
+      });
+    });
+    while (url === '') await new Promise((resolve) => setTimeout(resolve, 5));
+    const fixture = pairedFixture('echo');
+    const phone = fixture.e2e().devices[0]!;
+    const removed = { ...phone, id: `dev_${'r'.repeat(20)}` };
+    await saveConfig(path, {
+      ...config(url, dir),
+      e2e: { ...fixture.e2e(), seq: 5, devices: [phone, removed] },
+    });
+    const child = spawn(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        CLI,
+        '--code',
+        'K7QM-2XPA',
+        '--name',
+        'Desk',
+        '--command',
+        'echo',
+        '--agents',
+        'custom',
+      ],
+      { env: { ...process.env, CORD_CONNECT_CONFIG_DIR: dir }, stdio: 'ignore' },
+    );
+    const exited = new Promise((resolve) => child.once('exit', resolve));
+    cleanups.push(async () => {
+      child.kill();
+      await exited;
+    });
+    await claimed;
+    // Meanwhile the running copy sealed replies and dropped a phone removed in the app.
+    await updateE2e(path, (current) => ({
+      ...current,
+      seq: 9,
+      devices: [phone],
+      revoked: [removed.id],
+    }));
+    answer!();
+    let saved = await loadConfig(path);
+    for (let i = 0; i < 400 && saved?.name !== 'Desk'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      saved = await loadConfig(path);
+    }
+    expect(saved?.name).toBe('Desk');
+    expect(saved?.e2e?.seq).toBe(9);
+    expect(saved?.e2e?.devices.map((d) => d.id)).toEqual([phone.id]);
+    expect(saved?.e2e?.revoked).toEqual([removed.id]);
+  }, 30_000);
 });

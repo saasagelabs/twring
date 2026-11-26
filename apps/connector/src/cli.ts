@@ -63,7 +63,7 @@ import {
   sealedPost,
   shouldSendPlain,
 } from './e2e/post';
-import { updateE2e } from './e2e/store';
+import { updateConfig, updateE2e, withCommandFields } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
 import { watchPairing } from './e2e/watch';
@@ -394,9 +394,10 @@ async function pair(
   const body: unknown = await res.json();
   if (existing !== undefined) {
     relinkResponseSchema.parse(body);
-    const config: ConnectorConfig = { ...existing, name, agents };
-    await saveConfig(configPath(), config);
-    return config;
+    // Fresh read under the lock: the running copy may have changed private chats meanwhile.
+    return updateConfig(configPath(), (current) =>
+      withCommandFields(current, existing, { name, agents }),
+    );
   }
   const claim = claimResponseSchema.parse(body);
   const config: ConnectorConfig = {
@@ -406,7 +407,7 @@ async function pair(
     name,
     agents,
   };
-  await saveConfig(configPath(), config);
+  await updateConfig(configPath(), () => config);
   print(`Paired "${name}" with your Twring account.`);
   return config;
 }
@@ -479,7 +480,7 @@ async function link(
     name,
     agents,
   };
-  await saveConfig(configPath(), config);
+  await updateConfig(configPath(), () => config);
   linkedLines(name, outcome.ownerName).forEach(print);
   return config;
 }
@@ -1086,8 +1087,11 @@ async function setupCommand(values: Record<string, string | boolean | undefined>
         (value) => typeof value === 'string',
       )
     ) {
-      config.agents = await gatherAgents(values, false, config.agents);
-      await saveConfig(configPath(), config);
+      const loaded = config;
+      const agents = await gatherAgents(values, false, loaded.agents);
+      config = await updateConfig(configPath(), (current) =>
+        withCommandFields(current, loaded, { agents }),
+      );
     }
     const dir = configDir();
     const host = systemHost();
@@ -1347,8 +1351,11 @@ async function main(): Promise<void> {
       (value) => typeof value === 'string',
     )
   ) {
-    saved.agents = await gatherAgents(commandValues, false, saved.agents);
-    await saveConfig(configPath(), saved);
+    const loaded = saved;
+    const agents = await gatherAgents(commandValues, false, loaded.agents);
+    saved = await updateConfig(configPath(), (current) =>
+      withCommandFields(current, loaded, { agents }),
+    );
   }
   // As a background service there is no one to scan a code: say what to do and stop, with the
   // exit code that tells the service manager not to start it again (NOT_PAIRED_EXIT).
