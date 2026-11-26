@@ -171,9 +171,24 @@ export async function removeShareCopies(): Promise<void> {
   }
 }
 
-/** Start-up cleanup without a start-up hook: the first open or share of the process. */
-export function sweepShareCopiesOnce(): Promise<void> {
-  return sweptThisProcess ? Promise.resolve() : removeShareCopies();
+/** Chat exports (opened plaintext) written for the share sheet; a killed sheet leaves one. */
+export const CHAT_EXPORT_FOLDER = 'chat-export';
+
+async function removeChatExports(): Promise<void> {
+  try {
+    const { Directory, Paths } = await import('expo-file-system');
+    const folder = new Directory(Paths.cache, CHAT_EXPORT_FOLDER);
+    if (folder.exists) folder.delete();
+  } catch {
+    /* the OS clears the cache anyway */
+  }
+}
+
+/** Start-up cleanup: the app start, or else the first open or share of the process. */
+export async function sweepShareCopiesOnce(): Promise<void> {
+  if (sweptThisProcess) return;
+  await removeShareCopies();
+  await removeChatExports();
 }
 
 /** Sign-out, removing this phone and clearing a chat: no opened file stays behind. */
@@ -181,6 +196,7 @@ export async function clearSealedFiles(): Promise<void> {
   generation += 1;
   inFlight.clear();
   await removeShareCopies();
+  await removeChatExports();
   try {
     const { Directory, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.cache, CACHE_FOLDER);

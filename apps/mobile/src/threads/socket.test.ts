@@ -81,7 +81,79 @@ describe('thread socket', () => {
     socket.close();
     expect(vi.getTimerCount()).toBe(0);
   });
-  it.each([4403, 4409])('stops on %i until reconnect is requested', async (code) => {
+  it('retries after 4409 with the normal backoff', async () => {
+    vi.useFakeTimers();
+    const states: string[] = [];
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: (state) => states.push(state),
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    FakeSocket.instances[0].end(4409);
+    expect(states).toEqual(['disconnected']);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    socket.close();
+  });
+  it('refreshes the token after a 401 and retries with backoff', async () => {
+    vi.useFakeTimers();
+    let token = 'old';
+    const refreshAuth = vi.fn(() => {
+      token = 'new';
+      return Promise.resolve();
+    });
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({ authorization: token }),
+      refreshAuth,
+      onFrame: () => undefined,
+      onState: () => undefined,
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    const first = FakeSocket.instances[0];
+    first.onerror?.({ status: 401 });
+    first.end(1006);
+    expect(refreshAuth).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(FakeSocket.instances[1].options?.headers.authorization).toBe('new');
+    // A second 401 backs off further instead of retrying at once.
+    FakeSocket.instances[1].onerror?.({ message: 'Expected HTTP 101 response but was 401' });
+    await vi.advanceTimersByTimeAsync(1_999);
+    expect(FakeSocket.instances).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.instances).toHaveLength(3);
+    socket.close();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it('reconnects a stopped socket but never opens a second one', () => {
+    const states: string[] = [];
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: (state) => states.push(state),
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    expect(socket.stopped()).toBe(false);
+    FakeSocket.instances[0].end(4403);
+    expect(socket.stopped()).toBe(true);
+    socket.reconnect();
+    expect(socket.stopped()).toBe(false);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(FakeSocket.instances[0].readyState).toBe(3);
+    socket.close();
+    expect(socket.stopped()).toBe(true);
+  });
+  it.each([4403])('stops on %i until reconnect is requested', async (code) => {
     vi.useFakeTimers();
     const socket = connectThreadSocket({
       url: 'http://localhost:3000',

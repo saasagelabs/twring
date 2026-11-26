@@ -30,4 +30,19 @@ describe('iOS system call', () => {
     expect(openedNotificationRoute({ type: 'cord.message' })).toBeUndefined();
     expect(openedNotificationRoute(undefined)).toBeUndefined();
   });
+
+  it('ignores a tapped message alert for another account', () => {
+    const tap = { type: 'cord.message', agent_id: 'agt_1', user_ref: 'ref_a' };
+    expect(openedNotificationRoute(tap, 'ref_a')).toEqual({
+      pathname: '/chats/[agentId]',
+      params: { agentId: 'agt_1' },
+    });
+    expect(openedNotificationRoute(tap, 'ref_b')).toBeUndefined();
+    expect(openedNotificationRoute(tap, null)).toBeUndefined();
+    // An alert without an account (an older server) opens as before.
+    expect(openedNotificationRoute({ type: 'cord.message', agent_id: 'agt_1' }, 'ref_b')).toEqual({
+      pathname: '/chats/[agentId]',
+      params: { agentId: 'agt_1' },
+    });
+  });
 });

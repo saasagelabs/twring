@@ -117,6 +117,8 @@ export class PushRegistration {
     this.cancelRetry();
     this.deps.setRingAccount(null);
     return this.run(async () => {
+      // Nobody was signed in (app start while signed out): removing the old account's device
+      // needs that account's session, so a pending unregister waits for the next sign-in.
       if (!wasActive) return;
       this.registeredToken = undefined;
       this.registeredAlert = undefined;

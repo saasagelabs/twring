@@ -21,6 +21,8 @@ type SocketConstructor = new (
 export interface ThreadSocketOptions {
   url: string;
   headers: () => Record<string, string>;
+  /** Refreshes the access token after the server refused it; the retry waits for it. */
+  refreshAuth?: () => Promise<unknown>;
   onFrame: (frame: ThreadSocketFrame) => void;
   onState: (state: SocketState) => void;
   requireSecureMedia?: boolean;
@@ -30,6 +32,8 @@ export interface ThreadSocketOptions {
 
 export function connectThreadSocket(options: ThreadSocketOptions): {
   setFocus(agentId: string | null): void;
+  /** True after close() or a final refusal (4403): only reconnect() opens it again. */
+  stopped(): boolean;
   reconnect(): void;
   close(): void;
 } {
@@ -92,31 +96,44 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
           ? event.message
           : undefined;
       if (status === 401 || (typeof detail === 'string' && /\b401\b/.test(detail))) {
-        blocked = true;
-        clearTimers();
-        options.onState('stopped');
+        // The token was refused (often a stale one after a long background): refresh, then retry.
+        generation++;
+        socket = undefined;
         ws.close();
+        const refreshing = options.refreshAuth?.().catch(() => undefined);
+        retryLater(refreshing);
       }
     };
     ws.onclose = (event) => {
       if (current !== generation || stopped) return;
-      clearTimers();
       socket = undefined;
-      if (blocked || event.code === 4403 || event.code === 4409) {
+      // Only "account data deleted" is final; a newer socket closing this one (4409) retries.
+      if (event.code === 4403) {
+        clearTimers();
         blocked = true;
         options.onState('stopped');
         return;
       }
-      options.onState('disconnected');
-      const delay = delays[Math.min(retryStep++, delays.length - 1)];
-      retryTimer = timers.setTimeout(() => {
-        retryTimer = undefined;
-        connect();
-      }, delay);
+      retryLater();
     };
+  };
+  const retryLater = (before?: Promise<unknown>) => {
+    clearTimers();
+    options.onState('disconnected');
+    const scheduled = generation;
+    const delay = delays[Math.min(retryStep++, delays.length - 1)];
+    retryTimer = timers.setTimeout(() => {
+      retryTimer = undefined;
+      void Promise.resolve(before).then(() => {
+        if (scheduled === generation) connect();
+      });
+    }, delay);
   };
   connect();
   return {
+    stopped() {
+      return stopped || blocked;
+    },
     setFocus(agentId) {
       focus = agentId;
       sendFocus();

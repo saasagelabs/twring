@@ -5,6 +5,9 @@ import { describe, expect, it, vi } from 'vitest';
 const written = vi.hoisted(() => ({ text: '' }));
 vi.mock('expo-file-system', () => ({
   Paths: { cache: 'cache' },
+  Directory: class {
+    exists = true;
+  },
   File: class {
     uri = 'cache/x.md';
     exists = false;

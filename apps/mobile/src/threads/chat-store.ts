@@ -76,6 +76,27 @@ export function applyFrame(state: ChatState, agentId: string, frame: ThreadSocke
 }
 
 /**
+ * Applies the newest page on opening a chat. When older messages exist and the cached ones below
+ * the page do not connect to it, those are dropped so older pages load down from the page's oldest
+ * message instead of skipping the messages in between.
+ */
+export function openLatest(
+  state: ChatState,
+  page: { messages: readonly ThreadMessage[]; hasMore: boolean },
+): ChatState {
+  if (!page.hasMore || !page.messages.length) return upsert(state, page.messages);
+  const oldest = Math.min(...page.messages.map((m) => m.seq));
+  // Judged below the page, not by the newest cached message: a live frame may already have added
+  // the page's newest message while older ones in between were never loaded.
+  const below = state.messages.filter((message) => message.seq < oldest);
+  const connects = below.length === 0 || Math.max(...below.map((m) => m.seq)) === oldest - 1;
+  const kept = connects
+    ? state
+    : { ...state, messages: state.messages.filter((message) => message.seq >= oldest) };
+  return upsert(kept, page.messages);
+}
+
+/**
  * Applies a fresh newest page: messages it no longer holds were deleted (a delete does not bump
  * rev, so catch-up cannot report it). Only the range the page covers is pruned, never a message
  * newer than both the page and `knownSeq` (the newest seq when the request went out).
