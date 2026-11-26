@@ -483,4 +483,25 @@ describe('private chats in the chat data layer', () => {
       expect(t.controller.getOpened(privateAgent)?.[0]).toMatchObject({ state: 'ok' }),
     );
   });
+
+  it('a new message hands only its own text to search, not the whole chat again', async () => {
+    const recorded = vi.spyOn(SearchIndex.prototype, 'recordPrivate');
+    try {
+      const t = await setup();
+      await t.controller.open(privateAgent);
+      await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+      const texts = () =>
+        recorded.mock.calls.map(([rows]) => rows.map((row: { text: string }) => row.text));
+      expect(texts()).toEqual([['hello from computer']]);
+      const next = sealedMsg(
+        fromComputer(t.me.deviceId, t.me.publicKey, 'second reply', 2),
+        'agent',
+      );
+      t.controller.frame({ type: 'message.upserted', message: next });
+      await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toHaveLength(2));
+      expect(texts()).toEqual([['hello from computer'], ['second reply']]);
+    } finally {
+      recorded.mockRestore();
+    }
+  });
 });

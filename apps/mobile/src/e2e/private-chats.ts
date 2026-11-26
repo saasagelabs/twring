@@ -14,6 +14,7 @@ import {
   createPhoneContext,
   openMessage,
   openMessages,
+  openMessagesInSteps,
   sealOutgoing,
   sealOutgoingControl,
   seenToSave,
@@ -352,9 +353,11 @@ export class PrivateChats {
     const ctx = await this.context(agentId);
     if (ctx === undefined) return undefined;
     const scratch = createPhoneContext({ ...ctx, seen: undefined });
-    return openMessages(
+    // A whole chat can take seconds on a phone: open it in steps so the screen keeps answering.
+    return openMessagesInSteps(
       scratch,
       messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed'),
+      () => new Promise((resolve) => setTimeout(resolve, 0)),
     );
   }
 
@@ -376,7 +379,11 @@ export class PrivateChats {
     if (sealed.length > 0 && sealed.every((m) => keyless(m) && ctx.rewraps?.has(m.id) !== true))
       this.lostKeys.add(agentId);
     else this.lostKeys.delete(agentId);
-    this.save(agentId, ctx);
+    // A chat opens again on every change: write the replay state only when it moved.
+    if (ctx.changed) {
+      ctx.changed = false;
+      this.save(agentId, ctx);
+    }
     const failed = opened.filter((m) => m.state === 'couldnt_open').length;
     if (failed > 0) this.deps.log?.('e2e_couldnt_open', { count: failed });
     return opened;
@@ -413,7 +420,10 @@ export class PrivateChats {
         this.saved = Promise.resolve(all);
         await this.deps.replay.save(all);
       })
-      .catch(() => undefined);
+      .catch(() => {
+        // Not saved: the next open tries again, as it did before only changes were saved.
+        ctx.changed = true;
+      });
   }
 
   /**
