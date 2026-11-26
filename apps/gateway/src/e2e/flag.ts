@@ -27,6 +27,8 @@ export function privateChatAccess(
 ): {
   allowed(userId: string): boolean;
   computerSupports(record: AgentRecord): boolean;
+  /** The agent's computer is connected and its hello said `feature` (ADR-045). */
+  computerHas(record: AgentRecord, feature: string): boolean;
   deliver(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
   deliverDecision(record: AgentRecord, messageId: string, sealed: SealedEnvelopeV1): boolean;
   cancel(record: AgentRecord, turnId: string): boolean;
@@ -49,17 +51,19 @@ export function privateChatAccess(
       })
     );
   };
+  const has = (record: AgentRecord, feature: string) => {
+    if (record.protocol !== 'cord-connector') return false;
+    const endpoint = parseConnectorEndpoint(record.endpoint_url);
+    return (
+      endpoint !== undefined &&
+      hub.isOnline(record.user_id, endpoint.connectorId) &&
+      hub.supports(endpoint.connectorId, feature) === true
+    );
+  };
   return {
     allowed: (userId) => privateChatsAllowed(env, userId),
-    computerSupports: (record) => {
-      if (record.protocol !== 'cord-connector') return false;
-      const endpoint = parseConnectorEndpoint(record.endpoint_url);
-      return (
-        endpoint !== undefined &&
-        hub.isOnline(record.user_id, endpoint.connectorId) &&
-        hub.supports(endpoint.connectorId, SEALED_CHAT_FEATURE) === true
-      );
-    },
+    computerSupports: (record) => has(record, SEALED_CHAT_FEATURE),
+    computerHas: has,
     deliver: (record, messageId, sealed) => send(record, 'sealed.message', messageId, sealed),
     deliverDecision: (record, messageId, sealed) =>
       send(record, 'sealed.decision', messageId, sealed),

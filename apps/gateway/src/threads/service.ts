@@ -6,6 +6,8 @@ import {
   MAX_ACTIVITY_LABEL_CHARS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   parseConnectorEndpoint,
+  SEALED_TURN_IDLE_MS,
+  SEALED_WORKING_FEATURE,
   sanitizeRingText,
   truncateRingText,
   userRef,
@@ -26,6 +28,7 @@ import { fetchAgentFile, FetchAgentFileError } from '../files/fetch-agent-file';
 import { sniffFile } from '../files/sniff';
 import { withQuote } from './quote';
 import { PRIVATE_PUSH_TEXT, PRIVATE_RING_REASON } from '../e2e/guard';
+import { PrivateIdle } from './private-idle';
 
 export interface ThreadTurnTimeouts {
   connectMs: number;
@@ -58,6 +61,8 @@ export interface ThreadServiceOptions {
   };
   timeouts?: Partial<ThreadTurnTimeouts>;
   sweepIntervalMs?: number;
+  /** Silence after which a private turn is interrupted (default `SEALED_TURN_IDLE_MS`, ADR-045). */
+  privateIdleMs?: number;
   /**
    * Private chats (ADR-044). Absent: no chat can become private, and sealed messages are refused.
    * `computerSupports` is true only when the agent's computer is connected and said `sealed_chat`.
@@ -74,6 +79,8 @@ export interface ThreadServiceOptions {
      * it is offline or did not say `sealed_cancel`.
      */
     cancel?(record: AgentRecord, turnId: string): boolean;
+    /** True when the computer is connected and its hello said `feature` (ADR-045). */
+    computerHas?(record: AgentRecord, feature: string): boolean;
   };
 }
 export class ThreadServiceError extends Error {
@@ -157,6 +164,7 @@ export class ThreadService {
   private readonly newSessionNotices = new Map<string, number>();
   private readonly sendLocks = new Map<string, Promise<void>>();
   private readonly timeouts: ThreadTurnTimeouts;
+  private readonly idle: PrivateIdle;
   private timer?: ReturnType<typeof setInterval>;
   private starting?: Promise<void>;
   private epoch = 0;
@@ -164,6 +172,7 @@ export class ThreadService {
 
   constructor(private readonly options: ThreadServiceOptions) {
     this.timeouts = { ...THREAD_TURN_TIMEOUTS, ...options.timeouts };
+    this.idle = new PrivateIdle(options.privateIdleMs ?? SEALED_TURN_IDLE_MS);
   }
 
   async noteNewSession(userId: string, agentId: string): Promise<void> {
@@ -445,6 +454,7 @@ export class ThreadService {
       const now = await this.options.store.findMessageForUser(userId, message.id);
       return now?.message;
     }
+    this.idle.end(message.id);
     this.upsert(userId, changed);
     let told = false;
     if (status !== 'queued') {
@@ -724,6 +734,8 @@ export class ThreadService {
         });
         if (queued) result = { message: queued, created: true };
       }
+      if (result.message.kind === 'sealed' && result.message.status === 'sent')
+        this.watchTurn(record, result.message.id);
       this.upsert(userId, result.message);
       this.options.log?.info(
         {
@@ -760,11 +772,14 @@ export class ThreadService {
           turn_id: string;
           sealed: SealedEnvelopeV1;
           expires_at: string;
-        },
+        }
+      | { type: 'sealed.working'; agent: string; turn_id: string },
   ): Promise<void> {
     switch (frame.type) {
       case 'sealed.reply':
         return this.receiveSealedReply(from, frame);
+      case 'sealed.working':
+        return this.receiveSealedWorking(from, frame);
       case 'sealed.approval':
         return this.receiveSealedApproval(from, frame);
       default: {
@@ -811,6 +826,38 @@ export class ThreadService {
       return undefined;
     }
     return { agentId, record, message: found.message };
+  }
+
+  /**
+   * A computer's content-free "still working" frame (ADR-045). Checked like a reply; it refreshes
+   * the turn's silence clock and revives an interrupted turn to working. Nothing else is written.
+   */
+  private async receiveSealedWorking(
+    from: { connectorId: string; userId: string },
+    frame: { agent: string; turn_id: string },
+  ): Promise<void> {
+    const reject = (reason: string) => {
+      this.sealedRepliesRejected++;
+      this.options.log?.warn(
+        { event: 'e2e_working_rejected', connector_id: from.connectorId, reason },
+        'e2e_working_rejected',
+      );
+    };
+    const turn = await this.sealedTurn(from, frame, reject);
+    if (turn === undefined) return;
+    let status = turn.message.status;
+    if (status === 'interrupted') {
+      const revived = await this.options.store.updateUserMessage(from.userId, frame.turn_id, {
+        status: 'working',
+        from: ['interrupted'],
+      });
+      if (revived) {
+        this.upsert(from.userId, revived);
+        status = 'working';
+      }
+    }
+    if (status === 'sent' || status === 'working')
+      this.idle.touch(frame.turn_id, from.userId, turn.agentId);
   }
 
   /**
@@ -917,6 +964,12 @@ export class ThreadService {
     // A chunk resent after a reconnect is already stored: nothing changed, nothing to count.
     if (saved === 'duplicate') return;
     if (saved === 'after_final' || saved === 'too_large') return reject(saved);
+    if (frame.final) this.idle.end(frame.turn_id);
+    else if (
+      this.idle.tracks(frame.turn_id) ||
+      this.options.privateChats?.computerHas?.(record, SEALED_WORKING_FEATURE) === true
+    )
+      this.idle.touch(frame.turn_id, from.userId, agentId);
     this.upsert(from.userId, saved.message);
     const status = saved.complete ? 'answered' : 'working';
     const current = found.message.status;
@@ -972,8 +1025,15 @@ export class ThreadService {
         blocked.add(key);
         continue;
       }
+      this.watchTurn(record, message.id);
       this.upsert(userId, sent);
     }
+  }
+
+  /** Starts the silence clock for a delivered private turn, only for a computer that says it works (ADR-045). */
+  private watchTurn(record: AgentRecord, turnId: string): void {
+    if (this.options.privateChats?.computerHas?.(record, SEALED_WORKING_FEATURE) === true)
+      this.idle.touch(turnId, record.user_id, record.id);
   }
 
   async sweep(): Promise<void> {
@@ -1021,6 +1081,19 @@ export class ThreadService {
         }
       }
       await this.deliverQueuedSealed();
+      for (const { userId, turnId } of this.idle.stale()) {
+        // Only a live turn: an answer or a Stop that landed since keeps its status.
+        const changed = await this.options.store.updateUserMessage(userId, turnId, {
+          status: 'interrupted',
+          from: ['sent', 'working'],
+        });
+        if (!changed) continue;
+        this.upsert(userId, changed);
+        this.options.log?.info(
+          { event: 'private_turn_idle', message_id: turnId },
+          'private_turn_idle',
+        );
+      }
     }
   }
 

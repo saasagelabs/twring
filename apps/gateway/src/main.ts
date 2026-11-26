@@ -8,7 +8,7 @@ import {
   loadGatewayEnv,
   type GatewayEnv,
 } from '@twring/config/gateway';
-import { SEALED_CHAT_FEATURE } from '@twring/contracts';
+import { SEALED_CHAT_FEATURE, SEALED_WORKING_FEATURE } from '@twring/contracts';
 
 import { statfs, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -259,7 +259,9 @@ const connectorHub = new ConnectorHub({
     keys &&
     stores && {
       // Computers learn the server relays private chats (ADR-044); each account is still checked.
-      features: env.PRIVATE_CHATS_ENABLED ? ['messages', SEALED_CHAT_FEATURE] : ['messages'],
+      features: env.PRIVATE_CHATS_ENABLED
+        ? ['messages', SEALED_CHAT_FEATURE, SEALED_WORKING_FEATURE]
+        : ['messages'],
     }),
   logger: connectorLogger,
   onHello: async (connectorId, agents) =>

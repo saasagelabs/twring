@@ -195,7 +195,10 @@ interface LiveConnector extends ConnectorIdentity {
 /** A private chat reply or sealed approval request from a computer (ADR-044), with who sent it. */
 export type SealedReplyListener = (
   from: { connectorId: string; userId: string },
-  frame: Extract<RelayConnectorMessage, { type: 'sealed.reply' | 'sealed.approval' }>,
+  frame: Extract<
+    RelayConnectorMessage,
+    { type: 'sealed.reply' | 'sealed.approval' | 'sealed.working' }
+  >,
 ) => void;
 
 export class ConnectorHub {
@@ -544,6 +547,7 @@ export class ConnectorHub {
         return;
       case 'sealed.reply':
       case 'sealed.approval':
+      case 'sealed.working':
         // Private chats (ADR-044): the chat service checks the thread is this account's and
         // private; the hub only says which computer and account it came from.
         this.onSealedReply?.({ connectorId: entry.connectorId, userId: entry.userId }, message);

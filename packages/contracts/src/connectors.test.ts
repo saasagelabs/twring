@@ -125,6 +125,11 @@ describe('per-person sessions on shared agents', () => {
       relayConnectorMessageSchema.parse({ ...hello, features: ['scoped_sessions'] }),
     ).toMatchObject({ features: ['scoped_sessions'] });
   });
+  it('parses a working frame and refuses extra fields', () => {
+    const ok = { type: 'sealed.working', agent: 'claude-code', turn_id: `msg_${'a'.repeat(20)}` };
+    expect(relayConnectorMessageSchema.parse(ok)).toEqual(ok);
+    expect(() => relayConnectorMessageSchema.parse({ ...ok, text: 'x' })).toThrow();
+  });
   it('a connector message may name a session scope', () => {
     const message = { local_agent: 'claude-code', text: 'Done', origin: 'call_turn' };
     expect(

@@ -10,6 +10,11 @@ import { z } from 'zod';
 export const SEALED_CHAT_FEATURE = 'sealed_chat';
 /** A computer that can stop a private turn when the phone taps Stop (`sealed.cancel`, C3 #11). */
 export const SEALED_CANCEL_FEATURE = 'sealed_cancel';
+/** A computer that sends a content-free "still working" frame during a private turn (ADR-045). */
+export const SEALED_WORKING_FEATURE = 'sealed_working';
+export const SEALED_WORKING_INTERVAL_MS = 20_000;
+/** A private turn with no reply chunk and no working frame for this long is interrupted. */
+export const SEALED_TURN_IDLE_MS = 60_000;
 /**
  * A computer that reads the account's devices again when told a device was removed
  * (`e2e.devices_changed`, C3 #11). Older computers still read them every 10 minutes.

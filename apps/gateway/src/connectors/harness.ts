@@ -10,6 +10,7 @@ import {
   claimResponseSchema,
   connectorEndpointUrl,
   pairingResponseSchema,
+  type ThreadSocketFrame,
   pairResponseSchema,
   type PairResponse,
 } from '@twring/contracts';
@@ -85,6 +86,8 @@ export interface ConnectorGateway {
     pushes: { token: string; data: PushPayload }[];
   };
   threads?: { service: ThreadService; store: SqliteThreadStore };
+  /** Frames the thread service pushed to phone sockets, with the account they went to. */
+  threadFrames: { userId: string; frame: ThreadSocketFrame }[];
   /** Private chat device keys (routes mounted only with `PRIVATE_CHATS_ENABLED` in `env`). */
   e2e: E2eDeviceStore;
   /** With `selfhost`: paired-phone stores, the admin listener (not listening), and pairing. */
@@ -145,6 +148,8 @@ export interface ConnectorGatewayOptions {
   };
   threads?: {
     sweepIntervalMs?: number;
+    /** Silence after which a private turn is interrupted (default `SEALED_TURN_IDLE_MS`). */
+    privateIdleMs?: number;
     /** Mounts files (`FILES_ENABLED`), stored in a temporary folder. */
     files?: boolean;
     writeRatePerMinute?: number;
@@ -282,6 +287,7 @@ export async function startConnectorGateway(
     ring = { service, stores: ringStores, scheduler, clock, pushes };
   }
   let threads: ConnectorGateway['threads'];
+  const threadFrames: ConnectorGateway['threadFrames'] = [];
   let files: FileService | undefined;
   if (options.threads) {
     const store = new SqliteThreadStore(':memory:', new CredentialCipher(messageKeys(TEST_KEYS)));
@@ -297,9 +303,12 @@ export async function startConnectorGateway(
       hasLiveCallToAgent: (userId, agentId) =>
         calls?.registry.hasLiveCallToAgent(userId, agentId) ?? false,
       ...(ring && { ring: ring.service }),
-      notify: () => undefined,
+      notify: (userId, frame) => threadFrames.push({ userId, frame }),
       privateChats: privateChatAccess(env, hub),
       sweepIntervalMs: options.threads.sweepIntervalMs ?? 20,
+      ...(options.threads.privateIdleMs !== undefined && {
+        privateIdleMs: options.threads.privateIdleMs,
+      }),
     });
     await service.start();
     hub.setSealedReplyListener((from, frame) => void service.receiveSealed(from, frame));
@@ -453,6 +462,7 @@ export async function startConnectorGateway(
     ...(calls !== undefined && { calls }),
     ...(ring !== undefined && { ring }),
     ...(threads !== undefined && { threads }),
+    threadFrames,
     send,
     pair,
     async connect(user, connectorOptions = {}) {
