@@ -137,17 +137,40 @@ export function messageStatus(
   }
 }
 
-function errorCopy(code: string): string {
-  const known: Record<string, string> = {
-    agent_offline: 'agent is offline',
-    timeout: 'the request timed out',
-    rate_limited: 'too many messages',
-    agent_error: 'the agent could not reply',
-    agent_failed: 'the agent could not reply',
-    file_missing: 'this file is no longer on your phone. Attach it again.',
-  };
-  return known[code] ?? 'please try again later';
+/**
+ * A failed send's line. A failure code with its own copy wins over the error's text (the
+ * server's message), then that text, then the plain "Didn't go through".
+ */
+export function failedSendText(
+  name: string,
+  errorCode: string | undefined,
+  errorMessage: string | undefined,
+): string {
+  if (errorCode !== undefined && hasCopy(errorCode))
+    return `Didn't go through: ${errorCopy(errorCode)}`;
+  if (errorMessage !== undefined) return `Didn't go through: ${errorMessage}`;
+  return messageStatus('failed', name, errorCode);
 }
+
+function errorCopy(code: string): string {
+  return (hasCopy(code) ? KNOWN_ERRORS[code] : undefined) ?? 'please try again later';
+}
+
+/** Own keys only: a code such as `constructor` is not a known failure. */
+function hasCopy(code: string): boolean {
+  return Object.prototype.hasOwnProperty.call(KNOWN_ERRORS, code);
+}
+
+const KNOWN_ERRORS: Record<string, string> = {
+  agent_offline: 'agent is offline',
+  timeout: 'the request timed out',
+  rate_limited: 'too many messages',
+  agent_error: 'the agent could not reply',
+  agent_failed: 'the agent could not reply',
+  file_missing: 'this file is no longer on your phone. Attach it again.',
+  private_files: "photos and files can't be sent in a private chat yet.",
+  private_thread: 'this chat is private. Record the voice note again and tap Send anyway.',
+};
 
 export type TextSegment =
   | { kind: 'text' | 'bold' | 'code'; value: string }

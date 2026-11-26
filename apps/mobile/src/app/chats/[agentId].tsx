@@ -63,13 +63,14 @@ import {
   shouldAnnounce,
   type PillState,
 } from '@/threads/scroll-state';
-import { callDuration, dateLabel, messageStatus } from '@/threads/presentation';
+import { callDuration, dateLabel, failedSendText } from '@/threads/presentation';
 import type { PreparedFile } from '@/threads/files';
 import { File } from 'expo-file-system';
 import { apiErrorCopy } from '@/api/errors';
 import {
   ACTION_LABELS,
   DELETE_CONFIRM,
+  DISCARD_CONFIRM,
   deleteFailureCopy,
   messageActions,
   type MessageAction,
@@ -79,6 +80,8 @@ import {
 interface ActionTarget {
   /** The server id; absent for a message still only on this phone. */
   id?: string;
+  /** A message still only on this phone: its outbox id. */
+  clientId?: string;
   text: string;
   /** "yourself" or the agent's name, for the reply bar. */
   from: string;
@@ -246,12 +249,35 @@ export default function ChatScreen() {
   const rows = useMemo(() => {
     const ordered: Row[] = [];
     let previous = '';
+    // A failed send stays where it was sent, among the messages; one still sending stays last
+    // (the phone's clock may run behind the server's).
+    const failed = chat.pending
+      .filter((pending) => pending.state === 'failed')
+      .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+    const placed = new Set<string>();
+    const placeFailedBefore = (createdAt: string) => {
+      for (const pending of failed) {
+        if (
+          placed.has(pending.clientId) ||
+          !(Date.parse(pending.createdAt) < Date.parse(createdAt))
+        )
+          continue;
+        const label = dateLabel(pending.createdAt, now);
+        if (label !== previous) {
+          ordered.push({ key: `date-${pending.clientId}`, kind: 'date', label });
+          previous = label;
+        }
+        ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
+        placed.add(pending.clientId);
+      }
+    };
     for (const message of messages) {
       if (
         message.kind === 'ring' &&
         (message.outcome === 'answered' || message.outcome === 'cancelled')
       )
         continue;
+      placeFailedBefore(message.created_at);
       const label = dateLabel(message.created_at, now);
       if (label !== previous) {
         ordered.push({ key: `date-${message.seq}`, kind: 'date', label });
@@ -261,7 +287,8 @@ export default function ChatScreen() {
       ordered.push({ key: message.id, kind: 'message', message });
     }
     for (const pending of chat.pending)
-      ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
+      if (!placed.has(pending.clientId))
+        ordered.push({ key: pending.clientId, kind: 'pending', ...pending });
     if (streaming) ordered.push({ key: 'working', kind: 'working' });
     return ordered.reverse();
   }, [messages, chat.pending, streaming, now, unreadSeq]);
@@ -358,6 +385,14 @@ export default function ChatScreen() {
         void Share.share({ message: target.text }).catch(() => undefined);
         return;
       case 'delete': {
+        const clientId = target.clientId;
+        if (clientId) {
+          Alert.alert('Delete message?', DISCARD_CONFIRM, [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => chat.discard(clientId) },
+          ]);
+          return;
+        }
         const messageId = target.id;
         if (!messageId) return;
         Alert.alert('Delete message?', DELETE_CONFIRM, [
@@ -400,9 +435,14 @@ export default function ChatScreen() {
       return <StreamingReply name={name} text={chat.state.progress?.text} onLink={setUrl} />;
     if (item.kind === 'pending') {
       const pendingTarget: ActionTarget = {
+        clientId: item.clientId,
         text: item.voice ? '' : item.text,
         from: 'yourself',
-        actions: messageActions({ kind: 'pending', text: item.voice ? '' : item.text }),
+        actions: messageActions({
+          kind: 'pending',
+          text: item.voice ? '' : item.text,
+          failed: item.state === 'failed',
+        }),
       };
       return (
         <View>
@@ -429,9 +469,11 @@ export default function ChatScreen() {
                   fontSize: type.microLabel.fontSize,
                 }}
               >
-                {item.error
-                  ? `Didn't go through: ${apiErrorCopy(item.error).message}`
-                  : messageStatus(item.state, name, item.errorCode)}
+                {failedSendText(
+                  name,
+                  item.errorCode,
+                  item.error ? apiErrorCopy(item.error).message : undefined,
+                )}
               </Text>
               <Pressable
                 accessibilityRole="button"
@@ -710,7 +752,10 @@ export default function ChatScreen() {
             {heldVoice && (
               <VoiceNoteWarning
                 onSend={() => {
-                  chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id);
+                  // The person's consent: the server may read this voice note.
+                  chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id, {
+                    serverReadable: true,
+                  });
                   heldUri.current = undefined;
                   setReplyTo(undefined);
                   setHeldVoice(undefined);

@@ -367,6 +367,23 @@ describe('cord api client', () => {
     expect((upload?.init.body as Blob).size).toBe(3);
   });
 
+  it("marks a voice note server-readable only with the person's consent", async () => {
+    const { api, calls } = client((url) =>
+      Promise.resolve(
+        url.startsWith('file:')
+          ? new Response(new Blob([new Uint8Array([1])]))
+          : json(500, { error: { code: 'internal', message: 'x', request_id: 'r' } }),
+      ),
+    );
+    await api
+      .sendVoiceNote(AGENT.id, 'c-1', 5000, 'file:///a.m4a', undefined, undefined, true)
+      .catch(() => undefined);
+    await api.sendVoiceNote(AGENT.id, 'c-2', 5000, 'file:///b.m4a').catch(() => undefined);
+    const uploads = calls.filter((call) => call.url.includes('/voice-notes?'));
+    expect(new URL(uploads[0].url).searchParams.get('server_readable')).toBe('1');
+    expect(new URL(uploads[1].url).searchParams.has('server_readable')).toBe(false);
+  });
+
   it('uploads a typed file Blob with its stable id and sends ordered attachment ids', async () => {
     const file = {
       id: 'fil_aaaaaaaaaaaaaaaaaaaa',

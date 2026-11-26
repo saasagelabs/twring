@@ -59,6 +59,15 @@ describe('message actions offered', () => {
     expect(messageActions({ kind: 'pending', text: 'hi' })).toEqual(['copy', 'share']);
     expect(messageActions({ kind: 'pending', text: '' })).toEqual([]);
   });
+  it('offers delete on a failed message still only on this phone, voice notes too', () => {
+    expect(messageActions({ kind: 'pending', text: 'hi', failed: true })).toEqual([
+      'copy',
+      'share',
+      'delete',
+    ]);
+    expect(messageActions({ kind: 'pending', text: '', failed: true })).toEqual(['delete']);
+    expect(messageActions({ kind: 'pending', text: '', failed: false })).toEqual([]);
+  });
   it('offers nothing on calls or notices', () => {
     expect(
       messageActions({

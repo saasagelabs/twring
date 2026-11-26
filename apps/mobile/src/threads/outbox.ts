@@ -17,7 +17,7 @@ export interface PendingMessage {
   text: string;
   state: 'sending' | 'failed';
   createdAt: string;
-  voice?: { uri: string; durationMs: number };
+  voice?: OutboxVoice;
   files?: PreparedFile[];
   /** The message this one answers; dropped if that message is deleted before this goes out. */
   replyTo?: string;
@@ -45,8 +45,20 @@ export interface OutboxSealer {
   seal(agentId: string, text: string, replyTo?: string): Promise<SealedEnvelopeV1>;
   openOwn(agentId: string, sealed: SealedEnvelopeV1): Promise<string | undefined>;
 }
+export interface OutboxVoice {
+  uri: string;
+  durationMs: number;
+  /**
+   * Set only when the person chose "Send anyway" in a private chat: the server may read this
+   * voice note. Without it a private chat's server refuses the note (409 `private_thread`).
+   */
+  serverReadable?: true;
+}
+
 /** Files in a private chat are not sealed yet: refused before anything goes out. */
 export const PRIVATE_FILES = 'private_files';
+/** The server refused something that reached a private chat unsealed (a voice note without consent). */
+export const PRIVATE_THREAD = 'private_thread';
 
 /** At most this many queued messages are saved for the next launch, newest kept. */
 export const OUTBOX_LIMIT = 50;
@@ -66,7 +78,13 @@ const storedOutbox = z.object({
         sealed: sealedEnvelopeV1Schema.optional(),
         state: z.enum(['sending', 'failed']),
         createdAt: z.string().max(100),
-        voice: z.object({ uri: storedUri, durationMs: z.number().nonnegative() }).optional(),
+        voice: z
+          .object({
+            uri: storedUri,
+            durationMs: z.number().nonnegative(),
+            serverReadable: z.literal(true).optional(),
+          })
+          .optional(),
         files: z
           .array(
             z.object({
@@ -145,7 +163,7 @@ export class Outbox {
         clientId: string;
         text: string;
         sealed?: SealedEnvelopeV1;
-        voice?: { uri: string; durationMs: number };
+        voice?: OutboxVoice;
         attachmentIds?: string[];
         replyTo?: string;
       },
@@ -204,7 +222,13 @@ export class Outbox {
     return clientId;
   }
 
-  sendVoice(agentId: string, uri: string, durationMs: number, replyTo?: string): string {
+  sendVoice(
+    agentId: string,
+    uri: string,
+    durationMs: number,
+    replyTo?: string,
+    options?: { serverReadable?: boolean },
+  ): string {
     const clientId = newClientId();
     this.items.set(clientId, {
       clientId,
@@ -213,7 +237,7 @@ export class Outbox {
       text: `Voice note · ${callDuration(Math.round(durationMs / 1000))} · Sending…`,
       state: 'sending',
       createdAt: new Date().toISOString(),
-      voice: { uri, durationMs },
+      voice: { uri, durationMs, ...(options?.serverReadable === true && { serverReadable: true }) },
     });
     this.start(clientId);
     return clientId;
@@ -225,6 +249,16 @@ export class Outbox {
     this.items.set(clientId, { ...item, state: 'sending', error: undefined, errorCode: undefined });
     this.notify();
     void this.attempt(clientId);
+  }
+
+  /** Removes a failed message from this phone only (it never reached the server), with its files. */
+  discard(clientId: string): void {
+    const item = this.items.get(clientId);
+    if (!item || item.state !== 'failed') return;
+    this.items.delete(clientId);
+    if (item.voice) this.removeFile(item.voice.uri);
+    for (const file of item.files ?? []) this.removeFile(file.uri);
+    this.notify();
   }
 
   reconcile(message: ThreadMessage): void {
@@ -574,7 +608,14 @@ export class Outbox {
                 error.status === 429 ||
                 (error.status !== undefined && error.status >= 500))));
         if (!retryable || attempt === delays.length) {
-          this.items.set(clientId, { ...item, state: 'failed', error });
+          // A private chat's refusal has its own plain copy, so it shows before any restart too.
+          const privateRefusal = error instanceof ApiError && error.code === PRIVATE_THREAD;
+          this.items.set(clientId, {
+            ...item,
+            state: 'failed',
+            error,
+            ...(privateRefusal && { errorCode: PRIVATE_THREAD }),
+          });
           this.notify();
           return;
         }

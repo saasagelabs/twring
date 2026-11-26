@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   agentRowLine,
   dateLabel,
+  failedSendText,
   callCardLine,
   callDuration,
   messageStatus,
@@ -182,6 +183,12 @@ describe('chat presentation', () => {
     expect(messageStatus('failed', 'Hermes', 'agent_failed')).toBe(
       "Didn't go through: the agent could not reply",
     );
+    expect(messageStatus('failed', 'Hermes', 'private_files')).toBe(
+      "Didn't go through: photos and files can't be sent in a private chat yet.",
+    );
+    expect(messageStatus('failed', 'Hermes', 'private_thread')).toBe(
+      "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+    );
   });
   it('segments links, fences, bold, and leaves HTML as text', () => {
     expect(segmentText('Hi **bold** https://example.com <b>x</b>\n```ts\nlet x = 1\n```')).toEqual([
@@ -235,5 +242,14 @@ describe('rowTime', () => {
   it('writes older dates the way Recents and agent pages do', () => {
     expect(rowTime(at(8), now)).toBe('Nov 4');
     expect(rowTime(new Date(2025, 9, 29, 9).toISOString(), now)).toBe('Oct 29, 2025');
+  });
+});
+
+describe('failedSendText', () => {
+  it('treats a code named like a built-in property as unknown', () => {
+    expect(failedSendText('Claude Code', 'constructor', undefined)).not.toMatch(/function/);
+    expect(failedSendText('Claude Code', 'toString', 'The server said no.')).toBe(
+      "Didn't go through: The server said no.",
+    );
   });
 });

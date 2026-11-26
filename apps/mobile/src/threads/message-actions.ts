@@ -14,12 +14,15 @@ export const ACTION_LABELS: Record<MessageAction, string> = {
 
 /** What a long press offers for one message, in the order the sheet lists them. */
 export function messageActions(
-  target: { kind: 'message'; message: ThreadMessage } | { kind: 'pending'; text: string },
+  target:
+    | { kind: 'message'; message: ThreadMessage }
+    | { kind: 'pending'; text: string; failed?: boolean },
 ): MessageAction[] {
   const actions: MessageAction[] = [];
   if (target.kind === 'pending') {
-    // Only on this phone so far: it has its own cancel, and nothing to reply to or delete yet.
+    // Only on this phone so far: nothing to reply to. A failed one can be removed from the phone.
     if (target.text) actions.push('copy', 'share');
+    if (target.failed === true) actions.push('delete');
     return actions;
   }
   const message = target.message;
@@ -37,6 +40,8 @@ export function quoteLine(text: string): string {
   const line = text.split('\n').find((part) => part.trim()) ?? '';
   return line.trim() || 'Voice note';
 }
+
+export const DISCARD_CONFIRM = "It was never sent, so it's removed only from this phone.";
 
 export const DELETE_CONFIRM =
   'Delete this message? It is removed from this chat on all your devices.';

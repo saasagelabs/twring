@@ -185,6 +185,69 @@ describe('durable outbox', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
+  it("keeps a voice note's consent across a save and reload", async () => {
+    const store = memoryStore();
+    const files = memoryFiles(['cache://a.m4a', 'cache://b.m4a']);
+    const first = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await first.hydrated;
+    const yes = first.sendVoice(agent, 'cache://a.m4a', 4_000, undefined, { serverReadable: true });
+    const no = first.sendVoice(agent, 'cache://b.m4a', 4_000);
+    await settle();
+    await vi.advanceTimersByTimeAsync(300);
+
+    const send = vi.fn<Send>(never);
+    const second = new Outbox(send, () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await second.hydrated;
+    await settle();
+    const voiceOf = (id: string) => second.list(agent).find((i) => i.clientId === id)?.voice;
+    expect(voiceOf(yes)?.serverReadable).toBe(true);
+    expect(voiceOf(no)?.serverReadable).toBeUndefined();
+  });
+
+  it('discards a failed voice note for good, with its kept copy', async () => {
+    const store = memoryStore();
+    const files = memoryFiles(['cache://rec.m4a']);
+    const first = new Outbox(
+      vi.fn<Send>(() =>
+        Promise.reject(new ApiError('http', 'private_thread', undefined, undefined, 409)),
+      ),
+      () => undefined,
+      timers,
+      undefined,
+      { store, files: () => Promise.resolve(files) },
+    );
+    await first.hydrated;
+    const clientId = first.sendVoice(agent, 'cache://rec.m4a', 4_000);
+    await settle();
+    expect(first.list(agent)[0].state).toBe('failed');
+    first.discard(clientId);
+    await settle();
+    expect(first.list(agent)).toEqual([]);
+    expect(files.present.size).toBe(0);
+    await vi.advanceTimersByTimeAsync(300);
+
+    const second = new Outbox(vi.fn<Send>(never), () => undefined, timers, undefined, {
+      store,
+      files: () => Promise.resolve(files),
+    });
+    await second.hydrated;
+    expect(second.list(agent)).toEqual([]);
+  });
+
+  it('does not discard a message still sending', async () => {
+    const outbox = new Outbox(vi.fn<Send>(never), () => undefined, timers);
+    const clientId = outbox.send(agent, 'hello');
+    await settle();
+    outbox.discard(clientId);
+    expect(outbox.list(agent)).toHaveLength(1);
+  });
+
   it('deletes the kept copy once the server has the message', async () => {
     const store = memoryStore();
     const files = memoryFiles(['cache://rec.m4a']);
