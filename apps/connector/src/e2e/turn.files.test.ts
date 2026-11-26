@@ -2,11 +2,15 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 import {
+  base64urlDecode,
   base64urlEncode,
   deviceIdFor,
   fileAad,
   generateSealKeyPair,
   newFileKey,
+  MAX_FILE_BYTES,
+  openFile,
+  SEALED_FILE_OVERHEAD,
   SEALED_FILES_FEATURE,
   sealFile,
   TEXT_TURN_TAG,
@@ -32,6 +36,10 @@ interface Options {
   /** What the agent does with a turn; default says ok. */
   agent?: (files: LocalFile[], signal: AbortSignal) => AsyncIterable<LocalAgentEvent>;
   withFiles?: boolean;
+  /** Whether the gateway said sealed_files; default yes. */
+  gateway?: boolean;
+  /** Answers an upload of the nth blob (0 based); default a fresh id. */
+  upload?: (n: number) => Response;
 }
 
 function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
@@ -78,8 +86,18 @@ function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
     },
     close: () => undefined,
   };
-  const fetcher = ((input: string | URL | Request) => {
+  const uploads: { url: URL; body: Uint8Array; type: string | null }[] = [];
+  const fetcher = ((input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url);
+    if (init?.method === 'POST') {
+      const n = uploads.length;
+      uploads.push({
+        url,
+        body: new Uint8Array(init.body as Buffer),
+        type: new Headers(init.headers).get('content-type'),
+      });
+      return Promise.resolve(options.upload?.(n) ?? okUpload(`fil_u${'abcdefgh'[n]}`));
+    }
     const blob = blobs[url.pathname.split('/').at(-1)!];
     return Promise.resolve(
       blob === undefined ? new Response('no', { status: 404 }) : new Response(Buffer.from(blob)),
@@ -101,6 +119,7 @@ function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
       if (frame.type === 'sealed.reply') sent.push(frame);
       return true;
     },
+    gatewaySupports: (feature) => options.gateway !== false && feature === SEALED_FILES_FEATURE,
     outbox: new ResultOutbox(),
     log: (line) => logs.push(line),
     ...(options.withFiles !== false && {
@@ -122,8 +141,12 @@ function setup(blobs: Record<string, Uint8Array>, options: Options = {}) {
         if (!opened.ok) throw new Error(opened.reason);
         return opened.payload;
       });
-  return { chats, frame, reads, inputs, logs, seenFiles, contents, sent };
+  return { chats, frame, reads, inputs, logs, seenFiles, contents, sent, uploads };
 }
+
+const fileId = (prefix: string) => prefix.padEnd(24, 'x');
+const okUpload = (prefix: string) =>
+  new Response(JSON.stringify({ file: { id: fileId(prefix), size_bytes: 1 } }), { status: 201 });
 
 function filed(id: string, bytes = PNG, name = 'photo.png') {
   const key = newFileKey();
@@ -255,6 +278,165 @@ describe('private turns with sealed files', () => {
     expect(log).not.toContain('secret-name');
     expect(log).not.toContain(a.entry.key);
     expect(log).not.toContain('tok_secret');
+  });
+});
+
+const agentFile = (name: string, data: Uint8Array): LocalAgentEvent => ({
+  type: 'file',
+  name,
+  mimeType: 'image/png',
+  data,
+});
+const replyOf = (run: ReturnType<typeof setup>, id: string) => {
+  const frames = run.sent.filter((f) => f.turn_id === id);
+  return { frames, payloads: run.reads(id), last: frames.at(-1)! };
+};
+const linesWith = (text: string, name: string) =>
+  text.split('\n').filter((line) => line.includes(name));
+
+describe('private turns that send files back', () => {
+  it('an agent file in a private turn is sealed, uploaded and listed in the reply', async () => {
+    const run = setup(
+      {},
+      {
+        async *agent() {
+          yield { type: 'text', text: 'here' };
+          yield agentFile('chart.png', PNG);
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'draw' });
+    await run.chats.receive(frame);
+    const { payloads, last, frames } = replyOf(run, frame.message_id);
+    expect(run.uploads).toHaveLength(1);
+    expect(run.uploads[0]!.url.searchParams.get('sealed')).toBe('1');
+    expect(run.uploads[0]!.url.searchParams.get('local_agent')).toBe(AGENT);
+    expect(run.uploads[0]!.type).toBe('application/octet-stream');
+    const final = payloads.at(-1)!;
+    expect(final.files).toHaveLength(1);
+    const entry = final.files![0]!;
+    expect(entry).toMatchObject({
+      file_id: fileId('fil_ua'),
+      name: 'chart.png',
+      mime: 'image/png',
+      size: PNG.length,
+    });
+    expect(last.file_ids).toEqual([entry.file_id]);
+    // Only the final frame names files.
+    for (const f of frames.slice(0, -1)) expect(f.file_ids).toBeUndefined();
+    // The uploaded bytes are not the file, and open with the listed key.
+    const blob = run.uploads[0]!.body;
+    expect([...blob]).not.toEqual([...PNG]);
+    expect(blob.length).toBe(PNG.length + SEALED_FILE_OVERHEAD);
+    expect([...openFile(base64urlDecode(entry.key), blob, aad)]).toEqual([...PNG]);
+  });
+
+  it('drops agent files when the gateway lacks sealed_files and logs e2e_file_dropped', async () => {
+    const run = setup(
+      {},
+      {
+        gateway: false,
+        async *agent() {
+          yield agentFile('chart.png', PNG);
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'draw' });
+    await run.chats.receive(frame);
+    const { payloads, last } = replyOf(run, frame.message_id);
+    expect(run.uploads).toHaveLength(0);
+    expect(payloads.at(-1)!.files).toBeUndefined();
+    expect(last.file_ids).toBeUndefined();
+    const log = run.logs.filter((l) => l.includes('e2e_file_dropped'));
+    expect(log).toHaveLength(1);
+    expect(log[0]).not.toContain('chart.png');
+  });
+
+  it('a file over 10 MB is not sent and the reply says so in one line', async () => {
+    const run = setup(
+      {},
+      {
+        async *agent() {
+          yield agentFile('big.png', new Uint8Array(MAX_FILE_BYTES + 1));
+          yield agentFile('none.png', new Uint8Array(0));
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'draw' });
+    await run.chats.receive(frame);
+    const { payloads, last } = replyOf(run, frame.message_id);
+    const text = payloads.map((p) => p.text).join('');
+    expect(run.uploads).toHaveLength(0);
+    expect(last.file_ids).toBeUndefined();
+    expect(linesWith(text, 'big.png')).toHaveLength(1);
+    expect(linesWith(text, 'none.png')).toHaveLength(1);
+  });
+
+  it('a file whose upload fails is left out and the reply says so', async () => {
+    const run = setup(
+      {},
+      {
+        upload: (n) =>
+          n === 1
+            ? new Response(JSON.stringify({ error: { code: 'storage_full', message: 'x' } }), {
+                status: 507,
+              })
+            : okUpload('fil_ok'),
+        async *agent() {
+          yield agentFile('one.png', PNG);
+          yield agentFile('two.png', PNG);
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'draw' });
+    await run.chats.receive(frame);
+    const { payloads, last } = replyOf(run, frame.message_id);
+    expect(payloads.at(-1)!.files!.map((f) => f.name)).toEqual(['one.png']);
+    expect(last.file_ids).toEqual([fileId('fil_ok')]);
+    const text = payloads.map((p) => p.text).join('');
+    expect(linesWith(text, 'two.png')).toHaveLength(1);
+    expect(text).not.toContain('one.png');
+  });
+
+  it('files past the fifth get one line each and are not uploaded', async () => {
+    const run = setup(
+      {},
+      {
+        async *agent() {
+          for (let i = 0; i < 7; i++) yield agentFile(`f${i}.png`, PNG);
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'x' });
+    await run.chats.receive(frame);
+    const { payloads, last } = replyOf(run, frame.message_id);
+    expect(run.uploads).toHaveLength(5);
+    expect(last.file_ids).toHaveLength(5);
+    const text = payloads.map((p) => p.text).join('');
+    expect(linesWith(text, 'f5.png')).toHaveLength(1);
+    expect(linesWith(text, 'f6.png')).toHaveLength(1);
+  });
+
+  it('logs carry counts only, never names or keys', async () => {
+    const run = setup(
+      {},
+      {
+        async *agent() {
+          yield agentFile('secret-chart.png', PNG);
+          await Promise.resolve();
+        },
+      },
+    );
+    const frame = run.frame({ text: 'x' });
+    await run.chats.receive(frame);
+    const log = run.logs.join('\n');
+    expect(log).not.toContain('secret-chart');
+    expect(log).not.toContain(replyOf(run, frame.message_id).payloads.at(-1)!.files![0]!.key);
   });
 });
 

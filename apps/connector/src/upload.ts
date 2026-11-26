@@ -3,11 +3,15 @@ import { extname } from 'node:path';
 
 import {
   MAX_FILE_BYTES,
+  SEALED_FILE_OVERHEAD,
   errorResponseSchema,
+  fileIdSchema,
   fileMimeTypeSchema,
   fileUploadResponseSchema,
   type FileMimeType,
 } from '@twring/contracts';
+
+import { z } from 'zod';
 
 import { apiUrl, checkServerUrl } from './config';
 
@@ -22,6 +26,11 @@ const TYPES: Record<string, FileMimeType> = {
   '.csv': 'text/csv',
   '.json': 'application/json',
 };
+
+/** What the gateway answers a sealed upload: no name or type, it never learned them. */
+const sealedUploadResponseSchema = z.object({
+  file: z.object({ id: fileIdSchema, size_bytes: z.number().int().nonnegative() }),
+});
 
 export class UploadError extends Error {
   constructor(
@@ -43,6 +52,11 @@ export interface UploadFileOptions {
   bytes?: Uint8Array;
   name: string;
   mimeType?: string;
+  /**
+   * `bytes` is already a sealed blob (private chat): sent as opaque octets with `?sealed=1`, no
+   * name and no type, so the gateway learns neither. Its limit is the file limit plus the seal.
+   */
+  sealed?: true;
   clientId: string;
   signal?: AbortSignal;
   fetch?: typeof fetch;
@@ -62,13 +76,14 @@ export async function uploadFile(options: UploadFileOptions): Promise<string> {
     throw new UploadError('invalid_file', 'Choose one file to send.');
   const mimeType = options.mimeType ?? TYPES[extname(options.name).toLowerCase()];
   const parsedType = fileMimeTypeSchema.safeParse(mimeType);
-  if (!parsedType.success)
+  if (options.sealed !== true && !parsedType.success)
     throw new UploadError('unsupported_file_type', ERROR_MESSAGES.unsupported_file_type!);
+  const limit = options.sealed === true ? MAX_FILE_BYTES + SEALED_FILE_OVERHEAD : MAX_FILE_BYTES;
 
   let bytes: Uint8Array;
   try {
     if (options.path !== undefined) {
-      if ((await stat(options.path)).size > MAX_FILE_BYTES)
+      if ((await stat(options.path)).size > limit)
         throw new UploadError('file_too_large', ERROR_MESSAGES.file_too_large!);
       bytes = await readFile(options.path);
     } else {
@@ -78,22 +93,30 @@ export async function uploadFile(options: UploadFileOptions): Promise<string> {
     if (error instanceof UploadError) throw error;
     throw new UploadError('file_unreadable', 'Could not read the file.');
   }
-  if (bytes.byteLength > MAX_FILE_BYTES)
+  if (bytes.byteLength > limit)
     throw new UploadError('file_too_large', ERROR_MESSAGES.file_too_large!);
-  if (bytes.byteLength === 0) throw new UploadError('empty_file', 'The file is empty.');
+  if (bytes.byteLength <= (options.sealed === true ? SEALED_FILE_OVERHEAD : 0))
+    throw new UploadError('empty_file', 'The file is empty.');
 
   const server = checkServerUrl(options.server.toString());
   const url = new URL(apiUrl(server, '/v1/connectors/files'));
   url.searchParams.set('local_agent', options.localAgent);
   url.searchParams.set('client_id', options.clientId);
-  url.searchParams.set('name', options.name);
+  if (options.sealed === true) url.searchParams.set('sealed', '1');
+  else url.searchParams.set('name', options.name);
   if (options.sessionScope !== undefined)
     url.searchParams.set('session_scope', options.sessionScope);
   let response: Response;
   try {
     response = await (options.fetch ?? fetch)(url.toString(), {
       method: 'POST',
-      headers: { authorization: `Bearer ${options.token}`, 'content-type': parsedType.data },
+      headers: {
+        authorization: `Bearer ${options.token}`,
+        'content-type':
+          parsedType.success && options.sealed !== true
+            ? parsedType.data
+            : 'application/octet-stream',
+      },
       body: Buffer.from(bytes),
       redirect: 'error',
       signal:
@@ -112,7 +135,14 @@ export async function uploadFile(options: UploadFileOptions): Promise<string> {
     const code = parsed.success ? parsed.data.error.code : `http_${response.status}`;
     throw new UploadError(code, ERROR_MESSAGES[code] ?? 'Could not send the file.');
   }
-  const body = fileUploadResponseSchema.safeParse(await response.json().catch(() => undefined));
+  const json: unknown = await response.json().catch(() => undefined);
+  if (options.sealed === true) {
+    const sealed = sealedUploadResponseSchema.safeParse(json);
+    if (!sealed.success)
+      throw new UploadError('invalid_response', 'The server returned an invalid file response.');
+    return sealed.data.file.id;
+  }
+  const body = fileUploadResponseSchema.safeParse(json);
   if (!body.success)
     throw new UploadError('invalid_response', 'The server returned an invalid file response.');
   return body.data.file.id;

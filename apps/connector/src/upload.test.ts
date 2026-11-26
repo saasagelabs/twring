@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { MAX_FILE_BYTES } from '@twring/contracts';
+import { MAX_FILE_BYTES, SEALED_FILE_OVERHEAD } from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
 import { uploadFile } from './upload';
@@ -118,5 +118,54 @@ describe('connector file upload', () => {
         uploadFile({ ...file, name: 'secret.pdf', bytes: Buffer.from('ok'), fetch }),
       ).rejects.toMatchObject({ code });
     }
+  });
+
+  describe('sealed uploads', () => {
+    const sealedOk = () =>
+      new Response(JSON.stringify({ file: { id: `fil_${'b'.repeat(20)}`, size_bytes: 50 } }), {
+        status: 201,
+      });
+
+    it('posts the opaque blob with ?sealed=1, no name and no type check', async () => {
+      const fetch = vi.fn((_url: string | URL | Request, _init?: RequestInit) =>
+        Promise.resolve(sealedOk()),
+      );
+      await expect(
+        uploadFile({
+          ...file,
+          name: 'secret-name.bin',
+          bytes: Buffer.alloc(50, 7),
+          sealed: true,
+          fetch,
+        }),
+      ).resolves.toBe(`fil_${'b'.repeat(20)}`);
+      const [url, init] = fetch.mock.calls[0]!;
+      const params = new URL(url).searchParams;
+      expect(params.get('sealed')).toBe('1');
+      expect(params.get('local_agent')).toBe('echo');
+      expect(params.get('client_id')).toBe(file.clientId);
+      expect(params.has('name')).toBe(false);
+      expect(init?.headers).toMatchObject({
+        authorization: 'Bearer secret',
+        'content-type': 'application/octet-stream',
+      });
+    });
+
+    it('refuses a blob over the sealed limit or with nothing inside', async () => {
+      const fetch = vi.fn(() => Promise.resolve(sealedOk()));
+      await expect(
+        uploadFile({ ...file, name: 'x', bytes: Buffer.alloc(10), sealed: true, fetch }),
+      ).rejects.toMatchObject({ code: 'empty_file' });
+      await expect(
+        uploadFile({
+          ...file,
+          name: 'x',
+          bytes: new Uint8Array(MAX_FILE_BYTES + SEALED_FILE_OVERHEAD + 1),
+          sealed: true,
+          fetch,
+        }),
+      ).rejects.toMatchObject({ code: 'file_too_large' });
+      expect(fetch).not.toHaveBeenCalled();
+    });
   });
 });
