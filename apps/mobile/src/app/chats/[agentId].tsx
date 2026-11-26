@@ -70,6 +70,7 @@ import { apiErrorCopy } from '@/api/errors';
 import {
   ACTION_LABELS,
   DELETE_CONFIRM,
+  DISCARD_CONFIRM,
   deleteFailureCopy,
   messageActions,
   type MessageAction,
@@ -79,6 +80,8 @@ import {
 interface ActionTarget {
   /** The server id; absent for a message still only on this phone. */
   id?: string;
+  /** A message still only on this phone: its outbox id. */
+  clientId?: string;
   text: string;
   /** "yourself" or the agent's name, for the reply bar. */
   from: string;
@@ -382,6 +385,14 @@ export default function ChatScreen() {
         void Share.share({ message: target.text }).catch(() => undefined);
         return;
       case 'delete': {
+        const clientId = target.clientId;
+        if (clientId) {
+          Alert.alert('Delete message?', DISCARD_CONFIRM, [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => chat.discard(clientId) },
+          ]);
+          return;
+        }
         const messageId = target.id;
         if (!messageId) return;
         Alert.alert('Delete message?', DELETE_CONFIRM, [
@@ -424,9 +435,14 @@ export default function ChatScreen() {
       return <StreamingReply name={name} text={chat.state.progress?.text} onLink={setUrl} />;
     if (item.kind === 'pending') {
       const pendingTarget: ActionTarget = {
+        clientId: item.clientId,
         text: item.voice ? '' : item.text,
         from: 'yourself',
-        actions: messageActions({ kind: 'pending', text: item.voice ? '' : item.text }),
+        actions: messageActions({
+          kind: 'pending',
+          text: item.voice ? '' : item.text,
+          failed: item.state === 'failed',
+        }),
       };
       return (
         <View>

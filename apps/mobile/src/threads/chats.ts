@@ -507,6 +507,10 @@ export class ChatController {
   private reloadFocused(): void {
     for (const agentId of this.focusCounts.keys()) void this.reloadLatest(agentId);
   }
+  discard(clientId: string): void {
+    this.outbox.discard(clientId);
+  }
+
   retry(clientId: string): void {
     this.outbox.retry(clientId);
   }
@@ -788,6 +792,7 @@ export function useChat(agentId: string) {
     deleteMessage: (messageId: string) =>
       active ? active.deleteMessage(agentId, messageId) : Promise.resolve(),
     retry: (clientId: string) => active?.retry(clientId),
+    discard: (clientId: string) => active?.discard(clientId),
     stop: (messageId: string) => active?.stop(agentId, messageId),
     decideApproval: (messageId: string, decision: 'approve' | 'deny') =>
       active?.decideApproval(agentId, messageId, decision),

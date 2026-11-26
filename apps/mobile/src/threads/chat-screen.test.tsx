@@ -220,6 +220,7 @@ function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: 
     sendFiles: vi.fn(),
     sendVoice: vi.fn(),
     retry: vi.fn(),
+    discard: vi.fn(),
     stop: vi.fn(),
     loadOlder: vi.fn(),
     deleteMessage: vi.fn(),
@@ -446,6 +447,19 @@ describe('a failed send', () => {
       "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
     );
     expect(shown.join(' ')).not.toContain('Update Twring');
+  });
+
+  it('deletes a failed message from this phone after asking', async () => {
+    const { Alert } = await import('react-native');
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.pending = [failedVoice('c1', '2026-11-25T09:00:00.000Z')];
+    const bubble = of(render().items, 'Bubble').find((b) => b.props.sender === 'You')!;
+    (bubble.props.onAction as (name: string) => void)('delete');
+    const alert = vi.mocked(Alert.alert).mock.calls.at(-1)!;
+    expect(alert[0]).toBe('Delete message?');
+    const buttons = alert[2] as { text: string; onPress?: () => void }[];
+    buttons.find((b) => b.text === 'Delete')!.onPress!();
+    expect(mocks.chat.discard).toHaveBeenCalledWith('c1');
   });
 
   it('keeps a failed message where it was sent; a sending one stays at the end', () => {

@@ -251,6 +251,16 @@ export class Outbox {
     void this.attempt(clientId);
   }
 
+  /** Removes a failed message from this phone only (it never reached the server), with its files. */
+  discard(clientId: string): void {
+    const item = this.items.get(clientId);
+    if (!item || item.state !== 'failed') return;
+    this.items.delete(clientId);
+    if (item.voice) this.removeFile(item.voice.uri);
+    for (const file of item.files ?? []) this.removeFile(file.uri);
+    this.notify();
+  }
+
   reconcile(message: ThreadMessage): void {
     if (message.kind !== 'user_text' && message.kind !== 'sealed') return;
     if (message.client_id === undefined) return;
