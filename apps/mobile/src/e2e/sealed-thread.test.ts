@@ -185,6 +185,27 @@ describe('opening private chat messages on the phone', () => {
     expect(out).not.toHaveProperty('partial');
   });
 
+  it('shows the files a streamed reply carries on its final chunk', () => {
+    // The computer sends files on the final piece only (apps/connector/src/e2e/turn.ts).
+    const files = [
+      {
+        file_id: 'fil_' + 'c'.repeat(20),
+        key: 'k'.repeat(43),
+        name: 'image-1.png',
+        mime: 'image/png',
+        size: 3400,
+      },
+    ];
+    const out = openMessage(
+      phoneCtx(),
+      sealedMsg([
+        sealFromComputer({ text: 'Making a chart. ' }, 5, { index: 0, final: false }),
+        sealFromComputer({ text: 'Done.', files }, 5, { index: 1, final: true }),
+      ]),
+    );
+    expect(out).toMatchObject({ state: 'ok', text: 'Making a chart. Done.', files });
+  });
+
   it('opens any chunk count up to 64', () => {
     const parts = Array.from({ length: 64 }, (_, i) => String(i % 10));
     expect(openMessage(phoneCtx(), sealedMsg(reply(parts, 9)))).toMatchObject({
