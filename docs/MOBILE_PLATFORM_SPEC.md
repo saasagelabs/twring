@@ -60,7 +60,7 @@ Before iOS launch work officially begins:
 - microphone permission string exists;
 - LiveKit path compiles;
 - shared code avoids Android-only APIs;
-- EAS/local iOS build path remains viable;
+- local and CI iOS build paths (`ios-build-check.yml`, `ios-testflight.yml`) remain viable;
 - simulator smoke tests cover non-audio UI;
 - real-device audio testing begins before submission work.
 
@@ -163,13 +163,15 @@ Never put secrets in deep-link query strings.
 
 ## 14. Build profiles
 
-Use EAS profiles:
+`APP_VARIANT` selects the build, and each has its own app ID so they coexist on one device:
 
 - development;
-- preview/internal;
+- staging (internal testing);
 - production.
 
-Separate development/staging/production backend configuration.
+Separate development/staging/production backend configuration (`EXPO_PUBLIC_CORD_ENV`).
+
+Builds come from GitHub Actions and the release scripts, not EAS: see `docs/DEVELOPMENT.md` (Environments and CI).
 
 ## 15. Mobile environment variables
 
@@ -186,9 +188,9 @@ Only public/non-secret config goes to mobile.
 
 ## 16. OTA updates
 
-Expo Updates may ship JS/assets.
+Twring ships no over-the-air updates today (`expo-updates` is not installed): every JS change reaches users in a new Android or iOS build.
 
-Never ship JS requiring native module changes to an incompatible binary.
+If OTA updates are added later, never ship JS requiring native module changes to an incompatible binary.
 
 Voice-critical OTA changes still require appropriate testing.
 

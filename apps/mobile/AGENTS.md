@@ -17,5 +17,5 @@ Never use em dashes (U+2014) in any text: use a colon, comma, parentheses or a n
 - Use **Expo Router** for all navigation (`Link`, `router`, `useLocalSearchParams` from `expo-router`). Every file in the Expo Router routes folder (`src/app`, the Expo Router default when a `src` folder exists) is a screen and `_layout.tsx` files define navigators, so keep components, hooks and utils out of it. Docs: https://docs.expo.dev/router/introduction.md
 - The `ios/` and `android/` folders are generated (Continuous Native Generation). Never create or edit them by hand: configure native behavior in the app config and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build (`npx expo run:android` or `npx expo run:ios`).
-- Release builds do not use EAS Build, Submit or Update: they come from this repo's GitHub Actions workflows and release scripts. Do not add EAS steps.
+- Release builds do not use EAS Build, Submit or Update: they come from this repo's GitHub Actions workflows and release scripts (`docs/DEVELOPMENT.md`, Environments and CI). Do not add EAS steps.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md

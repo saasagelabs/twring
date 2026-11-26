@@ -19,7 +19,7 @@ TARGET="${1:-}"
 MOBILE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 die() { echo "build-android-release: $*" >&2; exit 1; }
 
-# Public values only (they ship in the app); the same ones as eas.json.
+# Public values only (they ship in the app); the same ones as .github/workflows/ios-testflight.yml.
 SUPABASE_URL=https://gifdayffysmzskxdgmgp.supabase.co
 SUPABASE_PUBLISHABLE_KEY=sb_publishable_JOl2BTQPnkT0cN4lQA3Lrw_7lZRFovX
 GOOGLE_WEB_CLIENT_ID=605371988164-rtamegb6hegcll2kbu2e2i7o1udaordu.apps.googleusercontent.com
