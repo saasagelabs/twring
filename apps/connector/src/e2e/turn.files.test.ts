@@ -167,8 +167,8 @@ function filed(id: string, bytes = PNG, name = 'photo.png') {
 
 describe('private turns with sealed files', () => {
   it('hands a sealed photo to the agent with its path and an Attached line', async () => {
-    const a = filed('fil_a');
-    const run = setup({ fil_a: a.blob });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob });
     const frame = run.frame({ text: 'what is this?', files: [a.entry] });
     await run.chats.receive(frame);
     expect(run.seenFiles[0]).toHaveLength(1);
@@ -185,8 +185,8 @@ describe('private turns with sealed files', () => {
   });
 
   it('old files-only notice is gone: a photo with no text reaches the agent', async () => {
-    const a = filed('fil_a');
-    const run = setup({ fil_a: a.blob });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob });
     const frame = run.frame({ text: '', files: [a.entry] });
     await run.chats.receive(frame);
     expect(run.inputs).toHaveLength(1);
@@ -199,10 +199,10 @@ describe('private turns with sealed files', () => {
   });
 
   it('a swapped blob reaches the agent as could not be opened, others still pass', async () => {
-    const a = filed('fil_a');
-    const b = filed('fil_b', PNG, 'second.png');
-    const other = filed('fil_other', Uint8Array.from([5, 5, 5, 5, 5, 5, 5, 5]));
-    const run = setup({ fil_a: a.blob, fil_b: other.blob });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
+    const b = filed('fil_bxxxxxxxxxxxxxxxxxxx', PNG, 'second.png');
+    const other = filed('fil_otherxxxxxxxxxxxxxxx', Uint8Array.from([5, 5, 5, 5, 5, 5, 5, 5]));
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob, fil_bxxxxxxxxxxxxxxxxxxx: other.blob });
     const frame = run.frame({ text: 'look', files: [a.entry, b.entry] });
     await run.chats.receive(frame);
     expect(run.seenFiles[0]).toHaveLength(1);
@@ -215,25 +215,25 @@ describe('private turns with sealed files', () => {
   });
 
   it('with no way to reach the gateway every file is could not be opened, never a crash', async () => {
-    const a = filed('fil_a');
-    const run = setup({ fil_a: a.blob }, { withFiles: false });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob }, { withFiles: false });
     const frame = run.frame({ text: 'hi', files: [a.entry] });
     await run.chats.receive(frame);
     expect(run.inputs[0]).toContain('[Attached: photo.png (could not be opened)]');
   });
 
   it('removes the temp folder after the turn', async () => {
-    const a = filed('fil_a');
-    const run = setup({ fil_a: a.blob });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob });
     await run.chats.receive(run.frame({ text: 'x', files: [a.entry] }));
     const dir = dirname(run.seenFiles[0]![0]!.path);
     expect(existsSync(dir)).toBe(false);
   });
 
   it('removes the temp folder also after the agent fails', async () => {
-    const a = filed('fil_a');
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
     const run = setup(
-      { fil_a: a.blob },
+      { fil_axxxxxxxxxxxxxxxxxxx: a.blob },
       {
         // eslint-disable-next-line require-yield, @typescript-eslint/require-await
         agent: async function* () {
@@ -246,11 +246,11 @@ describe('private turns with sealed files', () => {
   });
 
   it('removes the temp folder also after a Stop', async () => {
-    const a = filed('fil_a');
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx');
     let started!: () => void;
     const running = new Promise<void>((resolve) => (started = resolve));
     const run = setup(
-      { fil_a: a.blob },
+      { fil_axxxxxxxxxxxxxxxxxxx: a.blob },
       {
         async *agent(_files, signal) {
           started();
@@ -274,8 +274,8 @@ describe('private turns with sealed files', () => {
   });
 
   it('logs carry counts only, never names, keys or bytes', async () => {
-    const a = filed('fil_a', PNG, 'secret-name.png');
-    const run = setup({ fil_a: a.blob });
+    const a = filed('fil_axxxxxxxxxxxxxxxxxxx', PNG, 'secret-name.png');
+    const run = setup({ fil_axxxxxxxxxxxxxxxxxxx: a.blob });
     await run.chats.receive(run.frame({ text: 'x', files: [a.entry] }));
     const log = run.logs.join('\n');
     expect(log).not.toContain('secret-name');
@@ -387,7 +387,7 @@ describe('private turns that send files back', () => {
             ? new Response(JSON.stringify({ error: { code: 'storage_full', message: 'x' } }), {
                 status: 507,
               })
-            : okUpload('fil_ok'),
+            : okUpload('fil_okxxxxxxxxxxxxxxxxxx'),
         async *agent() {
           yield agentFile('one.png', PNG);
           yield agentFile('two.png', PNG);
@@ -399,7 +399,7 @@ describe('private turns that send files back', () => {
     await run.chats.receive(frame);
     const { payloads, last } = replyOf(run, frame.message_id);
     expect(payloads.at(-1)!.files!.map((f) => f.name)).toEqual(['one.png']);
-    expect(last.file_ids).toEqual([fileId('fil_ok')]);
+    expect(last.file_ids).toEqual([fileId('fil_okxxxxxxxxxxxxxxxxxx')]);
     const text = payloads.map((p) => p.text).join('');
     expect(linesWith(text, 'two.png')).toHaveLength(1);
     expect(text).not.toContain('one.png');

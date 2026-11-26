@@ -90,6 +90,12 @@ export interface SealedPostOptions {
   sessionScope?: string | undefined;
   signal?: AbortSignal;
   fetch?: typeof fetch;
+  /**
+   * For the CLI: a file that fails to upload (other than an ordinary chat or an old gateway)
+   * throws instead of becoming a line, so nothing is posted. Replies and background results keep
+   * the line.
+   */
+  strict?: true;
 }
 
 /**
@@ -153,6 +159,10 @@ export async function sealedPost(
             ? 'This chat is not private.'
             : 'The server could not take a sealed file.',
         );
+      if (options.strict === true)
+        throw error instanceof UploadError
+          ? error
+          : new UploadError('upload_failed', 'Could not send the file.');
       lines.push(
         error instanceof UploadError && error.code === 'file_too_large'
           ? `Could not send ${name}: it is larger than 10 MB.`

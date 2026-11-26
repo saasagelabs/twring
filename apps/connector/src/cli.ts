@@ -861,6 +861,7 @@ async function messageCommand(
           token: config.token,
           sessionScope: envSessionScope(),
           signal: stop.signal,
+          strict: true,
         });
         const outcome = await post(
           JSON.stringify({
@@ -937,8 +938,7 @@ async function messageCommand(
       return MESSAGE_EXIT.sent;
     } catch (error) {
       process.stderr.write(
-        `${error instanceof UploadError || error instanceof PrivatePostError ? error.message : 'Could not send the files.'}
-`,
+        `${error instanceof UploadError || error instanceof PrivatePostError ? error.message : 'Could not send the files.'}\n`,
       );
       return MESSAGE_EXIT.error;
     }

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   base64urlDecode,
   fileAad,
+  fileIdSchema,
   fileMimeTypeSchema,
   MAX_FILE_BYTES,
   MAX_FILE_NAME_CHARS,
@@ -49,6 +50,8 @@ export interface DownloadSealedFileOptions {
  * Errors carry no file id, name or server text.
  */
 export async function downloadSealedFile(options: DownloadSealedFileOptions): Promise<Uint8Array> {
+  // The id goes into the URL path: only a real file id is requested.
+  if (!fileIdSchema.safeParse(options.fileId).success) throw new Error('bad_file_id');
   const cap = MAX_FILE_BYTES + SEALED_FILE_OVERHEAD;
   const server = checkServerUrl(options.server.toString());
   const url = new URL(apiUrl(server, `/v1/connectors/files/${encodeURIComponent(options.fileId)}`));

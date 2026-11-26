@@ -319,6 +319,36 @@ describe('cord-connect', () => {
     expect(requests.filter((url) => url.includes('sealed=1'))).toHaveLength(1);
   }, 30_000);
 
+  it('message --file into a private chat: a failed sealed upload sends nothing and exits 1', async () => {
+    const dir = await tempDir();
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on('end', () => {
+        requests.push(req.url ?? '');
+        res.writeHead(503, { 'content-type': 'application/json' });
+        res.end('{}');
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const fixture = pairedFixture('echo');
+    await saveConfig(join(dir, 'config.json'), {
+      ...config(
+        `http://localhost:${(server.address() as AddressInfo).port}`,
+        dir,
+        fixture.config.connector_id,
+      ),
+      e2e: fixture.e2e(),
+    });
+    const path = join(dir, 'a.txt');
+    await writeFile(path, 'secret');
+    const result = await runCli(dir, ['message', '--file', path]);
+    expect(result.code).toBe(1);
+    expect(result.stdout).not.toContain('Sent');
+    expect(requests.some((url) => url.startsWith('/v1/connectors/messages'))).toBe(false);
+  }, 30_000);
+
   it('sends shared: true on the claim only with --shared', async () => {
     const claims: unknown[] = [];
     const server = createServer((req, res) => {

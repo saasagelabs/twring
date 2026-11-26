@@ -75,8 +75,10 @@ describe('a sealed file of 1 byte', () => {
 describe('openSealedFiles', () => {
   it('opens a sealed photo and gives the agent its path and an Attached line', async () => {
     const { key, blob } = seal(PNG);
-    const { fetcher, calls } = fakeGateway({ fil_a: blob });
-    const out = await openSealedFiles([ref('fil_a', key, PNG)], ctx(), { fetch: fetcher });
+    const { fetcher, calls } = fakeGateway({ fil_axxxxxxxxxxxxxxxxxxx: blob });
+    const out = await openSealedFiles([ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG)], ctx(), {
+      fetch: fetcher,
+    });
     try {
       expect(out.failed).toEqual([]);
       expect(out.files).toHaveLength(1);
@@ -85,7 +87,21 @@ describe('openSealedFiles', () => {
       expect([...readFileSync(file.path)]).toEqual([...PNG]);
       if (process.platform !== 'win32') expect(statSync(file.path).mode & 0o777).toBe(0o600);
       expect(out.lines).toEqual(['[Attached: photo.png (PNG image, 8 B)]']);
-      expect(calls).toEqual([`fil_a?${AGENT}`]);
+      expect(calls).toEqual([`fil_axxxxxxxxxxxxxxxxxxx?${AGENT}`]);
+    } finally {
+      await out.cleanup();
+    }
+  });
+
+  it('a payload file id that is not a file id is not requested', async () => {
+    const { key, blob } = seal(PNG);
+    const { fetcher, calls } = fakeGateway({ '..': blob });
+    const out = await openSealedFiles([ref('..', key, PNG)], ctx(), { fetch: fetcher });
+    try {
+      expect(calls).toEqual([]);
+      expect(out.files).toEqual([]);
+      expect(out.failed).toHaveLength(1);
+      expect(out.lines).toEqual(['[Attached: photo.png (could not be opened)]']);
     } finally {
       await out.cleanup();
     }
@@ -95,10 +111,16 @@ describe('openSealedFiles', () => {
     const good = seal(PNG);
     const mine = seal(PNG);
     const other = seal(Uint8Array.from([9, 9, 9, 9, 9, 9, 9, 9]));
-    // fil_b holds another file's blob under this file's key: it must not open.
-    const { fetcher } = fakeGateway({ fil_a: good.blob, fil_b: other.blob });
+    // fil_bxxxxxxxxxxxxxxxxxxx holds another file's blob under this file's key: it must not open.
+    const { fetcher } = fakeGateway({
+      fil_axxxxxxxxxxxxxxxxxxx: good.blob,
+      fil_bxxxxxxxxxxxxxxxxxxx: other.blob,
+    });
     const out = await openSealedFiles(
-      [ref('fil_a', good.key, PNG), ref('fil_b', mine.key, PNG, { name: 'swapped.png' })],
+      [
+        ref('fil_axxxxxxxxxxxxxxxxxxx', good.key, PNG),
+        ref('fil_bxxxxxxxxxxxxxxxxxxx', mine.key, PNG, { name: 'swapped.png' }),
+      ],
       ctx(),
       { fetch: fetcher },
     );
@@ -120,12 +142,17 @@ describe('openSealedFiles', () => {
     flipped[flipped.length - 1]! ^= 1;
     const elsewhere = sealFile(key, PNG, fileAad({ accountId: ACCOUNT, agentId: 'codex' }));
     const { fetcher } = fakeGateway({
-      fil_cut: blob.subarray(0, blob.length - 3),
-      fil_flip: flipped,
-      fil_else: elsewhere,
+      fil_cutxxxxxxxxxxxxxxxxx: blob.subarray(0, blob.length - 3),
+      fil_flipxxxxxxxxxxxxxxxx: flipped,
+      fil_elsexxxxxxxxxxxxxxxx: elsewhere,
     });
     const out = await openSealedFiles(
-      ['fil_cut', 'fil_flip', 'fil_else', 'fil_gone'].map((id) => ref(id, key, PNG)),
+      [
+        'fil_cutxxxxxxxxxxxxxxxxx',
+        'fil_flipxxxxxxxxxxxxxxxx',
+        'fil_elsexxxxxxxxxxxxxxxx',
+        'fil_gonexxxxxxxxxxxxxxxx',
+      ].map((id) => ref(id, key, PNG)),
       ctx(),
       { fetch: fetcher },
     );
@@ -139,10 +166,14 @@ describe('openSealedFiles', () => {
 
   it('a blob whose opened length differs from the size is refused', async () => {
     const { key, blob } = seal(PNG);
-    const { fetcher } = fakeGateway({ fil_a: blob });
-    const out = await openSealedFiles([ref('fil_a', key, PNG, { size: PNG.length + 1 })], ctx(), {
-      fetch: fetcher,
-    });
+    const { fetcher } = fakeGateway({ fil_axxxxxxxxxxxxxxxxxxx: blob });
+    const out = await openSealedFiles(
+      [ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG, { size: PNG.length + 1 })],
+      ctx(),
+      {
+        fetch: fetcher,
+      },
+    );
     try {
       expect(out.files).toEqual([]);
       expect(out.lines).toEqual(['[Attached: photo.png (could not be opened)]']);
@@ -153,12 +184,12 @@ describe('openSealedFiles', () => {
 
   it('refuses a 0-byte size, a bad key and a type that is not allowed, without downloading', async () => {
     const { key, blob } = seal(PNG);
-    const { fetcher, calls } = fakeGateway({ fil_a: blob });
+    const { fetcher, calls } = fakeGateway({ fil_axxxxxxxxxxxxxxxxxxx: blob });
     const out = await openSealedFiles(
       [
-        ref('fil_a', key, PNG, { size: 0 }),
-        ref('fil_a', key, PNG, { key: 'short' }),
-        ref('fil_a', key, PNG, { mime: 'application/x-sh' }),
+        ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG, { size: 0 }),
+        ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG, { key: 'short' }),
+        ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG, { mime: 'application/x-sh' }),
       ],
       ctx(),
       { fetch: fetcher },
@@ -176,12 +207,16 @@ describe('openSealedFiles', () => {
     const a = seal(PNG);
     const b = seal(PNG);
     const c = seal(PNG);
-    const { fetcher } = fakeGateway({ fil_a: a.blob, fil_b: b.blob, fil_c: c.blob });
+    const { fetcher } = fakeGateway({
+      fil_axxxxxxxxxxxxxxxxxxx: a.blob,
+      fil_bxxxxxxxxxxxxxxxxxxx: b.blob,
+      fil_cxxxxxxxxxxxxxxxxxxx: c.blob,
+    });
     const out = await openSealedFiles(
       [
-        ref('fil_a', a.key, PNG, { name: '..\\..//evil\u0000\n.sh' }),
-        ref('fil_b', b.key, PNG, { name: 'photo.png' }),
-        ref('fil_c', c.key, PNG, { name: 'photo.png' }),
+        ref('fil_axxxxxxxxxxxxxxxxxxx', a.key, PNG, { name: '..\\..//evil\u0000\n.sh' }),
+        ref('fil_bxxxxxxxxxxxxxxxxxxx', b.key, PNG, { name: 'photo.png' }),
+        ref('fil_cxxxxxxxxxxxxxxxxxxx', c.key, PNG, { name: 'photo.png' }),
       ],
       ctx(),
       { fetch: fetcher },
@@ -209,8 +244,10 @@ describe('openSealedFiles', () => {
 
   it('removes the temp folder on cleanup', async () => {
     const { key, blob } = seal(PNG);
-    const { fetcher } = fakeGateway({ fil_a: blob });
-    const out = await openSealedFiles([ref('fil_a', key, PNG)], ctx(), { fetch: fetcher });
+    const { fetcher } = fakeGateway({ fil_axxxxxxxxxxxxxxxxxxx: blob });
+    const out = await openSealedFiles([ref('fil_axxxxxxxxxxxxxxxxxxx', key, PNG)], ctx(), {
+      fetch: fetcher,
+    });
     const dir = dirname(out.files[0]!.path);
     expect(existsSync(dir)).toBe(true);
     await out.cleanup();
@@ -235,7 +272,7 @@ describe('downloadSealedFile', () => {
       downloadSealedFile({
         server: 'https://api.twring.com',
         token: 't',
-        fileId: 'fil_a',
+        fileId: 'fil_axxxxxxxxxxxxxxxxxxx',
         localAgent: AGENT,
         signal: new AbortController().signal,
         fetch: fetcher,
@@ -256,13 +293,15 @@ describe('downloadSealedFile', () => {
     const bytes = await downloadSealedFile({
       server: 'https://api.twring.com',
       token: 'tok_secret',
-      fileId: 'fil_a',
+      fileId: 'fil_axxxxxxxxxxxxxxxxxxx',
       localAgent: AGENT,
       signal: new AbortController().signal,
       fetch: fetcher,
     });
     expect([...bytes]).toEqual([1, 2, 3]);
-    expect(seen?.url).toBe(`https://api.twring.com/v1/connectors/files/fil_a?local_agent=${AGENT}`);
+    expect(seen?.url).toBe(
+      `https://api.twring.com/v1/connectors/files/fil_axxxxxxxxxxxxxxxxxxx?local_agent=${AGENT}`,
+    );
     expect(seen?.auth).toBe('Bearer tok_secret');
   });
 });
