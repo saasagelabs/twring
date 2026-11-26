@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_STORED_AGENT_MESSAGE_CHARS } from '@twring/contracts';
+import { CAN_SEAL_HEADER, MAX_STORED_AGENT_MESSAGE_CHARS } from '@twring/contracts';
+import type { SealedEnvelopeV1, SealedPayload } from '@twring/contracts';
 import { WebSocketServer } from 'ws';
 
+import { openIncoming } from './e2e/sealed';
+import { pairedFixture } from './e2e/test-fixtures';
+import { UNPAIRED_LINE } from './e2e/post';
 import { AcpAdapter } from './adapters/acp';
 import { buildClaudeArgs, ClaudeCodeAdapter, READ_ONLY_TOOLS } from './adapters/claude-code';
 import { CodexAdapter } from './adapters/codex';
@@ -1286,4 +1290,237 @@ describe('resume on answer', () => {
       expect(seen).toEqual([expected]);
     },
   );
+});
+
+describe("the computer's own messages into a private chat", () => {
+  const refused = () =>
+    json(409, { error: { code: 'seal_required', message: 'This chat is private.' } });
+  const notPrivate = () =>
+    json(409, { error: { code: 'not_private', message: 'This chat is not private.' } });
+  const headers = (init: RequestInit) => new Headers(init.headers);
+
+  function scripted(replies: Response[]) {
+    const calls: RequestInit[] = [];
+    const fetch: FetchFn = (_url, init) => {
+      calls.push(init);
+      return Promise.resolve(replies.shift() ?? json(500, {}));
+    };
+    return { calls, fetch };
+  }
+  const isSealed = (init: RequestInit) => (init.body as string).includes('"sealed"');
+
+  it('message into a private chat from a paired computer is sealed first; no plain request is made', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([json(201, {})]);
+    const lines: string[] = [];
+    const code = await sendMessage(
+      fixture.config,
+      { text: 'Secret done.' },
+      { fetch: t.fetch, print: (line) => lines.push(line), store: fixture.store, retryMs: [0] },
+    );
+    expect(code).toBe(MESSAGE_EXIT.sent);
+    expect(t.calls).toHaveLength(1);
+    expect(headers(t.calls[0]!).get(CAN_SEAL_HEADER)).toBeNull();
+    expect(headers(t.calls[0]!).get('idempotency-key')).toMatch(/:sealed$/);
+    const body = JSON.parse(t.calls[0]!.body as string) as {
+      text?: string;
+      sealed: SealedEnvelopeV1[];
+      origin: string;
+    };
+    expect(body.text).toBeUndefined();
+    expect(body.origin).toBe('agent');
+    expect(t.calls[0]!.body as string).not.toContain('Secret done.');
+    const opened = openIncoming(fixture.phoneCtx, body.sealed[0]!);
+    expect((opened as { payload: SealedPayload }).payload.text).toBe('Secret done.');
+    expect(lines).toEqual(['Sent to your Twring chat.']);
+  });
+
+  it('message into an ordinary chat from a paired computer: not_private, then plain once with the mark', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([notPrivate(), json(201, {})]);
+    const code = await sendMessage(
+      fixture.config,
+      { text: 'Done.' },
+      { fetch: t.fetch, print: () => undefined, store: fixture.store, retryMs: [0] },
+    );
+    expect(code).toBe(MESSAGE_EXIT.sent);
+    expect(t.calls).toHaveLength(2);
+    expect(isSealed(t.calls[0]!)).toBe(true);
+    expect(isSealed(t.calls[1]!)).toBe(false);
+    expect(headers(t.calls[1]!).get(CAN_SEAL_HEADER)).toBe('1');
+    const key = headers(t.calls[0]!)
+      .get('idempotency-key')!
+      .replace(/:sealed$/, '');
+    expect(headers(t.calls[1]!).get('idempotency-key')).toBe(key);
+    expect(JSON.parse(t.calls[1]!.body as string)).toEqual({
+      local_agent: 'claude-code',
+      text: 'Done.',
+      origin: 'agent',
+    });
+  });
+
+  it('message into an ordinary chat from an unpaired computer sends once, plain', async () => {
+    const t = scripted([json(201, {})]);
+    const code = await sendMessage(
+      config(),
+      { text: 'Done.' },
+      { fetch: t.fetch, print: () => undefined, store: pairedFixture().store },
+    );
+    expect(code).toBe(MESSAGE_EXIT.sent);
+    expect(t.calls).toHaveLength(1);
+    expect(headers(t.calls[0]!).get(CAN_SEAL_HEADER)).toBe('1');
+    expect(JSON.parse(t.calls[0]!.body as string)).toEqual({
+      local_agent: 'claude-code',
+      text: 'Done.',
+      origin: 'agent',
+    });
+  });
+
+  it('an old gateway that refuses the sealed post stores plain', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([
+      json(400, { error: { code: 'bad_request', message: 'No.' } }),
+      json(201, {}),
+    ]);
+    const code = await sendMessage(
+      fixture.config,
+      { text: 'Done.' },
+      { fetch: t.fetch, print: () => undefined, store: fixture.store, retryMs: [0] },
+    );
+    expect(code).toBe(MESSAGE_EXIT.sent);
+    expect(t.calls).toHaveLength(2);
+    expect(isSealed(t.calls[1]!)).toBe(false);
+    expect(JSON.parse(t.calls[1]!.body as string)).toMatchObject({ text: 'Done.' });
+  });
+
+  it('a sealed attempt that fails with a 5xx never falls back to plain', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([json(503, {}), json(503, {}), json(201, {})]);
+    const code = await sendMessage(
+      fixture.config,
+      { text: 'Secret.' },
+      { fetch: t.fetch, print: () => undefined, store: fixture.store, retryMs: [0] },
+    );
+    expect(code).toBe(MESSAGE_EXIT.error);
+    expect(t.calls.length).toBeGreaterThan(0);
+    for (const call of t.calls) expect(isSealed(call)).toBe(true);
+    for (const call of t.calls) expect(call.body as string).not.toContain('Secret.');
+  });
+
+  it('no trusted phone: prints the pair-again line and exits 1, nothing plain is sent', async () => {
+    const fixture = pairedFixture();
+    await fixture.store((current) => ({ ...current, devices: [] }));
+    const t = scripted([refused(), json(201, {})]);
+    const lines: string[] = [];
+    const code = await sendMessage(
+      { ...fixture.config, e2e: fixture.e2e() },
+      { text: 'Secret done.' },
+      { fetch: t.fetch, print: (line) => lines.push(line), store: fixture.store, retryMs: [0] },
+    );
+    expect(code).toBe(MESSAGE_EXIT.error);
+    expect(lines).toEqual([UNPAIRED_LINE]);
+    expect(lines[0]).toBe('This chat is private. Pair this computer again from your phone.');
+    // Only the refused marked try went out: no plain retry, no sealed post.
+    expect(t.calls).toHaveLength(1);
+  });
+
+  it('a scheduled result into a private chat is sealed; unpaired, it stays in the result outbox', async () => {
+    const turn = { turnId: 'turn-9', surface: 'text' as const };
+    const deps = (fetch: FetchFn, lines: string[]) => ({
+      hasOpenChannel: () => false,
+      supports: () => true,
+      print: (line: string) => lines.push(line),
+      fetch,
+    });
+    const fixture = pairedFixture();
+    const delivered = () => json(201, { message_id: `msg_${'a'.repeat(20)}`, delivery: 'push' });
+    const ok = scripted([delivered()]);
+    const result = await deliverBackgroundResult(
+      fixture.config,
+      'claude-code',
+      'Nightly done.',
+      undefined,
+      turn,
+      { ...deps(ok.fetch, []), store: fixture.store },
+    );
+    expect(result).toBe('delivered');
+    expect(ok.calls).toHaveLength(1);
+    expect(headers(ok.calls[0]!).get('idempotency-key')).toBe('turn-9:sealed');
+    expect(ok.calls[0]!.body as string).not.toContain('Nightly done.');
+    expect(JSON.parse(ok.calls[0]!.body as string)).toMatchObject({
+      origin: 'text_turn',
+      turn_id: 'turn-9',
+    });
+
+    const ordinary = scripted([notPrivate(), delivered()]);
+    expect(
+      await deliverBackgroundResult(fixture.config, 'claude-code', 'Hi.', undefined, turn, {
+        ...deps(ordinary.fetch, []),
+        store: fixture.store,
+      }),
+    ).toBe('delivered');
+    expect(headers(ordinary.calls[1]!).get('idempotency-key')).toBe('turn-9');
+    expect(headers(ordinary.calls[1]!).get(CAN_SEAL_HEADER)).toBe('1');
+    expect(JSON.parse(ordinary.calls[1]!.body as string)).toMatchObject({ text: 'Hi.' });
+
+    await fixture.store((current) => ({ ...current, devices: [] }));
+    const lone = scripted([refused(), json(201, {})]);
+    const unpairedLines: string[] = [];
+    const held = await deliverBackgroundResult(
+      { ...fixture.config, e2e: fixture.e2e() },
+      'claude-code',
+      'Nightly done.',
+      undefined,
+      turn,
+      { ...deps(lone.fetch, unpairedLines), store: fixture.store },
+    );
+    expect(held).toBe('retry');
+    expect(unpairedLines).toEqual(['private_post_unpaired']);
+    expect(lone.calls).toHaveLength(1);
+  });
+
+  it('a background result refused sealed then seal_required stays in the outbox', async () => {
+    const fixture = pairedFixture();
+    const t = scripted([json(400, { error: { code: 'bad_request', message: 'No.' } }), refused()]);
+    const result = await deliverBackgroundResult(
+      fixture.config,
+      'claude-code',
+      'Secret.',
+      undefined,
+      { turnId: 'turn-3', surface: 'text' },
+      {
+        hasOpenChannel: () => false,
+        supports: () => true,
+        print: () => undefined,
+        fetch: t.fetch,
+        store: fixture.store,
+      },
+    );
+    expect(result).toBe('retry');
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('a service paired after start seals its next background result', async () => {
+    const fixture = pairedFixture();
+    // The service loaded its config before the phone was paired: no phone in memory.
+    const stale = { ...fixture.config, e2e: { ...fixture.e2e(), devices: [] } };
+    const t = scripted([json(201, { message_id: `msg_${'a'.repeat(20)}`, delivery: 'push' })]);
+    const result = await deliverBackgroundResult(
+      stale,
+      'claude-code',
+      'Secret.',
+      undefined,
+      { turnId: 'turn-4', surface: 'text' },
+      {
+        hasOpenChannel: () => false,
+        supports: () => true,
+        print: () => undefined,
+        fetch: t.fetch,
+        store: fixture.store,
+      },
+    );
+    expect(result).toBe('delivered');
+    expect(t.calls).toHaveLength(1);
+    expect(isSealed(t.calls[0]!)).toBe(true);
+  });
 });

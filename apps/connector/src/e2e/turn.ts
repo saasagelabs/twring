@@ -1,18 +1,25 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 
 import {
   APPROVAL_HOLD_MS,
   base64urlDecode,
+  base64urlEncode,
+  fileAad,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_FILE_BYTES,
   MAX_QUOTE_CHARS,
   MAX_RELAY_MESSAGE_BYTES,
   MAX_SEALED_APPROVAL_DESCRIPTION_CHARS,
   MAX_SEALED_APPROVAL_TITLE_CHARS,
   MAX_SEALED_REPLY_CHUNKS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
+  newFileKey,
+  sealFile,
   SCOPED_SESSIONS_FEATURE,
   DEVICES_CHANGED_FEATURE,
   SEALED_CANCEL_FEATURE,
   SEALED_CHAT_FEATURE,
+  SEALED_FILES_FEATURE,
   SEALED_WORKING_FEATURE,
   SEALED_WORKING_INTERVAL_MS,
   TEXT_TURN_TAG,
@@ -24,6 +31,9 @@ import {
 
 import { LocalAgentError, type LocalAgentAdapter, type LocalAgentEvent } from '../events';
 import type { ResultOutbox } from '../outbox';
+import { openSealedFiles } from '../sealed-files';
+import { cleanName } from '../turn-files';
+import { UploadError, uploadFile } from '../upload';
 import type { E2eConfig } from './keys';
 import {
   openIncoming,
@@ -40,6 +50,7 @@ type SealedCancelFrame = Extract<RelayGatewayMessage, { type: 'sealed.cancel' }>
 type SealedReplyFrame = Extract<RelayConnectorMessage, { type: 'sealed.reply' }>;
 type SealedApprovalFrame = Extract<RelayConnectorMessage, { type: 'sealed.approval' }>;
 type ApprovalEvent = Extract<LocalAgentEvent, { type: 'approval.required' }>;
+type AgentFile = Extract<LocalAgentEvent, { type: 'file' }>;
 
 /** An approval sealed to the phone and not answered yet (C3 #11). */
 interface PendingApproval {
@@ -84,7 +95,6 @@ export const AGENT_FAILED_TEXT = 'Something went wrong on this computer. Try aga
 export const SIGNED_OUT_TEXT =
   'Claude Code is signed out on this computer. Sign in to Claude Code there, then send your message again.';
 export const AGENT_MISSING_TEXT = 'This agent is not on this computer any more.';
-export const FILES_NOT_OPENED_TEXT = "This computer can't open files in private chats yet.";
 
 /** Messages that did not open, per sender device id per minute, that may cost a write or reply. */
 export const UNKNOWN_SENDER_BUDGET = 5;
@@ -133,6 +143,7 @@ export function helloFeatures(e2e: E2eConfig | undefined): string[] {
         SEALED_CANCEL_FEATURE,
         DEVICES_CHANGED_FEATURE,
         SEALED_WORKING_FEATURE,
+        SEALED_FILES_FEATURE,
       ]
     : [SCOPED_SESSIONS_FEATURE];
 }
@@ -170,6 +181,11 @@ export interface PrivateChatsOptions {
    * to one that did: an older gateway drops the socket on a frame type it does not know.
    */
   gatewaySupports?: (feature: string) => boolean;
+  /**
+   * Where this computer reads the sealed files of a private message: the gateway and this
+   * computer's token. Without it every file reaches the agent as could not be opened.
+   */
+  files?: { server: string; token: string; fetch?: typeof fetch };
   outbox: ResultOutbox;
   log?: (line: string) => void;
   signal?: AbortSignal;
@@ -298,11 +314,6 @@ export class PrivateChats {
       seen: { ...current.seen, ...highest },
     }));
     const payload = opened.payload;
-    if (payload.text.trim() === '' && (payload.files?.length ?? 0) > 0) {
-      log?.(`private message ${frame.message_id} has ${payload.files!.length} files, not opened`);
-      await this.reply(frame, async (send) => send({ text: FILES_NOT_OPENED_TEXT }, true));
-      return;
-    }
     if (stopped.aborted) return;
     await this.reply(frame, (send, chunks) => this.runAgent(frame, payload, send, chunks, stopped));
   }
@@ -310,7 +321,7 @@ export class PrivateChats {
   private async runAgent(
     frame: SealedMessageFrame,
     payload: SealedPayload,
-    send: (payload: SealedPayload, final: boolean) => Promise<void>,
+    send: (payload: SealedPayload, final: boolean, fileIds?: string[]) => Promise<void>,
     chunks: () => number,
     stopped: AbortSignal,
   ): Promise<void> {
@@ -322,10 +333,14 @@ export class PrivateChats {
     let total = 0;
     let lastSent = now();
     let dropped = false;
+    // Files the agent sent: the first MAX_ATTACHMENTS_PER_MESSAGE are kept, the rest only by name.
+    const agentFiles: AgentFile[] = [];
+    const overflow: string[] = [];
     const controller = new AbortController();
     const stop = () => controller.abort();
     this.options.signal?.addEventListener('abort', stop, { once: true });
     stopped.addEventListener('abort', stop, { once: true });
+    let cleanup: (() => Promise<void>) | undefined;
     try {
       await pool.runExclusive(frame.agent, async () => {
         // Stopped while it waited behind another turn of this agent: never run, nothing sent.
@@ -334,14 +349,28 @@ export class PrivateChats {
           return;
         }
         try {
+          const opened = await this.openFiles(frame, payload, controller.signal);
+          cleanup = opened?.cleanup;
+          if (controller.signal.aborted) return;
+          const text = [privateTurnText(payload), ...(opened?.lines ?? [])]
+            .filter((part) => part !== '')
+            .join('\n');
           for await (const event of adapter.sendTurn(
-            `${TEXT_TURN_TAG}\n${privateTurnText(payload)}`,
+            `${TEXT_TURN_TAG}\n${text}`,
             controller.signal,
-            { surface: 'text' },
+            {
+              surface: 'text',
+              ...(opened !== undefined && opened.files.length > 0 && { files: opened.files }),
+            },
           )) {
             if (controller.signal.aborted) break;
             if (event.type === 'approval.required') {
               await this.askApproval(frame, adapter, event);
+              continue;
+            }
+            if (event.type === 'file') {
+              if (agentFiles.length < MAX_ATTACHMENTS_PER_MESSAGE) agentFiles.push(event);
+              else overflow.push(event.name);
               continue;
             }
             if (event.type !== 'text') continue;
@@ -375,12 +404,121 @@ export class PrivateChats {
         }
       });
     } finally {
-      this.options.signal?.removeEventListener('abort', stop);
-      stopped.removeEventListener('abort', stop);
+      await cleanup?.();
       pool.release(frame.agent);
     }
-    if (dropped) return;
-    await send({ text: buffered }, true);
+    // Stop and shutdown stay wired until the uploads are done.
+    let sent: Awaited<ReturnType<typeof this.sealAgentFiles>>;
+    try {
+      if (dropped) return;
+      sent = await this.sealAgentFiles(frame, agentFiles, overflow, controller.signal);
+    } finally {
+      this.options.signal?.removeEventListener('abort', stop);
+      stopped.removeEventListener('abort', stop);
+    }
+    if (sent.lines.length > 0)
+      buffered = [buffered, sent.lines.join('\n')].filter((part) => part !== '').join('\n\n');
+    await send(
+      { text: buffered, ...(sent.files.length > 0 && { files: sent.files }) },
+      true,
+      sent.files.length > 0 ? sent.files.map((file) => file.file_id) : undefined,
+    );
+  }
+
+  /**
+   * Seals each file the agent sent with its own key and uploads the blob. A file is listed only
+   * once the gateway answered with its id, because a reply that names a file the gateway does
+   * not hold is dropped whole. One that cannot be sent becomes a line of text instead. Without
+   * `sealed_files` from the gateway the files are dropped. Logs carry counts only.
+   */
+  private async sealAgentFiles(
+    frame: SealedMessageFrame,
+    files: readonly AgentFile[],
+    overflow: readonly string[],
+    signal: AbortSignal,
+  ): Promise<{ files: NonNullable<SealedPayload['files']>; lines: string[] }> {
+    const none = { files: [], lines: [] };
+    const total = files.length + overflow.length;
+    if (total === 0 || signal.aborted) return none;
+    const target = this.options.files;
+    if (target === undefined || this.options.gatewaySupports?.(SEALED_FILES_FEATURE) !== true) {
+      this.options.log?.(`e2e_file_dropped: ${total} files in ${frame.message_id}`);
+      return none;
+    }
+    const out: NonNullable<SealedPayload['files']> = [];
+    const lines: string[] = [];
+    const aad = fileAad({ accountId: this.options.connectorId, agentId: frame.agent });
+    for (const file of files) {
+      const name = cleanName(file.name);
+      if (file.data.byteLength === 0) {
+        lines.push(`Could not send ${name}: it is empty.`);
+        continue;
+      }
+      if (file.data.byteLength > MAX_FILE_BYTES) {
+        lines.push(`Could not send ${name}: it is larger than 10 MB.`);
+        continue;
+      }
+      try {
+        const key = newFileKey();
+        const id = await uploadFile({
+          server: target.server,
+          token: target.token,
+          localAgent: frame.agent,
+          bytes: sealFile(key, file.data, aad),
+          name,
+          sealed: true,
+          clientId: randomUUID(),
+          signal,
+          ...(target.fetch !== undefined && { fetch: target.fetch }),
+        });
+        out.push({
+          file_id: id,
+          key: base64urlEncode(key),
+          name,
+          mime: file.mimeType,
+          size: file.data.byteLength,
+        });
+      } catch (error) {
+        // Stopped mid-upload: the stopped path sends what it has, no lines for cancelled files.
+        if (signal.aborted) return none;
+        this.options.log?.(
+          `private file in ${frame.message_id} not sent (${error instanceof UploadError ? error.code : 'seal_failed'})`,
+        );
+        lines.push(`Could not send ${name}.`);
+      }
+    }
+    for (const name of overflow)
+      lines.push(
+        `Could not send ${cleanName(name)}: at most ${MAX_ATTACHMENTS_PER_MESSAGE} files go in one reply.`,
+      );
+    if (signal.aborted) return none;
+    return { files: out, lines };
+  }
+
+  /**
+   * Opens the files a private message carries into a temp folder the turn removes. Logs carry
+   * counts only. Undefined when the message has no files.
+   */
+  private async openFiles(frame: SealedMessageFrame, payload: SealedPayload, signal: AbortSignal) {
+    const refs = payload.files ?? [];
+    if (refs.length === 0) return undefined;
+    const target = this.options.files;
+    const opened = await openSealedFiles(
+      refs,
+      {
+        accountId: this.options.connectorId,
+        agentId: frame.agent,
+        // Nothing to download from: every file fails the same way and none is fetched.
+        server: target?.server ?? '',
+        token: target?.token ?? '',
+        signal: target === undefined ? AbortSignal.abort() : signal,
+      },
+      target?.fetch === undefined ? {} : { fetch: target.fetch },
+    );
+    this.options.log?.(
+      `private message ${frame.message_id}: ${opened.files.length} of ${refs.length} files opened`,
+    );
+    return opened;
   }
 
   /**
@@ -501,7 +639,7 @@ export class PrivateChats {
   private async reply(
     frame: SealedMessageFrame,
     body: (
-      send: (payload: SealedPayload, final: boolean) => Promise<void>,
+      send: (payload: SealedPayload, final: boolean, fileIds?: string[]) => Promise<void>,
       chunks: () => number,
     ) => Promise<void>,
   ): Promise<void> {
@@ -520,35 +658,42 @@ export class PrivateChats {
     const push = (out: SealedReplyFrame) => {
       if (held.length > 0 || !this.options.send(out)) held.push(out);
     };
-    const seal = (payload: SealedPayload, final: boolean) => {
+    // Files ride the final piece only, in its payload and as `file_ids` on its frame.
+    const seal = (payload: SealedPayload, final: boolean, fileIds?: string[]) => {
       const pieces = splitText(payload.text, CHUNK_CHARS);
-      pieces.forEach((text, i) =>
-        sealPiece({ ...payload, text }, final && i === pieces.length - 1),
-      );
+      pieces.forEach((text, i) => {
+        const last = final && i === pieces.length - 1;
+        sealPiece(
+          last ? { ...payload, text } : { ...withoutFiles(payload), text },
+          last,
+          last ? fileIds : undefined,
+        );
+      });
     };
-    const sealPiece = (payload: SealedPayload, final: boolean): void => {
+    const sealPiece = (payload: SealedPayload, final: boolean, fileIds?: string[]): void => {
       const out: SealedReplyFrame = {
         type: 'sealed.reply',
         agent: frame.agent,
         turn_id: frame.message_id,
         sealed: sealOutgoing(current(), payload, seq, { index, final }),
         final,
+        ...(fileIds !== undefined && fileIds.length > 0 && { file_ids: fileIds }),
       };
       if (
         Buffer.byteLength(JSON.stringify(out), 'utf8') > MAX_RELAY_MESSAGE_BYTES &&
         payload.text.length > 1
       ) {
         const [a, b] = splitText(payload.text, Math.ceil(payload.text.length / 2));
-        sealPiece({ ...payload, text: a! }, false);
-        sealPiece({ ...payload, text: b ?? '' }, final);
+        sealPiece({ ...withoutFiles(payload), text: a! }, false);
+        sealPiece({ ...payload, text: b ?? '' }, final, fileIds);
         return;
       }
       index++;
       push(out);
     };
     await body(
-      (payload, final) => {
-        seal(payload, final);
+      (payload, final, fileIds) => {
+        seal(payload, final, fileIds);
         return Promise.resolve();
       },
       () => index,
@@ -568,6 +713,12 @@ export class PrivateChats {
     // The link may already be back (it came back while the agent was still answering).
     void this.options.outbox.flush();
   }
+}
+
+function withoutFiles(payload: SealedPayload): SealedPayload {
+  const rest = { ...payload };
+  delete rest.files;
+  return rest;
 }
 
 /** Pieces of at most `size` UTF-16 units, never splitting a surrogate pair; at least one piece. */

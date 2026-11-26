@@ -15,6 +15,16 @@ import {
 
 import type { LocalAgentConfig } from './agents';
 import { apiUrl, checkServerUrl, configDir, type ConnectorConfig } from './config';
+import {
+  CAN_SEAL,
+  hasTrustedPhone,
+  isSealRequired,
+  PrivatePostError,
+  sealedPost,
+  shouldSendPlain,
+  UNPAIRED_LINE,
+} from './e2e/post';
+import type { SealedPostOptions } from './e2e/post';
 import { scopeOfSessionRef } from './pool';
 import type { OutboxSendResult } from './outbox';
 
@@ -66,6 +76,8 @@ export async function deliverBackgroundResult(
     ring?: typeof ringOwner;
     fetch?: FetchFn;
     signal?: AbortSignal;
+    /** Seals a result for a private chat; without it such a result is held, never sent plain. */
+    store?: SealedPostOptions['store'];
   },
 ): Promise<OutboxSendResult> {
   // Only a call in the same person's session holds the result back.
@@ -79,9 +91,8 @@ export async function deliverBackgroundResult(
   }
   if (deps.supports('messages')) {
     const server = checkServerUrl(config.server);
-    const body = JSON.stringify({
+    const fields = {
       local_agent: agentId,
-      text,
       origin: turn.surface === 'call' ? 'call_turn' : 'text_turn',
       turn_id: turn.turnId,
       ...(turn.scope !== undefined && { session_scope: turn.scope }),
@@ -89,7 +100,50 @@ export async function deliverBackgroundResult(
         sessionRefSchema.safeParse(sessionRef).success && {
           session_ref: sessionRef,
         }),
-    });
+    };
+    let body = JSON.stringify({ ...fields, text });
+    let idempotencyKey = turn.turnId;
+    let sealed = false;
+    /** Sealing was tried (or is not possible): a plain post is final, never sealed afterwards. */
+    let sealTried = false;
+    const seal = async (): Promise<boolean> => {
+      sealTried = true;
+      try {
+        if (deps.store === undefined) throw new PrivatePostError('private_post_unpaired', '');
+        const post = await sealedPost({
+          store: deps.store,
+          config,
+          localAgent: agentId,
+          text,
+          paths: [],
+          server,
+          token: config.token,
+          ...(deps.signal !== undefined && { signal: deps.signal }),
+        });
+        body = JSON.stringify({ ...fields, sealed: post.sealed });
+        idempotencyKey = `${turn.turnId}:sealed`;
+        sealed = true;
+      } catch (error) {
+        if (!(error instanceof PrivatePostError)) throw error;
+        if (error.code === 'not_private') return true;
+        // Never plain: the result waits in the outbox until a phone is paired again.
+        deps.print(
+          error.code === 'cancelled'
+            ? 'background result not delivered: connector stopped'
+            : 'private_post_unpaired',
+        );
+        return false;
+      }
+      return true;
+    };
+    // A computer with a trusted phone seals first, so nothing plain reaches a private chat.
+    // The saved list, not this copy's: a phone paired after the service started counts.
+    const fresh = deps.store === undefined ? undefined : await deps.store((current) => current);
+    if (
+      hasTrustedPhone(fresh === undefined ? config : { ...config, e2e: fresh }) &&
+      !(await seal())
+    )
+      return 'retry';
     for (let attempt = 0; attempt <= DELIVERY_RETRY_MS.length; attempt++) {
       let response: Response | undefined;
       try {
@@ -98,7 +152,8 @@ export async function deliverBackgroundResult(
           headers: {
             authorization: `Bearer ${config.token}`,
             'content-type': 'application/json',
-            'Idempotency-Key': turn.turnId,
+            'Idempotency-Key': idempotencyKey,
+            ...(!sealed && CAN_SEAL),
           },
           body,
           redirect: 'error',
@@ -120,6 +175,24 @@ export async function deliverBackgroundResult(
             : 'background result not delivered: invalid response',
         );
         return parsed.success ? 'delivered' : 'dropped';
+      }
+      if (sealed && (await shouldSendPlain(response))) {
+        // An ordinary chat, or a gateway too old for sealed posts: plain, exactly as before.
+        body = JSON.stringify({ ...fields, text });
+        idempotencyKey = turn.turnId;
+        sealed = false;
+        attempt--;
+        continue;
+      }
+      if (!sealed && sealTried && (await isSealRequired(response))) {
+        // Sealing was refused, then the plain try was: the result waits, never dropped.
+        deps.print('background result not delivered yet: chat is private');
+        return 'retry';
+      }
+      if (!sealed && !sealTried && (await isSealRequired(response))) {
+        if (!(await seal())) return 'retry';
+        attempt--;
+        continue;
       }
       if (response?.status === 404) break;
       if (response !== undefined && response.status !== 429 && response.status < 500) {
@@ -259,6 +332,8 @@ export async function sendMessage(
     fetch?: FetchFn;
     signal?: AbortSignal;
     retryMs?: readonly number[];
+    /** Seals the message for a private chat; without it such a message is not sent at all. */
+    store?: SealedPostOptions['store'];
   },
 ): Promise<number> {
   const scope = scopeOf(options);
@@ -288,6 +363,42 @@ export async function sendMessage(
   // One key for every retry of this send, so a retry never makes a second message.
   const idempotencyKey = randomUUID();
   const retryMs = deps.retryMs ?? [1_000, 5_000, 30_000];
+  let sealedBody: string | undefined;
+  /** Sealing was tried (or is not possible): a plain post is final, never sealed afterwards. */
+  let sealTried = false;
+  const seal = async (): Promise<number | undefined> => {
+    sealTried = true;
+    try {
+      if (deps.store === undefined) throw new PrivatePostError('private_post_unpaired', '');
+      const post = await sealedPost({
+        store: deps.store,
+        config,
+        localAgent: agent.id,
+        text,
+        paths: [],
+        server,
+        token: config.token,
+        ...(deps.signal !== undefined && { signal: deps.signal }),
+      });
+      sealedBody = JSON.stringify({
+        local_agent: agent.id,
+        sealed: post.sealed,
+        origin: 'agent',
+        ...(scope !== undefined && { session_scope: scope }),
+      });
+      return undefined;
+    } catch (error) {
+      if (!(error instanceof PrivatePostError)) throw error;
+      if (error.code === 'not_private') return undefined;
+      deps.print(error.code === 'cancelled' ? error.message : UNPAIRED_LINE);
+      return MESSAGE_EXIT.error;
+    }
+  };
+  // A computer with a trusted phone seals first, so nothing plain reaches a private chat.
+  if (hasTrustedPhone(config)) {
+    const failed = await seal();
+    if (failed !== undefined) return failed;
+  }
   for (let attempt = 0; ; attempt++) {
     if (deps.signal?.aborted) {
       deps.print('Message sending cancelled.');
@@ -300,14 +411,17 @@ export async function sendMessage(
         headers: {
           authorization: `Bearer ${config.token}`,
           'content-type': 'application/json',
-          'Idempotency-Key': idempotencyKey,
+          'Idempotency-Key': sealedBody === undefined ? idempotencyKey : `${idempotencyKey}:sealed`,
+          ...(sealedBody === undefined && CAN_SEAL),
         },
-        body: JSON.stringify({
-          local_agent: agent.id,
-          text,
-          origin: 'agent',
-          ...(scope !== undefined && { session_scope: scope }),
-        }),
+        body:
+          sealedBody ??
+          JSON.stringify({
+            local_agent: agent.id,
+            text,
+            origin: 'agent',
+            ...(scope !== undefined && { session_scope: scope }),
+          }),
         redirect: 'error',
         signal: withTimeout(deps.signal, REQUEST_TIMEOUT_MS),
       });
@@ -316,6 +430,18 @@ export async function sendMessage(
         deps.print('Message sending cancelled.');
         return MESSAGE_EXIT.error;
       }
+    }
+    if (sealedBody !== undefined && (await shouldSendPlain(response))) {
+      // An ordinary chat, or a gateway too old for sealed posts: plain, exactly as before.
+      sealedBody = undefined;
+      attempt--;
+      continue;
+    }
+    if (sealedBody === undefined && !sealTried && (await isSealRequired(response))) {
+      const failed = await seal();
+      if (failed !== undefined) return failed;
+      attempt--;
+      continue;
     }
     if (response?.status === 200 || response?.status === 201) {
       deps.print('Sent to your Twring chat.');

@@ -55,6 +55,14 @@ import { ResultOutbox } from './outbox';
 import { RelayClient } from './relay';
 import { ensureDeviceKey } from './e2e/keys';
 import { pairPhone } from './e2e/pair';
+import {
+  CAN_SEAL,
+  hasTrustedPhone,
+  isSealRequired,
+  PrivatePostError,
+  sealedPost,
+  shouldSendPlain,
+} from './e2e/post';
 import { updateE2e } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
@@ -515,6 +523,7 @@ function run(config: ConnectorConfig): Promise<number> {
     },
     send: (frame) => client.sendFrame(frame),
     gatewaySupports: (feature) => client.supports(feature) === true,
+    files: { server: checkServerUrl(config.server).toString(), token: config.token },
     outbox,
     log,
   });
@@ -536,6 +545,7 @@ function run(config: ConnectorConfig): Promise<number> {
     onBackgroundResult: (agentId, text, sessionRef, turn) => {
       const deliver = () =>
         deliverBackgroundResult(config, agentId, text, sessionRef, turn, {
+          store: persistE2e,
           hasOpenChannel: (id, scope) => client.hasOpenChannel(id, scope),
           supports: (feature) => client.supports(feature),
           signal: client.stopSignal,
@@ -685,7 +695,7 @@ async function fromHook(
     await sendMessage(
       config,
       { text: hook.text, ...(agent !== undefined && { agent }) },
-      { print },
+      { print, store: (change) => updateE2e(configPath(), change) },
     );
     return;
   }
@@ -792,67 +802,143 @@ async function messageCommand(
       return MESSAGE_EXIT.error;
     }
     try {
-      const fileIds: string[] = [];
-      const clientIds = filePaths.map(() => randomUUID());
-      for (const [index, path] of filePaths.entries()) {
-        fileIds.push(
-          await uploadFile({
-            server: config.server,
-            token: config.token,
-            localAgent: agent.id,
-            sessionScope: envSessionScope(),
-            path,
-            name: basename(path),
-            clientId: clientIds[index]!,
-            signal: stop.signal,
-          }),
-        );
-      }
       const server = checkServerUrl(config.server);
+      const store = (change: (current: E2eConfig) => E2eConfig) => updateE2e(configPath(), change);
       const idempotencyKey = randomUUID();
-      const body = JSON.stringify({
-        local_agent: agent.id,
-        text: text.trim(),
-        origin: 'agent',
-        file_ids: fileIds,
-      });
-      for (const delay of [0, 1_000, 5_000, 30_000]) {
-        if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
-        if (stop.signal.aborted) throw new UploadError('cancelled', 'Message sending cancelled.');
-        let response: Response | undefined;
-        try {
-          response = await fetch(apiUrl(server, '/v1/connectors/messages'), {
-            method: 'POST',
-            headers: {
-              authorization: `Bearer ${config.token}`,
-              'content-type': 'application/json',
-              'Idempotency-Key': idempotencyKey,
-            },
-            body,
-            redirect: 'error',
-            signal: AbortSignal.any([stop.signal, AbortSignal.timeout(15_000)]),
-          });
-        } catch {
+      /**
+       * Posts the message. 'seal_required': the chat is private and this body was plain.
+       * 'plain': the chat is ordinary (or the gateway too old) and this body was sealed.
+       */
+      const post = async (
+        body: string,
+        key: string,
+        plain: boolean,
+      ): Promise<'sent' | 'seal_required' | 'plain'> => {
+        for (const delay of [0, 1_000, 5_000, 30_000]) {
+          if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
           if (stop.signal.aborted) throw new UploadError('cancelled', 'Message sending cancelled.');
+          let response: Response | undefined;
+          try {
+            response = await fetch(apiUrl(server, '/v1/connectors/messages'), {
+              method: 'POST',
+              headers: {
+                authorization: `Bearer ${config.token}`,
+                'content-type': 'application/json',
+                'Idempotency-Key': key,
+                ...(plain && CAN_SEAL),
+              },
+              body,
+              redirect: 'error',
+              signal: AbortSignal.any([stop.signal, AbortSignal.timeout(15_000)]),
+            });
+          } catch {
+            if (stop.signal.aborted)
+              throw new UploadError('cancelled', 'Message sending cancelled.');
+          }
+          if (response?.ok) return 'sent';
+          if (plain && (await isSealRequired(response))) return 'seal_required';
+          if (!plain && (await shouldSendPlain(response))) return 'plain';
+          if (response !== undefined && response.status !== 429 && response.status < 500) {
+            const parsed = errorResponseSchema.safeParse(
+              await response.json().catch(() => undefined),
+            );
+            throw new UploadError(
+              parsed.success ? parsed.data.error.code : 'message_failed',
+              'Could not send the message.',
+            );
+          }
         }
-        if (response?.ok) {
-          output('Sent to your Twring chat.');
-          return MESSAGE_EXIT.sent;
-        }
-        if (response !== undefined && response.status !== 429 && response.status < 500) {
-          const parsed = errorResponseSchema.safeParse(
-            await response.json().catch(() => undefined),
-          );
-          throw new UploadError(
-            parsed.success ? parsed.data.error.code : 'message_failed',
-            'Could not send the message.',
-          );
+        throw new UploadError('message_failed', 'Could not send the message.');
+      };
+      const sealAndPost = async (): Promise<'sent' | 'plain'> => {
+        const sealed = await sealedPost({
+          store,
+          config,
+          localAgent: agent.id,
+          text: text.trim(),
+          paths: filePaths,
+          server,
+          token: config.token,
+          sessionScope: envSessionScope(),
+          signal: stop.signal,
+          strict: true,
+        });
+        const outcome = await post(
+          JSON.stringify({
+            local_agent: agent.id,
+            sealed: sealed.sealed,
+            origin: 'agent',
+            ...(sealed.fileIds.length > 0 && { file_ids: sealed.fileIds }),
+          }),
+          `${idempotencyKey}:sealed`,
+          false,
+        );
+        return outcome === 'plain' ? 'plain' : 'sent';
+      };
+      // A computer with a trusted phone seals first, so no plain byte reaches a private chat.
+      let sent = false;
+      let sealAttempted = false;
+      if (hasTrustedPhone(config)) {
+        sealAttempted = true;
+        try {
+          sent = (await sealAndPost()) === 'sent';
+        } catch (error) {
+          if (!(error instanceof PrivatePostError && error.code === 'not_private')) throw error;
         }
       }
-      throw new UploadError('message_failed', 'Could not send the message.');
+      if (!sent) {
+        let outcome: 'sent' | 'seal_required' | 'plain' = 'sent';
+        const fileIds: string[] = [];
+        const clientIds = filePaths.map(() => randomUUID());
+        for (const [index, path] of filePaths.entries()) {
+          try {
+            fileIds.push(
+              await uploadFile({
+                server: config.server,
+                token: config.token,
+                localAgent: agent.id,
+                sessionScope: envSessionScope(),
+                path,
+                name: basename(path),
+                canSeal: true,
+                clientId: clientIds[index]!,
+                signal: stop.signal,
+              }),
+            );
+          } catch (error) {
+            // A private chat (this computer has no phone to seal to): nothing was stored.
+            if (error instanceof UploadError && error.code === 'seal_required') {
+              outcome = 'seal_required';
+              break;
+            }
+            throw error;
+          }
+        }
+        if (outcome === 'sent')
+          outcome = await post(
+            JSON.stringify({
+              local_agent: agent.id,
+              text: text.trim(),
+              origin: 'agent',
+              file_ids: fileIds,
+            }),
+            idempotencyKey,
+            true,
+          );
+        // Ruling 19: sealing fails without a trusted phone and prints the pair-again line.
+        if (outcome === 'seal_required') {
+          // Never seal twice: a sealed try that already ended in 'plain' means this fails.
+          if (sealAttempted || (await sealAndPost()) !== 'sent')
+            throw new UploadError('message_failed', 'Could not send the message.');
+        } else if (outcome !== 'sent') {
+          throw new UploadError('message_failed', 'Could not send the message.');
+        }
+      }
+      output('Sent to your Twring chat.');
+      return MESSAGE_EXIT.sent;
     } catch (error) {
       process.stderr.write(
-        `${error instanceof UploadError ? error.message : 'Could not send the files.'}\n`,
+        `${error instanceof UploadError || error instanceof PrivatePostError ? error.message : 'Could not send the files.'}\n`,
       );
       return MESSAGE_EXIT.error;
     }
@@ -860,7 +946,11 @@ async function messageCommand(
   return sendMessage(
     config,
     { text, ...(typeof values.agent === 'string' && { agent: values.agent }) },
-    { print: output, signal: stop.signal },
+    {
+      print: output,
+      signal: stop.signal,
+      store: (change) => updateE2e(configPath(), change),
+    },
   );
 }
 
