@@ -56,9 +56,9 @@ async function fetchDevices(): Promise<Loaded> {
     ]);
     const self = me?.deviceId;
     // Phones another of this person's phones approved become trusted here too.
-    await syncTrusted(store, server, undefined, me).catch(() => undefined);
+    const trusted = await syncTrusted(store, server, undefined, me).catch(() => undefined);
     return {
-      state: devicesStateFrom(server, self),
+      state: devicesStateFrom(server, self, trusted && new Set(trusted.map((t) => t.id))),
       ...(self !== undefined && { self }),
       waiting: waiting.map((a) => ({ id: a.id, name: a.name })),
     };
@@ -77,6 +77,7 @@ export default function PrivateDevicesScreen() {
   const [selfId, setSelfId] = useState<string | undefined>();
   const [waiting, setWaiting] = useState<Waiting[]>([]);
   const [approving, setApproving] = useState<ClaimedApproval | undefined>();
+  const [connecting, setConnecting] = useState<DeviceRow | undefined>();
 
   const apply = useCallback((found: Loaded) => {
     if ('error' in found) {
@@ -190,11 +191,19 @@ export default function PrivateDevicesScreen() {
                 <SettingsRow
                   key={row.id}
                   label={row.thisPhone ? `${row.name} (This phone)` : row.name}
-                  value={`${row.kind}, added ${row.added}`}
+                  value={
+                    row.connected
+                      ? `${row.kind}, added ${row.added}`
+                      : `${row.kind}, not connected to this phone`
+                  }
                   layout="stacked"
-                  accessibilityHint="Asks before removing this device"
+                  accessibilityHint={
+                    row.connected
+                      ? 'Asks before removing this device'
+                      : 'Offers to connect with this phone'
+                  }
                   divider={i < state.devices.length - 1}
-                  onPress={() => setRemoving(row)}
+                  onPress={() => (row.connected ? setRemoving(row) : setConnecting(row))}
                 />
               ))}
             </SettingsGroup>
@@ -275,6 +284,35 @@ export default function PrivateDevicesScreen() {
               onPress={() => void decide(false)}
             />
             {busy && <ActivityIndicator accessibilityLabel="Approving" />}
+          </View>
+        )}
+      </Sheet>
+      <Sheet
+        visible={connecting !== undefined}
+        title={connecting === undefined ? '' : `Connect with ${connecting.name}?`}
+        onClose={() => setConnecting(undefined)}
+      >
+        {connecting !== undefined && (
+          <View style={styles.sheet}>
+            <Text style={[type.body, { color: palette.textSecondary }]}>
+              {`So both phones can read the same private chats. Tap Start, then open Twring on ${connecting.name} and approve this phone in Devices.`}
+            </Text>
+            <GhostButton
+              label="Start"
+              onPress={() => {
+                setConnecting(undefined);
+                router.push('/private/pair?approve=1');
+              }}
+            />
+            <GhostButton
+              label={`Remove ${connecting.name}`}
+              tone="danger"
+              onPress={() => {
+                setRemoving(connecting);
+                setConnecting(undefined);
+              }}
+            />
+            <GhostButton label="Cancel" onPress={() => setConnecting(undefined)} />
           </View>
         )}
       </Sheet>
