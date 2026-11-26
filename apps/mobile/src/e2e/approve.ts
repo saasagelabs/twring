@@ -686,7 +686,10 @@ export async function denyWaiting(
   const me = await loadDeviceKey(deps.store);
   if (me === undefined) return { ok: false, code: 'closed' };
   const answer = await call(() => deps.api.deny(id, me.deviceId));
-  await forgetApprovalSecrets(deps.store, id);
+  // A deny that never got through keeps the saved claim, so trying again carries on (a claim
+  // whose nonce this phone no longer holds would be refused as a mismatch).
+  if (answer.ok || ['closed', 'expired', 'mismatch'].includes(answer.code))
+    await forgetApprovalSecrets(deps.store, id);
   if (answer.ok) deps.log?.('e2e_phone_approval_denied', { approval_id: id });
   return answer.ok ? { ok: true } : answer;
 }

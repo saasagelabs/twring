@@ -29,6 +29,7 @@ async function setup(
     ipRate?: number;
     threads?: boolean;
     pingMs?: number;
+    unansweredMs?: number;
     lifetimeMs?: number;
     me?: boolean;
   } = {},
@@ -44,6 +45,7 @@ async function setup(
     ipRatePerMinute: options.ipRate ?? options.rate ?? 20,
     trustProxy: false,
     ...(options.pingMs !== undefined && { pingIntervalMs: options.pingMs }),
+    ...(options.unansweredMs !== undefined && { unansweredPingMs: options.unansweredMs }),
     ...(options.lifetimeMs !== undefined && { lifetimeMs: options.lifetimeMs }),
   });
   const stores = createMemoryStores(TEST_KEYS);
@@ -204,7 +206,7 @@ describe('phone socket', () => {
   });
 
   it('evicts a socket that missed its ping before a live one', async () => {
-    const { connect } = await setup({ pingMs: 200 });
+    const { connect } = await setup({ pingMs: 200, unansweredMs: 50 });
     const oldest = await connect();
     const lost = await connect('alice', false);
     await connect();
@@ -214,6 +216,19 @@ describe('phone socket', () => {
     await connect();
     expect(await lostClosed).toBe(4409);
     expect(oldest.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it('pushes out the oldest, not a socket whose ping went out a moment ago', async () => {
+    const { connect } = await setup({ pingMs: 200 });
+    const oldest = await connect();
+    // Its pong may still be on the way, so it is not counted as lost yet.
+    const slow = await connect('alice', false);
+    await connect();
+    await tick(300);
+    const oldestClosed = closed(oldest);
+    await connect();
+    expect(await oldestClosed).toBe(4409);
+    expect(slow.readyState).toBe(WebSocket.OPEN);
   });
 
   it('terminates an unresponsive socket and expires a connection', async () => {

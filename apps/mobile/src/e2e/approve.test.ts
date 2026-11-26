@@ -14,6 +14,7 @@ import {
   checkReveal,
   claimWaiting,
   approverUpdate,
+  denyWaiting,
   finishApproval,
   loadApprovalSecret,
   pollApproval,
@@ -555,5 +556,27 @@ describe('approval and other trust changes, one at a time', () => {
     expect(JSON.parse((await env.nStore.getItemAsync(REMOVED_KEY_NAME)) ?? '[]')).toEqual([
       env.computer.id,
     ]);
+  });
+});
+
+describe('turning a phone down', () => {
+  it('a deny that never got through keeps the claim, so trying again carries on', async () => {
+    const env = await setup();
+    await toCodes(env);
+    const deny = env.api.deny.bind(env.api);
+    env.api.deny = () => Promise.reject(new Error('offline'));
+    expect(await denyWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+      ok: false,
+      code: 'network',
+    });
+    // Its nonce is still kept: claiming again is not refused as a mismatch.
+    expect((await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).ok).toBe(true);
+    env.api.deny = deny;
+    expect(await denyWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({ ok: true });
+    // Now it is gone: the same claim with that nonce would be one this phone never kept.
+    expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
   });
 });
