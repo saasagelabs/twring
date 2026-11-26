@@ -411,6 +411,28 @@ async function pair(
   return config;
 }
 
+/**
+ * Claims the phone's code on a machine that is already linked (ADR-027 re-link). When the server
+ * no longer knows the saved link (removed in the app while this machine was offline), it pairs
+ * afresh with the same code: the server refuses an unknown token before it uses the code.
+ */
+async function relink(
+  values: Record<string, string | boolean | undefined>,
+  ask: boolean,
+  existing: ConnectorConfig,
+): Promise<{ config: ConnectorConfig; reused: boolean }> {
+  try {
+    return { config: await pair(values, ask, existing), reused: true };
+  } catch (error) {
+    if (!(error instanceof ServerRefusal && error.code === 'connector_invalid')) throw error;
+    // On the server that refused the old link: the code came from it.
+    return {
+      config: await pair({ ...values, server: values.server ?? existing.server }, ask),
+      reused: false,
+    };
+  }
+}
+
 /** Links by showing a QR code the phone scans (ADR-025): the default when not paired yet. */
 async function link(
   values: Record<string, string | boolean | undefined>,
@@ -1037,7 +1059,7 @@ async function setupCommand(values: Record<string, string | boolean | undefined>
     // Already linked and the phone sent a code: claim it with this link, so the phone moves on.
     if (config !== undefined && typeof values.code === 'string') {
       try {
-        config = await pair(values, false, config);
+        config = (await relink(values, false, config)).config;
       } catch (error) {
         if (error instanceof ServerRefusal && error.code === 'pairing_other_account') {
           say(
@@ -1298,7 +1320,11 @@ async function main(): Promise<void> {
   // Not paired yet and no code: show a QR code for the phone to scan (ADR-025).
   let saved: ConnectorConfig | undefined;
   try {
-    saved = values.code !== undefined ? undefined : await loadConfig(configPath());
+    // With a code, a damaged pairing file is replaced by the new pairing.
+    saved =
+      values.code !== undefined
+        ? await loadConfig(configPath()).catch(() => undefined)
+        : await loadConfig(configPath());
   } catch (error) {
     if (!inService) throw error;
     // A damaged pairing as a service: starting again cannot fix it, so say so once and stop.
@@ -1313,8 +1339,10 @@ async function main(): Promise<void> {
       return exitWhenDrained(2);
     }
   }
+  // With a code, the pairing below gathers the agents once.
   if (
     saved !== undefined &&
+    values.code === undefined &&
     [values.acp, values['acp-agent'], values['openai-url'], values.command].some(
       (value) => typeof value === 'string',
     )
@@ -1331,8 +1359,26 @@ async function main(): Promise<void> {
     );
     return exitWhenDrained(NOT_PAIRED_EXIT);
   }
-  const config =
-    values.code !== undefined ? await pair(commandValues) : (saved ?? (await link(commandValues)));
+  let config: ConnectorConfig | undefined;
+  if (values.code !== undefined && saved !== undefined) {
+    // Already linked: the code joins this link, keeping its token and private-chat key.
+    try {
+      const linked = await relink(commandValues, true, saved);
+      config = linked.config;
+      if (linked.reused) print(`Linked "${config.name}" again with your Twring account.`);
+    } catch (error) {
+      if (!(error instanceof ServerRefusal && error.code === 'pairing_other_account')) throw error;
+      process.stderr.write(
+        `This machine is linked to another Twring account. Run: node ${SCRIPT_NAME} uninstall --forget, then run this again.\n`,
+      );
+      return exitWhenDrained(2);
+    }
+  } else {
+    config =
+      values.code !== undefined
+        ? await pair(commandValues)
+        : (saved ?? (await link(commandValues)));
+  }
   if (config === undefined) return exitWhenDrained(1);
   process.exit(await run(config));
 }

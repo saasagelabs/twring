@@ -6,9 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { RELAY_CLOSE } from '@twring/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { WebSocketServer } from 'ws';
 
 import { saveConfig, type ConnectorConfig } from './config';
+import { ensureDeviceKey } from './e2e/keys';
 
 /**
  * Verifier edge cases for `cord-connect setup` / `uninstall` / service mode (ADR-027), run as the
@@ -213,6 +216,132 @@ describe('setup on a machine that is already linked (re-link, ADR-027)', () => {
     ]);
     expect(code).toBe(2);
     expect(await exists(join(dir, 'config.json'))).toBe(true);
+  }, 30_000);
+});
+
+/**
+ * A server that answers each claim with the next of `answers` and refuses the relay socket with
+ * 4409 (replaced), so a plain run ends at once and keeps its pairing.
+ */
+async function relinkServer(answers: { status: number; body: unknown }[]) {
+  const seen: { authorization?: string; body?: unknown }[] = [];
+  const server = createServer((req, res) => {
+    let text = '';
+    req.on('data', (chunk: Buffer) => (text += chunk.toString('utf8')));
+    req.on('end', () => {
+      seen.push({ authorization: req.headers.authorization, body: JSON.parse(text) as unknown });
+      const answer = answers[Math.min(seen.length, answers.length) - 1];
+      res.writeHead(answer?.status ?? 500, { 'content-type': 'application/json' });
+      res.end(JSON.stringify(answer?.body ?? {}));
+    });
+  });
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (ws) => ws.once('message', () => ws.close(RELAY_CLOSE.replaced, 'bye')));
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  cleanups.push(
+    () =>
+      new Promise<void>((resolve) => {
+        wss.close();
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  );
+  return { seen, url: `http://localhost:${(server.address() as AddressInfo).port}/` };
+}
+
+const SAVED_TOKEN = `cct_${'t'.repeat(43)}`;
+const NEW_ID = `con_${'n'.repeat(20)}`;
+const NEW_TOKEN = `cct_${'n'.repeat(43)}`;
+const gone = {
+  status: 401,
+  body: { error: { code: 'connector_invalid', message: 'This computer is no longer linked.' } },
+};
+const fresh = { status: 201, body: { connector_id: NEW_ID, token: NEW_TOKEN } };
+const readSaved = async (dir: string) =>
+  JSON.parse(await readFile(join(dir, 'config.json'), 'utf8')) as ConnectorConfig;
+
+describe('a plain run with --code on a machine that is already linked', () => {
+  it('re-links with the saved token and keeps the link and its private-chat key', async () => {
+    const dir = await tempDir();
+    const claim = await relinkServer([
+      { status: 200, body: { connector_id: `con_${'d'.repeat(20)}`, reused: true } },
+    ]);
+    const linked = ensureDeviceKey({ ...savedConfig(dir), server: claim.url }).config;
+    const e2e = linked.e2e;
+    await saveConfig(join(dir, 'config.json'), linked);
+    const { stdout } = await runCli(dir, ['--code', 'ABCD-EFGH']);
+    expect(claim.seen).toHaveLength(1);
+    expect(claim.seen[0]?.authorization).toBe(`Bearer ${SAVED_TOKEN}`);
+    expect(claim.seen[0]?.body).toMatchObject({ code: 'ABCD-EFGH', name: 'Laptop' });
+    expect(lines(stdout).filter((l) => l.startsWith('Linked '))).toEqual([
+      'Linked "Laptop" again with your Twring account.',
+    ]);
+    const saved = await readSaved(dir);
+    expect(saved.token).toBe(SAVED_TOKEN);
+    expect(saved.connector_id).toBe(`con_${'d'.repeat(20)}`);
+    expect(saved.e2e).toEqual(e2e);
+  }, 30_000);
+
+  it('a code from another account: says how to start over, exits 2 and keeps the link', async () => {
+    const dir = await tempDir();
+    const claim = await relinkServer([
+      {
+        status: 403,
+        body: {
+          error: {
+            code: 'pairing_other_account',
+            message: 'This machine is linked to another Twring account.',
+          },
+        },
+      },
+    ]);
+    await saveConfig(join(dir, 'config.json'), { ...savedConfig(dir), server: claim.url });
+    const before = await readFile(join(dir, 'config.json'), 'utf8');
+    const { code, stderr } = await runCli(dir, ['--code', 'ABCD-EFGH']);
+    expect(lines(stderr)).toEqual([
+      'This machine is linked to another Twring account. Run: node twring-connect.mjs uninstall --forget, then run this again.',
+    ]);
+    expect(code).toBe(2);
+    expect(await readFile(join(dir, 'config.json'), 'utf8')).toBe(before);
+  }, 30_000);
+
+  it('a link the server no longer knows: pairs afresh with the same code', async () => {
+    const dir = await tempDir();
+    const claim = await relinkServer([gone, fresh]);
+    await saveConfig(join(dir, 'config.json'), { ...savedConfig(dir), server: claim.url });
+    await runCli(dir, ['--code', 'ABCD-EFGH', '--command', 'echo']);
+    expect(claim.seen).toHaveLength(2);
+    expect(claim.seen[0]?.authorization).toBe(`Bearer ${SAVED_TOKEN}`);
+    expect(claim.seen[1]?.authorization).toBeUndefined();
+    expect(claim.seen[1]?.body).toMatchObject({ code: 'ABCD-EFGH' });
+    const saved = await readSaved(dir);
+    expect(saved.connector_id).toBe(NEW_ID);
+    expect(saved.token).toBe(NEW_TOKEN);
+  }, 30_000);
+
+  it('a link on another server than --server: no claim is sent', async () => {
+    const dir = await tempDir();
+    const claim = await relinkServer([fresh]);
+    await saveConfig(join(dir, 'config.json'), savedConfig(dir));
+    const { code, stderr } = await runCli(dir, ['--code', 'ABCD-EFGH', '--server', claim.url]);
+    expect(stderr).toMatch(/^Already linked to https:\/\/cord\.example\.com\. /);
+    expect(code).toBe(2);
+    expect(claim.seen).toHaveLength(0);
+  }, 30_000);
+});
+
+describe('setup on a machine whose link the server no longer knows', () => {
+  it('pairs afresh with the same code', async () => {
+    const dir = await tempDir();
+    const claim = await relinkServer([gone, fresh]);
+    await saveConfig(join(dir, 'config.json'), { ...savedConfig(dir), server: claim.url });
+    const { stdout } = await runCli(dir, ['setup', '--code', 'ABCD-EFGH', '--command', 'echo']);
+    expect(stdout).not.toContain('no longer linked');
+    expect(claim.seen).toHaveLength(2);
+    expect(claim.seen[1]?.authorization).toBeUndefined();
+    const saved = await readSaved(dir);
+    expect(saved.connector_id).toBe(NEW_ID);
+    expect(saved.token).toBe(NEW_TOKEN);
   }, 30_000);
 });
 

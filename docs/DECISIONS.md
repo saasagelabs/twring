@@ -522,6 +522,15 @@ Scanning a QR code (ADR-025) needs a screen next to the phone, which a VPS does 
   claim has a 20 s deadline; the systemd unit uses `WorkingDirectory=-<path>` so a removed folder
   does not stop the service at boot; on macOS without a GUI session (SSH) setup falls back from
   `launchctl bootstrap gui/<uid>` to `user/<uid>`.
+- **Plain run amendment (2026-11-27):** the plain `node twring-connect.mjs --code XXXX-XXXX` run
+  (the command the app shows) re-links an already linked computer the same way `setup` does, so
+  its connector id, token and private-chat key are kept, and prints
+  `Linked "<name>" again with your Twring account.` Before, it paired as a new computer and
+  overwrote the saved link. Another account's code makes it exit 2 with the uninstall hint, and a
+  saved link on another server than `--server` is refused as before. When the server answers
+  401 `connector_invalid` (the computer was removed in the app), both the plain run and `setup`
+  pair afresh with the same code on that server: the gateway refuses an unknown token before it
+  uses the code. An unreadable `config.json` with `--code` is still replaced by a new pairing.
 
 ### Security
 
