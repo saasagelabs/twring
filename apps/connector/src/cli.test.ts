@@ -238,7 +238,7 @@ describe('cord-connect', () => {
     return { url: `http://localhost:${(server.address() as AddressInfo).port}`, requests };
   }
 
-  it('message --file into a private chat: the plain upload gets seal_required and every file is sealed', async () => {
+  it('message --file into a private chat: every file is sealed and no plain byte is uploaded', async () => {
     const dir = await tempDir();
     const gateway = await privateGateway();
     const fixture = pairedFixture('echo');
@@ -256,9 +256,11 @@ describe('cord-connect', () => {
       (request) =>
         request.url.startsWith('/v1/connectors/files') && !request.url.includes('sealed=1'),
     );
-    // Only the one refused try was plain; it stored nothing and carried the mark.
-    expect(plain).toHaveLength(1);
-    expect(plain[0]!.headers['twring-can-seal']).toBe('1');
+    // Sealed first: no plain upload and no plain post reached the gateway.
+    expect(plain).toHaveLength(0);
+    expect(
+      gateway.requests.some((request) => request.headers['twring-can-seal'] !== undefined),
+    ).toBe(false);
     const sealedUploads = gateway.requests.filter((request) => request.url.includes('sealed=1'));
     expect(sealedUploads).toHaveLength(2);
     for (const upload of sealedUploads) {

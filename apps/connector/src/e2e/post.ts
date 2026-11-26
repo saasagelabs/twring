@@ -26,7 +26,7 @@ export const UNPAIRED_LINE = 'This chat is private. Pair this computer again fro
 
 export class PrivatePostError extends Error {
   constructor(
-    readonly code: 'private_post_unpaired' | 'cancelled',
+    readonly code: 'private_post_unpaired' | 'not_private' | 'cancelled',
     message: string,
   ) {
     super(message);
@@ -47,6 +47,33 @@ export async function isSealRequired(response: Response | undefined): Promise<bo
       .catch(() => undefined),
   );
   return parsed.success && parsed.data.error.code === 'seal_required';
+}
+
+/** Codes an old gateway answers a sealed request with (400/415 class): treated as "not private". */
+const OLD_GATEWAY_CODES = new Set(['bad_request', 'invalid_request', 'unsupported_file_type']);
+
+/** The sealed request was refused because the chat is ordinary or the gateway is too old. */
+export function isPlainFallbackCode(code: string | undefined): boolean {
+  return code === 'not_private' || (code !== undefined && OLD_GATEWAY_CODES.has(code));
+}
+
+/** True when a sealed post was refused in a way that means: send it plain, as today. */
+export async function shouldSendPlain(response: Response | undefined): Promise<boolean> {
+  if (response === undefined || ![400, 409, 415].includes(response.status)) return false;
+  const parsed = errorResponseSchema.safeParse(
+    await response
+      .clone()
+      .json()
+      .catch(() => undefined),
+  );
+  if (!parsed.success) return false;
+  const code = parsed.data.error.code;
+  return response.status === 409 ? code === 'not_private' : isPlainFallbackCode(code);
+}
+
+/** Whether this computer has a phone it can seal to (otherwise it posts plain, marked). */
+export function hasTrustedPhone(config: ConnectorConfig): boolean {
+  return config.e2e?.devices.some((device) => device.kind === 'phone') === true;
 }
 
 export interface SealedPostOptions {
@@ -118,6 +145,9 @@ export async function sealedPost(
     } catch (error) {
       if (options.signal?.aborted)
         throw new PrivatePostError('cancelled', 'Message sending cancelled.');
+      // An ordinary chat or an old gateway: the caller sends the whole message plain instead.
+      if (error instanceof UploadError && isPlainFallbackCode(error.code))
+        throw new PrivatePostError('not_private', 'This chat is not private.');
       lines.push(
         error instanceof UploadError && error.code === 'file_too_large'
           ? `Could not send ${name}: it is larger than 10 MB.`

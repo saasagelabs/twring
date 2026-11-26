@@ -150,6 +150,31 @@ describe('sealedPost', () => {
     expect(new Set(seqs).size).toBe(3);
   });
 
+  it('throws not_private when the gateway says a sealed upload is for an ordinary chat', async () => {
+    const fixture = pairedFixture();
+    const dir = await tempDir();
+    const path = join(dir, 'a.txt');
+    await writeFile(path, 'x');
+    const fetch = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { code: 'not_private', message: 'x' } }), {
+          status: 409,
+        }),
+      )) as unknown as typeof globalThis.fetch;
+    await expect(
+      sealedPost({
+        store: fixture.store,
+        config: fixture.config,
+        localAgent: AGENT,
+        text: '',
+        paths: [path],
+        server: 'https://api.twring.com',
+        token: baseConfig.token,
+        fetch,
+      }),
+    ).rejects.toMatchObject({ code: 'not_private' });
+  });
+
   it('throws private_post_unpaired with no trusted phone and uploads nothing', async () => {
     const fixture = pairedFixture();
     await fixture.store((current) => ({ ...current, devices: [] }));
