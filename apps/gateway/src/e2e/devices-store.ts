@@ -572,13 +572,15 @@ export class E2eDeviceStore {
   /**
    * The approving phone says the codes matched: the new phone joins the account's devices with
    * the note on its row, and the approval keeps the note for the new phone's next poll. Throws
-   * E2eDeviceError at the device cap (nothing changes then).
+   * E2eDeviceError at the device cap (nothing changes then). A request that carries a commitment
+   * (ADR-046) is accepted only after the nonce and the reveal, so an older approving app, which
+   * shows the code that can be ground, cannot add a phone that is waiting for the new code.
    */
   acceptApproval(userId: string, id: string, approverId: string, note: TrustNote): boolean {
     return this.transaction(() => {
       const row = this.db
         .prepare(
-          "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>?",
+          "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>? AND (commitment IS NULL OR (approver_nonce IS NOT NULL AND reveal IS NOT NULL))",
         )
         .get(id, userId, approverId, this.now().toISOString()) as ApprovalRow | undefined;
       if (row === undefined) return false;

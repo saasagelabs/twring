@@ -369,6 +369,20 @@ describe('second-phone approval: commit, then reveal (ADR-046)', () => {
     expect((await status(g, id, 1, 'u2')).statusCode).toBe(404);
   });
 
+  it('accepts a request with a commitment only after the nonce and the reveal', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    const id = await committed(g);
+    await claim(g, id, 1);
+    // An older approving app skips both steps and shows the code that can be ground.
+    expect((await accept(g, id, 1)).json().error.code).toBe('approval_closed');
+    await nonce(g, id, 1);
+    expect((await accept(g, id, 1)).json().error.code).toBe('approval_closed');
+    await reveal(g, id, 9);
+    expect((await accept(g, id, 1)).statusCode).toBe(200);
+    expect((await status(g, id, 9)).json().state).toBe('accepted');
+  });
+
   it('refuses a reveal that does not open the commitment', async () => {
     const g = await start();
     addPhone(g, 'u1', 1);

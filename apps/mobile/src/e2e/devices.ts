@@ -197,7 +197,8 @@ export function applyTrustNotes(
  * Device ids removed from this phone's trusted list, kept so a trust note can never bring one
  * back (R3-1). Only ids this phone trusted (dropped because the server marked them revoked) or
  * removed itself are added, so a server cannot flush the list with ids of its choosing. When it is
- * full the oldest id the server does not list right now goes first: a listed id is never evicted.
+ * full the oldest id goes first; during a sync, which has the server's listing, an id the server
+ * still lists is never the one evicted. Filling it takes 256 removals.
  */
 export { REMOVED_KEY_NAME };
 export const MAX_REMOVED_SEEN = 256;

@@ -124,8 +124,9 @@ const ageOf = (path: string): Promise<number> =>
 /**
  * Removes a stale lock only while holding `${lockPath}.takeover` (made with 'wx'), and only if it
  * still holds the `seen` content. Two waiters that both found it stale can then never both remove
- * it: the second finds the first one's new lock (another token) and leaves it alone. A takeover
- * lock left by a process that died in those few milliseconds is removed once stale.
+ * it: the second finds the first one's new lock (another token, or a fresh age) and leaves it
+ * alone. A takeover lock left by a process that died in those few milliseconds is removed once
+ * stale.
  */
 async function takeOver(lockPath: string, seen: string): Promise<void> {
   const takeoverPath = `${lockPath}.takeover`;
@@ -139,7 +140,10 @@ async function takeOver(lockPath: string, seen: string): Promise<void> {
   }
   try {
     const now = await readFile(lockPath, 'utf8').catch(() => undefined);
-    if (now === seen) await rm(lockPath, { force: true }).catch(() => undefined);
+    // The age is checked again: a lock made a moment ago (still empty, like a crashed holder's
+    // lock was) holds the same content as `seen`, but it is not the stale one.
+    if (now === seen && (await ageOf(lockPath)) > LOCK_STALE_MS)
+      await rm(lockPath, { force: true }).catch(() => undefined);
   } finally {
     await rm(takeoverPath, { force: true }).catch(() => undefined);
   }

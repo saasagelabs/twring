@@ -32,7 +32,7 @@ export interface ThreadSocketOptions {
 
 export function connectThreadSocket(options: ThreadSocketOptions): {
   setFocus(agentId: string | null): void;
-  /** True after close() or a final refusal (4403): only reconnect() opens it again. */
+  /** True after close() or a refusal (4403, 4409): only reconnect() opens it again. */
   stopped(): boolean;
   reconnect(): void;
   close(): void;
@@ -107,8 +107,10 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
     ws.onclose = (event) => {
       if (current !== generation || stopped) return;
       socket = undefined;
-      // Only "account data deleted" is final; a newer socket closing this one (4409) retries.
-      if (event.code === 4403) {
+      // "Account data deleted" (4403) and "a newer socket took this one's place" (4409) wait for
+      // reconnect(), which the app calls when it comes back to the front. Retrying a 4409 at once
+      // would push out another device, which then does the same, round and round.
+      if (event.code === 4403 || event.code === 4409) {
         clearTimers();
         blocked = true;
         options.onState('stopped');

@@ -335,8 +335,18 @@ export function confirmPairing(
   });
 }
 
-/** A computer paired again with the same key leaves the removed memory, or a sync would drop it. */
-async function unremove(store: SecureKeyValue, id: string): Promise<void> {
+/** Ids in the removed memory (`devices.ts` keeps it); empty when it is missing or unreadable. */
+export async function removedIds(store: SecureKeyValue): Promise<string[]> {
+  try {
+    const ids: unknown = JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]');
+    return Array.isArray(ids) ? ids.filter((x): x is string => typeof x === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A device the person checked again (paired, or approved) leaves the removed memory. */
+export async function unremove(store: SecureKeyValue, id: string): Promise<void> {
   let ids: unknown;
   try {
     ids = JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]');

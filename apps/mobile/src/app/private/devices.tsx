@@ -18,6 +18,7 @@ import {
   claimWaiting,
   DENY_BUTTON,
   denyWaiting,
+  forgetApprovalSecrets,
   listWaiting,
   pollApproval,
   WAITING_TITLE,
@@ -170,6 +171,8 @@ export default function PrivateDevicesScreen() {
         setApproving({ claimed: pendingClaim, checked: out.checked });
       } else if (!out.ok && out.code !== 'network') {
         stop();
+        // Over for good: the saved nonce and claim go too (a network failure keeps them to resume).
+        await forgetApprovalSecrets(privateKeychain(), pendingClaim.approval.id);
         playCallFeedback('error');
         setError(APPROVE_FAILED);
         setApproving(undefined);
@@ -193,6 +196,7 @@ export default function PrivateDevicesScreen() {
           : await denyWaiting(deps, id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
       if (!out.ok) setError(APPROVE_FAILED);
+      if (!out.ok && out.code !== 'network') await forgetApprovalSecrets(deps.store, id);
       // The new phone's older private messages: shared in the background, resumed on next open.
       const api = twringApi();
       if (out.ok && approve && api !== undefined) {

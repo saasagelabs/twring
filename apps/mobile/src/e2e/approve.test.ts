@@ -23,9 +23,9 @@ import {
   type ApproveApi,
   type CheckedApproval,
 } from './approve';
-import { loadOrCreateDeviceKey, type DeviceKey } from './device-key';
-import { syncTrusted } from './devices';
-import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
+import { loadOrCreateDeviceKey, TRUSTED_KEY_NAME, type DeviceKey } from './device-key';
+import { removeDevice, syncTrusted } from './devices';
+import { loadTrusted, REMOVED_KEY_NAME, saveTrusted, type TrustedDevice } from './pairing';
 import { hasRewrapWork, REWRAP_JOBS_KEY } from './rewrap';
 import { memoryStore } from './test-fixtures';
 
@@ -486,5 +486,74 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     );
     expect(again.map((d) => d.id)).not.toContain(env.n.deviceId);
     expect(events).toContain('e2e_trust_note_refused');
+  });
+});
+
+describe('approval and other trust changes, one at a time', () => {
+  it('a removal while A approves is not saved back by the approval', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    // After the accept answer, A's read of its trusted list is slow: a removal that is not held
+    // back would save in between, and A would then save the list it read, with the computer.
+    let accepted = false;
+    const accept = env.api.accept.bind(env.api);
+    env.api.accept = async (...args) => {
+      const out = await accept(...args);
+      accepted = true;
+      return out;
+    };
+    const read = env.tStore.getItemAsync.bind(env.tStore);
+    let slowed = false;
+    env.tStore.getItemAsync = async (key: string) => {
+      const value = await read(key);
+      if (accepted && key === TRUSTED_KEY_NAME && !slowed) {
+        slowed = true;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return value;
+    };
+    const approving = approveWaiting({ api: env.api, store: env.tStore }, checked);
+    while (!accepted) await new Promise((resolve) => setTimeout(resolve, 1));
+    const removing = removeDevice(
+      {
+        api: { remove: () => Promise.resolve() },
+        store: env.tStore,
+        forgetSelf: () => Promise.resolve(),
+      },
+      env.computer.id,
+    );
+    expect(await approving).toEqual({ ok: true });
+    await removing;
+    const ids = (await loadTrusted(env.tStore)).map((d) => d.id);
+    expect(ids).toContain(env.n.deviceId);
+    expect(ids).not.toContain(env.computer.id);
+  });
+
+  it('A leaves a device it removed out of the note and the saved list', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    await env.tStore.setItemAsync(REMOVED_KEY_NAME, JSON.stringify([env.computer.id]));
+    expect(await approveWaiting({ api: env.api, store: env.tStore }, checked)).toEqual({
+      ok: true,
+    });
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).toEqual([env.n.deviceId]);
+  });
+
+  it('N never takes back a device it removed from the note, except the approver it checked', async () => {
+    const env = await setup();
+    const approver = env.approver;
+    const { shown, checked } = await toCodes(env);
+    await approveWaiting({ api: env.api, store: env.tStore }, checked);
+    await env.nStore.setItemAsync(
+      REMOVED_KEY_NAME,
+      JSON.stringify([env.computer.id, env.t.deviceId]),
+    );
+    const accepted = approvalFor(env.n, { state: 'accepted', approver, trust_note: env.sent() });
+    expect(await finishApproval({ store: env.nStore, now: () => NOW }, accepted, shown)).toBe(true);
+    expect((await loadTrusted(env.nStore)).map((d) => d.id)).toEqual([env.t.deviceId]);
+    // The approver left the removed memory, so the next sync keeps it.
+    expect(JSON.parse((await env.nStore.getItemAsync(REMOVED_KEY_NAME)) ?? '[]')).toEqual([
+      env.computer.id,
+    ]);
   });
 });

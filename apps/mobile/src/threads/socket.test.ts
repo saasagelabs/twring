@@ -81,7 +81,7 @@ describe('thread socket', () => {
     socket.close();
     expect(vi.getTimerCount()).toBe(0);
   });
-  it('retries after 4409 with the normal backoff', async () => {
+  it('waits for reconnect() after 4409, so devices do not push each other out in a loop', async () => {
     vi.useFakeTimers();
     const states: string[] = [];
     const socket = connectThreadSocket({
@@ -94,9 +94,14 @@ describe('thread socket', () => {
       WebSocketImpl: FakeSocket,
     });
     FakeSocket.instances[0].end(4409);
-    expect(states).toEqual(['disconnected']);
-    await vi.advanceTimersByTimeAsync(1_000);
+    expect(states).toEqual(['stopped']);
+    expect(socket.stopped()).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+    // Back in front: the app reopens the same handle.
+    socket.reconnect();
     expect(FakeSocket.instances).toHaveLength(2);
+    expect(socket.stopped()).toBe(false);
     socket.close();
   });
   it('refreshes the token after a 401 and retries with backoff', async () => {

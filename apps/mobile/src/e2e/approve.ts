@@ -19,7 +19,14 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import { loadDeviceKey, loadOrCreateDeviceKey, type DeviceKey } from './device-key';
-import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
+import {
+  loadTrusted,
+  removedIds,
+  saveTrusted,
+  unremove,
+  withTrustLock,
+  type TrustedDevice,
+} from './pairing';
 import { queueRewrap } from './rewrap';
 
 /**
@@ -418,9 +425,16 @@ export async function finishApproval(
     deps.log?.('e2e_trust_note_refused', { reason: 'own_note' });
     return false;
   }
-  const current = await loadTrusted(deps.store);
-  const merged = [...current.filter((d) => !learned.some((l) => l.id === d.id)), ...learned];
-  await saveTrusted(deps.store, merged);
+  // One trust change at a time (`withTrustLock`). The note never brings back a device this phone
+  // removed, except the approver itself, whose code the person just checked.
+  await withTrustLock(deps.store, async () => {
+    const removed = await removedIds(deps.store);
+    const current = await loadTrusted(deps.store);
+    const added = learned.filter((l) => l.id === shown.id || !removed.includes(l.id));
+    const merged = [...current.filter((d) => !added.some((l) => l.id === d.id)), ...added];
+    await saveTrusted(deps.store, merged);
+    await unremove(deps.store, shown.id);
+  });
   // Earlier private messages this phone sent: shared with the approver next (`rewrap.ts`).
   await queueRewrap(deps.store, { id: shown.id, public_key: shown.public_key }).catch(() =>
     deps.log?.('e2e_rewrap_queue_failed', { approval_id: approval.id }),
@@ -599,50 +613,63 @@ export async function approveWaiting(
     )
   )
     return { ok: false, code: 'mismatch' };
-  const trusted = (await loadTrusted(deps.store)).filter((d) => d.id !== approval.device_id);
-  const others = trusted.slice(0, MAX_PAIRED_DEVICES - 1);
-  const note = sealTrustNote({
-    payload: {
-      kind: 'trust_add',
-      approval_id: approval.id,
-      add: {
-        id: approval.device_id,
-        kind: 'phone',
-        name: approval.name,
-        public_key: approval.public_key,
-      },
-      known: others.map((d) => ({
-        id: d.id,
-        kind: d.kind,
-        name: d.name,
-        public_key: d.public_key,
-        ...(d.connector_id !== undefined && { connector_id: d.connector_id }),
-      })),
+  // The note, the accept and the save run as one trust change (`withTrustLock`), so a removal
+  // at the same moment is neither vouched for in the note nor saved back.
+  const done = await withTrustLock(
+    deps.store,
+    async (): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> => {
+      const removed = await removedIds(deps.store);
+      const trusted = (await loadTrusted(deps.store)).filter(
+        (d) => d.id !== approval.device_id && !removed.includes(d.id),
+      );
+      const others = trusted.slice(0, MAX_PAIRED_DEVICES - 1);
+      const note = sealTrustNote({
+        payload: {
+          kind: 'trust_add',
+          approval_id: approval.id,
+          add: {
+            id: approval.device_id,
+            kind: 'phone',
+            name: approval.name,
+            public_key: approval.public_key,
+          },
+          known: others.map((d) => ({
+            id: d.id,
+            kind: d.kind,
+            name: d.name,
+            public_key: d.public_key,
+            ...(d.connector_id !== undefined && { connector_id: d.connector_id }),
+          })),
+        },
+        senderDevice: me.deviceId,
+        senderPrivate: me.privateKey,
+        recipients: [
+          { id: approval.device_id, publicKey: base64urlDecode(approval.public_key) },
+          ...others.map((d) => ({ id: d.id, publicKey: base64urlDecode(d.public_key) })),
+        ],
+      });
+      const answer = await call(() => deps.api.accept(approval.id, me.deviceId, note));
+      if (!answer.ok) {
+        deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: answer.code });
+        return answer;
+      }
+      const current = (await loadTrusted(deps.store)).filter((d) => !removed.includes(d.id));
+      if (!current.some((d) => d.id === approval.device_id))
+        await saveTrusted(deps.store, [
+          ...current,
+          {
+            id: approval.device_id,
+            kind: 'phone',
+            name: approval.name,
+            public_key: approval.public_key,
+            verified_at: new Date((deps.now ?? Date.now)()).toISOString(),
+          },
+        ]);
+      await unremove(deps.store, approval.device_id);
+      return { ok: true };
     },
-    senderDevice: me.deviceId,
-    senderPrivate: me.privateKey,
-    recipients: [
-      { id: approval.device_id, publicKey: base64urlDecode(approval.public_key) },
-      ...others.map((d) => ({ id: d.id, publicKey: base64urlDecode(d.public_key) })),
-    ],
-  });
-  const answer = await call(() => deps.api.accept(approval.id, me.deviceId, note));
-  if (!answer.ok) {
-    deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: answer.code });
-    return answer;
-  }
-  const current = await loadTrusted(deps.store);
-  if (!current.some((d) => d.id === approval.device_id))
-    await saveTrusted(deps.store, [
-      ...current,
-      {
-        id: approval.device_id,
-        kind: 'phone',
-        name: approval.name,
-        public_key: approval.public_key,
-        verified_at: new Date((deps.now ?? Date.now)()).toISOString(),
-      },
-    ]);
+  );
+  if (!done.ok) return done;
   // Older private messages: this phone shares them next (`rewrap.ts`), now and on later opens.
   await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
     () => undefined,

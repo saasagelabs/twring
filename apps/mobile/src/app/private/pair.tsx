@@ -210,6 +210,7 @@ export default function PrivatePairScreen() {
         const secret = await loadApprovalSecret(store, approveId);
         if (!live) return;
         if (me === undefined || secret === undefined) {
+          await forgetApprovalSecrets(store, approveId);
           fail(APPROVE_FAILURE_COPY.refused, 'approve');
           return;
         }
@@ -224,7 +225,10 @@ export default function PrivatePairScreen() {
           const revealed = await revealApproval({ api: approveApi(), store }, approval);
           if (!live) return;
           if (revealed.ok) setStep({ kind: 'approve', id: approveId, shown });
-          else if (revealed.code !== 'network') fail(APPROVE_FAILURE_COPY.refused, 'approve');
+          else if (revealed.code !== 'network') {
+            await forgetApprovalSecrets(store, approveId);
+            fail(APPROVE_FAILURE_COPY.refused, 'approve');
+          }
         }
       } else if (approval.state === 'accepted') {
         // Only the phone whose code was shown may vouch for this one (P4b ruling 5).
@@ -239,7 +243,10 @@ export default function PrivatePairScreen() {
             void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
           playCallFeedback('connected');
           setStep({ kind: 'approved' });
-        } else fail(APPROVE_FAILURE_COPY.refused, 'approve');
+        } else {
+          await forgetApprovalSecrets(store, approveId);
+          fail(APPROVE_FAILURE_COPY.refused, 'approve');
+        }
       } else if (approval.state === 'denied') {
         await forgetApprovalSecrets(store, approveId);
         fail(APPROVE_FAILURE_COPY.denied, 'approve');
