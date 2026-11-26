@@ -160,7 +160,6 @@ describe('relay client', () => {
   });
   it('sends no working frame between reconnect and ready', async () => {
     let connections = 0;
-    let sampled: boolean | undefined;
     let holdReady: (() => void) | undefined;
     const url = await server((ws) => {
       connections++;
@@ -178,8 +177,7 @@ describe('relay client', () => {
     const c = client(url, []);
     c.start();
     await waitFor(() => connections === 2 && holdReady !== undefined);
-    sampled = c.supports(SEALED_WORKING_FEATURE);
-    expect(sampled).toBe(false);
+    expect(c.supports(SEALED_WORKING_FEATURE)).toBe(false);
     holdReady!();
     await waitFor(() => c.supports(SEALED_WORKING_FEATURE));
   });
