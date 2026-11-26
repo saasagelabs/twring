@@ -354,6 +354,63 @@ describe('verification edges (PR #158)', () => {
     expect(await hasRewrapWork(store)).toBe(true);
   });
 
+  it('a re-approve during a run keeps its fresh start, not the old run cursor', async () => {
+    const { store, me } = await approvingPhone();
+    const history = Array.from({ length: 300 }, (_, i) => reply(i + 1, [me.publicKey]));
+    const phone = { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) };
+    await queueRewrap(store, phone);
+    let again = false;
+    const upload = vi.fn(async () => {
+      // The same phone is approved again while the first batch goes up.
+      if (!again) {
+        again = true;
+        await queueRewrap(store, phone);
+      }
+      return { status: 204, body: undefined };
+    });
+    await runRewrapJobs(deps(store, history, upload));
+    // The new approve still has its work to do, from the start, on the next open.
+    expect(await hasRewrapWork(store)).toBe(true);
+    expect(JSON.parse(store.m.get(REWRAP_JOBS_KEY)!)).toMatchObject([{ for: NEW_ID, chats: {} }]);
+  });
+
+  it('a job saved by an older app (no approve mark) still runs to the end', async () => {
+    const { store, me } = await approvingPhone();
+    await store.setItemAsync(
+      REWRAP_JOBS_KEY,
+      JSON.stringify([{ for: NEW_ID, public_key: base64urlEncode(newPhone.publicKey), chats: {} }]),
+    );
+    const upload = vi.fn(async () => ({ status: 204, body: undefined }));
+    await runRewrapJobs(deps(store, [reply(1, [me.publicKey])], upload));
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(await hasRewrapWork(store)).toBe(false);
+  });
+
+  it('one chat that cannot be read does not stop sharing the other chats', async () => {
+    const { store, me } = await approvingPhone();
+    const BROKEN = 'agt_' + 'b'.repeat(20);
+    const base = deps(store, [reply(1, [me.publicKey])], async () => ({
+      status: 204,
+      body: undefined,
+    }));
+    const upload = vi.fn(async () => ({ status: 204, body: undefined }));
+    await queueRewrap(store, { id: NEW_ID, public_key: base64urlEncode(newPhone.publicKey) });
+    await runRewrapJobs({
+      ...base,
+      api: { upload },
+      privateChats: () =>
+        Promise.resolve([
+          { agentId: BROKEN, address: `cord-connector://${ACCOUNT}/other` },
+          { agentId: AGENT_ID, address: ADDRESS },
+        ]),
+      messages: (agent, before) =>
+        agent === BROKEN ? Promise.reject(new Error('offline')) : base.messages(agent, before),
+    });
+    expect(upload).toHaveBeenCalledWith(AGENT_ID, expect.objectContaining({ for: NEW_ID }));
+    // The unread chat is tried again on the next open.
+    expect(await hasRewrapWork(store)).toBe(true);
+  });
+
   async function shared() {
     const { store, me } = await approvingPhone();
     const old = reply(7, [me.publicKey]);
