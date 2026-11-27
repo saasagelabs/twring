@@ -87,9 +87,10 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 /** "2026-11-27T..." as "27 Nov"; the raw date when it is not one. */
 export function addedLabel(addedAt: string): string {
-  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(addedAt);
-  const month = m ? MONTHS[Number(m[1]) - 1] : undefined;
-  return m && month ? `${Number(m[2])} ${month}` : addedAt.slice(0, 10);
+  // The phone's own day: a device added near midnight shows the date the person saw.
+  const when = new Date(addedAt);
+  if (Number.isNaN(when.getTime())) return addedAt.slice(0, 10);
+  return `${when.getDate()} ${MONTHS[when.getMonth()]}`;
 }
 
 /**

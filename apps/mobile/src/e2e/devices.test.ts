@@ -447,7 +447,7 @@ describe('phones with the same name (old installs)', () => {
   });
 
   it('formats dates in plain words', () => {
-    expect(addedLabel('2026-01-05T00:00:00.000Z')).toBe('5 Jan');
+    expect(addedLabel('2026-01-05T12:00:00.000Z')).toBe('5 Jan');
     expect(addedLabel('bad')).toBe('bad');
   });
 });
