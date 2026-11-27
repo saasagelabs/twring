@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   media: {},
   state: [] as unknown[],
   cursor: 0,
+  threads: [] as unknown[],
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -47,12 +48,14 @@ vi.mock('@/theme/tokens', () => ({
 }));
 vi.mock('@/threads/files', () => ({ humanSize: (bytes: number) => `${bytes} B` }));
 vi.mock('@/threads/media', () => ({ useMedia: () => mocks.media }));
+vi.mock('@/threads/chats', () => ({ useChatList: () => ({ threads: mocks.threads }) }));
 
 import { goBack } from '@/components/Screen';
 import MediaScreen, {
   MEDIA_EMPTY_COPY,
   MEDIA_GONE_COPY,
   MEDIA_NOT_YET_COPY,
+  MEDIA_PRIVATE_COPY,
 } from '../app/agents/[id]/media';
 
 type Props = { label?: string; accessibilityLabel?: string; children?: ReactNode };
@@ -84,6 +87,7 @@ const base = {
 beforeEach(() => {
   mocks.state = [];
   mocks.media = { ...base };
+  mocks.threads = [];
 });
 
 describe('Photos and files screen', () => {
@@ -154,5 +158,41 @@ describe('Photos and files screen', () => {
     expect(out.some((l) => l.startsWith('Photo you sent, '))).toBe(true);
     expect(out.some((l) => l.startsWith('notes.pdf, 42 B · You sent'))).toBe(true);
     expect(out).toContain('Show older');
+  });
+
+  it('replaces the empty state with the private note when the chat is private', () => {
+    mocks.threads = [{ agent_id: 'a1', private: true }];
+    const out = text(render());
+    expect(out).toContain(MEDIA_PRIVATE_COPY);
+    expect(out).not.toContain(MEDIA_EMPTY_COPY);
+  });
+
+  it('ignores a private chat with another agent', () => {
+    mocks.threads = [{ agent_id: 'other', private: true }];
+    const out = text(render());
+    expect(out).toContain(MEDIA_EMPTY_COPY);
+    expect(out).not.toContain(MEDIA_PRIVATE_COPY);
+  });
+
+  it('shows the private note above plain files', () => {
+    mocks.threads = [{ agent_id: 'a1', private: true }];
+    mocks.media = {
+      ...base,
+      items: [
+        {
+          id: 'd1',
+          name: 'notes.pdf',
+          mime_type: 'application/pdf',
+          size_bytes: 42,
+          direction: 'sent',
+          created_at: '2026-11-20T10:00:00.000Z',
+        },
+      ],
+    };
+    const tree = render();
+    const out = text(tree);
+    expect(out.indexOf(MEDIA_PRIVATE_COPY)).toBeGreaterThan(-1);
+    expect(out.indexOf(MEDIA_PRIVATE_COPY)).toBeLessThan(out.indexOf('notes.pdf'));
+    expect(out).not.toContain(MEDIA_EMPTY_COPY);
   });
 });
