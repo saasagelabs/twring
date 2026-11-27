@@ -3,12 +3,16 @@ import {
   base64urlEncode,
   deviceIdFor,
   generateSealKeyPair,
+  offerConnectorMac,
   offerKeyMac,
   pairingMac,
+  pairOfferIdSchema,
+  publicKeySchema,
   safetyCode,
   typedPairKey,
 } from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
+import { z } from 'zod';
 
 import { memoryStore } from './test-fixtures';
 import { loadOrCreateDeviceKey } from './device-key';
@@ -349,5 +353,115 @@ describe('pairing with the server the code names', () => {
         code: 'network',
       });
     });
+  });
+});
+
+describe('the connector the computer names (R4-2)', () => {
+  const CON_A = `con_${'a'.repeat(20)}`;
+  const CON_B = `con_${'b'.repeat(20)}`;
+  const devB = deviceIdFor(computer.publicKey);
+  const answerNaming = (connectorId?: string) => ({
+    body: {
+      connector_public_key: K,
+      connector_device_id: devB,
+      ...(connectorId !== undefined && { connector_id: connectorId }),
+    },
+  });
+  const qrFor = (connectorId: string) => makeQr({ s: `https://api.twring.com/#c=${connectorId}` });
+  const keyA = generateSealKeyPair().publicKey;
+  const entryA = {
+    id: deviceIdFor(keyA),
+    kind: 'computer' as const,
+    name: 'Laptop',
+    public_key: base64urlEncode(keyA),
+    verified_at: '2026-11-20T00:00:00.000Z',
+    connector_id: CON_A,
+  };
+  const typedLookup = (connectorId: string) =>
+    lookupAnswer({
+      connector_mac: offerConnectorMac(TYPED_KEY, computer.publicKey, devB, connectorId),
+    });
+
+  it('refuses a claim answer naming computer A while pairing B by QR; A stays trusted', async () => {
+    const d = deps(fakeApi(answerNaming(CON_A)));
+    await saveTrusted(d.store, [entryA]);
+    expect(await claimPairing(d, input(qrFor(CON_B)))).toEqual({ ok: false, code: 'mismatch' });
+    expect(await loadTrusted(d.store)).toEqual([entryA]);
+  });
+
+  it('refuses it with a typed code too, read as a code that did not work', async () => {
+    const d = deps(fakeApi(answerNaming(CON_A), { body: typedLookup(CON_B) }));
+    await saveTrusted(d.store, [entryA]);
+    const typed = parseTypedPairCode(TYPED)!;
+    expect(await claimPairing(d, typed)).toEqual({ ok: false, code: 'wrong_code' });
+    expect(await loadTrusted(d.store)).toEqual([entryA]);
+  });
+
+  it('pairs when the answer names the connector the computer committed to, either way', async () => {
+    const byQr = await claimPairing(deps(fakeApi(answerNaming(CON_B))), input(qrFor(CON_B)));
+    expect(byQr.ok && byQr.connector.connector_id).toBe(CON_B);
+    const byCode = await claimPairing(
+      deps(fakeApi(answerNaming(CON_B), { body: typedLookup(CON_B) })),
+      parseTypedPairCode(TYPED)!,
+    );
+    expect(byCode.ok && byCode.connector.connector_id).toBe(CON_B);
+    // An answer naming none still binds the one the computer named.
+    const none = await claimPairing(deps(fakeApi(answerNaming())), input(qrFor(CON_B)));
+    expect(none.ok && none.connector.connector_id).toBe(CON_B);
+  });
+
+  it('a typed commitment that no answer matches is refused, as is an answer naming none', async () => {
+    for (const [answer, body] of [
+      [answerNaming(CON_B), lookupAnswer({ connector_mac: 'A'.repeat(43) })],
+      [answerNaming(), typedLookup(CON_B)],
+    ] as const) {
+      const d = deps(fakeApi(answer, { body }));
+      expect(await claimPairing(d, parseTypedPairCode(TYPED)!)).toEqual({
+        ok: false,
+        code: 'wrong_code',
+      });
+    }
+  });
+
+  it('an older computer names no connector: the answer is taken as before', async () => {
+    const byQr = await claimPairing(deps(fakeApi(answerNaming(CON_A))), input());
+    expect(byQr.ok && byQr.connector.connector_id).toBe(CON_A);
+    const byCode = await claimPairing(
+      deps(fakeApi(answerNaming(CON_A))),
+      parseTypedPairCode(TYPED)!,
+    );
+    expect(byCode.ok && byCode.connector.connector_id).toBe(CON_A);
+  });
+
+  it('a newer QR still reads on an older phone (app 39 parser) with the same server', () => {
+    // apps/mobile app 39's QR schema, kept here as it shipped.
+    const app39 = z
+      .object({ s: z.url(), o: pairOfferIdSchema, k: publicKeySchema, x: publicKeySchema })
+      .strict();
+    const text = qrFor(CON_B).slice('twring-pair:'.length);
+    const link = app39.safeParse(JSON.parse(new TextDecoder().decode(base64urlDecode(text))));
+    expect(link.success).toBe(true);
+    expect(link.success && new URL(link.data.s).origin).toBe('https://api.twring.com');
+    // And the typed lookup it reads ignores the new field.
+    const app39Lookup = z.object({
+      offer_id: pairOfferIdSchema,
+      connector_public_key: publicKeySchema,
+      connector_device_id: z.string(),
+      key_mac: z.string().min(1).max(64),
+    });
+    expect(app39Lookup.safeParse(typedLookup(CON_B)).success).toBe(true);
+  });
+
+  it('limit: a server that drops connector_mac from the typed lookup is not caught', async () => {
+    // The typed code carries no flag saying the computer committed to a connector, so a server
+    // that strips connector_mac downgrades a new computer to the old, unchecked behaviour.
+    const d = deps(fakeApi(answerNaming(CON_A), { body: lookupAnswer() }));
+    const r = await claimPairing(d, parseTypedPairCode(TYPED)!);
+    expect(r.ok && r.connector.connector_id).toBe(CON_A);
+  });
+
+  it('ignores a fragment that is not a connector id', () => {
+    const odd = input(makeQr({ s: 'https://api.twring.com/#c=nope' }));
+    expect(odd.kind === 'qr' && odd.connectorId).toBeUndefined();
   });
 });

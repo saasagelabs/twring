@@ -51,6 +51,8 @@ export interface PairOfferRecord {
   handle?: string;
   /** The computer's key commitment for the typed code (`offerKeyMac`), registered with it. */
   keyMac?: string;
+  /** The computer's commitment to its connector id for the typed code (`offerConnectorMac`). */
+  connectorMac?: string;
   claim?: OfferClaim;
 }
 
@@ -95,6 +97,7 @@ type OfferRow = {
   claim: string | null;
   handle: string | null;
   key_mac: string | null;
+  connector_mac: string | null;
 };
 
 type RecoveryRow = {
@@ -144,6 +147,8 @@ export class E2eDeviceStore {
       this.db.exec('ALTER TABLE e2e_pair_offers ADD COLUMN handle TEXT');
     if (!columns.some((column) => column.name === 'key_mac'))
       this.db.exec('ALTER TABLE e2e_pair_offers ADD COLUMN key_mac TEXT');
+    if (!columns.some((column) => column.name === 'connector_mac'))
+      this.db.exec('ALTER TABLE e2e_pair_offers ADD COLUMN connector_mac TEXT');
     this.db.exec(
       'CREATE INDEX IF NOT EXISTS e2e_pair_offers_handle ON e2e_pair_offers(user_id, handle)',
     );
@@ -327,7 +332,7 @@ export class E2eDeviceStore {
         throw new E2eDeviceError('handle_taken');
       this.db
         .prepare(
-          'INSERT INTO e2e_pair_offers(id,user_id,connector_id,connector_device_id,connector_public_key,expires_at,handle,key_mac) VALUES(?,?,?,?,?,?,?,?)',
+          'INSERT INTO e2e_pair_offers(id,user_id,connector_id,connector_device_id,connector_public_key,expires_at,handle,key_mac,connector_mac) VALUES(?,?,?,?,?,?,?,?,?)',
         )
         .run(
           id,
@@ -338,6 +343,7 @@ export class E2eDeviceStore {
           input.expiresAt.toISOString(),
           input.handle ?? null,
           input.keyMac ?? null,
+          input.connectorMac ?? null,
         );
     });
     return this.offer(userId, id)!;
@@ -371,6 +377,7 @@ export class E2eDeviceStore {
       expiresAt: row.expires_at,
       ...(row.handle !== null && { handle: row.handle }),
       ...(row.key_mac !== null && { keyMac: row.key_mac }),
+      ...(row.connector_mac !== null && { connectorMac: row.connector_mac }),
       ...(row.claim !== null && { claim: JSON.parse(row.claim) as OfferClaim }),
     };
   }

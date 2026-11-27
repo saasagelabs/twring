@@ -9,6 +9,8 @@ import {
   formatTypedPairCode,
   newTypedPairCode,
   normalizeTypedPairCode,
+  offerConnectorMac,
+  offerConnectorMacMatches,
   offerKeyMac,
   offerKeyMacMatches,
   splitTypedPairCode,
@@ -94,6 +96,19 @@ describe('typed pairing code', () => {
     }
     expect(mac).toBe(base64urlEncode(hmac(sha256, key, data)));
     expect(mac).toMatchInlineSnapshot(`"kO8Lj_nP6YchSu9EeiBpePpXfAcT4GMHr47XcdHByHQ"`);
+  });
+
+  it('commits to the connector id apart from the key commitment (R4-2)', () => {
+    const key = typedPairKey('M9XD4HTPW3RV');
+    const con = `con_${'a'.repeat(20)}`;
+    const mac = offerConnectorMac(key, pub, devId, con);
+    expect(mac).not.toBe(offerKeyMac(key, pub, devId));
+    expect(offerConnectorMacMatches(key, pub, devId, con, mac)).toBe(true);
+    expect(offerConnectorMacMatches(key, pub, devId, `con_${'b'.repeat(20)}`, mac)).toBe(false);
+    expect(offerConnectorMacMatches(typedPairKey('M9XD4HTPW3RW'), pub, devId, con, mac)).toBe(
+      false,
+    );
+    expect(offerConnectorMacMatches(key, pub, devId, con, '%%')).toBe(false);
   });
 
   it('checks the commitment: another key, id or secret fails', () => {

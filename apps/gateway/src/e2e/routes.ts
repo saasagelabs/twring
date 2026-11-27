@@ -80,9 +80,15 @@ const offerRequestSchema = z
       .string()
       .regex(/^[A-Za-z0-9_-]{1,64}$/)
       .optional(),
+    /** The typed code's commitment to this connector (`offerConnectorMac`, R4-2). */
+    connector_mac: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]{1,64}$/)
+      .optional(),
   })
   .strict()
-  .refine((body) => (body.handle === undefined) === (body.key_mac === undefined));
+  .refine((body) => (body.handle === undefined) === (body.key_mac === undefined))
+  .refine((body) => body.connector_mac === undefined || body.key_mac !== undefined);
 const lookupRequestSchema = z.object({ handle: typedPairHandleSchema }).strict();
 const addDevicesRequestSchema = z.object({ offer_id: pairOfferIdSchema }).strict();
 const waitQuerySchema = z
@@ -211,6 +217,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
         expiresAt: new Date(now().getTime() + PAIR_OFFER_TTL_MS),
         ...(body.data.handle !== undefined && { handle: body.data.handle }),
         ...(body.data.key_mac !== undefined && { keyMac: body.data.key_mac }),
+        ...(body.data.connector_mac !== undefined && { connectorMac: body.data.connector_mac }),
       });
     } catch (cause) {
       // The computer picks another code and offers again.
@@ -243,6 +250,8 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       connector_public_key: offer.connectorPublicKey,
       connector_device_id: offer.connectorDeviceId,
       key_mac: offer.keyMac,
+      // Older computers register none; phones then take the claim's connector id as before.
+      ...(offer.connectorMac !== undefined && { connector_mac: offer.connectorMac }),
     };
   });
 

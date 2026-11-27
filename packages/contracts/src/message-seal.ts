@@ -590,6 +590,53 @@ export function offerKeyMacMatches(
   return diff === 0;
 }
 
+const PAIR_CONNECTOR_PREFIX = utf8.encode('twring-pair-connector-v1');
+
+/**
+ * The typed code's commitment to which connector (`con_...`) the computer is (R4-2): HMAC-SHA256
+ * with the typed key over `twring-pair-connector-v1`, the computer's public key, its device id
+ * and its connector id (each length-prefixed). A separate MAC so `offerKeyMac` stays as older
+ * phones check it. The phone refuses a claim answer naming another connector.
+ */
+export function offerConnectorMac(
+  typedKey: Uint8Array,
+  connectorPublic: Uint8Array,
+  connectorDeviceId: string,
+  connectorId: string,
+): string {
+  need32(connectorPublic, 'public key');
+  const data = concat(
+    PAIR_CONNECTOR_PREFIX,
+    lengthPrefixed(connectorPublic),
+    lengthPrefixed(utf8.encode(connectorDeviceId)),
+    lengthPrefixed(utf8.encode(connectorId)),
+  );
+  return base64urlEncode(hmac(sha256, typedKey, data));
+}
+
+/** Constant-time check of `offerConnectorMac`; false for anything malformed. */
+export function offerConnectorMacMatches(
+  typedKey: Uint8Array,
+  connectorPublic: Uint8Array,
+  connectorDeviceId: string,
+  connectorId: string,
+  mac: string,
+): boolean {
+  let given: Uint8Array;
+  try {
+    given = base64urlDecode(mac);
+  } catch {
+    return false;
+  }
+  const expected = base64urlDecode(
+    offerConnectorMac(typedKey, connectorPublic, connectorDeviceId, connectorId),
+  );
+  if (given.length !== expected.length) return false;
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected[i]! ^ given[i]!;
+  return diff === 0;
+}
+
 /** Why a listed device's trust note was not applied (logged as a reason only). */
 export type TrustNoteRefusal =
   | 'no_note'

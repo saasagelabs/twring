@@ -7,6 +7,7 @@ import {
   e2eDeviceSchema,
   formatTypedPairCode,
   newTypedPairCode,
+  offerConnectorMac,
   offerKeyMac,
   pairKeyKindSchema,
   pairOfferIdSchema,
@@ -37,6 +38,16 @@ export const pairLinkSchema = z
 export type PairLink = z.infer<typeof pairLinkSchema>;
 
 export const PAIR_LINK_PREFIX = 'twring-pair:';
+
+/**
+ * The QR's server with this computer's connector id in its fragment (R4-2), e.g.
+ * `https://host/#c=con_...`. Phones read only the origin of `s` and older ones parse the QR
+ * strictly, so a new key would break them; the fragment does not. Newer phones refuse a claim
+ * answer naming another connector.
+ */
+export function pairServer(origin: string, connectorId: string): string {
+  return `${origin}/#c=${encodeURIComponent(connectorId)}`;
+}
 
 export function pairLink(link: PairLink): string {
   return `${PAIR_LINK_PREFIX}${base64urlEncode(new TextEncoder().encode(JSON.stringify(link)))}`;
@@ -144,20 +155,28 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     // its secret never does. A handle already live in the account gets a fresh code.
     let typed: { code: string; key: Uint8Array } | undefined;
     let offered: Response | undefined;
-    for (let tries = 0; tries < MAX_HANDLE_TRIES; tries++) {
-      const code = newTypedPairCode();
-      const { handle, secret: typedSecret } = splitTypedPairCode(code);
-      typed = { code, key: typedPairKey(typedSecret) };
-      offered = await call('/v1/e2e/pairings', {
-        method: 'POST',
-        body: JSON.stringify({
-          connector_public_key: e2e.public_key,
-          connector_device_id: e2e.device_id,
-          handle,
-          key_mac: offerKeyMac(typed.key, mine, e2e.device_id),
-        }),
-      });
-      if (offered.status !== 409 || (await errorCode(offered.clone())) !== 'handle_taken') break;
+    // The connector commitment (R4-2) first; a server from before it refuses the new field, so
+    // the offer is made again without it.
+    for (const withConnector of [true, false]) {
+      for (let tries = 0; tries < MAX_HANDLE_TRIES; tries++) {
+        const code = newTypedPairCode();
+        const { handle, secret: typedSecret } = splitTypedPairCode(code);
+        typed = { code, key: typedPairKey(typedSecret) };
+        offered = await call('/v1/e2e/pairings', {
+          method: 'POST',
+          body: JSON.stringify({
+            connector_public_key: e2e.public_key,
+            connector_device_id: e2e.device_id,
+            handle,
+            key_mac: offerKeyMac(typed.key, mine, e2e.device_id),
+            ...(withConnector && {
+              connector_mac: offerConnectorMac(typed.key, mine, e2e.device_id, config.connector_id),
+            }),
+          }),
+        });
+        if (offered.status !== 409 || (await errorCode(offered.clone())) !== 'handle_taken') break;
+      }
+      if (offered?.status !== 400) break;
     }
     if (offered?.status === 400) {
       // A server from before typed codes refuses the new fields: offer the QR alone.
@@ -175,7 +194,7 @@ export async function pairPhone(options: PairPhoneOptions): Promise<PairOutcome>
     const offer = offerResponseSchema.parse(await offered.json());
     const secret = randomBytes(32);
     const link = pairLink({
-      s: server.origin,
+      s: pairServer(server.origin, config.connector_id),
       o: offer.offer_id,
       k: e2e.public_key,
       x: base64urlEncode(secret),

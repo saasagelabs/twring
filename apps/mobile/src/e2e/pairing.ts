@@ -6,6 +6,7 @@ import {
   e2eDeviceIdSchema,
   e2eDeviceKindSchema,
   normalizeTypedPairCode,
+  offerConnectorMacMatches,
   offerKeyMacMatches,
   pairingMac,
   pairOfferIdSchema,
@@ -58,7 +59,28 @@ const trustedListSchema = z.array(trustedDeviceSchema).max(16);
  * phone's active server, where its handle finds the offer.
  */
 export type PairInput =
-  { kind: 'qr'; offer: PairOffer; server: string } | { kind: 'typed'; code: string };
+  | {
+      kind: 'qr';
+      offer: PairOffer;
+      server: string;
+      /** The computer's connector (`con_...`) from the QR's server fragment; older QRs have none. */
+      connectorId?: string;
+    }
+  | { kind: 'typed'; code: string };
+
+/**
+ * A newer computer puts its connector id in the QR server's fragment (`https://host/#c=con_...`,
+ * R4-2): older phones parse the QR strictly, so a new key would break them, and read only the
+ * origin of `s`.
+ */
+function connectorIdIn(server: string): string | undefined {
+  try {
+    const id = new URLSearchParams(new URL(server).hash.slice(1)).get('c');
+    return connectorIdSchema.safeParse(id).success ? (id ?? undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** A typed code as people type it (`normalizeTypedPairCode`), or undefined when it is not one. */
 export function parseTypedPairCode(text: string): PairInput | undefined {
@@ -75,10 +97,12 @@ export function parsePairInput(text: string): PairInput | undefined {
     );
     const link = pairLinkSchema.safeParse(json);
     if (!link.success) return undefined;
+    const connectorId = connectorIdIn(link.data.s);
     return {
       kind: 'qr',
       server: link.data.s,
       offer: { offer_id: link.data.o, connector_public_key: link.data.k, secret: link.data.x },
+      ...(connectorId !== undefined && { connectorId }),
     };
   } catch {
     return undefined;
@@ -127,6 +151,8 @@ const lookupAnswerSchema = z.object({
   connector_public_key: publicKeySchema,
   connector_device_id: e2eDeviceIdSchema,
   key_mac: z.string().min(1).max(64),
+  /** The computer's commitment to its connector id (R4-2); absent from older computers. */
+  connector_mac: z.string().min(1).max(64).optional(),
 });
 const errorSchema = z.object({ error: z.object({ code: z.string() }) });
 
@@ -153,6 +179,17 @@ interface ClaimPlan {
   connectorPublicKey: string;
   macKey: Uint8Array;
   key?: 'typed';
+  /** The connector the QR names; the claim answer must name the same one (R4-2). */
+  connectorId?: string;
+  /**
+   * A typed offer's connector commitment, checked against the claim answer's connector id.
+   * Known limit: it is optional so older connectors keep pairing, and the typed code itself
+   * carries no flag saying the computer made one. A hostile server can therefore strip it from
+   * the lookup and the phone falls back to the unchecked, pre-R4-2 behaviour. The QR path has no
+   * such gap (the fragment never reaches the server). Make it required once connectors without
+   * it are retired.
+   */
+  connectorMac?: string;
 }
 
 /**
@@ -188,6 +225,7 @@ async function typedPlan(
     connectorPublicKey: found.data.connector_public_key,
     macKey,
     key: 'typed',
+    ...(found.data.connector_mac !== undefined && { connectorMac: found.data.connector_mac }),
   };
 }
 
@@ -213,6 +251,7 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
       offerId: input.offer.offer_id,
       connectorPublicKey: input.offer.connector_public_key,
       macKey: base64urlDecode(input.offer.secret),
+      ...(input.connectorId !== undefined && { connectorId: input.connectorId }),
     };
   }
   // With a typed code a refused claim reads as a wrong code, except a full list or no network.
@@ -253,10 +292,26 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
   const parsed = claimAnswerSchema.safeParse(answer.body);
   // A server that names another key or id than the QR (or the checked lookup) implies is
   // refused: never trusted.
+  // So is one naming another connector than the computer itself named (R4-2): it would bind this
+  // computer to another computer's chats and drop that one from the trusted list.
+  const answeredId = parsed.success ? parsed.data.connector_id : undefined;
+  const connectorId = plan.connectorId ?? answeredId;
   if (
     !parsed.success ||
     parsed.data.connector_public_key !== plan.connectorPublicKey ||
-    parsed.data.connector_device_id !== connectorDeviceId
+    parsed.data.connector_device_id !== connectorDeviceId ||
+    (plan.connectorId !== undefined &&
+      answeredId !== undefined &&
+      answeredId !== plan.connectorId) ||
+    (plan.connectorMac !== undefined &&
+      (answeredId === undefined ||
+        !offerConnectorMacMatches(
+          plan.macKey,
+          connectorKey,
+          connectorDeviceId,
+          answeredId,
+          plan.connectorMac,
+        )))
   ) {
     const code = failure('mismatch');
     deps.log?.('e2e_pair_failed', { reason: code });
@@ -271,7 +326,7 @@ export async function claimPairing(deps: PairDeps, input: PairInput): Promise<Cl
       name: 'Computer',
       public_key: plan.connectorPublicKey,
       verified_at: new Date(deps.now?.() ?? Date.now()).toISOString(),
-      ...(parsed.data.connector_id !== undefined && { connector_id: parsed.data.connector_id }),
+      ...(connectorId !== undefined && { connector_id: connectorId }),
     },
   };
 }
@@ -318,10 +373,10 @@ export function confirmPairing(
   return withTrustLock(deps.store, async () => {
     const current = await loadTrusted(deps.store);
     // A computer set up again (new key, same connector) replaces its old entry: the old key may
-    // have leaked, and only a server marking it removed would drop it otherwise. The connector id
-    // comes from the claim answer, which the pairing checks do not cover (R4-2), but this gives
-    // the server no new power: it can already take any device's trust away by listing it as
-    // removed. It only ever removes trust; it never adds a device the person did not check.
+    // have leaked, and only a server marking it removed would drop it otherwise. A newer computer
+    // commits to its connector id and the claim checks it (R4-2); from an older one the id is the
+    // server's word, which gives the server no new power: it can already take any device's trust
+    // away by listing it as removed. It never adds a device the person did not check.
     const others = current.filter(
       (d) =>
         d.id !== connector.id &&
