@@ -22,6 +22,7 @@ import {
   requestApproval,
   resumePendingApprove,
   revealApproval,
+  settlePendingApprove,
   shownApprover,
   type ApproveApi,
   type CheckedApproval,
@@ -649,10 +650,41 @@ describe('an approve whose answer was lost', () => {
     await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
     await env.tStore.setItemAsync(REMOVED_KEY_NAME, JSON.stringify([env.n.deviceId]));
     tries = 0;
-    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('ended');
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('removed');
     expect(tries).toBe(0);
     expect((await loadTrusted(env.tStore)).map((d) => d.id)).not.toContain(env.n.deviceId);
     expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+  });
+
+  it('runs once at a time, and an approve tapped meanwhile waits for it', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    env.api.accept = () => Promise.reject(new Error('offline'));
+    const wait = () => Promise.resolve();
+    await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let accepts = 0;
+    env.api.accept = async () => {
+      accepts += 1;
+      await held;
+      return { status: 200, body: { ...env.row(), state: 'accepted' } };
+    };
+    const first = resumePendingApprove({ api: env.api, store: env.tStore, wait });
+    const second = resumePendingApprove({ api: env.api, store: env.tStore, wait });
+    expect(second).toBe(first);
+    let settled = false;
+    const settling = settlePendingApprove(env.tStore).then(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(settled).toBe(false);
+    release();
+    expect(await first).toBe('done');
+    await settling;
+    expect(accepts).toBe(1);
   });
 
   it('ends a saved approve the server turned down, and a saved record it cannot read', async () => {

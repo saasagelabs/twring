@@ -22,6 +22,8 @@ import {
   listWaiting,
   pollApproval,
   resumePendingApprove,
+  settlePendingApprove,
+  type ResumeResult,
   WAITING_TITLE,
   type CheckedApproval,
   type ClaimedApproval,
@@ -112,25 +114,34 @@ export default function PrivateDevicesScreen() {
   }, []);
   const load = useCallback(async () => apply(await fetchDevices()), [apply]);
   /** An approve whose answer was lost: finished now if the connection is back. */
-  const finishLostApprove = useCallback(async () => {
+  const finishLostApprove = useCallback(async (): Promise<ResumeResult> => {
     const store = privateKeychain();
+    // Nothing readable is nothing to finish: a keychain that fails says nothing about an approve.
     const out = await resumePendingApprove({ api: approveApi(), store }).catch(
-      () => 'waiting' as const,
+      () => 'none' as const,
     );
     const api = twringApi();
     if (out === 'done' && api !== undefined)
       void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
     return out;
   }, []);
+  /** After the list loaded (which clears the error): what became of that approve, if anything. */
+  const sayResumed = (out: ResumeResult) => {
+    if (out === 'ended') setError(APPROVE_FAILED);
+    else if (out === 'waiting') setError(APPROVE_UNFINISHED);
+  };
 
   useEffect(() => {
     let current = true;
-    void fetchDevices().then((found) => {
-      if (current) apply(found);
-    });
-    void finishLostApprove().then((out) => {
-      if (current && out === 'done') void load();
-    });
+    void (async () => {
+      const found = await fetchDevices();
+      if (!current) return;
+      apply(found);
+      const out = await finishLostApprove();
+      if (!current) return;
+      if (out === 'done') await load();
+      else sayResumed(out);
+    })();
     return () => {
       current = false;
     };
@@ -225,6 +236,8 @@ export default function PrivateDevicesScreen() {
     setSheetError(undefined);
     try {
       const deps = { api: approveApi(), store: privateKeychain() };
+      // A saved approve still finishing runs first, so the two never race (`resumePendingApprove`).
+      await settlePendingApprove(deps.store);
       const out =
         approve && approving.checked !== undefined
           ? await approveWaiting(deps, approving.checked)
@@ -266,7 +279,12 @@ export default function PrivateDevicesScreen() {
         {error !== undefined && (
           <ErrorNotice
             error={{ message: error, retryable: true }}
-            onRetry={() => void finishLostApprove().then(() => load())}
+            onRetry={() =>
+              void finishLostApprove().then(async (out) => {
+                await load();
+                sayResumed(out);
+              })
+            }
           />
         )}
         {state === undefined && error === undefined && (

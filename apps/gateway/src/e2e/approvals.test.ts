@@ -398,6 +398,11 @@ describe('second-phone approval: commit, then reveal (ADR-046)', () => {
     expect(listed.devices.filter((d) => d.id === idOf(9))).toHaveLength(1);
     // Only the phone that approved gets that answer.
     expect((await accept(g, id, 2)).json().error.code).toBe('approval_closed');
+    // Once the new phone is removed, a late repeat no longer reads as approved.
+    expect((await g.send('DELETE', `/v1/e2e/devices/${idOf(9)}`, { user: 'u1' })).statusCode).toBe(
+      204,
+    );
+    expect((await accept(g, id, 1)).json().error.code).toBe('approval_closed');
   });
 
   it('an accept that skips the nonce or the reveal turns the request down', async () => {

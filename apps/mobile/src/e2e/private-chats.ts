@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import type { JsonStore } from '../threads/outbox-storage';
+import { PENDING_APPROVE_KEY_NAME } from './approve';
 import { forgetDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
 import { forgetTrusted, loadTrusted, type TrustedDevice } from './pairing';
 import {
@@ -515,7 +516,9 @@ export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> 
   await Promise.all([
     forgetDeviceKey(store).catch(() => undefined),
     forgetTrusted(store).catch(() => undefined),
-    // Re-wrap jobs share this phone's keys with a new phone: they go with the keys.
+    // Re-wrap jobs share this phone's keys with a new phone, and an approve left to finish
+    // vouches for one: both go with the keys.
     store.deleteItemAsync(REWRAP_JOBS_KEY).catch(() => undefined),
+    store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
   ]);
 }

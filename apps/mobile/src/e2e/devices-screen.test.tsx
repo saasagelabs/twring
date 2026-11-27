@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   claimWaiting: vi.fn(),
   approveWaiting: vi.fn(),
   denyWaiting: vi.fn(),
+  resumePendingApprove: vi.fn(),
   announce: vi.fn(),
 }));
 
@@ -57,6 +58,7 @@ vi.mock('@/e2e/approve', async () => ({
   claimWaiting: mocks.claimWaiting,
   approveWaiting: mocks.approveWaiting,
   denyWaiting: mocks.denyWaiting,
+  resumePendingApprove: mocks.resumePendingApprove,
 }));
 vi.mock('@/e2e/pair-api', () => ({ approveApi: () => ({}) }));
 vi.mock('@/e2e/devices', async () => import('./devices'));
@@ -289,6 +291,32 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(mocks.state[ERROR]).toBe(
       "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.",
     );
+  });
+
+  it.each([
+    [
+      'ended',
+      "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.",
+    ],
+    [
+      'waiting',
+      "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.",
+    ],
+    ['removed', undefined],
+    ['none', undefined],
+  ])('says what became of a saved approve after Retry (%s)', async (out, said) => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[ERROR] = 'Twring could not load your devices. Check your connection and try again.';
+    mocks.resumePendingApprove.mockResolvedValueOnce(out);
+    const notice = render().find((e) => e.type === 'ErrorNotice')!;
+    (notice.props.onRetry as () => void)();
+    await flush();
+    await flush();
+    expect(mocks.resumePendingApprove).toHaveBeenCalled();
+    // The list reload (no server here, so it reports a load error) runs first; the approve's
+    // own outcome is said after it.
+    if (said !== undefined) expect(mocks.state[ERROR]).toBe(said);
+    else expect(mocks.state[ERROR]).not.toMatch(/approv/i);
   });
 
   it('opens a waiting phone without an error left from another one', async () => {

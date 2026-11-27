@@ -710,18 +710,36 @@ export async function approveWaiting(
   return { ok: true };
 }
 
-/**
- * Finishes an approve whose answer was lost, when Devices opens again: the person already checked
- * the codes and tapped Approve, and the server answers the same phone's repeat the same way. A
- * phone the person removed since is dropped instead. 'waiting': still offline, kept for later.
- */
-export async function resumePendingApprove(deps: {
+type ResumeDeps = {
   api: Pick<ApproveApi, 'accept'>;
   store: SecureKeyValue;
   now?: () => number;
   log?: Log;
   wait?: (ms: number) => Promise<void>;
-}): Promise<'none' | 'done' | 'waiting' | 'ended'> {
+};
+/** 'waiting': still offline, kept for later; 'removed': dropped, the person removed that phone. */
+export type ResumeResult = 'none' | 'done' | 'waiting' | 'ended' | 'removed';
+const resuming = new WeakMap<SecureKeyValue, Promise<ResumeResult>>();
+
+/**
+ * Finishes an approve whose answer was lost, when Devices opens again: the person already checked
+ * the codes and tapped Approve, and the server answers the same phone's repeat the same way. A
+ * phone the person removed since is dropped instead. One run at a time per keychain.
+ */
+export function resumePendingApprove(deps: ResumeDeps): Promise<ResumeResult> {
+  const current = resuming.get(deps.store);
+  if (current !== undefined) return current;
+  const work = resumeOnce(deps).finally(() => resuming.delete(deps.store));
+  resuming.set(deps.store, work);
+  return work;
+}
+
+/** Waits for a resume in flight, so an approve tapped meanwhile runs after it, not beside it. */
+export async function settlePendingApprove(store: SecureKeyValue): Promise<void> {
+  await resuming.get(store)?.catch(() => undefined);
+}
+
+async function resumeOnce(deps: ResumeDeps): Promise<ResumeResult> {
   const saved = await loadRecord(deps.store, PENDING_APPROVE_KEY_NAME, pendingApproveSchema);
   if (saved === 'missing') return 'none';
   const end = async (id?: string) => {
@@ -734,7 +752,7 @@ export async function resumePendingApprove(deps: {
   }
   if ((await removedIds(deps.store)).includes(saved.approval.device_id)) {
     await end(saved.approval.id);
-    return 'ended';
+    return 'removed';
   }
   const out = await approveWaiting(deps, saved);
   if (out.ok) return 'done';

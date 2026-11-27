@@ -666,8 +666,12 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       const approval = approvalFor(userId, request.params.id, reply);
       if (approval === undefined) return reply;
       // The same phone again after its answer was lost on the way: the accept already went
-      // through, so it gets the same answer and nothing changes twice.
-      if (approval.state === 'accepted' && approval.approver?.id === approver.id) return approval;
+      // through, so it gets the same answer and nothing changes twice. Not once the new phone was
+      // removed: the approving phone must not take it back in.
+      if (approval.state === 'accepted' && approval.approver?.id === approver.id)
+        return devices.get(userId, approval.device_id) === undefined
+          ? sendError(reply, 409, 'approval_closed')
+          : approval;
       if (approval.state !== 'claimed' || approval.approver?.id !== approver.id)
         return sendError(reply, 409, 'approval_closed');
       let accepted;
