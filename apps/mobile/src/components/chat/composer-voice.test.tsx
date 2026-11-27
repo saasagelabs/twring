@@ -113,6 +113,15 @@ const card = (all: ReactElement<Props>[]) => of(all, 'VoiceConsentCard');
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('the mic in a private chat', () => {
+  it('closes the card when the chat no longer asks', async () => {
+    mic(render(true))();
+    await flush();
+    expect(card(render(false))).toHaveLength(0);
+    // Asking again later does not reopen it without a tap.
+    render(false);
+    expect(card(render(true))).toHaveLength(0);
+  });
+
   it('shows the card and does not record', async () => {
     mic(render(true))();
     await flush();

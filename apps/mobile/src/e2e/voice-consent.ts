@@ -1,4 +1,5 @@
 import type { SecureKeyValue } from '../auth/storage';
+import { writeWhileKept } from './approve';
 
 /**
  * Chats where the person said yes to voice notes going through Twring's server (owner,
@@ -35,10 +36,13 @@ export async function hasVoiceConsent(store: SecureKeyValue, agentId: string): P
   }
 }
 
+/** Ordered against sign-out: a yes still being written then is not saved after the keys go. */
 export async function giveVoiceConsent(store: SecureKeyValue, agentId: string): Promise<void> {
-  const ids = (await read(store).catch(() => [])).filter((id) => id !== agentId);
-  ids.push(agentId);
-  await store.setItemAsync(VOICE_CONSENT_KEY, JSON.stringify(ids.slice(-VOICE_CONSENT_CAP)));
+  await writeWhileKept(store, async () => {
+    const ids = (await read(store).catch(() => [])).filter((id) => id !== agentId);
+    ids.push(agentId);
+    await store.setItemAsync(VOICE_CONSENT_KEY, JSON.stringify(ids.slice(-VOICE_CONSENT_CAP)));
+  });
 }
 
 export async function clearVoiceConsent(store: SecureKeyValue, agentId: string): Promise<void> {

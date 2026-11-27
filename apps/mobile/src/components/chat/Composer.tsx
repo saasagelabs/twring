@@ -73,6 +73,8 @@ export function Composer({
   const [note, setNote] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
   const [asking, setAsking] = useState(false);
+  // A chat that stops asking (no longer private, or consent loaded) closes the card for good.
+  if (asking && !askBeforeVoice) setAsking(false);
   const fileCount = files?.length ?? 0;
   const started = useRef(0);
   const stopped = useRef(false);
@@ -189,7 +191,7 @@ export function Composer({
       {filesAvailable && (
         <AttachmentTray files={files ?? []} onRemove={(clientId) => onRemoveFile?.(clientId)} />
       )}
-      {asking && !recording && (
+      {asking && !!askBeforeVoice && !recording && (
         <VoiceConsentCard
           onCancel={() => setAsking(false)}
           onRecord={() => {

@@ -21,6 +21,26 @@ function memory(): SecureKeyValue & { map: Map<string, string> } {
 }
 
 describe('voice-note consent per private chat', () => {
+  it('a yes still being written at sign-out is not saved after the keys go', async () => {
+    const store = memory();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const get = (key: string) => store.map.get(key) ?? null;
+    store.getItemAsync = async (key) => {
+      await gate;
+      return get(key);
+    };
+    const giving = giveVoiceConsent(store, 'a1');
+    const forgetting = forgetPrivateDevice(store);
+    release();
+    await Promise.all([giving, forgetting]);
+    expect(store.map.has(VOICE_CONSENT_KEY)).toBe(false);
+    // A yes after sign-out finished is kept again.
+    store.getItemAsync = (key) => Promise.resolve(get(key));
+    await giveVoiceConsent(store, 'a1');
+    expect(await hasVoiceConsent(store, 'a1')).toBe(true);
+  });
+
   it('round trips per chat and clears one chat', async () => {
     const store = memory();
     expect(await hasVoiceConsent(store, 'a1')).toBe(false);

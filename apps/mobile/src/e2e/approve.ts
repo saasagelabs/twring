@@ -668,6 +668,17 @@ function whileKept<T>(
 }
 
 /**
+ * Runs a keychain write so that a forget waits for it, or skips it (undefined) when the keys are
+ * being cleared: a write that started before sign-out never lands after it.
+ */
+export function writeWhileKept<T>(
+  store: SecureKeyValue,
+  work: () => Promise<T>,
+): Promise<T> | undefined {
+  return whileKept(store, epochNow(store), work);
+}
+
+/**
  * Clears this phone's private keys with `clear` so that no approve writes anything after: those
  * already running and those starting meanwhile write nothing more, and writes already under way
  * finish first. It never waits for the network.
