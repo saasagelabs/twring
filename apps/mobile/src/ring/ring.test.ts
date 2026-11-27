@@ -140,7 +140,26 @@ describe('invite state', () => {
         error: new ApiError('network'),
       },
     );
-    expect(reduceIncoming(failed, { type: 'LOADED', status: 'answered' })).toEqual({
+    // The failed answer may have reached the server: "answered" keeps Try again, which resumes it.
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'answered' })).toBe(failed);
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'declined' })).toEqual({
+      phase: 'ended',
+      why: 'declined',
+    });
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'cancelled' })).toEqual({
+      phase: 'ended',
+      why: 'cancelled',
+    });
+    // A refused answer (busy line) never reached the server: "answered" was another phone.
+    const refused = reduceIncoming(
+      { phase: 'answering' },
+      {
+        type: 'ANSWER_FAILED',
+        error: new ApiError('http', 'call_in_progress', 'r', undefined, 409),
+      },
+    );
+    expect(refused.phase).toBe('failed');
+    expect(reduceIncoming(refused, { type: 'LOADED', status: 'answered' })).toEqual({
       phase: 'ended',
       why: 'answered_elsewhere',
     });

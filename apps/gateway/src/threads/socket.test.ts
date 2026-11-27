@@ -232,14 +232,17 @@ describe('phone socket', () => {
   });
 
   it('stops counting a focused socket once its ping goes unanswered (finding 13)', async () => {
-    const { connect, hub } = await setup({ pingMs: 100, unansweredMs: 50 });
+    const { connect, hub } = await setup({ pingMs: 300, unansweredMs: 50 });
     const lost = await connect('alice', false);
     const agentId = `agt_${'a'.repeat(20)}`;
+    const pinged = new Promise((resolve) => lost.once('ping', resolve));
     lost.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
     await tick();
     expect(hub.isFocused('alice', agentId)).toBe(true);
-    // The first ping goes out at 100 ms; 50 ms later it counts as unanswered.
-    await tick(170);
+    // Pings share one server timer, so time from the ping itself: it counts as unanswered 50 ms
+    // later, and the next ping (which ends the socket) is 300 ms after it.
+    await pinged;
+    await tick(150);
     expect(lost.readyState).toBe(WebSocket.OPEN);
     expect(hub.isFocused('alice', agentId)).toBe(false);
   });

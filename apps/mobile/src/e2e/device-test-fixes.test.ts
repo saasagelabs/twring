@@ -22,7 +22,7 @@ import {
   PAIR_AGAIN_ACTION,
 } from './devices';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
-import { PrivateChats, SealError, SENDER_LOOKUP_MS } from './private-chats';
+import { PrivateChats, REMOVED_CHECK_MS, SealError, SENDER_LOOKUP_MS } from './private-chats';
 import { PAIR_AGAIN } from './private-state';
 import { REWRAP_JOBS_KEY } from './rewrap';
 import {
@@ -605,6 +605,49 @@ describe('a phone approved after the chat loaded (device test 2026-11-27)', () =
       expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual(['couldnt_open']);
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('a sender the server list does not know is not looked up again (combined review)', async () => {
+    const { c, calls } = await loaded(() => [listedPhone(phone.id), listed(computer)]);
+    const stranger = keys();
+    expect(c.open(AGENT, [fromPhone(stranger, 1)])).toBeUndefined();
+    await c.context(AGENT);
+    expect(calls()).toBe(2);
+    const later = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * REMOVED_CHECK_MS);
+    try {
+      // A removed phone or this phone before a reinstall: the chat opens at once, no new read.
+      const messages = [fromPhone(stranger, 1), fromPhone(stranger, 2)];
+      expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual([
+        'couldnt_open',
+        'couldnt_open',
+      ]);
+      await settle();
+      expect(calls()).toBe(2);
+    } finally {
+      later.mockRestore();
+    }
+  });
+
+  it('a lookup that could not read the list tries again after 30 s', async () => {
+    let offline = false;
+    const { c, calls } = await loaded(() => {
+      if (offline) throw new Error('offline');
+      return [listedPhone(phone.id), listed(computer)];
+    });
+    offline = true;
+    const stranger = keys();
+    expect(c.open(AGENT, [fromPhone(stranger, 1)])).toBeUndefined();
+    await c.context(AGENT);
+    const tried = calls();
+    offline = false;
+    const later = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + REMOVED_CHECK_MS + 1);
+    try {
+      expect(c.open(AGENT, [fromPhone(stranger, 1)])).toBeUndefined();
+      await c.context(AGENT);
+      expect(calls()).toBe(tried + 1);
+    } finally {
+      later.mockRestore();
     }
   });
 
