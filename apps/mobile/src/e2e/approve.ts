@@ -699,7 +699,7 @@ export async function approveWaiting(
     await deps.store
       .setItemAsync(PENDING_APPROVE_KEY_NAME, JSON.stringify(checked))
       .catch(() => undefined);
-  else await deps.store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
+  else await dropPending(deps.store, approval.id);
   if (!done.ok) return done;
   // Older private messages: this phone shares them next (`rewrap.ts`), now and on later opens.
   await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
@@ -708,6 +708,19 @@ export async function approveWaiting(
   await forgetApprovalSecrets(deps.store, approval.id);
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
+}
+
+/**
+ * Clears the saved approve only when it is this approval's (or unreadable): finishing or turning
+ * down one phone must not drop another approve still waiting to finish.
+ */
+async function dropPending(store: SecureKeyValue, id: string): Promise<void> {
+  const saved = await loadRecord(store, PENDING_APPROVE_KEY_NAME, pendingApproveSchema).catch(
+    () => 'missing' as const,
+  );
+  if (saved === 'missing') return;
+  if (saved === 'bad' || saved.approval.id === id)
+    await store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
 }
 
 type ResumeDeps = {
@@ -742,12 +755,12 @@ export async function settlePendingApprove(store: SecureKeyValue): Promise<void>
 async function resumeOnce(deps: ResumeDeps): Promise<ResumeResult> {
   const saved = await loadRecord(deps.store, PENDING_APPROVE_KEY_NAME, pendingApproveSchema);
   if (saved === 'missing') return 'none';
-  const end = async (id?: string) => {
-    await deps.store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
-    if (id !== undefined) await forgetApprovalSecrets(deps.store, id);
+  const end = async (id: string) => {
+    await dropPending(deps.store, id);
+    await forgetApprovalSecrets(deps.store, id);
   };
   if (saved === 'bad') {
-    await end();
+    await deps.store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
     return 'none';
   }
   if ((await removedIds(deps.store)).includes(saved.approval.device_id)) {

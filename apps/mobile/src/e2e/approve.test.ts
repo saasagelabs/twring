@@ -30,6 +30,7 @@ import {
 import { loadOrCreateDeviceKey, TRUSTED_KEY_NAME, type DeviceKey } from './device-key';
 import { removeDevice, syncTrusted } from './devices';
 import { loadTrusted, REMOVED_KEY_NAME, saveTrusted, type TrustedDevice } from './pairing';
+import { forgetPrivateDevice } from './private-chats';
 import { hasRewrapWork, REWRAP_JOBS_KEY } from './rewrap';
 import { memoryStore } from './test-fixtures';
 
@@ -704,6 +705,43 @@ describe('an approve whose answer was lost', () => {
     });
     await env.tStore.setItemAsync(PENDING_APPROVE_KEY_NAME, '{not json');
     expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+    expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
+  });
+});
+
+describe('a saved approve and other approvals', () => {
+  it('stays when a different approval finishes or is turned down', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    const other = JSON.stringify({
+      ...checked,
+      approval: { ...checked.approval, id: `pap_${'m'.repeat(20)}` },
+    });
+    await env.tStore.setItemAsync(PENDING_APPROVE_KEY_NAME, other);
+    expect((await approveWaiting({ api: env.api, store: env.tStore }, checked)).ok).toBe(true);
+    expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(other);
+  });
+
+  it('sign-out waits for one still finishing, so nothing of it is saved after the keys went', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    env.api.accept = () => Promise.reject(new Error('offline'));
+    const wait = () => Promise.resolve();
+    await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    env.api.accept = async () => {
+      await held;
+      throw new Error('offline');
+    };
+    const resumed = resumePendingApprove({ api: env.api, store: env.tStore, wait });
+    const forgot = forgetPrivateDevice(env.tStore);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    release();
+    expect(await resumed).toBe('waiting');
+    await forgot;
     expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
   });
 });

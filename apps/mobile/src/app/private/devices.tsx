@@ -112,7 +112,11 @@ export default function PrivateDevicesScreen() {
     setError(undefined);
     setState(found.state);
   }, []);
-  const load = useCallback(async () => apply(await fetchDevices()), [apply]);
+  const load = useCallback(async () => {
+    const found = await fetchDevices();
+    apply(found);
+    return found;
+  }, [apply]);
   /** An approve whose answer was lost: finished now if the connection is back. */
   const finishLostApprove = useCallback(async (): Promise<ResumeResult> => {
     const store = privateKeychain();
@@ -125,8 +129,12 @@ export default function PrivateDevicesScreen() {
       void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
     return out;
   }, []);
-  /** After the list loaded (which clears the error): what became of that approve, if anything. */
-  const sayResumed = (out: ResumeResult) => {
+  /**
+   * After the list loaded (which clears the error): what became of that approve, if anything. A
+   * list that failed keeps its own error; a saved approve still waiting is tried again with it.
+   */
+  const sayResumed = (found: Loaded, out: ResumeResult) => {
+    if ('error' in found) return;
     if (out === 'ended') setError(APPROVE_FAILED);
     else if (out === 'waiting') setError(APPROVE_UNFINISHED);
   };
@@ -140,7 +148,7 @@ export default function PrivateDevicesScreen() {
       const out = await finishLostApprove();
       if (!current) return;
       if (out === 'done') await load();
-      else sayResumed(out);
+      else sayResumed(found, out);
     })();
     return () => {
       current = false;
@@ -251,7 +259,6 @@ export default function PrivateDevicesScreen() {
         if (approve) setApproving({ ...approving, acceptSent: true });
         return;
       }
-      if (!out.ok) setError(APPROVE_FAILED);
       // Only an approval that is over for good drops its saved nonce and claim: after 'cap' (a
       // device freed up) or a network failure, tapping the waiting phone again carries on.
       if (!out.ok && ['mismatch', 'closed', 'expired'].includes(out.code))
@@ -262,7 +269,9 @@ export default function PrivateDevicesScreen() {
         void shareHistory(api, deps.store, chatController()?.loadedPrivateAgentIds());
       }
       setApproving(undefined);
+      // After the reload, which clears the error it finds none of its own.
       await load();
+      if (!out.ok) setError(APPROVE_FAILED);
     } finally {
       setBusy(false);
     }
@@ -280,10 +289,7 @@ export default function PrivateDevicesScreen() {
           <ErrorNotice
             error={{ message: error, retryable: true }}
             onRetry={() =>
-              void finishLostApprove().then(async (out) => {
-                await load();
-                sayResumed(out);
-              })
+              void finishLostApprove().then(async (out) => sayResumed(await load(), out))
             }
           />
         )}

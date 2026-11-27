@@ -15,13 +15,19 @@ const mocks = vi.hoisted(() => ({
   denyWaiting: vi.fn(),
   resumePendingApprove: vi.fn(),
   announce: vi.fn(),
+  /** What `twringApi()` returns: undefined is a phone with no server to load the list from. */
+  api: undefined as { privateDevices?: () => Promise<unknown> } | undefined,
+  /** The effects of the last render, in order: the first one loads the list when Devices opens. */
+  effects: [] as (() => unknown)[],
 }));
 
 vi.mock('react', async (importOriginal) => {
   const actual = await importOriginal<typeof ReactModule>();
   return {
     ...actual,
-    useEffect: () => undefined,
+    useEffect: (fn: () => unknown) => {
+      mocks.effects.push(fn);
+    },
     useCallback: (fn: unknown) => fn,
     useState: (initial: unknown) => {
       const slot = mocks.cursor++;
@@ -43,7 +49,7 @@ vi.mock('react-native', () => ({
   ActivityIndicator: 'ActivityIndicator',
 }));
 vi.mock('expo-router', () => ({ router: { push: mocks.push } }));
-vi.mock('@/api', () => ({ twringApi: () => undefined }));
+vi.mock('@/api', () => ({ twringApi: () => mocks.api }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
 vi.mock('@/components/Screen', () => ({ Screen: 'Screen' }));
@@ -92,6 +98,7 @@ function elements(node: ReactNode): ReactElement<Props>[] {
 }
 function render() {
   mocks.cursor = 0;
+  mocks.effects = [];
   return elements(PrivateDevicesScreen());
 }
 const texts = (all: ReactElement<Props>[]) =>
@@ -116,9 +123,22 @@ const WAITING = 5;
 const APPROVING = 6;
 const CONNECTING = 7;
 const SHEET_ERROR = 8;
+const LOAD_FAILED = 'Twring could not load your devices. Check your connection and try again.';
+const APPROVE_FAILED =
+  "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
+const APPROVE_UNFINISHED =
+  "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.";
+/** A server whose list loads with these devices (with real-looking keys, as the list is checked). */
+const listing = (...rows: ReturnType<typeof dev>[]) => ({
+  privateDevices: vi.fn(() =>
+    Promise.resolve({ devices: rows.map((row) => ({ ...row, public_key: 'A'.repeat(43) })) }),
+  ),
+});
 
 beforeEach(() => {
   mocks.state = [];
+  mocks.api = undefined;
+  mocks.resumePendingApprove.mockReset().mockResolvedValue('none');
   mocks.push.mockReset();
   mocks.claimWaiting.mockReset();
   mocks.approveWaiting.mockReset().mockResolvedValue({ ok: true });
@@ -188,6 +208,50 @@ describe('devices screen', () => {
     });
     expect(all.some((e) => e.type === 'SettingsGroup')).toBe(false);
     expect(all.some((e) => e.type === 'ActivityIndicator')).toBe(false);
+  });
+});
+
+describe('opening Devices', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const open = () => {
+    render();
+    return mocks.effects[0]() as () => void;
+  };
+
+  it('loads the list, then says an approve saved earlier is still waiting', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.resumePendingApprove.mockResolvedValueOnce('waiting');
+    open();
+    await flush();
+    expect(mocks.state[STATE]).toMatchObject({ count: '1 of 5 devices' });
+    expect(mocks.state[ERROR]).toBe(APPROVE_UNFINISHED);
+  });
+
+  it('keeps the load error when the list fails, whatever the saved approve did', async () => {
+    mocks.resumePendingApprove.mockResolvedValueOnce('waiting');
+    open();
+    await flush();
+    expect(mocks.resumePendingApprove).toHaveBeenCalled();
+    expect(mocks.state[ERROR]).toBe(LOAD_FAILED);
+  });
+
+  it('loads the list again after a saved approve finished, so the new phone shows', async () => {
+    const api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.api = api;
+    mocks.resumePendingApprove.mockResolvedValueOnce('done');
+    open();
+    await flush();
+    expect(api.privateDevices).toHaveBeenCalledTimes(2);
+    expect(mocks.state[ERROR]).toBeUndefined();
+  });
+
+  it('changes nothing once the screen closed before the list arrived', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    const close = open();
+    close();
+    await flush();
+    expect(mocks.state[STATE]).toBeUndefined();
+    expect(mocks.resumePendingApprove).not.toHaveBeenCalled();
   });
 });
 
@@ -294,29 +358,45 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
   });
 
   it.each([
-    [
-      'ended',
-      "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.",
-    ],
-    [
-      'waiting',
-      "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.",
-    ],
+    ['ended', APPROVE_FAILED],
+    ['waiting', APPROVE_UNFINISHED],
     ['removed', undefined],
     ['none', undefined],
   ])('says what became of a saved approve after Retry (%s)', async (out, said) => {
-    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
-    mocks.state[ERROR] = 'Twring could not load your devices. Check your connection and try again.';
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.state[ERROR] = LOAD_FAILED;
     mocks.resumePendingApprove.mockResolvedValueOnce(out);
     const notice = render().find((e) => e.type === 'ErrorNotice')!;
     (notice.props.onRetry as () => void)();
     await flush();
-    await flush();
     expect(mocks.resumePendingApprove).toHaveBeenCalled();
-    // The list reload (no server here, so it reports a load error) runs first; the approve's
-    // own outcome is said after it.
-    if (said !== undefined) expect(mocks.state[ERROR]).toBe(said);
-    else expect(mocks.state[ERROR]).not.toMatch(/approv/i);
+    // The list reload clears the error; the approve's own outcome is said after it.
+    expect(mocks.state[STATE]).toBeDefined();
+    expect(mocks.state[ERROR]).toBe(said);
+  });
+
+  it('keeps the load error when the list still fails on Retry', async () => {
+    mocks.state[ERROR] = LOAD_FAILED;
+    mocks.resumePendingApprove.mockResolvedValueOnce('waiting');
+    const notice = render().find((e) => e.type === 'ErrorNotice')!;
+    (notice.props.onRetry as () => void)();
+    await flush();
+    expect(mocks.state[ERROR]).toBe(LOAD_FAILED);
+  });
+
+  it('says a refused approve after the list reloads, not before it', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed, checked };
+    // 'cap' keeps the claim, so nothing here touches the keychain stub.
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'cap' });
+    const approve = render().find(
+      (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
+    )!;
+    (approve.props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.state[ERROR]).toBe(APPROVE_FAILED);
   });
 
   it('opens a waiting phone without an error left from another one', async () => {
