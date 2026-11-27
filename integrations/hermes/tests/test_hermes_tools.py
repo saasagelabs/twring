@@ -36,11 +36,11 @@ def clean_registry():
     tests/hermes_cli/test_deferred_platform_client_tools.py does."""
     from gateway.platform_registry import platform_registry
 
-    before_tools = set(registry._tools)
+    before_tools = set(registry.get_all_tool_names())
     before_modules = set(sys.modules)
     yield
-    for name in set(registry._tools) - before_tools:
-        registry._tools.pop(name, None)
+    for name in set(registry.get_all_tool_names()) - before_tools:
+        registry.deregister(name)
     platform_registry.unregister("twring")
     for name in set(sys.modules) - before_modules:
         if name.startswith("hermes_plugins."):
@@ -78,5 +78,5 @@ def test_tools_are_hidden_while_hermes_is_not_linked(clean_registry, monkeypatch
     monkeypatch.delenv("TWRING_TOKEN", raising=False)
     manager = PluginManager()
     manager._register_deferred_platform(twring_manifest())
-    entry = registry._tools["twring_ring_owner"]
-    assert entry.check_fn() is False
+    assert {"twring_ring_owner", "twring_message_owner"} <= set(registry.get_all_tool_names())
+    assert registry.is_toolset_available("twring") is False
