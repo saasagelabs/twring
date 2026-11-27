@@ -83,6 +83,10 @@ export function supabaseBackend(
       if (readStored === undefined) return null;
       return toSession(parseStored(await readStored().catch(() => null)));
     },
+    async storedSession() {
+      if (readStored === undefined) return null;
+      return toSession(parseStored(await readStored().catch(() => null)));
+    },
     onChange(listener) {
       const { data } = auth.onAuthStateChange((event, session) => {
         // The first event repeats `getSession`, which the controller reads itself. Without a

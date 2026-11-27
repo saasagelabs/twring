@@ -21,6 +21,11 @@ export interface AuthSession {
 export interface AuthBackend {
   /** The stored session, if any (refreshing it first when it has expired). */
   getSession(): Promise<AuthSession | null>;
+  /**
+   * The stored session as it is, without refreshing or waiting on the network. Used when
+   * `getSession` is slow (offline retries), so a signed-in person is not shown Sign in meanwhile.
+   */
+  storedSession?(): Promise<AuthSession | null>;
   /** Called on every session change: sign-in, refresh, sign-out. Returns an unsubscribe. */
   onChange(listener: (session: AuthSession | null) => void): () => void;
   /**
@@ -166,21 +171,37 @@ export class AuthController {
     this.started = true;
     this.deps.backend.onChange((session) => this.apply(session));
     let timedOut = false;
+    // The state shown from the stored session while `getSession` is still out, if any.
+    let provisional: AuthState | undefined;
     const cancelTimeout = (this.deps.timers ?? systemTimers).setTimeout(() => {
       timedOut = true;
-      if (this.state.status === 'loading') this.apply(null);
+      if (this.state.status !== 'loading') return;
+      const stored = this.deps.backend.storedSession?.().catch(() => null);
+      if (stored === undefined) {
+        this.apply(null);
+        return;
+      }
+      void stored.then((session) => {
+        if (this.state.status !== 'loading') return;
+        this.apply(session ?? null);
+        if (session !== null) provisional = this.state;
+      });
     }, RESTORE_TIMEOUT_MS);
     this.deps.backend.getSession().then(
       (session) => {
         cancelTimeout();
         // A session read after the timeout still counts, unless something else decided since.
+        // After a provisional stored session it also counts when null: the session is over.
         const waiting =
           this.state.status === 'loading' ||
+          (provisional !== undefined && this.state === provisional) ||
           (timedOut && session !== null && this.state.status === 'signed_out');
+        provisional = undefined;
         if (waiting) this.apply(session);
       },
       () => {
         cancelTimeout();
+        provisional = undefined;
         if (this.state.status === 'loading') this.apply(null);
       },
     );

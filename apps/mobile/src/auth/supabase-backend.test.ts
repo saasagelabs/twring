@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthBackendError, AuthController } from './controller';
+import { AuthBackendError, AuthController, RESTORE_TIMEOUT_MS } from './controller';
 import { chunkedSecureStorage, type SecureKeyValue } from './storage';
 import { supabaseBackend } from './supabase-backend';
 
@@ -345,10 +345,10 @@ describe('supabase backend test sign-in (email and password)', () => {
 
 describe('supabase backend starting with an expired session', () => {
   // Device test 2026-11-27: opened offline an hour after last use, the app showed Sign in.
-  async function expiredStart(first: Answer) {
+  async function expiredStart(first: Answer, advanceMs = 40_000, stored = true) {
     const store = new MemoryStore();
     const storage = chunkedSecureStorage(store);
-    await storage.setItem('cord.auth', JSON.stringify(session('tok-old', -600)));
+    if (stored) await storage.setItem('cord.auth', JSON.stringify(session('tok-old', -600)));
     const answers = { next: first };
     const fetch = (input: RequestInfo | URL): Promise<Response> => {
       const url = input instanceof Request ? input.url : String(input);
@@ -385,10 +385,12 @@ describe('supabase backend starting with an expired session', () => {
         signOut: () => Promise.resolve(),
       },
     });
+    const seen: string[] = [];
+    controller.subscribe(() => seen.push(controller.getState().status));
     controller.start();
     // Supabase retries a passing failure with backoff for up to a refresh tick (30 s).
-    await vi.advanceTimersByTimeAsync(40_000);
-    return { controller, answers, store };
+    await vi.advanceTimersByTimeAsync(advanceMs);
+    return { controller, answers, store, seen };
   }
 
   afterEach(() => {
@@ -439,6 +441,32 @@ describe('supabase backend starting with an expired session', () => {
     expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
   });
 
+  it('shows the stored session by the restore timeout while Supabase still retries offline', async () => {
+    const { controller, seen } = await expiredStart('offline', RESTORE_TIMEOUT_MS);
+    expect(controller.getState()).toEqual({
+      status: 'signed_in',
+      userId: USER.id,
+      email: USER.email,
+    });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    expect(seen).not.toContain('signed_out');
+  });
+
+  it('signs out when the retried refresh finally finds the token revoked', async () => {
+    const { controller, answers, store } = await expiredStart('offline', RESTORE_TIMEOUT_MS);
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    answers.next = { status: 400, body: { code: 'refresh_token_not_found', msg: 'Invalid' } };
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_out' });
+    expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
+  });
+
+  it('shows Sign in at the restore timeout when nothing is stored', async () => {
+    const { controller } = await expiredStart('offline', RESTORE_TIMEOUT_MS, false);
+    expect(controller.getState()).toEqual({ status: 'signed_out' });
+  });
+
   it('treats a malformed stored session as none', async () => {
     const store = new MemoryStore();
     const storage = chunkedSecureStorage(store);
@@ -450,5 +478,6 @@ describe('supabase backend starting with an expired session', () => {
     clients.push(supabase.auth);
     const backend = supabaseBackend(supabase.auth, () => Promise.resolve('not json'));
     await expect(backend.getSession()).resolves.toBeNull();
+    await expect(backend.storedSession?.()).resolves.toBeNull();
   });
 });
