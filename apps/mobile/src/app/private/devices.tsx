@@ -42,7 +42,12 @@ import {
 import { approveApi } from '@/e2e/pair-api';
 import { playCallFeedback } from '@/platform/haptics';
 import { shareHistory } from '@/e2e/share-history';
-import { chatController, forgetThisPhonePrivateKeys, privateKeychain } from '@/threads/chats';
+import {
+  chatController,
+  forgetThisPhonePrivateKeys,
+  privateKeychain,
+  resetPrivateChats,
+} from '@/threads/chats';
 import { space, type, usePalette } from '@/theme/tokens';
 
 const LOAD_FAILED = 'Twring could not load your devices. Check your connection and try again.';
@@ -131,6 +136,8 @@ export default function PrivateDevicesScreen() {
     const api = twringApi();
     if (out === 'done' && api !== undefined)
       void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
+    // The approved phone is trusted now: open chats read the list again to open its messages.
+    if (out === 'done') resetPrivateChats();
     return out;
   }, []);
   /**
@@ -275,6 +282,8 @@ export default function PrivateDevicesScreen() {
       if (out.ok && approve && api !== undefined) {
         void shareHistory(api, deps.store, chatController()?.loadedPrivateAgentIds());
       }
+      // The approved phone is trusted now: open chats read the list again to open its messages.
+      if (out.ok && approve) resetPrivateChats();
       setApproving(undefined);
       // After the reload, which clears the error it finds none of its own.
       await load();

@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   approveWaiting: vi.fn(),
   denyWaiting: vi.fn(),
   resumePendingApprove: vi.fn(),
+  resetPrivateChats: vi.fn(),
   announce: vi.fn(),
   /** What `twringApi()` returns: undefined is a phone with no server to load the list from. */
   api: undefined as { privateDevices?: () => Promise<unknown> } | undefined,
@@ -75,6 +76,7 @@ vi.mock('@/threads/chats', () => ({
   chatController: () => undefined,
   forgetThisPhonePrivateKeys: vi.fn(),
   privateKeychain: () => ({}),
+  resetPrivateChats: mocks.resetPrivateChats,
 }));
 vi.mock('@/theme/tokens', () => ({
   type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
@@ -144,6 +146,7 @@ beforeEach(() => {
   mocks.claimWaiting.mockReset();
   mocks.approveWaiting.mockReset().mockResolvedValue({ ok: true });
   mocks.denyWaiting.mockReset().mockResolvedValue({ ok: true });
+  mocks.resetPrivateChats.mockReset();
 });
 
 describe('devices screen', () => {
@@ -251,6 +254,16 @@ describe('opening Devices', () => {
     await flush();
     expect(api.privateDevices).toHaveBeenCalledTimes(2);
     expect(mocks.state[ERROR]).toBeUndefined();
+    // Open chats read the trusted list again, so the approved phone's messages open at once.
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps open chats as they are when no saved approve finished', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.resumePendingApprove.mockResolvedValueOnce('ended');
+    open();
+    await flush();
+    expect(mocks.resetPrivateChats).not.toHaveBeenCalled();
   });
 
   it('changes nothing once the screen closed before the list arrived', async () => {
@@ -313,11 +326,14 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (approve.props.onPress as () => void)();
     await flush();
     expect(mocks.approveWaiting.mock.calls[0]?.[1]).toEqual(checked);
+    // The approved phone is trusted now: open chats read the list again to open its messages.
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
     mocks.state[APPROVING] = { claimed, checked };
     const deny = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
     (deny.props.onPress as () => void)();
     await flush();
     expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the codes on screen after a network failure, so tapping again carries on', async () => {
@@ -403,6 +419,7 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (approve.props.onPress as () => void)();
     await flush();
     expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.resetPrivateChats).not.toHaveBeenCalled();
     expect(mocks.state[ERROR]).toBe(
       'You already have 5 devices. Remove one here, then tap the waiting phone again.',
     );

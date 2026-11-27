@@ -485,3 +485,119 @@ describe('edge cases (verifier)', () => {
     expect(lines.join('\n')).not.toContain(base64urlEncode(phone.privateKey));
   });
 });
+
+describe('a phone approved after the chat loaded (device test 2026-11-27)', () => {
+  const newPhone = keys();
+  const trustedPhone: TrustedDevice = {
+    id: newPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: newPhone.pub,
+    verified_at: at,
+  };
+  const listedNew = (): E2eDevice => ({
+    id: newPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: newPhone.pub,
+    added_at: at,
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  function fromPhone(from: ReturnType<typeof keys>, seq: number): SealedThreadMessage {
+    const key = newMessageKey();
+    const aad = messageAad({
+      accountId: CON,
+      agentId: AGENT,
+      senderDevice: from.id,
+      senderSeq: seq,
+    });
+    const { nonce, body } = sealBody(key, { text: `back ${seq}` }, aad);
+    return {
+      id: `msg_${String(seq).padStart(20, 'b')}`,
+      kind: 'sealed',
+      author: 'user',
+      sealed: [
+        {
+          v: 1,
+          sender_device: from.id,
+          sender_seq: seq,
+          nonce,
+          body,
+          keys: [
+            { device: phone.id, wrapped: wrapKey(key, from.privateKey, phone.publicKey, aad) },
+          ],
+        },
+      ],
+    } as unknown as SealedThreadMessage;
+  }
+
+  async function loaded(server: () => E2eDevice[]) {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer()]);
+    let calls = 0;
+    const c = chats(store, () => {
+      calls++;
+      return { devices: server() };
+    });
+    await c.context(AGENT);
+    return { store, c, calls: () => calls };
+  }
+
+  it('opens after a reset once this phone trusts the new one', async () => {
+    let listNew = false;
+    const { store, c } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      ...(listNew ? [listedNew()] : []),
+    ]);
+    await saveTrusted(store, [trustedComputer(), trustedPhone]);
+    listNew = true;
+    c.reset();
+    await c.context(AGENT);
+    const opened = c.open(AGENT, [fromPhone(newPhone, 1)]);
+    expect(opened?.map((m) => [m.state, m.state === 'ok' && m.author])).toEqual([['ok', 'user']]);
+  });
+
+  it('opens without a reset: the chat reads the trusted list again once', async () => {
+    const { store, c, calls } = await loaded(() => [listedPhone(phone.id), listed(computer)]);
+    await saveTrusted(store, [trustedComputer(), trustedPhone]);
+    const messages = [fromPhone(newPhone, 1), fromPhone(newPhone, 2)];
+    // Waiting for the list: the chat shows loading, never a stale "Couldn't open".
+    expect(c.open(AGENT, messages)).toBeUndefined();
+    await c.context(AGENT);
+    expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual(['ok', 'ok']);
+    // The keychain knew it: the server's list was not read again.
+    expect(calls()).toBe(1);
+  });
+
+  it('a sender no list trusts still cannot open, and is looked up once per 30 s', async () => {
+    const { c, calls } = await loaded(() => [listedPhone(phone.id), listed(computer)]);
+    const stranger = keys();
+    const messages = [fromPhone(stranger, 1), fromPhone(stranger, 2), fromPhone(stranger, 3)];
+    expect(c.open(AGENT, messages)).toBeUndefined();
+    await c.context(AGENT);
+    expect(calls()).toBe(2);
+    expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual([
+      'couldnt_open',
+      'couldnt_open',
+      'couldnt_open',
+    ]);
+    // Opening again (each new message) reads nothing more inside the window.
+    c.open(AGENT, [...messages]);
+    await settle();
+    expect(calls()).toBe(2);
+  });
+
+  it('a sender the server removed is not trusted again by the lookup', async () => {
+    const { store, c } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      { ...listedNew(), revoked_at: at },
+    ]);
+    expect(c.open(AGENT, [fromPhone(newPhone, 1)])).toBeUndefined();
+    await c.context(AGENT);
+    expect(c.open(AGENT, [fromPhone(newPhone, 1)])?.map((m) => m.state)).toEqual(['couldnt_open']);
+    expect((await loadTrusted(store)).some((d) => d.id === newPhone.id)).toBe(false);
+  });
+});

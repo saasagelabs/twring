@@ -133,6 +133,9 @@ export class PrivateChats {
   private readonly removedListeners = new Set<() => void>();
   /** When each chat last read the device list to learn whether this phone was removed. */
   private readonly removedChecked = new Map<string, number>();
+  /** Per chat: when each sender device it did not know was last looked up, and the read running. */
+  private readonly senderAsked = new Map<string, Map<string, number>>();
+  private readonly senderLoading = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: PrivateChatDeps) {}
 
@@ -270,6 +273,7 @@ export class PrivateChats {
     this.lostKeys.clear();
     this.rewrapAsked.clear();
     this.removedChecked.clear();
+    this.senderAsked.clear();
     this.removedSelf = false;
     this.removedDevice = undefined;
     this.removedAt = undefined;
@@ -290,8 +294,11 @@ export class PrivateChats {
   /** The chat's context, loaded once: key, trusted computers, address and saved replay state. */
   context(agentId: string): Promise<PhoneSealContext | undefined> {
     const ready = this.contexts.get(agentId);
-    // A re-wrap read under way: the chat is drawn again once it is in.
-    if (ready) return (this.rewrapLoading.get(agentId) ?? Promise.resolve()).then(() => ready);
+    // A re-wrap or sender read under way: the chat is drawn again once it is in.
+    if (ready)
+      return Promise.all([this.rewrapLoading.get(agentId), this.senderLoading.get(agentId)]).then(
+        () => ready,
+      );
     // Removed: no new key is made until Set up resets the chats.
     if (this.removedSelf) return Promise.resolve(undefined);
     let work = this.loading.get(agentId);
@@ -509,6 +516,10 @@ export class PrivateChats {
       this.askRewraps(agentId, ctx)
     )
       return undefined;
+    // A sender this chat does not know yet (a phone approved since it loaded): read the list again.
+    // Only a message this phone has a key for: one it cannot unwrap waits for nothing here.
+    const readable = sealed.filter((m) => !keyless(m) || ctx.rewraps?.has(m.id) === true);
+    if (this.askSenders(agentId, ctx, readable)) return undefined;
     const opened = openMessages(ctx, sealed);
     // None of the chat's messages carries a key for this phone, nor a re-wrap: its keys were lost.
     if (sealed.length > 0 && sealed.every((m) => keyless(m) && ctx.rewraps?.has(m.id) !== true))
@@ -548,6 +559,47 @@ export class PrivateChats {
     return true;
   }
 
+  /**
+   * Starts reading the trusted list again when a message comes from a device this chat does not
+   * know: the keychain first, then the server's list through the usual trust rules. Each unknown
+   * device is looked up at most once per chat in `REMOVED_CHECK_MS`; true while a read runs.
+   */
+  private askSenders(
+    agentId: string,
+    ctx: PhoneSealContext,
+    sealed: readonly SealedThreadMessage[],
+  ): boolean {
+    if (this.senderLoading.has(agentId)) return true;
+    const known = new Set([ctx.me.deviceId, ...ctx.trusted.map((d) => d.id)]);
+    const now = Date.now();
+    const asked = this.senderAsked.get(agentId) ?? new Map<string, number>();
+    const unknown = new Set<string>();
+    for (const m of sealed) {
+      const sender = m.sealed[0]?.sender_device;
+      if (sender === undefined || known.has(sender)) continue;
+      const at = asked.get(sender);
+      if (at === undefined || now - at >= REMOVED_CHECK_MS) unknown.add(sender);
+    }
+    if (unknown.size === 0) return false;
+    for (const id of unknown) asked.set(id, now);
+    this.senderAsked.set(agentId, asked);
+    const generation = this.generation;
+    const stale = () => generation !== this.generation || this.removedSelf;
+    const work = (async () => {
+      const trusted = await loadTrusted(this.deps.store);
+      if (stale()) return;
+      this.trusted = trusted;
+      ctx.trusted = trusted;
+      if ([...unknown].every((id) => trusted.some((d) => d.id === id))) return;
+      await this.readDevices(agentId, ctx.accountId, ctx.me, () => generation !== this.generation);
+      if (!stale()) ctx.trusted = this.trusted;
+    })()
+      .catch(() => undefined)
+      .finally(() => this.senderLoading.delete(agentId));
+    this.senderLoading.set(agentId, work);
+    return true;
+  }
+
   private save(agentId: string, ctx: PhoneSealContext): void {
     this.saving = this.saving
       .then(async () => {
@@ -573,6 +625,7 @@ export class PrivateChats {
     this.lostKeys.clear();
     this.rewrapAsked.clear();
     this.removedChecked.clear();
+    this.senderAsked.clear();
     this.removedSelf = false;
     this.removedDevice = undefined;
     this.removedAt = undefined;
