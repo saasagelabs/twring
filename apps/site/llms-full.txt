@@ -1,0 +1,1136 @@
+# Twring: full text
+
+> The main pages of twring.com as plain text, for AI assistants and search tools. The short index is https://twring.com/llms.txt. Each section starts with the page's address.
+
+
+---
+
+# Home
+
+Source: https://twring.com/
+
+## Call your agents. Let them call you.
+
+Twring is a phone app for the AI agents you already run. Press Call to talk to Claude Code, Codex or Hermes in a live call. When a job is done or needs your OK, your agent rings your phone. AI apps (Claude, ChatGPT and Grok Bot) can ring and message you too.
+
+[Get an invite](https://twring.com/beta/)
+How it works
+
+Invite only for now. We email you the setup steps for iPhone or Android.
+
+### Talk live
+
+[Claude Code](https://twring.com/claude-code/)
+[Codex](https://twring.com/codex/)
+[Hermes](https://twring.com/hermes/)
+
+Agents on your computer, or any agent with its own web address. Call them, and they can ring you.
+
+### Rings and messages
+
+Claude
+ChatGPT
+Grok Bot
+
+AI apps that connect online. They message you and ring your phone, without live calls. [Connect an AI app](https://twring.com/connector/)
+
+Choose an agent
+Claude Code
+Codex
+Hermes
+AI apps rings only
+
+**Read this call as text**
+
+- You Is the deploy for session 41 ready?
+
+- Claude Code Tests passed on all three services. Here is the full log from each one, starting with (you cut in)
+
+- You Stop.
+
+- Claude Code Okay, stopped.
+
+- You Just the result, in my chat.
+
+- Claude Code Will do. It will be in your Twring chat.
+
+### Your agent stays the same. Twring adds the voice.
+
+A live call with Claude Code, Codex or Hermes works like a chat, spoken aloud. Your agent keeps its own model, memory, tools and permissions, and it runs where it runs today.
+
+YouSpeak like on a call
+
+TwringSpeech in, voice out
+Voice layer
+
+Your agentIts own model, memory and tools
+Unchanged
+
+#### You talk
+Twring turns your speech into text and passes it to your agent, like a chat message.
+
+#### Your agent works
+It uses its own model, memory and tools, where it already runs. Twring never runs its tools.
+
+#### You hear the reply
+Twring reads the reply aloud. If your agent needs permission, it asks you on the call first.
+
+Deploy is blocked on your approval for the production branch.
+
+- Claude Code Tests passed on all three services. I need your OK to push to production.
+
+- On your screen Allow Claude Code to push to production? Say yes or no, or tap.
+
+- You Yes, push it.
+
+- Claude Code Pushing now. I'll ring you when it's live.
+
+- If you say no, Claude Code Okay. I won't push.
+
+A ring from an AI app (Claude, ChatGPT and Grok Bot) is different: Twring reads the reason aloud, then opens the app's chat so you can reply by voice or text. There is no live call.
+
+### Your agent calls when it matters.
+
+No need to keep checking terminals and chat threads. Your agent rings your phone when a job is done or when it needs your OK.
+
+#### Rings like a real call
+Full screen, even when your phone is locked. The ring shows why your agent is calling.
+
+#### Two kinds of ring
+Answer Claude Code, Codex or Hermes and you are in a live call. Answer an AI app (Claude, ChatGPT and Grok Bot) and Twring reads its reason aloud, then opens its chat for your reply.
+
+#### Decline with a reply
+Choose Busy, Outside or Let's text, or type up to 60 characters. Your agent receives your reply.
+
+#### Quiet hours
+Set the hours when no agent can ring you. You can still call your agents at any time.
+
+[How each agent rings you, and how to set it up](https://twring.com/agent-calls-you/). [How Twring compares with other tools](https://twring.com/compare/).
+
+### What you ask for on a call gets done.
+
+A spoken request is easy to lose once the call ends. Twring gives your agent a short guide that tells it to keep a written list.
+
+#### It confirms the request
+One short line on the call, so you know it heard you.
+
+#### It writes the request down
+Your words and the time go into a list kept where your agent runs. Passwords and keys are never written down.
+
+#### It checks the list after every call
+It works through the open items, oldest first, without a reminder.
+
+#### It reports back in your chat
+Each result goes to your agent's Twring chat, and the item is marked done with a note of where the result is. If it cannot do something, it tells you why.
+
+If your agent cannot write anything down, it says so on the call and asks you to type the request in its chat, where it is kept. The guide is added for Hermes, Claude Code and Codex when your agent links your computer. Any other agent can use it: [download the guide](https://twring.com/downloads/twring-skill.tar.gz).
+
+### You stay in control.
+
+#### No recordings
+Twring listens only while a call is on, and never records or keeps your audio.
+
+#### Your agent, your tools
+Twring never runs your agent's tools. Your agent keeps its own permissions and decides what it does.
+
+#### Keys stay encrypted
+An agent's key is stored encrypted and is never shown again.
+
+#### Your account only
+Only you can see and call your agents. You can delete your data at any time. [Privacy notice](https://twring.com/privacy)
+
+### Questions
+
+**What is Twring?**
+A phone app for iPhone and Android that lets you call the AI agent you already run, such as Claude Code, Codex, Hermes or OpenClaw, and talk to it live. Your agent can also ring your phone, full screen even when it's locked, when a job is done or needs your OK. No phone number is needed. Twring only handles the voice: your agent keeps its own model, memory and tools. It's free while we launch, open source, and you can run it on your own server.
+
+**Which agents work with Twring?**
+There are two groups. Talk live: agents you run yourself on your computer or server, like Hermes, Claude Code and Codex, and agents you can reach at their own web address. You call them and talk in a live call, and they can ring you. Rings and messages: AI apps (Claude, ChatGPT and Grok Bot) connect online. They can message you and ring you, but they do not take live calls: [connect an AI app](https://twring.com/connector/).
+
+**How do I install it?**
+Ask for an invite and we email you the steps.
+
+- On iPhone, install TestFlight from the App Store, then open the link in the email.
+- On Android, Twring installs as an APK from twring.com, not from Google Play: open the download link in the email and tap Install. If Android or Play Protect asks, allow it.
+- Sign in with Google, or Apple on iPhone, using the email you gave us. Then connect your agent and press Call.
+
+**Does Twring record my calls?**
+No. Twring listens only while a call is on, and never records or keeps your audio. The [privacy notice](https://twring.com/privacy) lists everything it does keep.
+
+**Is it free?**
+Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. [Pricing](https://twring.com/pricing/) has the details.
+
+**Can I run Twring on my own server?**
+Yes. One command sets up Twring on your own Linux server, next to your agents, with your own speech account. Your chats and files stay there, and so do your calls unless your server uses Twring's audio service. [Self-hosting](https://twring.com/self-hosting/) explains how, and why it will have a yearly charge (free while we launch).
+
+**Why an invite?**
+We let people in in waves so every call works well.
+
+**Who makes Twring?**
+Built by Rish at SaaSage Labs, from India. Say hi on X: [@rishflips](https://x.com/rishflips). More on the [about page](https://twring.com/about/).
+
+**Where do I get help?**
+The [support page](https://twring.com/support/) answers the common questions. For anything else, write to support@twring.com: a person reads every email and replies within 2 working days.
+
+---
+
+# Let your agent call you
+
+Source: https://twring.com/agent-calls-you/
+
+## Let your AI agent call you
+
+Your agent can ring your phone like a real call, full screen even when it's locked, when a job is done or it needs your OK. Answer and you're talking to it. No phone number or phone plan is needed: the ring comes through the Twring app.
+
+### What a ring looks like
+
+- Full screen, even on a locked phone. You see which agent is calling and the short reason it gave, for example "The migration finished and all tests pass."
+
+- Answer and talk. For an agent on your computer, you're straight into a live call. It speaks first, tells you why it rang, and carries on in the same session it was working in.
+
+- Or decline with a reply. Busy, Outside, Let's text, or up to 60 characters of your own. Your agent gets the reply.
+
+- Missed it? A ring lasts 30 seconds. After that, the app shows a missed call with the reason.
+
+### Set it up once
+
+- [Get an invite](https://twring.com/beta/) and install Twring on your iPhone (through TestFlight) or Android phone (an APK from twring.com).
+
+- In the app, tap Connect Agent and follow the steps for your agent: [Claude Code](https://twring.com/claude-code/), [Codex](https://twring.com/codex/), [Hermes](https://twring.com/hermes/), or [an AI app like Claude or ChatGPT](https://twring.com/connector/).
+
+- Turn on notifications for Twring on your phone. Rings can't reach you without them.
+
+### How each agent rings you
+
+#### Claude Code and Codex: ask them
+
+In a Twring call or chat, these agents are told how to ring your phone. So just ask: "Run the full test suite and ring me when it's done." It rings with a short reason when it's finished. Hang up mid-task and it keeps going, and its answer lands in your Twring chat.
+
+#### Claude Code: rings by itself when it's waiting on you
+
+Add a Twring hook to Claude Code once, and it rings you whenever Claude Code sends one of its notifications, mostly when it needs permission or is waiting for your input. On the computer, in the folder where you downloaded Twring's `twring-connect.mjs`, run:
+
+`node twring-connect.mjs hooks install claude`
+
+The reason on your phone is Claude Code's own message. [The Claude Code ring guide](https://twring.com/blog/claude-code-call-me-when-done/) covers the details and what happens to the permission prompt.
+
+#### Codex: a ring after every turn, if you want it
+
+Codex can ring you each time it finishes a turn, with the start of its reply as the reason. It's off until you turn it on:
+
+`node twring-connect.mjs hooks install codex --on-turn-complete`
+
+That can be a lot of rings, so many people add `--message` to get a message in their Twring chat instead.
+
+#### Hermes: scheduled jobs ring you
+
+With the [Twring plugin for Hermes](https://twring.com/hermes/), deliver any scheduled Hermes job to `twring`. Its result is saved in your Twring chat, and your phone rings with its first sentence. Set `TWRING_RING_ON_DELIVERY=false` if you'd rather get a notification.
+
+#### Claude, ChatGPT and other AI apps
+
+[Add Twring to your AI app](https://twring.com/connector/), and it can ring you when it needs you. AI chat apps can't take a live call, so when you answer, Twring reads out the reason it gave and opens its chat. Reply by voice or text, and it reads your reply the next time it checks.
+
+### Keeping rings useful, not noisy
+
+- Quiet hours and Do Not Disturb. In Twring's settings, pick hours when no agent can ring you. You can still call your agents any time.
+
+- Limits on bursts. Each agent can ring you at most 6 times an hour, one ring at a time, and never while you're already on a call.
+
+- Messages for small news. Add `--message` to a hook if you'd rather read updates later.
+
+### A ring or a notification?
+
+For news you can read later, a notification is enough. If you only want Claude Code pings, Anthropic's Remote Control can send push notifications to the Claude app, and a hook can post to a notification service such as ntfy. A ring is for the moments you don't want to miss, and you can answer it and talk to the agent that rang. [Every way to reach your coding agent from your phone](https://twring.com/blog/reach-your-coding-agent-from-your-phone/) compares the options.
+
+### When a ring doesn't arrive
+
+- Check that notifications are on for Twring, and that Do Not Disturb and Twring's quiet hours are off.
+
+- Sign in to Twring on your phone with the same account you connected the agent to. Rings go to that account.
+
+- For an agent on your computer, check that the computer is on and online. The agent's page in the app shows whether it's online. Answering also needs it online, and uses your daily calling time.
+
+- If you set up a hook in a different folder than `twring-connect.mjs`, run the install command again from that folder.
+
+Still stuck? [Why didn't my phone ring?](https://twring.com/support/phone-did-not-ring/) goes through every check in order.
+
+[Get an invite](https://twring.com/beta/)
+
+### Questions
+
+**Do I need a phone number or a Twilio account?**
+No. Your agent rings you through the Twring app, so there's no phone number to rent, no phone plan and no per-minute phone bill.
+
+**Will it ring on a locked phone?**
+Yes. On iPhone and Android the ring fills the screen, even when the phone is locked, as long as notifications are on for Twring.
+
+**Which agents can ring me?**
+Claude Code and Codex ring you when you ask them to in a Twring call or chat. Claude Code and Codex can also ring by themselves, through a hook you add once. Hermes rings you when a scheduled job delivers to Twring. Claude, ChatGPT, Grok Bot and other AI apps can ring you once you add Twring to them.
+
+**Can I approve a permission request by answering?**
+It depends on the agent. Hermes sends its approval requests to your phone, and you answer by voice or tap. A Claude Code prompt stays in your terminal: the ring tells you it's waiting, and you can talk it through on the call. Twring never approves or runs an agent's tools itself.
+
+**How often can an agent ring me?**
+At most 6 times an hour for each agent, one ring at a time. It can't ring you while you're on a call, or during your quiet hours.
+
+**Is it free?**
+Yes, while we launch. Answering a ring uses your daily calling time, like any call. [Pricing](https://twring.com/pricing/) has the details.
+
+---
+
+# Claude Code
+
+Source: https://twring.com/claude-code/
+
+## Talk to Claude Code from your phone.
+
+Twring calls the Claude Code you already run on your computer. Press Call, say what you need, and hear its answer as it streams in. When a job is done or it needs your OK, it can ring your phone.
+
+[Get an invite](https://twring.com/beta/)
+
+### Which way of talking do you want?
+
+People mean three different things by "talk to Claude Code", and each has a different answer.
+
+- Speak instead of typing, at your desk. Claude Code has built-in voice dictation. Run `/voice`, hold the space bar and talk, and your words appear in the prompt. It needs a Claude.ai account and a microphone on the computer, and it turns speech into text only: Claude's answers stay on screen. ([Anthropic's docs](https://code.claude.com/docs/en/voice-dictation), as of November 2026.)
+
+- Type to it from your phone. Remote Control connects the Claude app on iOS or Android to a Claude Code session on your computer. You start it with `claude remote-control` or `/remote-control`, then pick the session in the app's Code tab. Your computer has to stay on, and Claude can send push notifications when a task finishes or needs a decision. ([Anthropic's docs](https://code.claude.com/docs/en/mobile), as of November 2026.)
+
+- Have a spoken conversation from your phone. This is what Twring does: a live call, where you talk and Claude Code talks back, with your hands and eyes free.
+
+If typing on your phone is fine, Remote Control is official, free with your plan, and lets you drive the exact session open in your terminal. Twring is for when you'd rather talk: walking, driving, cooking, or just thinking out loud.
+
+### Set it up
+
+- [Get an invite](https://twring.com/beta/) and install Twring. On iPhone it comes through TestFlight, Apple's app for early releases. On Android it's an APK from twring.com, not from Google Play.
+
+- Sign in with Google, or Apple on iPhone, using the email your invite went to.
+
+- In the app, tap Connect Agent, On my computer or server. Then either:
+- paste the short message it gives you into Claude Code, and approve the command Claude Code runs to connect itself, or
+- tap Scan a code on my computer, run the command it shows in your project folder, and scan the code it prints.
+
+Both download the Twring connector from twring.com. It needs [Node.js](https://nodejs.org/) 20 or newer, the free program that runs it.
+
+- Claude Code appears in the app. Press Call.
+
+Connect in the folder you want Claude Code to work in. Each call starts Claude Code there, as you, with your project's instructions.
+
+### What a call is like
+
+- Your words reach Claude Code as a message, in that folder, with its own model, memory, project instructions and tools.
+
+- Twring speaks the answer as it streams in. Talk over it at any time and it stops speaking. Say "stop" and Twring cancels the current turn.
+
+- Calls and typed chats with Claude Code sit side by side in the app, so you can switch to typing when you're somewhere quiet.
+
+- The usage counts on your own Claude plan, as if you had typed. Twring doesn't swap in another model.
+
+### It reads, unless you let it edit
+
+On a call, Claude Code can read and search your files and the web, but not change anything. That's a safe default for a phone call, where you can't see a diff before it lands. To let it edit, add `--claude-allow-edits` to the connect command. Only do that in a folder where you're comfortable reviewing changes later, ideally one tracked by git.
+
+Twring never runs Claude Code's tools itself. It only carries your words in and Claude Code's answer out.
+
+### Let it ring you
+
+In a Twring call or chat, Claude Code is told how to ring your phone. Ask it to call you when a long job is done, and it rings you with a short reason. If you hang up while it's still working, it keeps going, and its answer lands in your Twring chat.
+
+To have Claude Code ring you by itself when it needs permission or is waiting for you, add the Twring hook: [make Claude Code ring your phone when it needs you](https://twring.com/blog/claude-code-call-me-when-done/). [How rings work](https://twring.com/agent-calls-you/) covers quiet hours, limits and declining with a reply.
+
+### Speak like it's a call, not a prompt
+
+- Ask for the short version. Long answers with code are hard to listen to. Ask "what's the gist?" and read the details in the chat later.
+
+- Give it real work. "Find why the login test fails and tell me" works well by voice. Claude Code goes away, reads, and comes back with an answer.
+
+- Hang up if it's slow. It keeps going, and its answer lands in your Twring chat.
+
+- Teach it names. If Twring keeps mishearing a project or a person, the agent can add them to a word list for later calls.
+
+### What you need
+
+- An invite. Twring lets people in in waves. It's [free while it launches](https://twring.com/pricing/).
+
+- Your computer on and awake, with the Twring connector running. If the computer sleeps, Claude Code shows as offline in the app. The connector can be set up to run in the background and start with the computer.
+
+- Node.js 20 or newer on that computer, and Claude Code already signed in.
+
+- An internet connection on both ends. No phone number or phone plan is involved: it's an internet call.
+
+### If it doesn't work
+
+- Claude Code doesn't answer: check that the computer is awake and the connector is running. If it stays offline, tap Connect another agent, On my computer or server, and link again.
+
+- It can't hear you: allow the microphone for Twring in your phone's settings, and try the speaker button to switch between phone, speaker and Bluetooth.
+
+- It says it can't change a file: that's the read-only default. Reconnect with `--claude-allow-edits` if you want edits.
+
+The [support page](https://twring.com/support/) covers more, and a person reads every email to support@twring.com.
+
+Twring also works with [Codex](https://twring.com/codex/) and [Hermes](https://twring.com/hermes/), and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can [ring and message you](https://twring.com/connector/) too.
+
+### Questions
+
+**Does Twring replace Claude Code's model?**
+No. Twring only handles the voice: it turns your speech into text for Claude Code, and its reply into speech for you. Claude Code does the thinking with its own model, memory and tools. Twring never runs its tools.
+
+**Does it use my own Claude plan?**
+Yes. Twring runs the Claude Code that is signed in on your computer, so its usage counts on your own Claude plan, as if you had typed.
+
+**Can I talk to the same session I have open in my terminal?**
+Not directly. Twring starts Claude Code in the folder you connected and keeps one ongoing Twring conversation across your calls and chats. To drive the exact session open in your terminal, use Anthropic's [Remote Control](https://code.claude.com/docs/en/remote-control).
+
+**Does Claude Code's own /voice command work from my phone?**
+No. Voice dictation in Claude Code needs a microphone on the computer running it, and it turns your speech into text only. Twring is a phone call with spoken answers.
+
+**Can I use it while driving?**
+A Twring call works like any other call on your phone, with Bluetooth if you like. Follow your local rules about phones while driving, and keep Claude Code read-only if you can't check its work.
+
+**Are my calls recorded?**
+No. Twring listens only while a call is on, and never records or keeps your audio. The [privacy notice](https://twring.com/privacy) lists everything it does keep.
+
+**Is Twring free?**
+Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. [Pricing](https://twring.com/pricing/) has the details.
+
+---
+
+# Codex
+
+Source: https://twring.com/codex/
+
+## Talk to Codex from your phone.
+
+Twring calls the Codex you already run on your computer. Press Call, say what you need, and hear its answer. When a job is done, it can ring your phone. It works on iPhone and Android.
+
+[Get an invite](https://twring.com/beta/)
+
+### Two ways to talk to Codex by voice
+
+- OpenAI's ChatGPT Voice. OpenAI's [voice docs](https://learn.chatgpt.com/docs/features/voice) describe a live spoken conversation that can start Codex tasks, check progress and change direction. It's in the ChatGPT desktop app on Plus, Pro, Business, Edu and Enterprise plans, and in Codex on iOS after you pair your phone with a desktop host. With [Codex in the ChatGPT app](https://learn.chatgpt.com/docs/mobile) you can also approve requested commands and review changes from your phone. (As of 24 November 2026.)
+
+- Twring. A phone app that calls the Codex CLI already running in your terminal, from an iPhone or Android phone, and lets Codex ring you.
+
+If you use the ChatGPT desktop app, have an iPhone and a paid plan, try OpenAI's first. Pick Twring if you live in the Codex CLI, use Android, or want Codex to ring you like a phone call.
+
+### Set it up
+
+- [Get an invite](https://twring.com/beta/) and install Twring: on iPhone through TestFlight, on Android as an APK from twring.com (not Google Play).
+
+- In the app, tap Connect Agent, On my computer or server. Then either:
+- paste the short message it gives you into Codex, and approve the command Codex runs to connect itself, or
+- tap Scan a code on my computer, run the command it shows in your project folder, and scan the code it prints.
+
+Both download the Twring connector from twring.com. It needs [Node.js](https://nodejs.org/) 20 or newer, the free program that runs it.
+
+- Codex appears in the app. Press Call.
+
+### What a call is like
+
+- Your words reach Codex as a message, in the folder you connected, with its own model, instructions and tools. The usage counts on your own account.
+
+- Codex sends its answer whole, not word by word, so Twring starts speaking when the answer is complete. On a longer task Twring may say a short line so the call isn't silent.
+
+- Talk over Codex at any time and it stops speaking. Calls and typed chats with Codex sit side by side in the app, and every call continues the same Twring conversation.
+
+### Read-only, unless you let it write
+
+On a call, Codex works in a read-only sandbox: it can read your files but not change them. To let it write in that folder, add `--codex-sandbox workspace-write` to the command. Twring never runs Codex's tools; whatever Codex does stays under its own sandbox and settings.
+
+### Let Codex ring you when it's done
+
+In a Twring call or chat, Codex is told how to ring your phone. Ask "ring me when the build finishes" and it rings full screen, even on a locked phone, with a short reason. If you hang up while it's still working, it keeps going, and its answer lands in your Twring chat.
+
+To have Codex ring you after every turn it finishes, run this in the connector's folder:
+
+`node twring-connect.mjs hooks install codex --on-turn-complete`
+
+It uses Codex's own `notify` setting in `~/.codex/config.toml`, and the start of Codex's reply becomes the ring's reason. Because it fires after every turn, it's off until you turn it on. Add `--message` to get a message in your Twring chat instead of a ring. [How rings work](https://twring.com/agent-calls-you/) covers quiet hours, limits and declining with a reply.
+
+### What you need
+
+- An invite. Twring is [free while it launches](https://twring.com/pricing/).
+
+- Codex signed in on your computer, and Node.js 20 or newer.
+
+- The computer on and awake, with the connector running. If it sleeps, Codex shows as offline in the app.
+
+If Codex doesn't answer, check the computer first, then see [support](https://twring.com/support/).
+
+Twring also works with [Claude Code](https://twring.com/claude-code/) and [Hermes](https://twring.com/hermes/), and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can [ring and message you](https://twring.com/connector/) too.
+
+### Questions
+
+**Does Twring replace Codex's model?**
+No. Twring only handles the voice: it turns your speech into text for Codex, and its reply into speech for you. Codex does the thinking with its own model and tools. Twring never runs its tools.
+
+**Does it use my own account?**
+Yes. Twring runs the Codex that is signed in on your computer, so its usage counts on your own account, as if you had typed.
+
+**Why does Codex pause before answering on a call?**
+Codex reports its answer when it is finished rather than word by word, so Twring can only start speaking once the whole answer is ready. Short questions come back quickly; long tasks take as long as they take in the terminal.
+
+**Can I approve Codex's actions by voice with Twring?**
+Twring runs Codex in a read-only sandbox by default, or a workspace-write sandbox if you choose, so it doesn't stop to ask. To approve individual actions from your phone, use Codex in OpenAI's ChatGPT app.
+
+**Can Codex ring me when it finishes?**
+Yes. Ask it to in a Twring call or chat, and it rings you with a short reason when the job is done. Or turn on a ring after every turn it finishes, with one command on your computer.
+
+**Does Twring work with Codex on Android?**
+Yes. Twring runs on iPhone and Android and calls the Codex CLI on your computer, so the phone you use doesn't matter.
+
+**Are my calls recorded?**
+No. Twring listens only while a call is on, and never records or keeps your audio. The [privacy notice](https://twring.com/privacy) lists everything it does keep.
+
+**Is Twring free?**
+Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. [Pricing](https://twring.com/pricing/) has the details.
+
+---
+
+# Hermes
+
+Source: https://twring.com/hermes/
+
+## Call your Hermes. Hermes calls you.
+
+Twring is in the [Hermes plugin catalog](https://hermes-agent.nousresearch.com/marketplace/twring). Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions by voice, and get a ring when a scheduled job is done.
+
+[Get an invite](https://twring.com/beta/)
+
+### Set it up
+
+- [Get an invite](https://twring.com/beta/) and install Twring on your iPhone or Android phone.
+
+- On the computer or server where Hermes runs:
+
+`hermes plugins install twring
+hermes twring link`
+
+In the app, tap Connect Agent, On my computer or server, Scan a code on my computer, and scan the code it shows.
+
+- Start the Hermes gateway, so your phone can reach Hermes:
+
+`hermes gateway`
+
+Hermes appears in the app. Press Call.
+
+### What happens on a call
+
+- Your words reach Hermes as a message, with its own model, memory, tools and permissions. Twring speaks its answer as it streams in.
+
+- Talk over Hermes at any time: its voice stops at once. Ask something new and it stops the old run and answers you. Hang up and it keeps working.
+
+- Typed messages and spoken turns reach the same Hermes conversation.
+
+### Approvals by voice or tap
+
+When Hermes needs your OK for a risky command, the request appears on your phone. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.
+
+### It rings you
+
+Deliver any Hermes scheduled job to `twring`. Its result lands in your Twring chat, and your phone rings with its first sentence. Set `TWRING_RING_ON_DELIVERY=false` to get a notification instead of a ring.
+
+Hang up while Hermes is still working, and the rest of its answer reaches your chat, with a ring if your Twring settings allow. [How rings work](https://twring.com/agent-calls-you/) covers quiet hours, limits and declining with a reply.
+
+### Handy commands
+
+- `hermes twring status` shows whether this computer is linked.
+
+- `hermes twring unlink` forgets the link on this computer. Then delete Hermes in the app too.
+
+- `hermes twring link --server https://your-twring-server` links to [your own Twring server](https://twring.com/self-hosting/) instead.
+
+Already run Hermes through Twring's computer program, `twring-connect.mjs`? Stop it before linking the plugin. Otherwise the app shows two "Hermes" agents.
+
+The [Hermes guide](https://twring.com/blog/hermes-agent-phone-call/) walks through setup and scheduled jobs in more detail, and the [plugin's README](https://github.com/saasagelabs/twring/tree/main/integrations/hermes) lists exactly what it sends to Twring.
+
+Twring also works with [Claude Code](https://twring.com/claude-code/) and [Codex](https://twring.com/codex/), and any agent you can reach at its own web address. AI apps like Claude and ChatGPT can [ring and message you](https://twring.com/connector/) too.
+
+### Questions
+
+**Does Twring replace Hermes's model?**
+No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions.
+
+**Can Twring approve commands for me?**
+No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no.
+
+**Are my calls recorded?**
+No. Twring listens only while a call is on, and never records or keeps your audio. The [privacy notice](https://twring.com/privacy) lists everything it does keep.
+
+**Is Twring free?**
+Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. [Pricing](https://twring.com/pricing/) has the details.
+
+---
+
+# Connect an AI app
+
+Source: https://twring.com/connector/
+
+## Let your AI ring your phone.
+
+Add Twring to Claude, ChatGPT or another AI app that lets you add a custom connector in its settings. When it needs you, it can ring your phone or send you a message in Twring, and read your reply. AI apps can ring you and message you, but you can't hold a live voice call with them; for that, connect Claude Code, Codex or Hermes on your computer.
+
+https://api.twring.com/mcp
+
+### What it can do
+
+- Ring your phone with a short reason (at most 140 characters) when it needs you. The ring is full screen, even on a locked phone. When you answer, Twring reads the reason aloud, then opens that AI's chat so you can reply by voice or text.
+
+- Send you a message, with up to five files by link, without ringing. Good for results and anything that can wait.
+
+- Read your replies in that chat the next time it checks.
+
+- Check whether a ring can get through right now, for example if you have Do Not Disturb or quiet hours on.
+
+The ring goes over the internet to the Twring app, so no phone number or telephony account is involved.
+
+### Add it
+
+First, [get an invite](https://twring.com/beta/), install Twring on your iPhone or Android phone, and sign in. Then:
+
+- Claude. Settings, Connectors, Add custom connector. Paste the address above, then sign in and allow.
+
+- ChatGPT. Settings, Apps and Connectors (or Developer mode, Create). Paste the address above, then sign in and allow.
+
+- Grok Bot, Cursor and other apps. Look for Connectors in the app's settings, add a custom connector with the address above, then sign in and allow.
+
+Sign in the same way you sign in to the Twring app (Google, or Apple), with the same account. Rings go to the account, not to whichever phone is in your hand, so if the connector uses a different account than your phone, the ring has nowhere to go.
+
+### Asking it to ring you
+
+Once connected, say what you want in plain words. For example:
+
+- "Research these three suppliers, and ring me when you have a recommendation."
+
+- "Draft the reply, send it to my Twring chat, and only ring me if you need a decision."
+
+- "If anything in this report looks wrong, ring me."
+
+The AI reads your answer the next time it checks for replies, so it may not react the very second you answer. A good habit for it is to message by default and ring only when you must know or decide now. If it rings too often, tell it so in the chat.
+
+### What it can and can't see
+
+A connected AI app gets only what you write or say in its own Twring chat. It can't read your other chats, your agents or your calls. You can remove it anytime in Twring: Settings, Connected AI apps.
+
+### What it doesn't do
+
+You can't place a live voice call to Claude or ChatGPT from Twring: chat apps don't take incoming calls. The connector is for the AI reaching you, and for you replying in its chat. For live two-way calls, connect an agent you run yourself, such as [Claude Code](https://twring.com/claude-code/), [Codex](https://twring.com/codex/) or [Hermes](https://twring.com/hermes/). Those can ring you too, and you can call them back: [how each agent rings you](https://twring.com/agent-calls-you/).
+
+### What's a connector?
+
+A connector is how you add tools to an AI app. Most use MCP, the standard way AI apps add tools. Twring's connector is an MCP server at one address, `https://api.twring.com/mcp`, and it's listed in the official MCP Registry.
+
+### Other ways to get a ring or a ping
+
+- A real phone call over the phone network. Telephony companies offer their own MCP servers. As of November 2026, [Plivo's MCP docs](https://www.plivo.com/docs/mcp/overview) describe one for its voice and messaging services. That route uses a telephony account and phone numbers, which makes sense if you need to call ordinary phone numbers.
+
+- A push notification. If a buzz is enough and you never need to talk back, a simple notification service may be all you need.
+
+Twring fits when you want a ring you can't miss, a reply channel in the same place, and no phone number or carrier setup.
+
+### When it doesn't ring
+
+- Check the account. The connector and the phone app must be signed in to the same Twring account.
+
+- Check Twring's settings. Do Not Disturb and quiet hours in Twring stop rings. Notifications must be on for Twring.
+
+- Check it's still connected. Look in Settings, Connected AI apps. If it isn't listed, add the connector again.
+
+Still stuck? See [support](https://twring.com/support/).
+
+### Questions
+
+**Can I call Claude from Twring?**
+Not the Claude or ChatGPT app itself: AI chat apps don't take incoming calls. Your connected AI can ring you, and you can reply in its Twring chat. For live calls, connect an agent you run, such as Claude Code, Codex or Hermes.
+
+**What do I hear when it rings?**
+Twring reads the reason it gave, then opens its chat so you can answer by voice or text. It reads your answer the next time it checks.
+
+**Does my phone need a phone number for this?**
+No. The ring reaches the Twring app over the internet, so there is no phone number or telephony account involved.
+
+**Which AI apps can use the Twring connector?**
+Claude, ChatGPT, and other apps that let you add a custom connector in their settings, such as Grok Bot and Cursor. They all use the same address, https://api.twring.com/mcp.
+
+**Why didn't my phone ring?**
+Most often the connector was signed in with a different account than your phone, or Do Not Disturb or quiet hours are on in Twring. Rings go to the account, not the device.
+
+**How do I remove it?**
+In Twring: Settings, Connected AI apps, Remove. It can't reach you again unless you allow it.
+
+**What data does it get?**
+Only what you write or say in its own Twring chat. Not your other chats, agents or calls. See the [privacy notice](https://twring.com/privacy).
+
+---
+
+# Pricing
+
+Source: https://twring.com/pricing/
+
+## Pricing
+
+Twring is free while we launch. There's no paid plan today, and nothing is ever charged without your OK.
+
+### What's free today
+
+- The Twring app on iPhone and Android, by invite.
+
+- Live calls with your agents: Claude Code, Codex, Hermes, or an agent at its own web address.
+
+- Rings: your agent calls your phone, full screen even when it's locked, when a job is done or needs your OK.
+
+- Chats with each agent, with voice notes and files both ways.
+
+- Letting [Claude, ChatGPT or another AI app](https://twring.com/connector/) ring and message you.
+
+There's no phone number to rent and no per-minute phone bill: rings come through the Twring app.
+
+### Limits while it's free
+
+- Calling time: each person has a daily amount of calling time. It starts again every day at midnight UTC.
+
+- A busy day: if Twring's calling time for everyone runs out, new calls wait until midnight UTC. Calls already going keep going.
+
+- Rings: your agent can ring you a few times an hour at most, so a burst of rings is held back on purpose.
+
+- Access: by invite for now. [Ask for one here.](https://twring.com/beta/)
+
+### What you still pay others for
+
+- Your agent. Claude Code, Codex and Hermes keep running on your own account with the company that makes them, so whatever you pay for your agent today stays the same. Twring doesn't run your agent's model or pay for it.
+
+- Your own server, if you run one. If you [run Twring on your own server](https://twring.com/self-hosting/), you pay for the server and for your own speech account (Deepgram or xAI).
+
+### Running Twring on your own server
+
+Self-hosting is free while we launch. It will have a yearly charge, paid in the app, for the ring service Twring runs so that locked phones can ring. Before any charge starts, you'll be told in the app and by email, with the price. [Why self-hosting will have a yearly charge.](https://twring.com/self-hosting/#yearly-charge)
+
+### If prices change
+
+If Twring ever has a price, you'll hear it from us first, and nothing is charged without your OK. Questions: support@twring.com.
+
+[Get an invite](https://twring.com/beta/)
+
+### Questions
+
+**Is Twring free?**
+Yes, while we launch. There's no paid plan today. If that changes, you'll hear it from us first, and nothing is charged without your OK.
+
+**Do I need a Twilio account or a phone number?**
+No. Your agent rings you through the Twring app, so there's no phone number to rent and no per-minute phone bill.
+
+**Is there a limit on calls?**
+Yes. While Twring is free, each person has a daily amount of calling time, and it starts again at midnight UTC. Your agent can also ring you only a few times an hour.
+
+**Does Twring pay for my agent?**
+No. Your agent keeps running on your own account with the company that makes it, so whatever you pay for it today stays the same. Twring handles the calls and chats.
+
+**What does running my own Twring server cost?**
+It's free while we launch. It will have a yearly charge for the ring service that makes locked phones ring, and you'll be told the price in the app and by email before it starts. You also pay for your own server and speech account.
+
+---
+
+# Security
+
+Source: https://twring.com/security/
+
+Updated 26 November 2026
+
+## Security at Twring
+
+Twring handles the voice between you and your agent, and nothing more. It doesn't record your calls, it stores keys and chats encrypted, and it never runs your agent's tools: your agent keeps its own permissions and decides what it does. The [privacy notice](https://twring.com/privacy) lists everything Twring keeps.
+
+### Your calls
+
+- No recordings. Twring listens only while a call is on, and never records or keeps your audio. It keeps no transcript of what was said on a call either: a call shows in your chat as a card with its time, length and outcome.
+
+- Speech services. Call audio goes to a speech service (Deepgram) to become text, and your agent's reply goes to it to become speech. If you add your own xAI key, xAI does this for your calls only.
+
+- No double sends. If the network drops, Twring doesn't re-send your words to your agent, so a risky action is never run twice because of a reconnect.
+
+### Your agent
+
+- Twring never runs your agent's tools. Your words reach your agent as text, the same as if you had typed. Your agent keeps its own model, memory, tools and permissions.
+
+- Careful defaults on your computer. On a call, Claude Code can read your files but not change them, unless you add `--claude-allow-edits`. Codex runs in a read-only sandbox unless you add `--codex-sandbox workspace-write`.
+
+- Nothing secret written down. The short guide Twring gives your agent tells it to write down what you ask for on a call, but never passwords or keys.
+
+### Your keys and data
+
+- Keys are encrypted. An agent's key, and any speech account key you add, is encrypted on the Twring server (AES-256-GCM), never shown again and never logged.
+
+- Chats and files are encrypted. Messages and files are stored encrypted on the Twring server, and only your account can read them. Photos have their location data removed on your phone before they're sent.
+
+- Only you. Your agents, chats and calls are tied to your account, and only you can see and call your agents.
+
+- Sign-in. You sign in with Google, or Apple on iPhone. Twring never sees your password.
+
+- Logs leave secrets out. Keys, tokens and web address query strings are removed from logs and crash reports.
+
+- Delete any time. Delete my data in the app's Settings removes your data.
+
+### Open source, and your own server
+
+The source is public on [GitHub](https://github.com/saasagelabs/twring): the app and the computer tool are Apache-2.0, and the server, relay and self-host kit are AGPL-3.0. If you'd rather keep chats, files and agents on your own machine, [run Twring on your own server](https://twring.com/self-hosting/).
+
+### Report a security problem
+
+Email support@twring.com with "Security" in the subject, and please don't open a public issue. Tell us what you found, how to reproduce it and what it affects. We reply within 2 working days, keep you posted until it's fixed, and credit you once a fix is out if you'd like.
+
+[Get an invite](https://twring.com/beta/)
+
+### Questions
+
+**Does Twring record my calls?**
+No. Twring listens only while a call is on, and never records or keeps your audio or a transcript of the call.
+
+**Can Twring run commands on my computer?**
+No. Twring never runs your agent's tools. Your words reach your agent as text, and your agent decides what to do under its own permissions.
+
+**How are my keys stored?**
+Encrypted on the Twring server with AES-256-GCM. They're never shown again and never written to logs.
+
+**How do I delete my data?**
+In Twring, open Settings and tap Delete my data.
+
+**How do I report a security problem?**
+Email support@twring.com with "Security" in the subject. We reply within 2 working days.
+
+---
+
+# About
+
+Source: https://twring.com/about/
+
+## About Twring
+
+Twring gives the AI agents you already run a voice. You call your agent from your phone and talk to it live, and it can ring you when a job is done or needs your OK.
+
+### Who makes it
+
+Twring is built by Rish and run under the name SaaSage Labs, from India. Say hi on X: [@rishflips](https://x.com/rishflips), or write to hello@twring.com.
+
+### What Twring is built on
+
+Bring any agent brain. Get the voice.
+
+- Voice is input and output, not intelligence. Your agent keeps its own model, memory, tools and permissions. Twring turns your speech into text for your agent, and its reply into speech for you.
+
+- Twring never runs your agent's tools. Your agent does its own work, where it already runs.
+
+- It should feel like a call. Speech streams both ways, and you can interrupt at any moment.
+
+- No call recordings. Twring doesn't record or keep your call audio. The [privacy notice](https://twring.com/privacy) lists what it does keep.
+
+### Open source
+
+The source is public on [GitHub](https://github.com/saasagelabs/twring). The server, relay and self-host kit are AGPL-3.0; the app, the computer tool and everything else are Apache-2.0. You can also [run Twring on your own server](https://twring.com/self-hosting/). [How Twring keeps calls and keys safe](https://twring.com/security/).
+
+### Where else you'll find Twring
+
+- [github.com/saasagelabs/twring](https://github.com/saasagelabs/twring): the source code.
+
+- [The official MCP Registry](https://registry.modelcontextprotocol.io/v0/servers?search=twring), as `com.twring/twring`: the connector for AI apps.
+
+- [The Hermes plugin catalog](https://hermes-agent.nousresearch.com/marketplace/twring): the Twring plugin for Hermes.
+
+- [Glama](https://glama.ai/mcp/connectors/com.twring/twring): the connector's listing.
+
+### Built with
+
+LiveKit carries the live audio. Deepgram, Cartesia and xAI turn speech into text and text into speech.
+
+### Where Twring is today
+
+On Android (from [twring.com](https://twring.com/downloads/), not yet on Google Play) and iPhone (through TestFlight, not yet on the App Store). It's by invite, and [free while we launch](https://twring.com/pricing/).
+
+### Contact
+
+Help with the app: support@twring.com. Everything else: hello@twring.com. A person reads every email.
+
+[Get an invite](https://twring.com/beta/)
+
+---
+
+# Self-hosting
+
+Source: https://twring.com/self-hosting/
+
+## Run Twring on your own server
+
+One command sets it up, with your own speech account. Your chats, files and agents stay on your server, and so do your calls unless your server uses Twring's audio service. You use the same Twring app on your phone (the app update that connects to your own server is coming).
+
+### Who it is for
+
+Developers and teams who already run agents like Hermes on a VPS or in a cloud sandbox, and want Twring right next to them. If you just want to call your agent, you don't need any of this: [get an invite](https://twring.com/beta/) and use Twring as it is.
+
+### Install
+
+On the Linux machine where your agents run, as root (or with `sudo` in front of `sh`):
+
+`curl -fsSL https://twring.com/install.sh | sh`
+
+It asks for an email address and your speech account key (typing them when asked is the safest way), sets everything up, and shows a code to scan with the Twring app. Your agents on that machine are linked for you.
+
+To give your answers ahead of time with `sudo`, export them and keep them with `-E`:
+
+`export TWRING_EMAIL=you@example.com
+export TWRING_SPEECH_KEY=your-deepgram-key
+curl -fsSL https://twring.com/install.sh | sudo -E sh`
+
+Don't write `sudo TWRING_SPEECH_KEY=... sh`: that puts the key where other people on the machine can see it.
+
+### What you need
+
+- A Linux machine, x86_64 or arm64, with Docker and Docker Compose.
+
+- Ports 80 and 443 open, plus 7881 (TCP) and 7882 (UDP) for call audio. If the audio ports can't be opened, as in most cloud sandboxes, Twring's audio service carries your calls instead.
+
+- A speech account key: Deepgram or xAI.
+
+The [server guide](https://twring.com/self-hosting/guide/) covers ports and firewalls, updates, backups, removing people and phones, and what to do when something doesn't work.
+
+### Why self-hosting will have a yearly charge
+
+When your phone is locked, only Apple and Google can make it ring, and they deliver those rings only to Twring's app, sent with Twring's keys. A server you run yourself can't hold those keys. So rings for every self-hosted server go through a ring service that Twring runs and maintains, together with the app itself.
+
+A yearly charge, paid in the app, pays for that work: keeping the ring service running and keeping the app working with your server.
+
+Your server and your chats work without it while the app is open, and so do calls on a server with its own call audio. If your server uses Twring's audio service, calls need the ring service too. What the ring service adds for everyone is your phone ringing when it's locked or the app is closed.
+
+The ring service needs the email address you give at install to be confirmed. If it isn't confirmed within 7 days, rings pause, and so do calls on servers that use Twring's audio service, until you click the link.
+
+Right now it's free while we launch. Before any charge starts, you'll be told in the app and by email, with the price. Nothing is charged without your OK.
+
+### What Twring receives from your server
+
+- The email address you give at install, to confirm the server is yours and to tell you about changes, and whether you want news.
+
+- Your server's address, so the ring service can check it can be reached.
+
+- Your phones' push tokens, so Apple and Google can deliver rings.
+
+- Counts of rings, notifications and call minutes, so the ring service can keep fair limits.
+
+- Notification contents sealed on your server for your phone. Twring passes them on and can't read them.
+
+- If your server uses Twring's audio service (common in sandboxes), call audio passes through it, encrypted in transit, and is never stored. Twring keeps a record of each call's time and length for 90 days.
+
+Everything else stays on your server: your agents, chats, files, people and phones, and your speech key. Twring keeps what it receives while your server is registered. Running `twring uninstall` deletes it from the ring service too, or write to support@twring.com. The [privacy notice](https://twring.com/privacy) has the details.
+
+### Sharing agents with your team
+
+Agents are shared only if you choose to. A shared agent runs as the login that linked it, so people you add can ask it to read files and use anything it can use without asking. Use a separate login for shared agents, with no keys or personal files. Each person has their own conversation, but whoever runs the computer can read them all, and the agent's own memory is shared. The [guide](https://twring.com/self-hosting/guide/#memory) explains how.
+
+### Questions
+
+Write to support@twring.com. A person reads every email.
+
+---
+
+# Support
+
+Source: https://twring.com/support/
+
+## Support
+
+Stuck, or something doesn't work the way it should? A person reads every email.
+
+support@twring.com
+We reply within 2 working days. In the app you can also use Settings, Send feedback.
+
+Email support
+
+### Installing
+
+#### iPhone
+
+Twring for iPhone comes through TestFlight, Apple's app for early releases. Install TestFlight from the App Store, then open the link in your invite email and tap Install. Updates arrive in TestFlight.
+
+#### Android
+
+Twring for Android is an APK, downloaded from twring.com rather than Google Play. Open the download link in your invite email and tap Install. If Android or Play Protect asks whether to allow the install, allow it. New versions come by email as a new APK: install the newer one over the old one and your agents and settings stay.
+
+#### Signing in
+
+Sign in with Google, or Apple on iPhone, using the email address your invite went to. If Twring says you're not in yet, write to us from that address.
+
+### Calls
+
+#### My agent can't hear me
+
+Check that Twring is allowed to use the microphone in your phone's settings. On a call, the speaker button switches between the phone, the speaker and Bluetooth; try another one. If you muted the call, tap the microphone again.
+
+#### My agent doesn't answer
+
+An agent on your computer can only answer while that computer is on and awake and the Twring tool on it is running. The agent's page in the app shows whether it is online. If it stays offline, tap Connect another agent, choose On my computer or server, and link your computer again.
+
+#### My agent forgets what I asked on a call
+
+Twring's guide tells your agent to write each request down during the call and to work through the list afterwards. Older setups may have an older guide: link your computer again (Connect another agent, then On my computer or server), and the guide updates. Other agents can [download the guide](https://twring.com/downloads/twring-skill.tar.gz).
+
+#### A call ended early
+
+While we launch there is a daily calling allowance, which resets each day, and each call has a maximum length. If calls drop in other ways, tell us when it happened and which agent it was.
+
+### Rings
+
+#### My agent's rings don't reach me
+
+In Twring, open Settings and check that Calls says Ready. Then check that Do Not Disturb and quiet hours in Twring's settings aren't on, and that your phone is signed in to the same account as the agent. Each agent can ring you at most 6 times an hour, so a burst of rings is held back on purpose. [Every check, in order](https://twring.com/support/phone-did-not-ring/).
+
+### Your account and data
+
+- Delete your data: in the app, Settings, Delete my data. It removes your agents, keys, chats and call history and keeps your account.
+
+- Delete your account: Settings, Delete account, or follow [these steps without the app](https://twring.com/account-deletion).
+
+- What Twring keeps: the [privacy notice](https://twring.com/privacy) lists it. Twring never records or keeps your call audio.
+
+- The rules: the [terms of service](https://twring.com/terms/).
+
+### Who runs Twring
+
+Twring is built by Rish ([@rishflips](https://x.com/rishflips)) at SaaSage Labs. For press and partnerships, write to hello@twring.com.
+
+---
+
+# Why didn't my phone ring?
+
+Source: https://twring.com/support/phone-did-not-ring/
+
+[Support](https://twring.com/support/)
+
+## Why didn't my phone ring?
+
+Start in the Twring app: open Settings and look at Calls. It says Ready when your agents can ring this phone, even when it's locked. If it says Not ready yet, fix the items it lists. If it's ready and rings still don't come, work through the checks below in order.
+
+### 1. The phone
+
+- Notifications for Twring. If they're off, rings can't reach you. Settings, Calls asks for permission or opens your phone's settings.
+
+- On Android: the "Incoming agent calls" notifications. If that kind of Twring notification is muted, turn it back on. Settings, Calls opens the right page.
+
+- On Android: full-screen notifications. They let a ring show over the lock screen. Settings, Calls shows a fix if they're off.
+
+- Your phone's own Do Not Disturb or Focus. These can silence rings, like other calls.
+
+### 2. Twring's settings
+
+- Do not disturb in Twring stops every ring. You can still call your agents.
+
+- Quiet hours stop rings during the hours you set.
+
+- When work finishes after a call: if this says Send a message, work that finishes after you hang up arrives as a message, not a ring. Set it to Ring me if you want the ring.
+
+### 3. The account
+
+Rings go to your Twring account, not to whichever phone is in your hand. Sign in on your phone with the same account you connected the agent to. For Claude, ChatGPT or another AI app, the account you signed in with when you [added Twring to it](https://twring.com/connector/) must be the same one, too.
+
+### 4. Limits
+
+- Each agent can ring you at most 6 times an hour.
+
+- Only one ring at a time can be waiting for you.
+
+- A ring can't reach you while you're already on a Twring call.
+
+These hold back bursts of rings on purpose.
+
+### 5. The agent's side
+
+- An agent on your computer rings through the Twring connector, so the computer must be on and online, with the connector running. The agent's page in the app shows whether it's online.
+
+- Rings by themselves need a hook. For [Claude Code](https://twring.com/blog/claude-code-call-me-when-done/) run `node twring-connect.mjs hooks install claude`; for [Codex](https://twring.com/codex/), `node twring-connect.mjs hooks install codex --on-turn-complete`. Run it in the folder where you downloaded `twring-connect.mjs`. A hook installed with `--message` sends a message instead of ringing.
+
+- Hermes rings for scheduled jobs delivered to `twring`, unless `TWRING_RING_ON_DELIVERY` is set to `false`. See [Hermes](https://twring.com/hermes/).
+
+### Missed it?
+
+A ring lasts 30 seconds. After that, the app shows a missed call with the reason your agent gave, so you can call it back.
+
+Still stuck? Write to support@twring.com with the time it should have rung and which agent it was. A person reads every email. [How rings work](https://twring.com/agent-calls-you/) explains the rest.
+
+### Questions
+
+**Why didn't my phone ring when my agent called?**
+Most often notifications are off for Twring, Do Not Disturb or quiet hours are on in Twring, or the agent is connected to a different Twring account than the one on your phone. In Twring, Settings, Calls says Ready when this phone can ring.
+
+**Why did the first ring work but the next ones didn't?**
+Each agent can ring you at most 6 times an hour, and only one ring can be waiting at a time. A ring also can't reach you while you're already on a Twring call.
+
+**Does a ring work when my phone is locked?**
+Yes. It fills the screen on a locked iPhone or Android phone. On Android, full-screen notifications must be allowed for Twring; Settings, Calls shows a fix if they are off.
+
+**What happens to a ring I miss?**
+A ring lasts 30 seconds. After that, the app shows a missed call with the reason your agent gave.
+
+---
+
+# Compare
+
+Source: https://twring.com/compare/
+
+## Twring compared
+
+Twring is a phone app that lets you call the AI agent you already run and talk to it live, and lets your agent ring your phone. Other tools do some of this differently, and some are a better fit for some jobs. These pages say which, fairly, with the date we checked.
+
+### Comparisons
+
+- [Twring vs Claude Code Remote Control](https://twring.com/vs/claude-code-remote-control/). Remote Control is for typing to and steering your Claude Code session from the Claude app. Twring is for talking to it and getting rung.
+
+- [Twring vs Codex in the ChatGPT app](https://twring.com/vs/codex-chatgpt-mobile/). OpenAI's app is for typing to Codex, approving its commands and reading diffs on an iPhone. Twring is for talking to the Codex CLI on any phone, and getting rung.
+
+- [Twring vs Happy](https://twring.com/vs/happy/). Happy is for typing to your agents, approving and reviewing changes, with voice calls on a monthly allowance. Twring is for talking to your agent and getting rung.
+
+- [Twring vs agentring](https://twring.com/vs/agentring/). Both ring an app with no phone number. In agentring a voice AI talks for your agent; in Twring you talk to your agent itself.
+
+- [Twring vs ntfy](https://twring.com/vs/ntfy/). ntfy sends a push notification; Twring rings you and lets you talk back.
+
+- [Claude Code voice mode alternatives](https://twring.com/alternatives/claude-code-voice-mode/). Claude Code has dictation, not a voice that talks back. The options that do talk back: VoiceMode at your computer, Twring on your phone.
+
+- [Let Claude Code call you, with or without Twilio](https://twring.com/alternatives/call-me-without-twilio/). call-me and similar plugins, agentring, ntfy and Twring.
+
+- [Every way to reach your coding agent from your phone](https://twring.com/blog/reach-your-coding-agent-from-your-phone/). Typing, dictating, talking and getting rung, across Claude Code, Codex, Cursor and more.
+
+### Pick by what you want to do
+
+You want to | Good options
+
+Type to Claude Code or Codex from your phone | The Claude app (Remote Control), the ChatGPT app (Codex), Happy
+
+Speak instead of typing, at your desk | Claude Code's /voice dictation
+
+A spoken conversation at your desk | VoiceMode
+
+A spoken conversation from your phone, with the agent you run | Twring; ChatGPT Voice for Codex on iPhone
+
+A phone call to any number | call-me, AgentComms and similar, with a carrier account
+
+A ring in an app, with no phone number | Twring or agentring (both iPhone and Android)
+
+Just a notification | Remote Control pushes, ntfy
+
+### What Twring is not
+
+- Not a phone number, SMS or carrier service.
+
+- Not a builder for business voice agents or call centres.
+
+- Not an AI model: your agent keeps its own.
+
+- Not a remote terminal: you talk to your agent, and it works where it already runs.
+
+Something here out of date? Write to hello@twring.com and we'll fix it.
+
+### Questions
+
+**Is Twring a phone-number or SMS service?**
+No. Rings and calls go over the internet to the Twring app, so there is no phone number, Twilio account or carrier to set up.
+
+**Is Twring a voice agent builder like Vapi, Retell or Bland?**
+No. Those build business voice agents for phone lines. Twring gives a voice to an agent you already run, such as Claude Code, Codex or Hermes.
+
+**Is Twring a new AI model?**
+No. Your agent keeps its own model, memory and tools. Twring turns your speech into text for it, and its reply into speech for you.

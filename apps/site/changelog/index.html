@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Twring changelog: what's new each week | Twring</title>
+<meta name="description" content="What changed in Twring each week: calls, rings, chats, the computer tool, the Hermes plugin and the self-hosted server. Newest first.">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#000000">
+<link rel="canonical" href="https://twring.com/changelog/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://twring.com/changelog/">
+<meta property="og:site_name" content="Twring">
+<meta property="og:title" content="Twring changelog: what's new each week | Twring">
+<meta property="og:description" content="What changed in Twring each week: calls, rings, chats, the computer tool, the Hermes plugin and the self-hosted server. Newest first.">
+<meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="720">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="/favicon.ico" sizes="48x48">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/site.webmanifest">
+<link rel="stylesheet" href="/assets/site.css?v=10">
+<script type="application/ld+json">
+{
+ "@context": "https://schema.org",
+ "@graph": [
+  {
+   "@type": "WebPage",
+   "@id": "https://twring.com/changelog/#page",
+   "url": "https://twring.com/changelog/",
+   "name": "What's new in Twring",
+   "about": {
+    "@id": "https://twring.com/#app"
+   },
+   "publisher": {
+    "@id": "https://twring.com/#org"
+   },
+   "dateModified": "2026-11-28",
+   "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+     {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Twring",
+      "item": "https://twring.com/"
+     },
+     {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Changelog",
+      "item": "https://twring.com/changelog/"
+     }
+    ]
+   }
+  },
+  {
+   "@type": "FAQPage",
+   "@id": "https://twring.com/changelog/#faq",
+   "mainEntity": [
+    {
+     "@type": "Question",
+     "name": "How do I get the latest version?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "On iPhone, TestFlight installs updates for you. On Android, download the newest app from the downloads page; the app tells you when an update is needed."
+     }
+    },
+    {
+     "@type": "Question",
+     "name": "Where is the full history?",
+     "acceptedAnswer": {
+      "@type": "Answer",
+      "text": "Every change is a pull request in the Twring repository on GitHub. Versions of the self-hosted server and the Hermes plugin are listed under Releases."
+     }
+    }
+   ]
+  }
+ ]
+}
+</script>
+</head>
+<body>
+
+<a class="skip" href="#main">Skip to content</a>
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="logo" href="/" aria-label="Twring home">
+      <svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square" stroke-linejoin="miter"/></svg>
+      <span class="wordmark">twring</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="Site">
+      <a href="/#how">How it works</a>
+      <a href="/#ring">Rings</a>
+      <a href="/#faq">FAQ</a>
+      <a href="/self-hosting/">Self-hosting</a>
+      <a href="/support/">Support</a>
+    </nav>
+    <div class="nav-right">
+      <a class="btn btn-primary" href="/beta/">Get an invite</a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="navLinks"><span></span><span></span></button>
+    </div>
+  </div>
+</header>
+
+<main id="main" class="page">
+<article class="wrap">
+    <p class="post-meta">Updated <time datetime="2026-11-28">28 November 2026</time></p>
+    <h1>What's new in Twring</h1>
+    <p class="lead">What changed in Twring, a week at a time, newest first. Dates are when a change was finished; the app update reaches phones in the following days. It starts in November 2026; every change is also on <a href="https://github.com/saasagelabs/twring">GitHub</a>.</p>
+
+    <div class="prose">
+<h2 id="w2026-11-23"><time datetime="2026-11-23">Week of 23 November 2026</time></h2>
+<ul>
+  <li><strong>Claude Code rings you only when it needs you:</strong> the Claude Code hook now rings for permission prompts and idle waits, not every notification.</li>
+  <li><strong>"Ring me when it's done"</strong> on the screen after a call ends.</li>
+  <li><strong>A quicker first call:</strong> a one-page welcome and a Call now button.</li>
+  <li><strong>Fewer interruptions:</strong> Twring says "one moment" only when your agent takes a long time, and says so if an answer breaks off.</li>
+  <li><strong>Clearer speech:</strong> spoken replies skip tables, file paths and long codes, and say when the code is on screen instead.</li>
+  <li><strong>Steadier calls:</strong> the sound stays on the speaker or headset you picked, Bluetooth is used only for calls, and a regular phone call pauses Twring.</li>
+  <li><strong>Your calling time:</strong> the app says when today's calling time is nearly used up.</li>
+  <li><strong>Help when your computer is offline:</strong> the app explains how to bring an agent on your computer back.</li>
+  <li><strong>Chats:</strong> search your chats, reply to a message, copy, share or delete one, export a chat as Markdown, and see every photo and file per agent. Drafts and unsent messages survive a restart.</li>
+  <li><strong>Listen:</strong> scrub and change the speed when a reply is read aloud.</li>
+  <li><strong>Private notifications:</strong> message previews are sealed for your phone, so Google's and Apple's push services pass them on without being able to read them.</li>
+  <li><strong>Chats reconnect at once</strong> when you come back to the app or the network returns.</li>
+  <li><strong>Self-hosted server 1.0.5:</strong> <a href="https://github.com/saasagelabs/twring/releases/tag/selfhost-v1.0.5">release notes</a>.</li>
+</ul>
+
+<h2 id="w2026-11-16"><time datetime="2026-11-16">Week of 16 November 2026</time></h2>
+<ul>
+  <li><strong>The language you speak:</strong> set it in Settings, and Twring hears you and picks voices for it. Twring's own lines are in 10 languages.</li>
+  <li><strong>A new layout:</strong> agents and chats in one list, three tabs, and a portrait call screen with a large End button.</li>
+  <li><strong>Recents:</strong> delete one call or clear the whole list.</li>
+  <li><strong>Voice drops:</strong> an answer cut off when the voice service drops carries on after the reconnect.</li>
+</ul>
+
+<h2 id="w2026-11-09"><time datetime="2026-11-09">Week of 9 November 2026</time></h2>
+<ul>
+  <li><strong>Hermes plugin:</strong> Twring became a Hermes messaging platform, so you can call your Hermes agent and approve its commands by voice. <a href="/hermes/">Twring for Hermes</a>.</li>
+  <li><strong>Talk while it answers:</strong> what you say while your agent's answer plays is sent to it, and an answer you talked over still plays before the next one.</li>
+  <li><strong>Long code in chats</strong> wraps instead of showing an empty bubble.</li>
+</ul>
+
+<h2 id="w2026-11-02"><time datetime="2026-11-02">Week of 2 November 2026</time></h2>
+<ul>
+  <li><strong>Grok voices:</strong> add your own xAI key to use Grok voices on your calls.</li>
+</ul>
+
+<p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
+      <h2>Questions</h2>
+    </div>
+    <div class="faq faq-tight">
+      <details><summary>How do I get the latest version?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>On iPhone, TestFlight installs updates for you. On Android, download the newest app from the <a href="/downloads/">downloads page</a>; the app tells you when an update is needed.</p></div></details>
+      <details><summary>Where is the full history?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Every change is a pull request in the <a href="https://github.com/saasagelabs/twring">Twring repository on GitHub</a>. Versions of the self-hosted server and the Hermes plugin are listed under Releases.</p></div></details>
+    </div>
+  </article>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <div class="foot-brand">
+        <a class="logo" href="/" aria-label="Twring home"><svg viewBox="0 0 100 66" aria-hidden="true"><path d="M 50 33 L 68 15 L 86 33 L 68 51 L 50 33 L 32 15 L 14 33 L 32 51 Z" fill="none" stroke="#19D6F2" stroke-width="5" stroke-linecap="square"/></svg><span class="wordmark">twring</span></a>
+        <p>Call the AI agents you already run. Let them ring you when it matters.</p>
+        <a class="foot-cta" href="/beta/">Get an invite</a>
+      </div>
+      <nav class="foot-links" aria-label="Footer">
+        <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/blog/">Blog</a><a href="/#faq">FAQ</a></div>
+        <div><b>Agents</b><span>Talk live</span><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><span>Rings and messages</span><a href="/connector/">Claude, ChatGPT and Grok Bot</a></div>
+        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/changelog/">Changelog</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
+        <div><b>Contact</b><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a><a href="https://x.com/rishflips" rel="me">X: @rishflips</a></div>
+        <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
+      </nav>
+    </div>
+    <div class="legal"><span>Built by <a href="https://x.com/rishflips" rel="me">Rish</a> at <a href="https://saasage.in">SaaSage Labs</a>. Free while we launch.</span><span>© 2026 SaaSage Labs</span></div>
+  </div>
+</footer>
+
+<script src="/assets/site.js?v=2"></script>
+</body>
+</html>

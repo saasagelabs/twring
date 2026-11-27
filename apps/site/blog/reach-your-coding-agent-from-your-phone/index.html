@@ -34,7 +34,7 @@
    "headline": "Every way to reach your coding agent from your phone, compared",
    "description": "Type, dictate, talk live or get rung: the ways to reach Claude Code, Codex and other coding agents from your phone as of November 2026, and which to pick.",
    "datePublished": "2026-11-24",
-   "dateModified": "2026-11-24",
+   "dateModified": "2026-11-28",
    "image": "https://twring.com/media/twring-in-30-seconds.jpg",
    "author": {
     "@id": "https://twring.com/#org"
@@ -138,7 +138,7 @@
 
 <main id="main" class="page">
   <article class="wrap">
-    <p class="post-meta"><a href="/blog/">Blog</a> · <time datetime="2026-11-24">24 November 2026</time></p>
+    <p class="post-meta"><a href="/blog/">Blog</a> · Updated <time datetime="2026-11-28">28 November 2026</time></p>
     <h1>Every way to reach your coding agent from your phone, compared</h1>
     <p class="lead">If you want to type to your coding agent from your phone, use the maker's own app: Remote Control in the Claude app for Claude Code, or Codex in the ChatGPT app, both free with plans you may already have. If you want to talk to the agent you already run in a live two-way call, or have it ring your locked phone full screen when it is done, Twring does that with no phone number or telephony account.</p>
 
@@ -155,7 +155,7 @@
 <h2>How do I type to my coding agent from my phone?</h2>
 <p><strong>Claude Code: the Claude app.</strong> Anthropic's <a href="https://code.claude.com/docs/en/mobile">Claude Code on mobile</a> page says the Claude app for iOS and Android is a client for Claude Code sessions. From its Code tab you can start cloud sessions, or drive a session running on your own computer with Remote Control (start it with <code>claude remote-control</code>, or <code>/remote-control</code> in an open session). It needs a claude.ai account, not an API key, and your plan has to include it. For Remote Control the computer has to stay on with Claude Code running. When Remote Control is active, Claude can send push notifications when a long task finishes or needs a decision.</p>
 <p><strong>Codex: the ChatGPT app.</strong> OpenAI's <a href="https://learn.chatgpt.com/docs/mobile">Codex on mobile</a> page says you can start tasks, follow progress, send instructions, approve requested commands and review diffs from the ChatGPT app for iOS. Tasks can run in Codex Cloud or on a connected Mac or Windows PC, which must stay awake and online.</p>
-<p><strong>Happy.</strong> <a href="https://github.com/slopus/happy">Happy</a> is an open source (MIT) app that works with Claude Code, Codex and other agents. It has iOS, Android, desktop and web versions and push notifications. It is a good pick if you use more than one agent and want one app that is not tied to a single vendor.</p>
+<p><strong>Happy.</strong> <a href="https://github.com/slopus/happy">Happy</a> is an open source (MIT) app that works with Claude Code, Codex and other agents. It has iOS, Android and desktop versions, push notifications and, since November 2026, voice calls with your agents (20 free minutes every 30 days, through ElevenLabs). It is a good pick if you use more than one agent and want one app that is not tied to a single vendor. <a href="/vs/happy/">Twring vs Happy</a> goes through the differences.</p>
 <p><strong>Our honest advice:</strong> if typing to Claude Code or Codex is all you want, use the official app. It is made by the people who make the agent, it is in the app stores, and it is probably already included in your plan. Twring does not try to replace it.</p>
 
 <h2>Can I dictate to my coding agent?</h2>
@@ -189,7 +189,7 @@
     <tr><td>Claude app (Remote Control)</td><td>Type to Claude Code</td><td>No (not described for Claude Code)</td><td>Push notifications</td><td>claude.ai account on a plan that includes it; computer on</td><td>No</td></tr>
     <tr><td>ChatGPT app (Codex)</td><td>Type to Codex; talk with ChatGPT Voice</td><td>Yes on iPhone, on paid plans, after pairing with a desktop host</td><td>Not stated on the mobile page</td><td>ChatGPT account; Codex Cloud or a connected Mac or Windows PC, awake</td><td>No</td></tr>
     <tr><td>Cursor</td><td>Cursor's own agents</td><td>Voice chat, including in Cursor for iOS</td><td>Not compared here</td><td>Cursor</td><td>No</td></tr>
-    <tr><td>Happy</td><td>Type to several agents</td><td>Not described</td><td>Push notifications</td><td>The app plus its CLI on your computer</td><td>Yes (MIT)</td></tr>
+    <tr><td>Happy</td><td>Type to several agents</td><td>Voice calls, 20 free minutes every 30 days</td><td>Push notifications</td><td>The app plus its CLI on your computer</td><td>Yes (MIT)</td></tr>
     <tr><td>Claude Code voice dictation</td><td>Dictate at the desk</td><td>No</td><td>No</td><td>claude.ai account, local microphone</td><td>No</td></tr>
     <tr><td>VoiceMode</td><td>Talk at the desk</td><td>No (runs on the computer)</td><td>No</td><td>Python, audio tools, a speech service key or local models</td><td>Yes (MIT)</td></tr>
     <tr><td>ntfy (dev.to guide)</td><td>Notify</td><td>No</td><td>Push notifications; a one-way read-aloud call on paid plans</td><td>Docker, Tailscale, the ntfy app</td><td>Yes</td></tr>
@@ -256,7 +256,7 @@
       <nav class="foot-links" aria-label="Footer">
         <div><b>Product</b><a href="/#how">How it works</a><a href="/#ring">Rings</a><a href="/pricing/">Pricing</a><a href="/compare/">Compare</a><a href="/blog/">Blog</a><a href="/#faq">FAQ</a></div>
         <div><b>Agents</b><span>Talk live</span><a href="/claude-code/">Claude Code</a><a href="/codex/">Codex</a><a href="/hermes/">Hermes</a><span>Rings and messages</span><a href="/connector/">Claude, ChatGPT and Grok Bot</a></div>
-        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
+        <div><b>Help</b><a href="/about/">About</a><a href="/support/">Support</a><a href="/security/">Security</a><a href="/changelog/">Changelog</a><a href="/downloads/">Downloads</a><a href="/self-hosting/">Run your own server</a></div>
         <div><b>Contact</b><a href="mailto:support@twring.com">support@twring.com</a><a href="mailto:hello@twring.com">hello@twring.com</a><a href="https://x.com/rishflips" rel="me">X: @rishflips</a></div>
         <div><b>Legal</b><a href="/privacy">Privacy</a><a href="/terms/">Terms</a><a href="/account-deletion">Delete your account</a></div>
       </nav>
