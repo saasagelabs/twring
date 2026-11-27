@@ -92,6 +92,26 @@ describe('private threads', () => {
     expect(res.json.error.code).toBe('private_thread');
   });
 
+  it('tells the phone when a private chat still holds readable messages', async () => {
+    const threads = async (t: Thread) =>
+      (await t.g.send('GET', '/v1/threads', { user: 'u1' })).json().threads as {
+        private?: boolean;
+        readable_messages?: boolean;
+      }[];
+    const sealedOnly = await privateThread();
+    expect(
+      (await sealedOnly.postMessage({ client_id: randomUUID(), sealed: envelope() })).status,
+    ).toBe(201);
+    expect((await threads(sealedOnly))[0]).toMatchObject({ private: true });
+    expect((await threads(sealedOnly))[0]?.readable_messages).toBeUndefined();
+    await gateway?.close();
+    const mixed = await thread();
+    expect((await mixed.postMessage({ client_id: randomUUID(), text: 'before' })).status).toBe(201);
+    expect((await threads(mixed))[0]?.readable_messages).toBeUndefined();
+    expect((await mixed.setPrivate(true)).status).toBe(200);
+    expect((await threads(mixed))[0]).toMatchObject({ private: true, readable_messages: true });
+  });
+
   it('stores and lists a sealed message without text', async () => {
     const t = await privateThread();
     const sealed = envelope();

@@ -165,6 +165,7 @@ export class SqliteThreadStore {
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         UNIQUE(thread_id, seq), UNIQUE(thread_id, client_id));
       CREATE INDEX IF NOT EXISTS messages_thread_rev ON messages(thread_id, rev);
+      CREATE INDEX IF NOT EXISTS messages_thread_kind ON messages(thread_id, kind);
       CREATE INDEX IF NOT EXISTS messages_user_turn ON messages(user_id, turn_id);
       CREATE INDEX IF NOT EXISTS messages_status ON messages(status);
       CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY, user_id TEXT NOT NULL, agent_id TEXT NOT NULL, message_id TEXT,
@@ -1109,6 +1110,13 @@ export class SqliteThreadStore {
           "SELECT count(*) AS n FROM messages WHERE thread_id=? AND user_id=? AND seq>? AND kind!='user_text'",
         )
         .get(thread.id, userId, thread.read_seq) as { n: number };
+      const readable =
+        thread.private === 1 &&
+        this.db
+          .prepare(
+            "SELECT 1 FROM messages WHERE thread_id=? AND kind IN ('user_text','agent_text') LIMIT 1",
+          )
+          .get(thread.id) !== undefined;
       return {
         agent_id: thread.agent_id,
         last_message: last ? this.tryDecode(last, thread.agent_id) : null,
@@ -1116,6 +1124,7 @@ export class SqliteThreadStore {
         last_message_at: last?.created_at ?? null,
         read_seq: thread.read_seq,
         ...(thread.private === 1 && { private: true }),
+        ...(readable && { readable_messages: true }),
       };
     });
   }

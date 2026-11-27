@@ -7,7 +7,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 
 import { loadDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
-import { confirmPairing, loadTrusted, type TrustedDevice } from './pairing';
+import { confirmPairing, loadTrusted, REMOVED_KEY_NAME, type TrustedDevice } from './pairing';
 import {
   newRecoveryWords,
   restoreFromWords,
@@ -169,6 +169,25 @@ describe('recovery key on the phone', () => {
     expect(result.ok).toBe(true);
     expect(list).toHaveBeenCalledTimes(1);
     expect(await loadTrusted(newPhone)).toEqual([]);
+  });
+
+  it('a restore keeps a computer this phone removed out of the restored list', async () => {
+    const { store } = await pairedPhone();
+    const server = fakeServer();
+    const words = newRecoveryWords();
+    await saveRecoveryKey({ api: server.api, store, account: ACCOUNT }, words);
+
+    // The same phone (its removed memory kept) restores a backup made before the removal.
+    const samePhone = memoryStore();
+    await samePhone.setItemAsync(REMOVED_KEY_NAME, JSON.stringify([computer.id]));
+    const backup = await found(server.api, samePhone);
+    const result = await restoreFromWords(
+      { api: server.api, store: samePhone, account: ACCOUNT },
+      backup,
+      words.join(' '),
+    );
+    expect(result.ok).toBe(true);
+    expect(await loadTrusted(samePhone)).toEqual([]);
   });
 
   it('a restore still works when the device list cannot be read', async () => {

@@ -192,6 +192,11 @@ export const threadSummarySchema = z.object({
   read_seq: z.number().int().nonnegative(),
   /** A private chat (ADR-044): its messages are sealed; older servers leave this out. */
   private: z.boolean().optional(),
+  /**
+   * A private chat that still holds messages the server can read (sent before it became private,
+   * or sent anyway with consent), loaded or not. Older servers leave this out.
+   */
+  readable_messages: z.boolean().optional(),
 });
 export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export const threadListResponseSchema = z.object({

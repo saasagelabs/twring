@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   base64urlDecode,
   fileAad,
+  MAX_FILE_BYTES,
   openFile,
   SEALED_FILE_OVERHEAD,
   type SealedPayload,
@@ -12,6 +13,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { saveConfig } from '../config';
+import { UploadError } from '../upload';
 import { PrivatePostError, sealedPost } from './post';
 import { openIncoming } from './sealed';
 import { updateE2e } from './store';
@@ -72,6 +74,48 @@ describe('sealedPost', () => {
       fileAad({ accountId: baseConfig.connector_id, agentId: AGENT }),
     );
     expect(Buffer.from(plain).toString('utf8')).toBe('file body');
+  });
+
+  it('with strict, refuses an unsupported, empty or too large file like a plain upload', async () => {
+    const fixture = pairedFixture();
+    const dir = await tempDir();
+    const docx = join(dir, 'report.docx');
+    await writeFile(docx, 'bytes');
+    const empty = join(dir, 'empty.txt');
+    await writeFile(empty, '');
+    const big = join(dir, 'big.pdf');
+    await writeFile(big, Buffer.alloc(MAX_FILE_BYTES + 1));
+    let calls = 0;
+    const fetch = (() => {
+      calls++;
+      return Promise.resolve(okUpload(`fil_${'a'.repeat(20)}`));
+    }) as typeof globalThis.fetch;
+    const post = (path: string, strict?: true) =>
+      sealedPost({
+        store: fixture.store,
+        config: fixture.config,
+        localAgent: AGENT,
+        text: 'hi',
+        paths: [path],
+        server: 'https://api.twring.com',
+        token: baseConfig.token,
+        fetch,
+        ...(strict && { strict }),
+      });
+    for (const [path, code] of [
+      [docx, 'unsupported_file_type'],
+      [empty, 'empty_file'],
+      [big, 'file_too_large'],
+    ] as const) {
+      const error = await post(path, true).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(UploadError);
+      expect((error as UploadError).code).toBe(code);
+    }
+    expect(calls).toBe(0);
+    // Without strict (a reply) the file becomes a line, as before.
+    const kept = await post(docx);
+    const opened = openIncoming(fixture.phoneCtx, kept.sealed[0]!);
+    expect((opened as { payload: SealedPayload }).payload.text).toContain('Could not send');
   });
 
   it('lists only files that were uploaded and says in one plain line which could not be sent', async () => {

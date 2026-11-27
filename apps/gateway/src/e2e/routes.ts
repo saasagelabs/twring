@@ -7,7 +7,10 @@ import {
   e2eDeviceIdSchema,
   pairClaimSchema,
   phoneApprovalAcceptSchema,
+  approvalCommitmentMatches,
   phoneApprovalActorSchema,
+  phoneApprovalNonceSchema,
+  phoneApprovalRevealSchema,
   phoneApprovalIdSchema,
   phoneApprovalRequestSchema,
   pairOfferIdSchema,
@@ -58,7 +61,7 @@ export interface E2eRoutesOptions {
   writeRatePerMinute: number;
   /** Recovery backup reads per account per minute (each one lets the words be guessed offline). */
   recoveryReadRatePerMinute?: number;
-  /** A new phone's approval status polls per account per minute (every 2 s while open). */
+  /** Approval status polls per account per minute: the new phone and the approving phone, each every 2 s. */
   approvalPollRatePerMinute?: number;
   /** After a device was removed: tells the account's connected computers (C3 #11). */
   onDevicesChanged?: (userId: string) => void;
@@ -105,6 +108,7 @@ const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
   handle_taken: 'This code is in use. Make a new one.',
   rate_limited: 'Too many tries. Wait a minute and try again.',
   already_added: 'This phone is already set up for private chats.',
+  device_removed: 'This phone was removed from private chats. Set it up again as a new phone.',
   approval_cap: 'Too many phones are waiting for approval. Try again in a few minutes.',
   approval_closed: 'This request was already answered.',
   expired: 'This request expired. Ask again from the new phone.',
@@ -147,7 +151,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
   const lookups = new FixedWindowLimiter(options.lookupRatePerMinute ?? 5, 60_000);
   const writes = new FixedWindowLimiter(options.writeRatePerMinute, 60_000);
   const recoveryReads = new FixedWindowLimiter(options.recoveryReadRatePerMinute ?? 10, 60_000);
-  const approvalPolls = new FixedWindowLimiter(options.approvalPollRatePerMinute ?? 40, 60_000);
+  const approvalPolls = new FixedWindowLimiter(options.approvalPollRatePerMinute ?? 80, 60_000);
   const connectorLimiter = new FixedWindowLimiter(options.connectorRatePerMinute, 60_000);
   const claimed = new EventEmitter();
   claimed.setMaxListeners(0);
@@ -516,7 +520,8 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
           409,
           cause.code === 'already_added' ||
             cause.code === 'approval_cap' ||
-            cause.code === 'device_cap'
+            cause.code === 'device_cap' ||
+            cause.code === 'device_removed'
             ? cause.code
             : 'device_conflict',
         );
@@ -540,6 +545,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
   });
 
   // New phone: its own request, with the approving phone once claimed and the note once accepted.
+  // The phone that claimed it reads it too, to wait for the new phone's reveal (ADR-046).
   app.get<{ Params: { id: string } }>('/v1/e2e/approvals/:id', (request, reply) => {
     const userId = phoneFor(request, reply);
     if (userId === undefined) return reply;
@@ -547,10 +553,74 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     const approval = phoneApprovalIdSchema.safeParse(request.params.id).success
       ? devices.approval(userId, request.params.id)
       : undefined;
-    if (approval === undefined || approval.device_id !== queryDevice(request))
+    const asker = queryDevice(request);
+    const isNewPhone = approval !== undefined && approval.device_id === asker;
+    const isApprover =
+      approval?.approver !== undefined &&
+      approval.approver.id === asker &&
+      approverFor(userId, asker) !== undefined;
+    if (approval === undefined || (!isNewPhone && !isApprover))
       return sendError(reply, 404, 'not_found');
     return approval;
   });
+
+  // Approving phone that claimed it: its random nonce, once, after it holds the commitment.
+  app.post<{ Params: { id: string } }>(
+    '/v1/e2e/approvals/:id/nonce',
+    { bodyLimit: BODY_LIMIT },
+    (request, reply) => {
+      const userId = phoneFor(request, reply);
+      if (userId === undefined) return reply;
+      if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+      const body = phoneApprovalNonceSchema.safeParse(request.body);
+      if (!body.success) return sendError(reply, 400, 'bad_request');
+      const approver = approverFor(userId, body.data.device_id);
+      if (approver === undefined) return sendError(reply, 404, 'not_found');
+      const approval = approvalFor(userId, request.params.id, reply);
+      if (approval === undefined) return reply;
+      if (approval.approver?.id !== approver.id) return sendError(reply, 404, 'not_found');
+      if (!devices.setApproverNonce(userId, approval.id, approver.id, body.data.nonce))
+        return sendError(reply, 409, 'approval_closed');
+      request.log.info(
+        { event: 'e2e_phone_approval_nonce', approval_id: approval.id },
+        'e2e phone approval nonce set',
+      );
+      return devices.approval(userId, approval.id);
+    },
+  );
+
+  // New phone: reveals its secret, once, after the approver's nonce is fixed.
+  app.post<{ Params: { id: string } }>(
+    '/v1/e2e/approvals/:id/reveal',
+    { bodyLimit: BODY_LIMIT },
+    (request, reply) => {
+      const userId = phoneFor(request, reply);
+      if (userId === undefined) return reply;
+      if (!writes.tryAcquire(userId)) return sendError(reply, 429, 'rate_limited');
+      const body = phoneApprovalRevealSchema.safeParse(request.body);
+      if (!body.success) return sendError(reply, 400, 'bad_request');
+      const approval = approvalFor(userId, request.params.id, reply);
+      if (approval === undefined) return reply;
+      if (approval.device_id !== body.data.device_id) return sendError(reply, 404, 'not_found');
+      // Fail fast: a reveal that does not open the commitment would only make the codes differ.
+      if (
+        approval.commitment === undefined ||
+        !approvalCommitmentMatches(
+          base64urlDecode(approval.commitment),
+          base64urlDecode(approval.public_key),
+          base64urlDecode(body.data.reveal),
+        )
+      )
+        return sendError(reply, 400, 'bad_request');
+      if (!devices.setReveal(userId, approval.id, approval.device_id, body.data.reveal))
+        return sendError(reply, 409, 'approval_closed');
+      request.log.info(
+        { event: 'e2e_phone_approval_revealed', approval_id: approval.id },
+        'e2e phone approval revealed',
+      );
+      return devices.approval(userId, approval.id);
+    },
+  );
 
   // Trusted phone: take a waiting phone, so both screens can show the same code.
   app.post<{ Params: { id: string } }>(
@@ -597,18 +667,26 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       if (approver === undefined) return sendError(reply, 404, 'not_found');
       const approval = approvalFor(userId, request.params.id, reply);
       if (approval === undefined) return reply;
+      // The same phone again after its answer was lost on the way: the accept already went
+      // through, so it gets the same answer and nothing changes twice. Not once the new phone was
+      // removed: the approving phone must not take it back in.
+      if (approval.state === 'accepted' && approval.approver?.id === approver.id)
+        return devices.get(userId, approval.device_id) === undefined
+          ? sendError(reply, 409, 'approval_closed')
+          : approval;
       if (approval.state !== 'claimed' || approval.approver?.id !== approver.id)
         return sendError(reply, 409, 'approval_closed');
       let accepted;
       try {
         accepted = devices.acceptApproval(userId, approval.id, approver.id, body.data.note);
       } catch (cause) {
-        if (cause instanceof E2eDeviceError)
-          return sendError(
-            reply,
-            409,
-            cause.code === 'device_cap' ? 'device_cap' : 'device_conflict',
-          );
+        if (cause instanceof E2eDeviceError) {
+          if (cause.code === 'device_cap') return sendError(reply, 409, 'device_cap');
+          // The new phone can never be added (its id was removed while it waited): the request
+          // is turned down, so it ends at once instead of when it expires.
+          devices.denyApproval(userId, approval.id);
+          return sendError(reply, 409, 'device_conflict');
+        }
         throw cause;
       }
       if (!accepted) return sendError(reply, 409, 'approval_closed');

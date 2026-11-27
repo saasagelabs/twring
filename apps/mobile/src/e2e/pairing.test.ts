@@ -18,9 +18,11 @@ import {
   loadTrusted,
   parsePairInput,
   parseTypedPairCode,
+  saveTrusted,
   type PairApi,
   type PairInput,
 } from './pairing';
+import { computerAllowed } from './devices';
 
 const computer = generateSealKeyPair();
 const K = base64urlEncode(computer.publicKey);
@@ -191,6 +193,39 @@ describe('pairing client', () => {
       public_key: K,
     });
     expect(base64urlDecode(list[0].public_key)).toEqual(computer.publicKey);
+  });
+
+  it('a computer set up again replaces its old key for that connector (R4-2 review)', async () => {
+    const CON_A = `con_${'a'.repeat(20)}`;
+    const a = generateSealKeyPair().publicKey;
+    const d = deps(
+      fakeApi({
+        body: {
+          connector_public_key: K,
+          connector_device_id: deviceIdFor(computer.publicKey),
+          connector_id: CON_A,
+        },
+      }),
+    );
+    const entryA = {
+      id: deviceIdFor(a),
+      kind: 'computer' as const,
+      name: 'Laptop',
+      public_key: base64urlEncode(a),
+      verified_at: '2026-11-20T00:00:00.000Z',
+      connector_id: CON_A,
+    };
+    await saveTrusted(d.store, [entryA]);
+    const res = await claimPairing(d, input());
+    if (!res.ok) throw new Error('expected ok');
+    await confirmPairing(d, res.connector);
+    const list = await loadTrusted(d.store);
+    // The old key is no longer trusted: it may have leaked, and the server might never list it
+    // as removed.
+    expect(list.map((x) => x.id)).not.toContain(entryA.id);
+    expect(computerAllowed(list, entryA.id, CON_A)).toBe(false);
+    // A computer set up again (same connector, new key) works after the scan.
+    expect(computerAllowed(list, deviceIdFor(computer.publicKey), CON_A)).toBe(true);
   });
 
   it('reads a damaged trusted list as empty', async () => {

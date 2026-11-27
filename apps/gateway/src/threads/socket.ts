@@ -16,6 +16,8 @@ interface PhoneConnection {
   ws: WebSocket;
   focus: string | null;
   alive: boolean;
+  /** When the ping that `alive` waits for went out. */
+  pingedAt: number;
   expires: ReturnType<typeof setTimeout>;
 }
 
@@ -30,6 +32,11 @@ export interface PhoneSocketOptions {
   ipRatePerMinute?: number;
   trustProxy: TrustProxy;
   pingIntervalMs?: number;
+  /**
+   * A ping unanswered this long (default 5 s) makes its socket the first pushed out at the
+   * per-person cap; a shorter wait could push out a live socket whose pong is on the way.
+   */
+  unansweredPingMs?: number;
   lifetimeMs?: number;
   log?: { debug(obj: Record<string, unknown>, msg: string): void };
 }
@@ -103,12 +110,24 @@ export class PhoneSocketHub {
 
   private accept(userId: string, ws: WebSocket): void {
     const entries = this.users.get(userId) ?? [];
-    // Evicted at once, not when its close handshake ends, so a slow client can't hold the limit.
-    while (entries.length >= 3) entries.shift()?.ws.close(4409, 'Too many connections');
+    // Evicted at once, not when its close handshake ends, so a slow client can't hold the limit. A
+    // socket that left its last ping unanswered for 5 s (often one a phone lost on a network
+    // change) goes before a live one, whose pong may just be on the way; otherwise the oldest.
+    while (entries.length >= 3) {
+      const now = Date.now();
+      const unanswered = this.options.unansweredPingMs ?? 5_000;
+      const stale = entries.findIndex(
+        (entry) =>
+          entry.ws.readyState !== WebSocket.OPEN ||
+          (!entry.alive && now - entry.pingedAt > unanswered),
+      );
+      entries.splice(stale === -1 ? 0 : stale, 1)[0]?.ws.close(4409, 'Too many connections');
+    }
     const connection: PhoneConnection = {
       ws,
       focus: null,
       alive: true,
+      pingedAt: 0,
       expires: setTimeout(
         () => ws.close(4401, 'Reconnect with a fresh token'),
         this.options.lifetimeMs ?? 55 * 60_000,
@@ -165,6 +184,7 @@ export class PhoneSocketHub {
           continue;
         }
         connection.alive = false;
+        connection.pingedAt = Date.now();
         connection.ws.ping();
       }
     }

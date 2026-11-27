@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import type { JsonStore } from '../threads/outbox-storage';
+import { clearAfterApproves, PENDING_APPROVE_KEY_NAME } from './approve';
 import { forgetDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
 import { forgetTrusted, loadTrusted, type TrustedDevice } from './pairing';
 import {
@@ -42,7 +43,7 @@ import {
   syncTrusted,
 } from './devices';
 import { PAIR_AGAIN } from './private-state';
-import { readRewraps, type RewrapApi } from './rewrap';
+import { readRewraps, REWRAP_JOBS_KEY, type RewrapApi } from './rewrap';
 
 /**
  * Private chats in the chat data layer (ADR-044): seals what the phone sends and opens what it
@@ -121,6 +122,7 @@ export class PrivateChats {
   /** When each chat's re-wraps were last asked for, and the read still running. */
   private readonly rewrapAsked = new Map<string, number>();
   private readonly rewrapLoading = new Map<string, Promise<void>>();
+  private readonly removedListeners = new Set<() => void>();
 
   constructor(private readonly deps: PrivateChatDeps) {}
 
@@ -175,9 +177,16 @@ export class PrivateChats {
     }
   }
 
+  /** Called once this phone learns another phone removed it (R3-4): the chats drop opened text. */
+  onRemoved(listener: () => void): () => void {
+    this.removedListeners.add(listener);
+    return () => this.removedListeners.delete(listener);
+  }
+
   /**
-   * This phone was removed by another: the sign-out forget path for its key and trusted list, so
-   * it can only come back through a fresh approval as a new device.
+   * This phone was removed by another: the same wipe as Remove this phone (key, trusted list,
+   * replay state and re-wrap jobs), then the chats are told so they drop opened files and text.
+   * It can only come back through a fresh approval as a new device.
    */
   private async forgetRemoved(): Promise<void> {
     this.deps.log?.('e2e_phone_removed');
@@ -188,7 +197,18 @@ export class PrivateChats {
     this.reinstalled.clear();
     this.lostKeys.clear();
     this.rewrapAsked.clear();
-    await forgetPrivateDevice(this.deps.store);
+    await this.wipeStored();
+    for (const listener of this.removedListeners) listener();
+  }
+
+  /** The replay state and the keychain's private chat keys, for both forget paths. */
+  private async wipeStored(): Promise<void> {
+    this.saved = Promise.resolve({});
+    await this.saving;
+    await Promise.all([
+      this.deps.replay.remove().catch(() => undefined),
+      forgetPrivateDevice(this.deps.store),
+    ]);
   }
 
   /**
@@ -487,19 +507,22 @@ export class PrivateChats {
     this.removedSelf = false;
     this.known = undefined;
     this.trusted = [];
-    this.saved = Promise.resolve({});
-    await this.saving;
-    await Promise.all([
-      this.deps.replay.remove().catch(() => undefined),
-      forgetPrivateDevice(this.deps.store),
-    ]);
+    await this.wipeStored();
   }
 }
 
 /** The phone's private chat keys in the keychain, removed on sign-out. */
 export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> {
-  await Promise.all([
-    forgetDeviceKey(store).catch(() => undefined),
-    forgetTrusted(store).catch(() => undefined),
-  ]);
+  // An approve still waiting on the server would otherwise save its record again after the keys
+  // went (`clearAfterApproves`).
+  await clearAfterApproves(store, async () => {
+    await Promise.all([
+      forgetDeviceKey(store).catch(() => undefined),
+      forgetTrusted(store).catch(() => undefined),
+      // Re-wrap jobs share this phone's keys with a new phone, and an approve left to finish
+      // vouches for one: both go with the keys.
+      store.deleteItemAsync(REWRAP_JOBS_KEY).catch(() => undefined),
+      store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
+    ]);
+  });
 }

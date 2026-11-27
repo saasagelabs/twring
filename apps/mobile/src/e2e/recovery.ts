@@ -21,7 +21,7 @@ import { z } from 'zod';
 import type { SecureKeyValue } from '../auth/storage';
 import { loadDeviceKey, restoreDeviceKey, TRUSTED_KEY_NAME } from './device-key';
 import { listDevices, syncTrusted, type DevicesApi } from './devices';
-import { loadTrusted, trustedDeviceSchema } from './pairing';
+import { loadTrusted, removedIds, trustedDeviceSchema, withTrustLock } from './pairing';
 
 /**
  * Optional recovery key for private chats (C3 #11, ADR-044). The phone shows 12 words once and
@@ -206,8 +206,14 @@ export async function restoreFromWords(
     return fail(error instanceof RecoveryError ? error.code : 'damaged');
   }
   const restored = await restoreDeviceKey(deps.store, privateKey, deps.now);
-  await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(payload.trusted));
-  deps.log?.('e2e_recovery_restored', { trusted: payload.trusted.length });
+  // A trust change like any other (`withTrustLock`); a device this phone removed stays removed.
+  const trusted = await withTrustLock(deps.store, async () => {
+    const removed = await removedIds(deps.store);
+    const list = payload.trusted.filter((d) => !removed.includes(d.id));
+    await deps.store.setItemAsync(TRUSTED_KEY_NAME, JSON.stringify(list));
+    return list;
+  });
+  deps.log?.('e2e_recovery_restored', { trusted: trusted.length });
   // A computer removed while this phone was lost leaves the restored list at once. If the list
   // can't be read now, opening a private chat reads it again.
   if (deps.devices !== undefined) {

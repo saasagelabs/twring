@@ -17,8 +17,11 @@ import {
   approveCheckCopy,
   approverUpdate,
   finishApproval,
+  forgetApprovalSecrets,
+  loadApprovalSecret,
   pollApproval,
   requestApproval,
+  revealApproval,
   shownApprover,
   type ApproveFailure,
   type ShownApprover,
@@ -39,7 +42,12 @@ import { RECOVERY_COPY, restoreOffer } from '@/e2e/recovery';
 import { shareHistory } from '@/e2e/share-history';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
-import { chatController, privateKeychain, resetPrivateChats } from '@/threads/chats';
+import {
+  chatController,
+  forgetThisPhonePrivateKeys,
+  privateKeychain,
+  resetPrivateChats,
+} from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -62,11 +70,13 @@ const FAILURE_COPY: Record<PairFailure, string> = {
 
 const APPROVE_FAILURE_COPY: Record<ApproveFailure | 'denied' | 'refused', string> = {
   already_added: 'This phone already has private chats.',
+  removed: 'This phone was removed from private chats. Try again to set it up as a new phone.',
   cap: 'You already have 5 devices. Remove one under Devices on your other phone first.',
   busy: 'Too many phones are waiting. Try again in a few minutes.',
   expired: 'This took too long, so nothing was saved. Try again.',
   closed: 'This request was already answered. Try again.',
   mismatch: 'Approving stopped, so nothing was saved. Try again.',
+  outdated: 'Your other phone needs the latest Twring. Update it, then try again.',
   network: 'Twring could not reach the server. Check your connection and try again.',
   denied: 'Your other phone did not approve this phone. Nothing was saved.',
   refused: 'Approving stopped, so nothing was saved. Try again.',
@@ -138,6 +148,7 @@ export default function PrivatePairScreen() {
         api: approveApi(),
         store: privateKeychain(),
         phoneName: deps().phoneName,
+        forgetSelf: forgetThisPhonePrivateKeys,
       });
       if (out.ok) setStep({ kind: 'approve', id: out.approval.id });
       else fail(APPROVE_FAILURE_COPY[out.code], 'approve');
@@ -201,12 +212,31 @@ export default function PrivatePairScreen() {
       if (!live || !out.ok) return;
       const approval = out.approval;
       if (approval.state === 'claimed') {
+        if (approval.approver_nonce === undefined) return;
         const me = await loadDeviceKey(store);
-        const shown = me === undefined ? undefined : shownApprover(approval, me);
-        if (!live || shown === undefined) return;
+        const secret = await loadApprovalSecret(store, approveId);
+        if (!live) return;
+        if (me === undefined || secret === undefined) {
+          await forgetApprovalSecrets(store, approveId);
+          fail(APPROVE_FAILURE_COPY.refused, 'approve');
+          return;
+        }
+        const shown = shownApprover(approval, me, secret);
+        if (shown === undefined) return;
         const update = approverUpdate(approveShown, shown);
-        if (update === 'show') setStep({ kind: 'approve', id: approveId, shown });
-        else if (update === 'changed') fail(APPROVE_FAILURE_COPY.refused, 'approve');
+        if (update === 'changed') {
+          await forgetApprovalSecrets(store, approveId);
+          fail(APPROVE_FAILURE_COPY.refused, 'approve');
+        } else if (update === 'show') {
+          // ADR-046: reveal only now the approving phone's nonce is fixed, then show the code.
+          const revealed = await revealApproval({ api: approveApi(), store }, approval);
+          if (!live) return;
+          if (revealed.ok) setStep({ kind: 'approve', id: approveId, shown });
+          else if (revealed.code !== 'network') {
+            await forgetApprovalSecrets(store, approveId);
+            fail(APPROVE_FAILURE_COPY.refused, 'approve');
+          }
+        }
       } else if (approval.state === 'accepted') {
         // Only the phone whose code was shown may vouch for this one (P4b ruling 5).
         const done =
@@ -220,9 +250,17 @@ export default function PrivatePairScreen() {
             void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
           playCallFeedback('connected');
           setStep({ kind: 'approved' });
-        } else fail(APPROVE_FAILURE_COPY.refused, 'approve');
-      } else if (approval.state === 'denied') fail(APPROVE_FAILURE_COPY.denied, 'approve');
-      else if (approval.state === 'expired') fail(APPROVE_FAILURE_COPY.expired, 'approve');
+        } else {
+          await forgetApprovalSecrets(store, approveId);
+          fail(APPROVE_FAILURE_COPY.refused, 'approve');
+        }
+      } else if (approval.state === 'denied') {
+        await forgetApprovalSecrets(store, approveId);
+        fail(APPROVE_FAILURE_COPY.denied, 'approve');
+      } else if (approval.state === 'expired') {
+        await forgetApprovalSecrets(store, approveId);
+        fail(APPROVE_FAILURE_COPY.expired, 'approve');
+      }
     };
     const stop = pollApproval(check, APPROVE_POLL_MS);
     return () => {

@@ -31,7 +31,6 @@ import {
   forgetLastRing,
   loadConfig,
   readLastRing,
-  saveConfig,
   saveLastRing,
   socketUrl,
   type ConnectorConfig,
@@ -63,7 +62,7 @@ import {
   sealedPost,
   shouldSendPlain,
 } from './e2e/post';
-import { updateE2e } from './e2e/store';
+import { updateConfig, updateE2e, withCommandFields } from './e2e/store';
 import type { E2eConfig } from './e2e/keys';
 import { helloFeatures, PrivateChats } from './e2e/turn';
 import { watchPairing } from './e2e/watch';
@@ -79,6 +78,7 @@ import {
   sendMessage,
 } from './ring';
 import { installSkill, refreshInstalledSkills, skillLines, skillTargets } from './skill-install';
+import { sweepTurnFolders } from './turn-files';
 import { WORDS_EXIT, addWords } from './words';
 import {
   clearPid,
@@ -394,9 +394,10 @@ async function pair(
   const body: unknown = await res.json();
   if (existing !== undefined) {
     relinkResponseSchema.parse(body);
-    const config: ConnectorConfig = { ...existing, name, agents };
-    await saveConfig(configPath(), config);
-    return config;
+    // Fresh read under the lock: the running copy may have changed private chats meanwhile.
+    return updateConfig(configPath(), (current) =>
+      withCommandFields(current, existing, { name, agents }),
+    );
   }
   const claim = claimResponseSchema.parse(body);
   const config: ConnectorConfig = {
@@ -406,7 +407,7 @@ async function pair(
     name,
     agents,
   };
-  await saveConfig(configPath(), config);
+  await updateConfig(configPath(), () => config);
   print(`Paired "${name}" with your Twring account.`);
   return config;
 }
@@ -479,7 +480,7 @@ async function link(
     name,
     agents,
   };
-  await saveConfig(configPath(), config);
+  await updateConfig(configPath(), () => config);
   linkedLines(name, outcome.ownerName).forEach(print);
   return config;
 }
@@ -499,6 +500,8 @@ function run(config: ConnectorConfig): Promise<number> {
     }).catch(() => undefined);
   void writePid(dir).catch(() => undefined);
   process.once('exit', () => clearPid(dir));
+  // Files of turns a killed copy never cleaned up (decrypted private files among them).
+  void sweepTurnFolders();
   const inService = process.env[SERVICE_ENV] === '1';
   // A service runs for months: keep its log (launchd, cron) from growing without end. On Windows
   // the launcher does it between runs (cmd.exe's `>>` does not append after a truncation).
@@ -1086,8 +1089,11 @@ async function setupCommand(values: Record<string, string | boolean | undefined>
         (value) => typeof value === 'string',
       )
     ) {
-      config.agents = await gatherAgents(values, false, config.agents);
-      await saveConfig(configPath(), config);
+      const loaded = config;
+      const agents = await gatherAgents(values, false, loaded.agents);
+      config = await updateConfig(configPath(), (current) =>
+        withCommandFields(current, loaded, { agents }),
+      );
     }
     const dir = configDir();
     const host = systemHost();
@@ -1347,8 +1353,11 @@ async function main(): Promise<void> {
       (value) => typeof value === 'string',
     )
   ) {
-    saved.agents = await gatherAgents(commandValues, false, saved.agents);
-    await saveConfig(configPath(), saved);
+    const loaded = saved;
+    const agents = await gatherAgents(commandValues, false, loaded.agents);
+    saved = await updateConfig(configPath(), (current) =>
+      withCommandFields(current, loaded, { agents }),
+    );
   }
   // As a background service there is no one to scan a code: say what to do and stop, with the
   // exit code that tells the service manager not to start it again (NOT_PAIRED_EXIT).
@@ -1393,9 +1402,14 @@ async function privateCommand(rest: string[]): Promise<number> {
     print(`Link this computer first: node ${CONNECTOR_CLI_NAME}.mjs`);
     return 1;
   }
-  const { config, created } = ensureDeviceKey(saved);
   // Kept before the server hears of it, so the phone never trusts something this computer lost.
-  if (created) await saveConfig(path, config);
+  // Written under the lock from a fresh read, so a running copy's change is never lost or undone.
+  const config = saved.e2e
+    ? saved
+    : await updateConfig(path, (current) => {
+        const base = withCommandFields(current, saved, {});
+        return base.e2e ? base : ensureDeviceKey(base).config;
+      });
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once('SIGINT', stop);
@@ -1460,7 +1474,13 @@ async function privateReset(): Promise<number> {
   }
   const outcome = await resetPrivateKey({
     config: saved,
-    save: (config) => saveConfig(path, config),
+    // Under the lock from a fresh read: a running copy mid-change never puts the old key back.
+    save: async (config) => {
+      await updateConfig(path, (current) => ({
+        ...withCommandFields(current, saved, {}),
+        e2e: config.e2e,
+      }));
+    },
     fetch,
   });
   for (const line of resetLines(outcome.server, CONNECTOR_CLI_NAME)) print(line);

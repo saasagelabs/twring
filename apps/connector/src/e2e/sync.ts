@@ -9,7 +9,7 @@ import {
 import { z } from 'zod';
 
 import { apiUrl, checkServerUrl } from '../config';
-import type { E2eConfig, TrustedDevice } from './keys';
+import { MAX_REVOKED_SEEN, type E2eConfig, type TrustedDevice } from './keys';
 
 /** How often a running computer reads the account's device list. */
 export const DEVICE_SYNC_MS = 10 * 60_000;
@@ -113,15 +113,31 @@ export function applyTrustNotes(
   return { trusted: out, added: out.length - trusted.length, refused };
 }
 
-/** How many removed device ids a computer keeps so a trust note can't bring one back. */
-export const MAX_REVOKED_SEEN = 32;
+export { MAX_REVOKED_SEEN };
 
-/** The removed ids already kept plus the ones this list says were removed, newest last. */
-export function rememberRemoved(kept: readonly string[], server: readonly E2eDevice[]): string[] {
+/**
+ * The removed ids already kept plus the ones this list says were removed, newest last. Only ids in
+ * `known` (devices this computer trusted or had pending) are added, so a server cannot push a
+ * removed phone out with made-up ids; past the cap the oldest ids the server no longer lists go
+ * first, never one it still lists.
+ */
+export function rememberRemoved(
+  kept: readonly string[],
+  server: readonly E2eDevice[],
+  known: readonly string[],
+): string[] {
   const fresh = server
-    .filter((d) => d.revoked_at !== undefined && !kept.includes(d.id))
+    .filter((d) => d.revoked_at !== undefined && known.includes(d.id) && !kept.includes(d.id))
     .map((d) => d.id);
-  return [...kept, ...fresh].slice(-MAX_REVOKED_SEEN);
+  const all = [...kept, ...fresh];
+  let excess = all.length - MAX_REVOKED_SEEN;
+  if (excess <= 0) return all;
+  const listed = new Set(server.map((d) => d.id));
+  return all.filter((id) => {
+    if (excess <= 0 || listed.has(id)) return true;
+    excess--;
+    return false;
+  });
 }
 
 const devicesResponseSchema = z.object({ devices: z.array(e2eDeviceWithNoteSchema).max(64) });
@@ -166,7 +182,11 @@ export async function syncDevices(
   const now = (options.now ?? Date.now)();
   await options.persist((current) => {
     const out = reconcileDevices(current.devices, body.devices, current.device_id);
-    const removed = rememberRemoved(current.revoked ?? [], body.devices);
+    const removed = rememberRemoved(
+      current.revoked ?? [],
+      body.devices,
+      [...current.devices, ...(current.pending ?? [])].map((d) => d.id),
+    );
     const noted = (list: TrustedDevice[]) => {
       const applied = applyTrustNotes(
         list,

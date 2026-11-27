@@ -29,7 +29,8 @@ export class E2eDeviceError extends Error {
       | 'device_conflict'
       | 'handle_taken'
       | 'approval_cap'
-      | 'already_added',
+      | 'already_added'
+      | 'device_removed',
   ) {
     super(code);
     this.name = 'E2eDeviceError';
@@ -77,6 +78,9 @@ type ApprovalRow = {
   approver_name: string | null;
   approver_key: string | null;
   note: string | null;
+  commitment?: string | null;
+  approver_nonce?: string | null;
+  reveal?: string | null;
 };
 
 /** Open phone approvals (pending or claimed) an account may hold at once (C3 #11 P4b ruling 1). */
@@ -157,6 +161,13 @@ export class E2eDeviceStore {
         approver_key TEXT, note TEXT);
       CREATE INDEX IF NOT EXISTS e2e_phone_approvals_user ON e2e_phone_approvals(user_id, state);
     `);
+    // ADR-046 commit, then reveal: nullable, so rows from older apps read as having none.
+    const approvalColumns = this.db.prepare('PRAGMA table_info(e2e_phone_approvals)').all() as {
+      name: string;
+    }[];
+    for (const column of ['commitment', 'approver_nonce', 'reveal'])
+      if (!approvalColumns.some((c) => c.name === column))
+        this.db.exec(`ALTER TABLE e2e_phone_approvals ADD COLUMN ${column} TEXT`);
   }
 
   private transaction<T>(run: () => T): T {
@@ -431,6 +442,9 @@ export class E2eDeviceStore {
         row.approver_key !== null && {
           approver: { id: row.approver_id, name: row.approver_name, public_key: row.approver_key },
         }),
+      ...(typeof row.commitment === 'string' && { commitment: row.commitment }),
+      ...(typeof row.approver_nonce === 'string' && { approver_nonce: row.approver_nonce }),
+      ...(typeof row.reveal === 'string' && { reveal: row.reveal }),
       ...(row.note !== null && { trust_note: trustNoteSchema.parse(JSON.parse(row.note)) }),
     };
   }
@@ -438,7 +452,9 @@ export class E2eDeviceStore {
   /**
    * A new phone asks to be approved (C3 #11, Task 27). Its open request, if any, is replaced; an
    * account holds at most MAX_OPEN_APPROVALS open ones. Refused when the phone is already active
-   * (unless it asks as a second phone, ADR-045) or a new phone finds the account at the device cap.
+   * (unless it asks as a second phone, ADR-045), when the person removed this device id (it stays
+   * removed: the phone asks again with a new key), or when a new phone finds the account at the
+   * device cap.
    */
   requestApproval(userId: string, request: PhoneApprovalRequest, expiresAt: Date): PhoneApproval {
     const now = this.now().toISOString();
@@ -459,6 +475,12 @@ export class E2eDeviceStore {
         if (self.public_key !== request.public_key || others.n === 0)
           throw new E2eDeviceError('already_added');
       } else {
+        // Its accept could never add it (`insertDevice` refuses a removed id), so the request
+        // would wait in vain until it expires.
+        const removed = this.db
+          .prepare('SELECT 1 FROM e2e_devices WHERE user_id=? AND id=? AND revoked_at IS NOT NULL')
+          .get(userId, request.device_id);
+        if (removed !== undefined) throw new E2eDeviceError('device_removed');
         const active = this.db
           .prepare('SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
           .get(userId) as { n: number };
@@ -477,7 +499,7 @@ export class E2eDeviceStore {
       if (open.n >= MAX_OPEN_APPROVALS) throw new E2eDeviceError('approval_cap');
       this.db
         .prepare(
-          "INSERT INTO e2e_phone_approvals(id,user_id,device_id,public_key,name,state,created_at,expires_at) VALUES(?,?,?,?,?,'pending',?,?)",
+          "INSERT INTO e2e_phone_approvals(id,user_id,device_id,public_key,name,state,created_at,expires_at,commitment) VALUES(?,?,?,?,?,'pending',?,?,?)",
         )
         .run(
           id,
@@ -487,6 +509,7 @@ export class E2eDeviceStore {
           request.name,
           now,
           expiresAt.toISOString(),
+          request.commitment ?? null,
         );
     });
     return this.approval(userId, id)!;
@@ -530,18 +553,54 @@ export class E2eDeviceStore {
   }
 
   /**
+   * The approving phone that claimed the approval sets its nonce (ADR-046): once, only while the
+   * approval is claimed by it, open, and carries the new phone's commitment.
+   */
+  setApproverNonce(userId: string, id: string, approverId: string, nonce: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET approver_nonce=? WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND commitment IS NOT NULL AND approver_nonce IS NULL AND expires_at>?",
+      )
+      .run(nonce, id, userId, approverId, this.now().toISOString());
+    return Number(result.changes) > 0;
+  }
+
+  /**
+   * The new phone reveals its secret (ADR-046): once, only after the approver's nonce is set,
+   * while the approval is open.
+   */
+  setReveal(userId: string, id: string, deviceId: string, reveal: string): boolean {
+    const result = this.db
+      .prepare(
+        "UPDATE e2e_phone_approvals SET reveal=? WHERE id=? AND user_id=? AND device_id=? AND state='claimed' AND approver_nonce IS NOT NULL AND reveal IS NULL AND expires_at>?",
+      )
+      .run(reveal, id, userId, deviceId, this.now().toISOString());
+    return Number(result.changes) > 0;
+  }
+
+  /**
    * The approving phone says the codes matched: the new phone joins the account's devices with
    * the note on its row, and the approval keeps the note for the new phone's next poll. Throws
-   * E2eDeviceError at the device cap (nothing changes then).
+   * E2eDeviceError at the device cap (nothing changes then). A request that carries a commitment
+   * (ADR-046) is accepted only after the nonce and the reveal, so an older approving app, which
+   * shows the code that can be ground, cannot add a phone that is waiting for the new code. Such a
+   * try turns the request down, so the new phone ends at once instead of when it expires.
    */
   acceptApproval(userId: string, id: string, approverId: string, note: TrustNote): boolean {
     return this.transaction(() => {
       const row = this.db
         .prepare(
-          "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>?",
+          "SELECT * FROM e2e_phone_approvals WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND expires_at>? AND (commitment IS NULL OR (approver_nonce IS NOT NULL AND reveal IS NOT NULL))",
         )
         .get(id, userId, approverId, this.now().toISOString()) as ApprovalRow | undefined;
-      if (row === undefined) return false;
+      if (row === undefined) {
+        this.db
+          .prepare(
+            "UPDATE e2e_phone_approvals SET state='denied' WHERE id=? AND user_id=? AND state='claimed' AND approver_id=? AND commitment IS NOT NULL AND (approver_nonce IS NULL OR reveal IS NULL)",
+          )
+          .run(id, userId, approverId);
+        return false;
+      }
       this.insertDevice(
         userId,
         { id: row.device_id, kind: 'phone', name: row.name, public_key: row.public_key },

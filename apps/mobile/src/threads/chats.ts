@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { AppState } from 'react-native';
 
 import { twringApi, ApiError, type TwringApi } from '@/api';
-import { addBeforeSignOut, authController, authHeaders } from '@/auth';
+import { addBeforeSignOut, apiAuth, authController, authHeaders } from '@/auth';
 import { mobileEnv } from '@/config/env';
 import { activeServerUrl, onActiveServerChanged } from '../servers/active';
 import { profileStore } from '../servers/profiles';
@@ -15,7 +15,14 @@ import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
 import { phoneQuote } from '../e2e/private-quote';
 import { noKeychain, scopedKeychain } from '../e2e/scoped-keychain';
 import type { SecureKeyValue } from '../auth/storage';
-import { applyFrame, emptyChat, replaceLatest, upsert, type ChatState } from './chat-store';
+import {
+  applyFrame,
+  emptyChat,
+  openLatest,
+  replaceLatest,
+  upsert,
+  type ChatState,
+} from './chat-store';
 import { DraftStore } from './drafts';
 import {
   Outbox,
@@ -32,6 +39,7 @@ import {
   openSealedFile,
   type SealedFileRef,
   type SealedFiles,
+  sweepShareCopiesOnce,
 } from './sealed-file-cache';
 import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
@@ -85,6 +93,7 @@ export class ChatController {
     timers: OutboxTimers = systemTimers,
   ) {
     this.privacy = stores.privacy;
+    this.privacy?.onRemoved(() => void this.dropOpenedPrivate());
     this.shareHistory = stores.shareHistory;
     this.sealedFiles = stores.sealedFiles ?? deviceSealedFiles;
     this.outbox = new Outbox(
@@ -183,6 +192,13 @@ export class ChatController {
     );
   }
 
+  /** The server says this chat holds messages it can read, loaded on this phone or not. */
+  hasReadableMessages(agentId: string): boolean {
+    return this.summaries.some(
+      (summary) => summary.agent_id === agentId && summary.readable_messages === true,
+    );
+  }
+
   /** A private chat's messages as opened on this phone; undefined while the keys load. */
   getOpened = (agentId: string): OpenedMessage[] | undefined => {
     if (!this.privacy || !this.isPrivate(agentId)) return undefined;
@@ -271,8 +287,17 @@ export class ChatController {
 
   /** Removing this phone on the devices screen: its private chat keys go (the sign-out path). */
   async forgetPrivateKeys(): Promise<void> {
+    await Promise.all([this.privacy?.forget(), this.dropOpenedPrivate()]);
+  }
+
+  /**
+   * The one wipe of what this phone opened (R3-3, R3-4), for Remove this phone and for a phone
+   * another phone removed: opened text in memory and in search, and opened files on disk.
+   */
+  private async dropOpenedPrivate(): Promise<void> {
     this.opened.clear();
-    await Promise.all([this.privacy?.forget(), clearSealedFiles()]);
+    this.search.forgetPrivate();
+    await clearSealedFiles();
     this.emit();
   }
 
@@ -359,6 +384,7 @@ export class ChatController {
     this.socket = connectThreadSocket({
       ...this.socketOptions,
       headers: authHeaders,
+      refreshAuth: () => apiAuth()?.refresh() ?? Promise.resolve(undefined),
       onFrame: (frame) => this.frame(frame),
       onState: (state) => {
         if (state !== 'connected') return;
@@ -376,6 +402,8 @@ export class ChatController {
         void this.outbox.flush();
         return;
       }
+      // A socket the server refused for good stays one handle: reopen that same one.
+      if (this.socket?.stopped()) this.socket.reconnect();
       this.socket?.setFocus([...this.focusCounts.keys()].at(-1) ?? null);
       for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
       this.reloadFocused();
@@ -434,7 +462,7 @@ export class ChatController {
       const page = await this.api.listMessages(agentId, { limit: 50 });
       if (epoch !== this.epoch || !this.focusCounts.has(agentId)) return;
       this.put(agentId, {
-        ...upsert(this.getChat(agentId), page.messages),
+        ...openLatest(this.getChat(agentId), page),
         hasOlder: page.hasMore,
       });
       for (const message of page.messages) this.outbox.reconcile(message);
@@ -722,6 +750,8 @@ export function chatController(): ChatController | undefined {
     controller = undefined;
   }
   if (!controller) {
+    // App start: remove opened copies and chat exports a killed share sheet left behind.
+    void sweepShareCopiesOnce();
     controllerScope = scope;
     controller = new ChatController(
       api,
@@ -852,6 +882,7 @@ export function useChat(agentId: string) {
     loadOlder: () => active?.loadOlder(agentId),
     /** Private chats: the opened messages (memory only) and whether to pair again. */
     private: active?.isPrivate(agentId) ?? false,
+    readableMessages: active?.hasReadableMessages(agentId) ?? false,
     opened: active?.getOpened(agentId),
     pairAgain: active?.getPairAgain(agentId) ?? false,
     privateNotice: active?.getPrivateNotice(agentId),

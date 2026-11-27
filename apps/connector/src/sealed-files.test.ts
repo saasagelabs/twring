@@ -5,6 +5,7 @@ import {
   base64urlEncode,
   fileAad,
   MAX_FILE_BYTES,
+  MAX_FILE_NAME_CHARS,
   newFileKey,
   openFile,
   SEALED_FILE_OVERHEAD,
@@ -131,6 +132,31 @@ describe('openSealedFiles', () => {
         '[Attached: photo.png (PNG image, 8 B)]',
         '[Attached: swapped.png (could not be opened)]',
       ]);
+    } finally {
+      await out.cleanup();
+    }
+  });
+
+  it('duplicate long names keep their extension and never end in a dot', async () => {
+    const pdf = Uint8Array.from([0x25, 0x50, 0x44, 0x46]);
+    const blobs: Record<string, Uint8Array> = {};
+    const refs: SealedFileRef[] = [];
+    for (let i = 0; i < 11; i++) {
+      const id = `fil_${String.fromCharCode(97 + i)}xxxxxxxxxxxxxxxxxxx`;
+      const { key, blob } = seal(pdf);
+      blobs[id] = blob;
+      refs.push(ref(id, key, pdf, { name: `${'a'.repeat(200)}.pdf`, mime: 'application/pdf' }));
+    }
+    const { fetcher } = fakeGateway(blobs);
+    const out = await openSealedFiles(refs, ctx(), { fetch: fetcher });
+    try {
+      expect(out.files).toHaveLength(11);
+      expect(new Set(out.files.map((f) => f.name)).size).toBe(11);
+      for (const file of out.files) {
+        expect(file.name.endsWith('.pdf')).toBe(true);
+        expect(Array.from(file.name).length).toBeLessThanOrEqual(MAX_FILE_NAME_CHARS);
+        expect(existsSync(file.path)).toBe(true);
+      }
     } finally {
       await out.cleanup();
     }

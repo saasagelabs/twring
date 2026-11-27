@@ -9,7 +9,13 @@ import {
 import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
-import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
+import {
+  loadTrusted,
+  REMOVED_KEY_NAME,
+  saveTrusted,
+  withTrustLock,
+  type TrustedDevice,
+} from './pairing';
 
 /**
  * The account's private chat devices (C3 #11, Task 26 and Task 30): the list on the devices
@@ -187,47 +193,90 @@ export function applyTrustNotes(
   return { trusted: out, added: out.length - trusted.length, refused };
 }
 
-/** Device ids the server said were removed, kept so a trust note can never bring one back. */
-export const REMOVED_KEY_NAME = 'twring.e2e.removed.v1';
-export const MAX_REMOVED_SEEN = 32;
+/**
+ * Device ids removed from this phone's trusted list, kept so a trust note can never bring one
+ * back (R3-1). Only ids this phone trusted (dropped because the server marked them revoked) or
+ * removed itself are added, so a server cannot flush the list with ids of its choosing. When it is
+ * full the oldest id goes first; during a sync, which has the server's listing, an id the server
+ * still lists is never the one evicted. Filling it takes 256 removals.
+ */
+export { REMOVED_KEY_NAME };
+export const MAX_REMOVED_SEEN = 256;
 const removedSchema = z.array(z.string().min(1).max(64)).max(MAX_REMOVED_SEEN);
 
-async function rememberRemoved(
-  store: SecureKeyValue,
-  server: readonly E2eDevice[],
-): Promise<string[]> {
-  let kept: string[] = [];
+async function loadRemoved(store: SecureKeyValue): Promise<string[]> {
   try {
     const parsed = removedSchema.safeParse(
       JSON.parse((await store.getItemAsync(REMOVED_KEY_NAME)) ?? '[]'),
     );
-    if (parsed.success) kept = parsed.data;
+    return parsed.success ? parsed.data : [];
   } catch {
-    kept = [];
+    return [];
   }
-  const fresh = server
-    .filter((d) => d.revoked_at !== undefined && !kept.includes(d.id))
-    .map((d) => d.id);
+}
+
+async function addRemoved(
+  store: SecureKeyValue,
+  ids: readonly string[],
+  listed: ReadonlySet<string> = new Set(),
+): Promise<string[]> {
+  const kept = await loadRemoved(store);
+  const fresh = [...new Set(ids)].filter((id) => !kept.includes(id));
   if (fresh.length === 0) return kept;
-  const next = [...kept, ...fresh].slice(-MAX_REMOVED_SEEN);
+  const next = [...kept, ...fresh];
+  while (next.length > MAX_REMOVED_SEEN) {
+    const oldest = next.findIndex((id) => !listed.has(id) && !fresh.includes(id));
+    // Every id is listed or new: the server lists at most 64, so this cannot happen in practice.
+    next.splice(oldest === -1 ? 0 : oldest, 1);
+  }
   await store.setItemAsync(REMOVED_KEY_NAME, JSON.stringify(next));
   return next;
 }
 
+async function rememberRemoved(
+  store: SecureKeyValue,
+  server: readonly E2eDevice[],
+  trustedBefore: readonly TrustedDevice[],
+): Promise<string[]> {
+  const mine = new Set(trustedBefore.map((d) => d.id));
+  return addRemoved(
+    store,
+    server.filter((d) => d.revoked_at !== undefined && mine.has(d.id)).map((d) => d.id),
+    new Set(server.map((d) => d.id)),
+  );
+}
+
 /**
  * Reads the server's list and applies `reconcileTrusted` to this phone's saved list, then, with
- * this phone's key, the trust notes of phones another trusted phone approved.
+ * this phone's key, the trust notes of phones another trusted phone approved. A trusted entry
+ * whose id is in the removed memory is dropped too. Runs under the trust lock.
  */
-export async function syncTrusted(
+export function syncTrusted(
   store: SecureKeyValue,
   server: readonly E2eDeviceWithNote[],
   log?: (event: string, fields?: Record<string, string | number>) => void,
   me?: { deviceId: string; privateKey: Uint8Array },
   now: () => number = Date.now,
 ): Promise<TrustedDevice[]> {
+  return withTrustLock(store, () => syncTrustedNow(store, server, log, me, now));
+}
+
+async function syncTrustedNow(
+  store: SecureKeyValue,
+  server: readonly E2eDeviceWithNote[],
+  log: ((event: string, fields?: Record<string, string | number>) => void) | undefined,
+  me: { deviceId: string; privateKey: Uint8Array } | undefined,
+  now: () => number,
+): Promise<TrustedDevice[]> {
   const current = await loadTrusted(store);
-  const out = reconcileTrusted(current, server);
-  const removed = await rememberRemoved(store, server);
+  const removed = await rememberRemoved(store, server, current);
+  const reconciled = reconcileTrusted(current, server);
+  const kept = reconciled.trusted.filter((d) => !removed.includes(d.id));
+  const out = {
+    ...reconciled,
+    trusted: kept,
+    dropped: reconciled.dropped + reconciled.trusted.length - kept.length,
+  };
   const notedRaw =
     me === undefined
       ? { trusted: out.trusted, added: 0, refused: [] as TrustNoteRefusal[] }
@@ -327,9 +376,14 @@ export async function removeDevice(
     await deps.forgetSelf();
     return;
   }
-  const current = await loadTrusted(deps.store);
-  const next = current.filter((d) => d.id !== id);
-  if (next.length !== current.length) await saveTrusted(deps.store, next);
+  // Recorded before the trusted list changes, so an old trust note never brings it back (R3-1).
+  // Under the trust lock, so an overlapping sync cannot save the list it loaded before.
+  await withTrustLock(deps.store, async () => {
+    await addRemoved(deps.store, [id]);
+    const current = await loadTrusted(deps.store);
+    const next = current.filter((d) => d.id !== id);
+    if (next.length !== current.length) await saveTrusted(deps.store, next);
+  });
 }
 
 /** What removing a device asks first, in plain words. */

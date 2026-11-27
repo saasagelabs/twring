@@ -1,7 +1,10 @@
 import {
+  base64urlDecode,
   base64urlEncode,
   deviceIdFor,
   generateSealKeyPair,
+  messageAad,
+  unwrapKey,
   type RelayConnectorMessage,
 } from '@twring/contracts';
 import { describe, expect, it, vi } from 'vitest';
@@ -119,6 +122,22 @@ describe('revoke while a reply is being sealed', () => {
       expect(later).not.toContain(second.device.id);
       expect(later).toContain(phone.device.id);
     }
+    // The pieces after the removal use a new message key the removed phone never held.
+    const keyOf = (r: Reply) =>
+      unwrapKey(
+        r.sealed.keys.find((k) => k.device === phone.device.id)!.wrapped,
+        phone.privateKey,
+        base64urlDecode(computer.public_key),
+        messageAad({
+          accountId: baseConfig.connector_id,
+          agentId: AGENT,
+          senderDevice: r.sealed.sender_device,
+          senderSeq: r.sealed.sender_seq,
+          chunk: r.sealed.chunk!.index,
+        }),
+      );
+    const [first, ...rest] = replies().map((r) => Buffer.from(keyOf(r)));
+    for (const later of rest) expect(later.equals(first!)).toBe(false);
   });
 });
 

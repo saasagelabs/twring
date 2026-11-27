@@ -1,4 +1,4 @@
-import { base64urlEncode, fileAad, newFileKey, sealFile } from '@twring/contracts';
+import { base64urlEncode, fileAad, MAX_FILE_BYTES, newFileKey, sealFile } from '@twring/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 type Entry = { bytes: Uint8Array } | 'folder';
@@ -6,6 +6,7 @@ const fs = vi.hoisted(() => ({
   entries: new Map<string, unknown>(),
   remote: new Map<string, Uint8Array>(),
   downloads: 0,
+  reads: 0,
 }));
 vi.mock('expo-file-system', () => {
   const join = (parent: unknown, name?: string) =>
@@ -40,6 +41,7 @@ vi.mock('expo-file-system', () => {
       return fs.entries.has(this.path);
     }
     arrayBuffer() {
+      fs.reads += 1;
       const entry = fs.entries.get(this.path) as Entry;
       if (entry === 'folder' || entry === undefined) throw new Error('missing');
       return Promise.resolve(entry.bytes.buffer.slice(0) as ArrayBuffer);
@@ -94,9 +96,24 @@ beforeEach(() => {
   fs.entries.clear();
   fs.remote.clear();
   fs.downloads = 0;
+  fs.reads = 0;
 });
 
 describe('opening sealed files (ADR-045)', () => {
+  it('refuses a blob of the wrong size before reading it (R4-4)', async () => {
+    const file = entry('fil_llllllllllllllllllll');
+    const url = 'https://example.test/fil_llllllllllllllllllll';
+    fs.remote.set(url, new Uint8Array([...fs.remote.get(url)!, 0]));
+    expect(await openSealedFile(agentId, file, ids, { source })).toEqual({ error: 'couldnt_open' });
+    expect(fs.reads).toBe(0);
+  });
+
+  it('refuses a file over the size cap with no download (R4-4)', async () => {
+    const file = { ...entry('fil_mmmmmmmmmmmmmmmmmmmm'), size: MAX_FILE_BYTES + 1 };
+    expect(await openSealedFile(agentId, file, ids, { source })).toEqual({ error: 'couldnt_open' });
+    expect(fs.downloads).toBe(0);
+  });
+
   it('opens a sealed photo once and reuses the cache', async () => {
     const file = entry('fil_aaaaaaaaaaaaaaaaaaaa');
     const first = await openSealedFile(agentId, file, ids, { source });
@@ -160,6 +177,22 @@ describe('opening sealed files (ADR-045)', () => {
     expect(fs.entries.size).toBeGreaterThan(0);
     await clearSealedFiles();
     expect([...fs.entries.keys()].filter((key) => key.includes('sealed-files'))).toEqual([]);
+  });
+
+  it('clearSealedFiles removes a chat export left by a killed share sheet', async () => {
+    fs.entries.set('cache/chat-export', 'folder');
+    fs.entries.set('cache/chat-export/Hermes-chat-2026-11-27.md', { bytes: plain });
+    await clearSealedFiles();
+    expect([...fs.entries.keys()].filter((key) => key.includes('chat-export'))).toEqual([]);
+  });
+
+  it('the first sweep of a process removes a leftover chat export', async () => {
+    vi.resetModules();
+    const fresh = await import('./sealed-file-cache');
+    fs.entries.set('cache/chat-export', 'folder');
+    fs.entries.set('cache/chat-export/Hermes-chat-2026-11-26.md', { bytes: plain });
+    await fresh.sweepShareCopiesOnce();
+    expect([...fs.entries.keys()].filter((key) => key.includes('chat-export'))).toEqual([]);
   });
 
   it('a clear during a download leaves nothing on disk', async () => {

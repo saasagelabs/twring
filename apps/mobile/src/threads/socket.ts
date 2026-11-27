@@ -21,6 +21,8 @@ type SocketConstructor = new (
 export interface ThreadSocketOptions {
   url: string;
   headers: () => Record<string, string>;
+  /** Refreshes the access token after the server refused it; the retry waits for it. */
+  refreshAuth?: () => Promise<unknown>;
   onFrame: (frame: ThreadSocketFrame) => void;
   onState: (state: SocketState) => void;
   requireSecureMedia?: boolean;
@@ -28,8 +30,15 @@ export interface ThreadSocketOptions {
   WebSocketImpl?: SocketConstructor;
 }
 
+/** After a 4409: one try 45 to 60 s later, again only once a socket stayed open 10 minutes. */
+const EVICTION_RETRY_MS = 45_000;
+const EVICTION_JITTER_MS = 15_000;
+const EVICTION_SETTLED_MS = 10 * 60_000;
+
 export function connectThreadSocket(options: ThreadSocketOptions): {
   setFocus(agentId: string | null): void;
+  /** True after close() or a refusal (4403, 4409): only reconnect() opens it again. */
+  stopped(): boolean;
   reconnect(): void;
   close(): void;
 } {
@@ -48,6 +57,8 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
   let stopped = false;
   let blocked = false;
   let retryStep = 0;
+  let evictionRetried = false;
+  let openedAt: number | undefined;
   let focus: string | null = null;
   let generation = 0;
   const delays = [1_000, 2_000, 5_000, 10_000, 30_000];
@@ -63,10 +74,12 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
     if (stopped || blocked) return;
     clearTimers();
     const current = ++generation;
+    openedAt = undefined;
     const ws = new WebSocketClass(url, null, { headers: options.headers() });
     socket = ws;
     ws.onopen = () => {
       if (current !== generation) return;
+      openedAt = timers.now();
       options.onState('connected');
       sendFocus();
       resetTimer = timers.setTimeout(() => {
@@ -92,31 +105,61 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
           ? event.message
           : undefined;
       if (status === 401 || (typeof detail === 'string' && /\b401\b/.test(detail))) {
-        blocked = true;
-        clearTimers();
-        options.onState('stopped');
+        // The token was refused (often a stale one after a long background): refresh, then retry.
+        generation++;
+        socket = undefined;
         ws.close();
+        const refreshing = options.refreshAuth?.().catch(() => undefined);
+        retryLater(refreshing);
       }
     };
     ws.onclose = (event) => {
       if (current !== generation || stopped) return;
-      clearTimers();
       socket = undefined;
-      if (blocked || event.code === 4403 || event.code === 4409) {
+      // "Account data deleted" (4403) and "a newer socket took this one's place" (4409) wait for
+      // reconnect(), which the app calls when it comes back to the front. Retrying a 4409 at once
+      // would push out another device, which then does the same, round and round.
+      if (event.code === 4403 || event.code === 4409) {
+        clearTimers();
         blocked = true;
         options.onState('stopped');
+        // One slow try after a 4409, so a phone left open gets back in once a dead socket has aged
+        // out. A device pushed out again before it stayed 10 minutes waits for reconnect().
+        const settled = openedAt !== undefined && timers.now() - openedAt >= EVICTION_SETTLED_MS;
+        if (event.code === 4409 && (!evictionRetried || settled)) {
+          evictionRetried = true;
+          retryTimer = timers.setTimeout(
+            () => {
+              retryTimer = undefined;
+              if (stopped || !blocked) return;
+              blocked = false;
+              connect();
+            },
+            EVICTION_RETRY_MS + Math.floor(Math.random() * EVICTION_JITTER_MS),
+          );
+        }
         return;
       }
-      options.onState('disconnected');
-      const delay = delays[Math.min(retryStep++, delays.length - 1)];
-      retryTimer = timers.setTimeout(() => {
-        retryTimer = undefined;
-        connect();
-      }, delay);
+      retryLater();
     };
+  };
+  const retryLater = (before?: Promise<unknown>) => {
+    clearTimers();
+    options.onState('disconnected');
+    const scheduled = generation;
+    const delay = delays[Math.min(retryStep++, delays.length - 1)];
+    retryTimer = timers.setTimeout(() => {
+      retryTimer = undefined;
+      void Promise.resolve(before).then(() => {
+        if (scheduled === generation) connect();
+      });
+    }, delay);
   };
   connect();
   return {
+    stopped() {
+      return stopped || blocked;
+    },
     setFocus(agentId) {
       focus = agentId;
       sendFocus();
@@ -125,6 +168,7 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
       if (stopped) return;
       blocked = false;
       retryStep = 0;
+      evictionRetried = false;
       clearTimers();
       generation++;
       socket?.close();

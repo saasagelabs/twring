@@ -55,14 +55,34 @@ export function newMessageKey(): Uint8Array {
   return randomBytes(KEY_BYTES);
 }
 
-/** AAD for a message body and its wrapped keys. The server's message id is not bound (R2). */
+/**
+ * AAD for a message body and its wrapped keys. The server's message id is not bound (R2).
+ *
+ * With `chunk` and `final` given it is v2 and binds the chunk's final flag too, so the server
+ * cannot cut a streamed reply short by marking an earlier chunk final (ADR-044 amendment).
+ * Without `final` it is byte for byte v1. The version tag differs, so a v2 seal never opens
+ * under a v1 AAD.
+ */
 export function messageAad(a: {
   accountId: string;
   agentId: string;
   senderDevice: string;
   senderSeq: number;
   chunk?: number;
+  final?: boolean;
 }): Uint8Array {
+  if (a.chunk !== undefined && a.final !== undefined)
+    return utf8.encode(
+      JSON.stringify([
+        'twring-e2e-v2',
+        a.accountId,
+        a.agentId,
+        a.senderDevice,
+        a.senderSeq,
+        a.chunk,
+        a.final,
+      ]),
+    );
   return utf8.encode(
     JSON.stringify([
       'twring-e2e-v1',

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { loadConfig, saveConfig } from '../config';
 import { ensureDeviceKey } from './keys';
-import { updateE2e } from './store';
+import { updateConfig, updateE2e, withCommandFields } from './store';
 import { baseConfig } from './test-fixtures';
 
 const WORKER = fileURLToPath(new URL('./store.worker.ts', import.meta.url));
@@ -92,5 +92,60 @@ describe('updateE2e across processes', () => {
       return current;
     });
     expect(await readFile(`${path}.lock`, 'utf8')).toBe('another process\n');
+  });
+});
+
+describe('updateConfig (R3-2)', () => {
+  const phone = (id: string) => ({
+    id,
+    kind: 'phone' as const,
+    name: 'Pixel',
+    public_key: ensureDeviceKey(baseConfig).config.e2e!.public_key,
+    verified_at: '2026-11-25T00:00:00.000Z',
+  });
+
+  it('keeps a private chat change the running copy made while a command was busy', async () => {
+    await updateE2e(path, (current) => ({
+      ...current,
+      seq: 5,
+      devices: [phone(PHONE_A), phone(PHONE_B)],
+    }));
+    // A command loads the config, then spends a while detecting agents or asking the server.
+    const loaded = (await loadConfig(path))!;
+    await updateE2e(path, (current) => ({
+      ...current,
+      seq: 9,
+      devices: [phone(PHONE_A)],
+      revoked: [PHONE_B],
+    }));
+    const agents = [{ ...loaded.agents[0]!, label: 'Claude' }];
+    const written = await updateConfig(path, (current) =>
+      withCommandFields(current, loaded, { name: 'Desk', agents }),
+    );
+    const saved = await loadConfig(path);
+    expect(saved).toEqual(written);
+    expect(saved?.e2e?.seq).toBe(9);
+    expect(saved?.e2e?.devices.map((d) => d.id)).toEqual([PHONE_A]);
+    expect(saved?.e2e?.revoked).toEqual([PHONE_B]);
+    expect(saved?.name).toBe('Desk');
+    expect(saved?.agents).toEqual(agents);
+    await expect(stat(`${path}.lock`)).rejects.toThrow();
+  });
+
+  it("writes the command's own link when the file now holds another pairing", async () => {
+    const loaded = (await loadConfig(path))!;
+    await saveConfig(path, { ...baseConfig, connector_id: `con_${'z'.repeat(20)}` });
+    const written = await updateConfig(path, (current) =>
+      withCommandFields(current, loaded, { name: 'Desk' }),
+    );
+    expect(written).toEqual({ ...loaded, name: 'Desk' });
+  });
+
+  it('waits for a change in progress instead of writing over it', async () => {
+    await writeFile(`${path}.lock`, 'busy');
+    await expect(
+      updateConfig(path, (current) => ({ ...current!, name: 'Desk' }), { waitMs: 200 }),
+    ).rejects.toThrow();
+    expect((await loadConfig(path))?.name).toBe('Laptop');
   });
 });

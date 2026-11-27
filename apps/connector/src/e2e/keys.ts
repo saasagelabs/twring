@@ -29,6 +29,12 @@ export const trustedDeviceSchema = z
   .strip();
 export type TrustedDevice = z.infer<typeof trustedDeviceSchema>;
 
+/**
+ * How many removed device ids a computer keeps so a trust note can't bring one back. Only ids this
+ * computer trusted or had pending count, so the server cannot flush the list with made-up ids.
+ */
+export const MAX_REVOKED_SEEN = 256;
+
 export const e2eConfigSchema = z
   .object({
     device_id: e2eDeviceIdSchema,
@@ -44,7 +50,7 @@ export const e2eConfigSchema = z
      * Devices the server has said were removed (newest last, at most MAX_REVOKED_SEEN). A trust
      * note never brings one of these back, even when the server lists it as active again.
      */
-    revoked: z.array(e2eDeviceIdSchema).max(32).optional(),
+    revoked: z.array(e2eDeviceIdSchema).max(MAX_REVOKED_SEEN).optional(),
     /** The last seq this computer sealed with; never reused, even across restarts. */
     seq: z.number().int().nonnegative(),
     /** Highest seq opened per sender device, so a restart does not reopen old replays. */

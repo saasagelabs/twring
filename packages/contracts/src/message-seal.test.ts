@@ -18,6 +18,32 @@ const aad = messageAad({
   senderSeq: 3,
 });
 
+describe('messageAad versions (ADR-044 amendment)', () => {
+  const base = { accountId: 'u1', agentId: 'agt_1', senderDevice: 'dev_a', senderSeq: 3 };
+  const text = (b: Uint8Array) => String.fromCharCode(...b);
+  it('keeps v1 byte for byte without a final flag', () => {
+    expect(text(messageAad({ ...base, chunk: 2 }))).toBe(
+      '["twring-e2e-v1","u1","agt_1","dev_a",3,2]',
+    );
+    expect(text(messageAad({ ...base, final: true }))).toBe(
+      '["twring-e2e-v1","u1","agt_1","dev_a",3,null]',
+    );
+  });
+  it('binds the final flag in v2', () => {
+    expect(text(messageAad({ ...base, chunk: 2, final: false }))).toBe(
+      '["twring-e2e-v2","u1","agt_1","dev_a",3,2,false]',
+    );
+    const key = newMessageKey();
+    const sealed = sealBody(key, { text: 'hi' }, messageAad({ ...base, chunk: 2, final: false }));
+    expect(() =>
+      openBody(key, sealed.nonce, sealed.body, messageAad({ ...base, chunk: 2, final: true })),
+    ).toThrow();
+    expect(() =>
+      openBody(key, sealed.nonce, sealed.body, messageAad({ ...base, chunk: 2 })),
+    ).toThrow();
+  });
+});
+
 describe('message seal', () => {
   it('round-trips a payload through wrap and seal', () => {
     const computer = generateSealKeyPair();

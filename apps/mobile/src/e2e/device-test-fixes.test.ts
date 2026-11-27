@@ -24,6 +24,7 @@ import {
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
 import { PrivateChats, SealError } from './private-chats';
 import { PAIR_AGAIN } from './private-state';
+import { REWRAP_JOBS_KEY } from './rewrap';
 import {
   newRecoveryWords,
   restoreFromWords,
@@ -255,6 +256,31 @@ describe('a removed phone (bug 3)', () => {
     expect(await loadDeviceKey(store)).toBeUndefined();
     expect(await loadTrusted(store)).toEqual([]);
     await expect(c.seal(AGENT, 'hi')).rejects.toEqual(new SealError('pair_again'));
+  });
+
+  it('wipes what Remove this phone wipes and tells the chats (R3-4)', async () => {
+    const store = await pairedPhone();
+    await store.setItemAsync(REWRAP_JOBS_KEY, '[]');
+    let replayRemoved = 0;
+    let told = 0;
+    const c = new PrivateChats({
+      store,
+      replay: {
+        load: () => Promise.resolve({}),
+        save: () => Promise.resolve(),
+        remove: () => Promise.resolve(void replayRemoved++),
+      },
+      addressOf: () => Promise.resolve(`cord-connector://${CON}/${AGENT}`),
+      devices: () =>
+        Promise.resolve({
+          devices: [listedPhone(phone.id, { revoked_at: at }), listed(computer)],
+        }),
+    });
+    c.onRemoved(() => void told++);
+    await c.context(AGENT);
+    expect(replayRemoved).toBe(1);
+    expect(told).toBe(1);
+    expect(await store.getItemAsync(REWRAP_JOBS_KEY)).toBeNull();
   });
 
   it('removed over 30 days ago or left out by mistake: missing from the list keeps its keys', async () => {

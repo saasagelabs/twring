@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { loadOrCreateDeviceKey, nextSeq } from './device-key';
 import { confirmPairing, loadTrusted, type TrustedDevice } from './pairing';
+import { PENDING_APPROVE_KEY_NAME } from './approve';
 import { forgetPrivateDevice } from './private-chats';
 import { noKeychain, scopedKeychain } from './scoped-keychain';
 import { memoryStore } from './test-fixtures';
@@ -50,8 +51,10 @@ describe('private chat keys per server and account (P3c ruling 1)', () => {
     await confirmPairing({ store: b }, computer);
     await nextSeq(a, () => 0);
     await confirmPairing({ store: a }, computer);
+    await a.setItemAsync(PENDING_APPROVE_KEY_NAME, '{}');
     await forgetPrivateDevice(a);
     expect(await loadTrusted(a)).toEqual([]);
+    expect(await a.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
     expect((await loadOrCreateDeviceKey(b)).deviceId).toBe(keyB.deviceId);
     expect(await nextSeq(b, () => 0)).toBe(2);
     expect(await loadTrusted(b)).toHaveLength(1);

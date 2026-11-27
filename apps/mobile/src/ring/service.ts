@@ -1,4 +1,4 @@
-import { generateSealKeyPair, isActive } from '@twring/contracts';
+import { generateSealKeyPair, isActive, userRef } from '@twring/contracts';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useEffect } from 'react';
@@ -265,7 +265,15 @@ function takeOpenedNotification(): void {
     });
     return;
   }
-  const route = openedNotificationRoute(data);
+  // Hosted alerts name their account: one for an account no longer signed in here is ignored.
+  const state = authController()?.getState();
+  const account =
+    state?.status === 'signed_in'
+      ? userRef(state.userId)
+      : state?.status === 'disabled'
+        ? undefined
+        : null;
+  const route = openedNotificationRoute(data, account);
   if (route !== undefined) router.push(route);
 }
 

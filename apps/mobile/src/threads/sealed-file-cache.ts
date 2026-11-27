@@ -1,4 +1,11 @@
-import { base64urlDecode, fileAad, openFile, type SealedPayload } from '@twring/contracts';
+import {
+  base64urlDecode,
+  fileAad,
+  MAX_FILE_BYTES,
+  openFile,
+  SEALED_FILE_OVERHEAD,
+  type SealedPayload,
+} from '@twring/contracts';
 
 /**
  * Opened copies of private chats' files (ADR-045), under the app's cache folder: one file per
@@ -98,6 +105,9 @@ async function openOnce(
 ): Promise<{ uri: string } | { error: 'couldnt_open' }> {
   // A name from the server never reaches a path unless it is exactly a file id.
   if (!FILE_ID.test(file.file_id)) return { error: 'couldnt_open' };
+  // No file over the cap is ever sealed, so none is downloaded (R4-4).
+  if (!Number.isInteger(file.size) || file.size < 0 || file.size > MAX_FILE_BYTES)
+    return { error: 'couldnt_open' };
   await sweepShareCopiesOnce();
   const started = generation;
   const { Directory, File, Paths } = await import('expo-file-system');
@@ -121,6 +131,8 @@ async function openOnce(
       ...(source.headers && { headers: source.headers }),
       idempotent: true,
     });
+    // A blob of any other size cannot open, so it is never read into memory (R4-4).
+    if (temp.size !== file.size + SEALED_FILE_OVERHEAD) return { error: 'couldnt_open' };
     const blob = new Uint8Array(await temp.arrayBuffer());
     const plain = openFile(base64urlDecode(file.key), blob, fileAad(ids));
     if (plain.length !== file.size || started !== generation) return { error: 'couldnt_open' };
@@ -159,9 +171,24 @@ export async function removeShareCopies(): Promise<void> {
   }
 }
 
-/** Start-up cleanup without a start-up hook: the first open or share of the process. */
-export function sweepShareCopiesOnce(): Promise<void> {
-  return sweptThisProcess ? Promise.resolve() : removeShareCopies();
+/** Chat exports (opened plaintext) written for the share sheet; a killed sheet leaves one. */
+export const CHAT_EXPORT_FOLDER = 'chat-export';
+
+async function removeChatExports(): Promise<void> {
+  try {
+    const { Directory, Paths } = await import('expo-file-system');
+    const folder = new Directory(Paths.cache, CHAT_EXPORT_FOLDER);
+    if (folder.exists) folder.delete();
+  } catch {
+    /* the OS clears the cache anyway */
+  }
+}
+
+/** Start-up cleanup: the app start, or else the first open or share of the process. */
+export async function sweepShareCopiesOnce(): Promise<void> {
+  if (sweptThisProcess) return;
+  await removeShareCopies();
+  await removeChatExports();
 }
 
 /** Sign-out, removing this phone and clearing a chat: no opened file stays behind. */
@@ -169,6 +196,7 @@ export async function clearSealedFiles(): Promise<void> {
   generation += 1;
   inFlight.clear();
   await removeShareCopies();
+  await removeChatExports();
   try {
     const { Directory, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.cache, CACHE_FOLDER);

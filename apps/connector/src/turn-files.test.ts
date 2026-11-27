@@ -1,7 +1,7 @@
 import { access, readFile, stat } from 'node:fs/promises';
 import { describe, expect, it, vi } from 'vitest';
 import type { TurnAttachment } from '@twring/contracts';
-import { MAX_FILE_BYTES } from '@twring/contracts';
+import { MAX_FILE_BYTES, MAX_FILE_NAME_CHARS } from '@twring/contracts';
 import { downloadTurnFiles } from './turn-files';
 
 const attachment = (
@@ -83,6 +83,30 @@ describe('turn files', () => {
     );
     expect(result.files).toEqual([]);
     expect(fetcher).toHaveBeenCalledTimes(4);
+    await result.cleanup();
+  });
+
+  it('keeps the extension of long and duplicate long names', async () => {
+    const fetcher = vi.fn(() => Promise.resolve(new Response('abc')));
+    const long = `${'a'.repeat(200)}.pdf`;
+    const result = await downloadTurnFiles(
+      Array.from({ length: 12 }, () => attachment(long)),
+      {
+        server: 'https://server.example',
+        turnId: 't',
+        signal: new AbortController().signal,
+        fetch: fetcher,
+      },
+    );
+    expect(result.files).toHaveLength(12);
+    const names = result.files.map((file) => file.name);
+    expect(new Set(names.map((name) => name.toLowerCase())).size).toBe(12);
+    for (const name of names) {
+      expect(name.endsWith('.pdf')).toBe(true);
+      expect(Array.from(name).length).toBeLessThanOrEqual(MAX_FILE_NAME_CHARS);
+      expect(name).not.toMatch(/[. ]$/u);
+    }
+    expect(names[1]!.startsWith('2-')).toBe(true);
     await result.cleanup();
   });
 

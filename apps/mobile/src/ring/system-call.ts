@@ -14,10 +14,18 @@ export function answeredRing(payload: unknown): RingPush | undefined {
 export type OpenedRoute =
   { pathname: '/chats/[agentId]'; params: { agentId: string } } | { pathname: '/history' };
 
-/** Where a tapped notification leads: a message opens its chat, a missed ring opens Recents. */
-export function openedNotificationRoute(data: unknown): OpenedRoute | undefined {
+/**
+ * Where a tapped notification leads: a message opens its chat, a missed ring opens Recents.
+ * With `account` (the signed-in account's ref, null when nobody is), an alert for another
+ * account is ignored, as Android drops it before showing it.
+ */
+export function openedNotificationRoute(
+  data: unknown,
+  account?: string | null,
+): OpenedRoute | undefined {
   if (typeof data !== 'object' || data === null) return undefined;
-  const { type, agent_id: agentId } = data as Record<string, unknown>;
+  const { type, agent_id: agentId, user_ref: ref } = data as Record<string, unknown>;
+  if (account !== undefined && typeof ref === 'string' && ref !== account) return undefined;
   if (type === 'cord.message' && typeof agentId === 'string' && agentId !== '')
     return { pathname: '/chats/[agentId]', params: { agentId } };
   if (type === 'cord.ring_cancel') return { pathname: '/history' };
