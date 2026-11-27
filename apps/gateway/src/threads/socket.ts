@@ -51,6 +51,7 @@ export class PhoneSocketHub {
   private readonly userLimiter: FixedWindowLimiter;
   private readonly users = new Map<string, PhoneConnection[]>();
   private readonly pingTimer: ReturnType<typeof setInterval>;
+  private readonly probes = new Map<string, Promise<boolean>>();
 
   constructor(private readonly options: PhoneSocketOptions) {
     this.limiter = new FixedWindowLimiter(
@@ -211,9 +212,67 @@ export class PhoneSocketHub {
     }
   }
 
+  /**
+   * A socket whose last ping went unanswered past `unansweredPingMs` (often one a phone lost when
+   * Wi-Fi dropped) no longer counts, the same rule eviction uses in `accept`.
+   */
   isFocused(userId: string, agentId: string): boolean {
-    return (this.users.get(userId) ?? []).some(
-      (connection) => connection.ws.readyState === WebSocket.OPEN && connection.focus === agentId,
+    return this.focusedConnections(userId, agentId).length > 0;
+  }
+
+  /**
+   * Whether a phone showing this chat answers a ping within `timeoutMs`, checked just before a
+   * push is skipped: a dead socket otherwise counts as focused until the heartbeat reaps it and
+   * the reply never reaches the phone. Sockets that stay silent are terminated. Concurrent checks
+   * for one chat share a probe; with no focused socket it resolves false at once.
+   */
+  confirmFocused(userId: string, agentId: string, timeoutMs = 3_000): Promise<boolean> {
+    const connections = this.focusedConnections(userId, agentId);
+    if (connections.length === 0) return Promise.resolve(false);
+    const key = `${userId} ${agentId}`;
+    const pending = this.probes.get(key);
+    if (pending) return pending;
+    const probe = new Promise<boolean>((resolve) => {
+      const answered = new Set<PhoneConnection>();
+      const listeners = new Map<PhoneConnection, () => void>();
+      const finish = (result: boolean): void => {
+        clearTimeout(timer);
+        for (const [connection, listener] of listeners) connection.ws.off('pong', listener);
+        resolve(result);
+      };
+      const timer = setTimeout(() => {
+        for (const connection of connections)
+          if (!answered.has(connection)) connection.ws.terminate();
+        finish(false);
+      }, timeoutMs);
+      timer.unref();
+      for (const connection of connections) {
+        // A one-shot listener: the heartbeat's `alive`/`pingedAt` are left to the heartbeat.
+        const listener = (): void => {
+          answered.add(connection);
+          finish(true);
+        };
+        listeners.set(connection, listener);
+        connection.ws.once('pong', listener);
+        try {
+          connection.ws.ping();
+        } catch {
+          /* A socket that cannot be pinged stays unanswered. */
+        }
+      }
+    }).finally(() => this.probes.delete(key));
+    this.probes.set(key, probe);
+    return probe;
+  }
+
+  private focusedConnections(userId: string, agentId: string): PhoneConnection[] {
+    const now = Date.now();
+    const unanswered = this.options.unansweredPingMs ?? 5_000;
+    return (this.users.get(userId) ?? []).filter(
+      (connection) =>
+        connection.ws.readyState === WebSocket.OPEN &&
+        connection.focus === agentId &&
+        (connection.alive || now - connection.pingedAt <= unanswered),
     );
   }
 
