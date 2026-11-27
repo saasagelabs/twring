@@ -14,6 +14,7 @@ import { ringPlatform, type RingPermissions } from '@/platform/ring';
 import type { RingSettings as Settings } from '@/ring/protocol';
 import { allowNotifications } from '@/ring/service';
 import {
+  createSettingsReadGate,
   deviceTimeZone,
   formFromSettings,
   persistRingSettings,
@@ -102,17 +103,21 @@ export function RingSettings({
   const [resultSheet, setResultSheet] = useState(false);
   const [invalid, setInvalid] = useState<'start' | 'end' | undefined>(undefined);
 
-  // A save in flight wins over a read that answers during it.
-  const savingRef = useRef(false);
+  // A save wins over any read issued before it ended, even one that answers after it.
+  const readGate = useRef(createSettingsReadGate()).current;
+  const readRef = useRef<AbortController | undefined>(undefined);
   // Fetches settings; the initial state is already 'loading', so the effect sets no state itself.
   // A refetch keeps what is shown until the answer arrives, and a failed one keeps it too.
   function fetchSettings() {
     const api = twringApi();
     if (api === undefined) return () => undefined;
+    readRef.current?.abort();
     const controller = new AbortController();
+    readRef.current = controller;
+    const canApply = readGate.issueRead();
     api.ringSettings(controller.signal).then(
       (settings) => {
-        if (controller.signal.aborted || savingRef.current) return;
+        if (controller.signal.aborted || !canApply()) return;
         setLoad({ state: 'loaded', settings });
         setForm(formFromSettings(settings));
       },
@@ -147,13 +152,13 @@ export function RingSettings({
     }
     setInvalid(undefined);
     setSaving(true);
-    savingRef.current = true;
+    readGate.saveStarted();
     setSaveError(undefined);
     void persistRingSettings(check.settings, previous ?? check.settings, (request) =>
       api.updateRingSettings(request),
     ).then((result) => {
       setSaving(false);
-      savingRef.current = false;
+      readGate.saveEnded();
       setForm(result.form);
       if (result.ok) setLoad({ state: 'loaded', settings: result.settings });
       else setSaveError({ error: apiErrorCopy(result.error), next });
