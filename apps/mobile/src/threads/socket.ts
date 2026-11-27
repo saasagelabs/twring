@@ -27,6 +27,8 @@ export interface ThreadSocketOptions {
   onState: (state: SocketState) => void;
   requireSecureMedia?: boolean;
   timers?: Pick<OutboxTimers, 'setTimeout' | 'clearTimeout' | 'now'>;
+  /** 0 to 1, for the backoff jitter; tests pass a fixed one. */
+  random?: () => number;
   WebSocketImpl?: SocketConstructor;
 }
 
@@ -68,6 +70,8 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
   let generation = 0;
   let refreshing: Promise<unknown> | undefined;
   let lastRetryNow: number | undefined;
+  let lastNetworkRetry: number | undefined;
+  const random = options.random ?? Math.random;
   const delays = [1_000, 2_000, 5_000, 10_000];
   const clearTimers = () => {
     if (retryTimer !== undefined) timers.clearTimeout(retryTimer);
@@ -146,7 +150,7 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
               blocked = false;
               connect();
             },
-            EVICTION_RETRY_MS + Math.floor(Math.random() * EVICTION_JITTER_MS),
+            EVICTION_RETRY_MS + Math.floor(random() * EVICTION_JITTER_MS),
           );
         }
         return;
@@ -158,7 +162,9 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
     clearTimers();
     options.onState('disconnected');
     const scheduled = generation;
-    const delay = delays[Math.min(retryStep++, delays.length - 1)];
+    // +-20% so phones that lost the same network do not all come back in the same instant.
+    const base = delays[Math.min(retryStep++, delays.length - 1)];
+    const delay = Math.round(base * (0.8 + 0.4 * random()));
     retryTimer = timers.setTimeout(() => {
       retryTimer = undefined;
       void Promise.resolve(before).then(() => {
@@ -188,9 +194,12 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
     retryNow({ networkChanged = false } = {}) {
       if (stopped || blocked) return;
       if (socket && !networkChanged) return;
+      // Separate debounces: a foreground retry just before must not swallow a network change.
       const now = timers.now();
-      if (lastRetryNow !== undefined && now - lastRetryNow < 1_000) return;
-      lastRetryNow = now;
+      const last = networkChanged ? lastNetworkRetry : lastRetryNow;
+      if (last !== undefined && now - last < 1_000) return;
+      if (networkChanged) lastNetworkRetry = now;
+      else lastRetryNow = now;
       retryStep = 0;
       if (socket) {
         // Replaced, not reconnect(): the 4409 guard (evictionRetried, blocked) stays as it is.
@@ -198,6 +207,8 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
         const old = socket;
         socket = undefined;
         old.close();
+        // An open one was reported connected: the UI shows it reconnecting until the new one opens.
+        if (openedAt !== undefined) options.onState('disconnected');
         connect();
         return;
       }

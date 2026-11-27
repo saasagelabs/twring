@@ -43,6 +43,9 @@ vi.mock('./outbox-storage', async () => {
   };
 });
 vi.mock('expo-router', () => ({ useFocusEffect: () => undefined }));
+vi.mock('@react-native-community/netinfo', () => ({
+  default: { addEventListener: () => () => undefined },
+}));
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },
 }));
