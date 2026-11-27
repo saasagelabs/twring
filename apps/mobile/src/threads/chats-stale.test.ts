@@ -110,6 +110,27 @@ describe('stale chat data', () => {
     expect(await controller.getDraft(agent)).toBe('');
   });
 
+  it("the echo of this phone's own clear keeps what was typed after it", async () => {
+    const controller = new ChatController(
+      pageApi(() => [message(1)]),
+      {
+        url: 'wss://x',
+        requireSecureMedia: true,
+      },
+    );
+    await controller.open(agent);
+    await settle();
+    controller.forgetChat(agent);
+    controller.setDraft(agent, 'typed after the clear');
+    sockets.at(-1)!.onFrame({ type: 'thread.cleared', agent_id: agent });
+    await settle();
+    expect(await controller.getDraft(agent)).toBe('typed after the clear');
+    // A later clear from elsewhere is not an echo any more.
+    sockets.at(-1)!.onFrame({ type: 'thread.cleared', agent_id: agent });
+    await settle();
+    expect(await controller.getDraft(agent)).toBe('');
+  });
+
   it('asks again after chats were off, with a growing wait', async () => {
     let now = 0;
     const timers = { setTimeout: () => 0, clearTimeout: () => undefined, now: () => now };

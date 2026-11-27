@@ -63,6 +63,8 @@ import { connectThreadSocket } from './socket';
 /** After a 404 (chats off), the list is asked again after 20 s, doubling up to 5 min. */
 const OFF_RETRY_MIN_MS = 20_000;
 const OFF_RETRY_MAX_MS = 5 * 60_000;
+/** How long the server's echo of this phone's own Clear chat is recognised as that echo. */
+const OWN_CLEAR_ECHO_MS = 60_000;
 
 export class ChatController {
   private revision = 0;
@@ -93,6 +95,8 @@ export class ChatController {
   private readonly previewStore?: SecureKeyValue;
   /** Opened previews of private chats' last messages, by chat; the saved ones load first. */
   private readonly previews = new Map<string, ListPreview>();
+  /** When this phone last cleared each chat, so the server's echo of it keeps newer typing. */
+  private readonly clearedHere = new Map<string, number>();
   private readonly previewing = new Set<string>();
   /** Bumped when opened previews are dropped, so an open still running cannot put one back. */
   private previewGeneration = 0;
@@ -835,7 +839,11 @@ export class ChatController {
     if (frame.type === 'thread.cleared') {
       void this.search.forgetAgent(agentId);
       // Cleared elsewhere: the same as Clear chat here, so no old send, draft or preview remains.
-      this.forgetChat(agentId);
+      // The echo of this phone's own clear is skipped: what was typed since then is new.
+      const clearedHere = this.clearedHere.get(agentId);
+      this.clearedHere.delete(agentId);
+      if (clearedHere === undefined || Date.now() - clearedHere > OWN_CLEAR_ECHO_MS)
+        this.dropChatData(agentId);
     }
     this.put(agentId, applyFrame(this.getChat(agentId), agentId, frame));
     // Progress arrives every 250 ms while a reply streams; only real changes refresh the list.
@@ -910,6 +918,11 @@ export class ChatController {
   }
   /** After "Clear chat": unsent messages are dropped and the composer starts empty too. */
   forgetChat(agentId: string): void {
+    this.clearedHere.set(agentId, Date.now());
+    this.dropChatData(agentId);
+  }
+  /** Unsent messages, draft and list preview of one chat: gone after a clear, here or elsewhere. */
+  private dropChatData(agentId: string): void {
     void clearSealedFiles();
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
