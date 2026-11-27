@@ -48,8 +48,11 @@ export async function giveVoiceConsent(store: SecureKeyValue, agentId: string): 
   });
 }
 
+/** Ordered against sign-out too: rewriting the list then would bring the other chats' yes back. */
 export async function clearVoiceConsent(store: SecureKeyValue, agentId: string): Promise<void> {
-  const ids = await read(store);
-  if (!ids.includes(agentId)) return;
-  await store.setItemAsync(VOICE_CONSENT_KEY, JSON.stringify(ids.filter((id) => id !== agentId)));
+  await writeWhileKept(store, async () => {
+    const ids = await read(store);
+    if (!ids.includes(agentId)) return;
+    await store.setItemAsync(VOICE_CONSENT_KEY, JSON.stringify(ids.filter((id) => id !== agentId)));
+  });
 }

@@ -90,6 +90,32 @@ describe('voice-note consent per private chat', () => {
     );
   });
 
+  it('clearing one chat during sign-out does not put the other chats back', async () => {
+    const store = memory();
+    await giveVoiceConsent(store, 'a1');
+    await giveVoiceConsent(store, 'b1');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const get = (key: string) => store.map.get(key) ?? null;
+    store.getItemAsync = async (key) => {
+      await gate;
+      return get(key);
+    };
+    // Clearing has read the list; its write waits while sign-out runs to the end.
+    store.getItemAsync = (key) => Promise.resolve(get(key));
+    store.setItemAsync = async (key, value) => {
+      if (key === VOICE_CONSENT_KEY) await gate;
+      store.map.set(key, value);
+    };
+    const clearing = clearVoiceConsent(store, 'a1');
+    const forgetting = forgetPrivateDevice(store);
+    // Sign-out gets every chance to finish before the held write goes on.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    await Promise.all([clearing, forgetting]);
+    expect(store.map.has(VOICE_CONSENT_KEY)).toBe(false);
+  });
+
   it('sign-out removes every consent', async () => {
     const store = memory();
     await giveVoiceConsent(store, 'a1');
