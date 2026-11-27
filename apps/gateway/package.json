@@ -29,7 +29,7 @@
     "@twring/config": "workspace:*",
     "@twring/contracts": "workspace:*",
     "@twring/push": "workspace:*",
-    "fastify": "^5.12.5",
+    "fastify": "^5.12.8",
     "jose": "^6.2.12",
     "livekit-server-sdk": "^2.19.1",
     "pino": "^10.3.1",
