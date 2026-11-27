@@ -103,13 +103,15 @@ const dev = (n: number, kind: 'phone' | 'computer', name: string) => ({
   public_key: 'k',
   added_at: at,
 });
-// useState slots in the screen: state, error, removing, busy, selfId, waiting, approving.
+// useState slots in the screen: state, error, removing, busy, selfId, waiting, approving,
+// connecting, sheetError.
 const STATE = 0;
 const ERROR = 1;
 const REMOVING = 2;
 const WAITING = 5;
 const APPROVING = 6;
 const CONNECTING = 7;
+const SHEET_ERROR = 8;
 
 beforeEach(() => {
   mocks.state = [];
@@ -250,16 +252,41 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
       render().find((e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve')!;
     (approve().props.onPress as () => void)();
     await flush();
-    expect(mocks.state[APPROVING]).toEqual({ claimed, checked });
+    expect(mocks.state[APPROVING]).toEqual({ claimed, checked, acceptSent: true });
     const shown = render();
     expect(shown.filter((e) => e.type === 'Sheet')[1]?.props).toMatchObject({ visible: true });
     expect(texts(shown)).toContain(
       'Twring could not reach the server. Check your connection and tap again.',
     );
+    // The error belongs to the sheet, not to the screen behind it.
+    expect(mocks.state[ERROR]).toBeUndefined();
+    // It may have gone through, so only Approve stays: a deny could no longer undo it.
+    expect(shown.filter((e) => e.type === 'GhostButton').map((e) => e.props.label)).toEqual([
+      'Codes match, approve',
+    ]);
     mocks.approveWaiting.mockResolvedValueOnce({ ok: true });
     (approve().props.onPress as () => void)();
     await flush();
     expect(mocks.approveWaiting).toHaveBeenCalledTimes(2);
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.state[SHEET_ERROR]).toBeUndefined();
+  });
+
+  it('keeps the sheet after a deny that never got through, so tapping Deny again carries on', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed };
+    mocks.denyWaiting.mockResolvedValueOnce({ ok: false, code: 'network' });
+    const deny = () => render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
+    (deny().props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toEqual({ claimed });
+    expect(texts(render())).toContain(
+      'Twring could not reach the server. Check your connection and tap again.',
+    );
+    mocks.denyWaiting.mockResolvedValueOnce({ ok: true });
+    (deny().props.onPress as () => void)();
+    await flush();
+    expect(mocks.denyWaiting).toHaveBeenCalledTimes(2);
     expect(mocks.state[APPROVING]).toBeUndefined();
   });
 

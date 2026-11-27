@@ -49,7 +49,12 @@ const DECIDE_OFFLINE = 'Twring could not reach the server. Check your connection
 
 type Waiting = { id: string; name: string };
 /** Claimed and waiting for the new phone's reveal, or checked with the code to compare. */
-type Approving = { claimed: ClaimedApproval; checked?: CheckedApproval };
+type Approving = {
+  claimed: ClaimedApproval;
+  checked?: CheckedApproval;
+  /** An approve that failed on the network may have gone through, so a deny could no longer undo it. */
+  acceptSent?: boolean;
+};
 /** How often the approving phone asks whether the new phone sent what the code needs. */
 const REVEAL_POLL_MS = 2_000;
 type Loaded = { state: DevicesState; self?: string; waiting: Waiting[] } | { error: string };
@@ -89,6 +94,8 @@ export default function PrivateDevicesScreen() {
   const [waiting, setWaiting] = useState<Waiting[]>([]);
   const [approving, setApproving] = useState<Approving | undefined>();
   const [connecting, setConnecting] = useState<DeviceRow | undefined>();
+  /** What went wrong inside the approve sheet; the screen's own error stays for loads and removals. */
+  const [sheetError, setSheetError] = useState<string | undefined>();
 
   const apply = useCallback((found: Loaded) => {
     if ('error' in found) {
@@ -189,7 +196,7 @@ export default function PrivateDevicesScreen() {
     if (approving === undefined) return;
     const id = approving.claimed.approval.id;
     setBusy(true);
-    setError(undefined);
+    setSheetError(undefined);
     try {
       const deps = { api: approveApi(), store: privateKeychain() };
       const out =
@@ -198,9 +205,11 @@ export default function PrivateDevicesScreen() {
           : await denyWaiting(deps, id);
       playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
       // Nothing is over yet: the sheet stays with the same codes and tapping again carries on (an
-      // accept the server already took gets the same answer again).
+      // accept the server already took gets the same answer again). After an approve only Approve
+      // stays: if it went through, a deny would be refused and this phone would never finish it.
       if (!out.ok && out.code === 'network') {
-        setError(DECIDE_OFFLINE);
+        setSheetError(DECIDE_OFFLINE);
+        if (approve) setApproving({ ...approving, acceptSent: true });
         return;
       }
       if (!out.ok) setError(APPROVE_FAILED);
@@ -314,7 +323,7 @@ export default function PrivateDevicesScreen() {
         onClose={() => {
           if (busy) return;
           setApproving(undefined);
-          setError(undefined);
+          setSheetError(undefined);
         }}
       >
         {approving !== undefined && approving.checked === undefined && (
@@ -323,8 +332,8 @@ export default function PrivateDevicesScreen() {
               {approveNewPhoneWaitingCopy(approving.claimed.approval.name)}
             </Text>
             <ActivityIndicator accessibilityLabel="Waiting for the new phone" />
-            {error !== undefined && (
-              <Text style={[type.body, { color: palette.textSecondary }]}>{error}</Text>
+            {sheetError !== undefined && (
+              <Text style={[type.body, { color: palette.textSecondary }]}>{sheetError}</Text>
             )}
             <GhostButton
               label={DENY_BUTTON}
@@ -345,16 +354,18 @@ export default function PrivateDevicesScreen() {
             <Text style={[type.body, { color: palette.textSecondary }]}>
               {approveSheetCopy(approving.checked.approval.name)}
             </Text>
-            {error !== undefined && (
-              <Text style={[type.body, { color: palette.textSecondary }]}>{error}</Text>
+            {sheetError !== undefined && (
+              <Text style={[type.body, { color: palette.textSecondary }]}>{sheetError}</Text>
             )}
             <GhostButton label={APPROVE_BUTTON} disabled={busy} onPress={() => void decide(true)} />
-            <GhostButton
-              label={DENY_BUTTON}
-              tone="danger"
-              disabled={busy}
-              onPress={() => void decide(false)}
-            />
+            {approving.acceptSent !== true && (
+              <GhostButton
+                label={DENY_BUTTON}
+                tone="danger"
+                disabled={busy}
+                onPress={() => void decide(false)}
+              />
+            )}
             {busy && <ActivityIndicator accessibilityLabel="Approving" />}
           </View>
         )}
