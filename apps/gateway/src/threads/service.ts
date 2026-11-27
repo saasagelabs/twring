@@ -55,6 +55,8 @@ export interface ThreadServiceOptions {
   hasLiveCallToAgent(userId: string, agentId: string): boolean;
   ring?: RingService;
   isFocused?: (userId: string, agentId: string) => boolean;
+  /** Checks that a focused phone still answers before a push is skipped; falls back to `isFocused`. */
+  confirmFocused?: (userId: string, agentId: string) => Promise<boolean>;
   notify(userId: string, frame: ThreadSocketFrame): void;
   log?: {
     info(obj: Record<string, unknown>, msg: string): void;
@@ -311,7 +313,7 @@ export class ThreadService {
       });
       if ('invite' in result) delivery = 'ring';
     }
-    if (delivery === 'none' && !this.options.isFocused?.(userId, agentId)) {
+    if (delivery === 'none' && !(await this.focused(userId, agentId))) {
       const attempted = await this.options.ring.pushMessage(userId, {
         type: 'cord.message',
         user_ref: userRef(userId),
@@ -430,7 +432,7 @@ export class ThreadService {
       (invite.status !== 'declined' && invite.status !== 'missed') ||
       !invite.message_id ||
       !this.options.ring ||
-      this.options.isFocused?.(invite.user_id, invite.agent_id)
+      (await this.focused(invite.user_id, invite.agent_id))
     )
       return;
     const result = await this.options.store.findMessageById(
@@ -1731,7 +1733,7 @@ export class ThreadService {
     message: ThreadMessage,
   ): Promise<void> {
     const ring = this.options.ring;
-    if (!ring || message.kind !== 'approval' || this.options.isFocused?.(userId, agentId)) return;
+    if (!ring || message.kind !== 'approval' || (await this.focused(userId, agentId))) return;
     try {
       const settings = await ring.settings(userId);
       await ring.pushMessage(userId, {
@@ -1758,7 +1760,7 @@ export class ThreadService {
     message: ThreadMessage,
   ): Promise<void> {
     const ring = this.options.ring;
-    if (!ring || message.kind !== 'agent_text' || this.options.isFocused?.(userId, agentId)) return;
+    if (!ring || message.kind !== 'agent_text' || (await this.focused(userId, agentId))) return;
     try {
       const settings = await ring.settings(userId);
       await ring.pushMessage(userId, {
@@ -1788,7 +1790,7 @@ export class ThreadService {
     message: ThreadMessage,
   ): Promise<void> {
     const ring = this.options.ring;
-    if (!ring || message.kind !== 'sealed' || this.options.isFocused?.(userId, agentId)) return;
+    if (!ring || message.kind !== 'sealed' || (await this.focused(userId, agentId))) return;
     try {
       const settings = await ring.settings(userId);
       await ring.pushMessage(userId, {
@@ -1802,6 +1804,17 @@ export class ThreadService {
       });
     } catch {
       // A notification is a convenience: the reply is already saved in the chat.
+    }
+  }
+
+  /** Whether the phone shows this chat, so a push would be redundant. Never throws. */
+  private async focused(userId: string, agentId: string): Promise<boolean> {
+    try {
+      return this.options.confirmFocused
+        ? await this.options.confirmFocused(userId, agentId)
+        : (this.options.isFocused?.(userId, agentId) ?? false);
+    } catch {
+      return false;
     }
   }
 

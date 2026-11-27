@@ -123,7 +123,11 @@ afterEach(async () => {
 });
 function setup(
   configure: (adapter: ScriptedAdapter) => void = () => undefined,
-  delivery?: { ring: RingService; isFocused?: () => boolean },
+  delivery?: {
+    ring: RingService;
+    isFocused?: () => boolean;
+    confirmFocused?: () => Promise<boolean>;
+  },
   timeouts: { totalMs?: number; idleMs?: number } = {},
 ) {
   const store = new SqliteThreadStore(
@@ -151,6 +155,7 @@ function setup(
     agentStatus: () => (online ? 'online' : 'offline'),
     hasLiveCallToAgent: () => call,
     ...(delivery && { ring: delivery.ring, isFocused: () => delivery.isFocused?.() ?? false }),
+    ...(delivery?.confirmFocused && { confirmFocused: delivery.confirmFocused }),
     notify: (_user, frame) => frames.push(frame),
     log: {
       info: (data, msg) => logs.push([data, msg]),
@@ -385,7 +390,7 @@ describe('call history in threads', () => {
 });
 describe('detached results', () => {
   const target = { connectorId: 'con_test', localAgent: 'claude-code', agentName: 'Agent' };
-  function fixture(configure?: (adapter: ScriptedAdapter) => void) {
+  function fixture(configure?: (adapter: ScriptedAdapter) => void, probe = false) {
     const stores = {
       devices: new DeviceRepository(new MemoryCollection()),
       settings: new RingSettingsRepository(new MemoryCollection()),
@@ -407,7 +412,21 @@ describe('detached results', () => {
       logger: recordingLogger(),
     });
     let focused = false;
-    const app = setup(configure, { ring, isFocused: () => focused });
+    const probes: number[] = [];
+    // With `probe`, the sync check says focused and only the async liveness probe decides.
+    const app = setup(
+      configure,
+      probe
+        ? {
+            ring,
+            isFocused: () => true,
+            confirmFocused: () => {
+              probes.push(1);
+              return Promise.resolve(focused);
+            },
+          }
+        : { ring, isFocused: () => focused },
+    );
     const deliver = (
       key: string,
       origin: 'call_turn' | 'text_turn' | 'agent' = 'call_turn',
@@ -424,6 +443,7 @@ describe('detached results', () => {
       ...app,
       stores,
       pushes,
+      probes,
       deliver,
       setFocused: (value: boolean) => {
         focused = value;
@@ -550,6 +570,60 @@ describe('detached results', () => {
       ),
     );
     expect(f.pushes).toHaveLength(1);
+  });
+
+  it('pushes when a focused phone does not answer the liveness probe (finding 13)', async () => {
+    const f = fixture((adapter) => {
+      adapter.events = [
+        event('run.started', {}),
+        event('text.delta', { message_id: 'reply', delta: 'Here is the answer.' }),
+        event('done', { status: 'completed' }),
+      ];
+    }, true);
+    await f.stores.devices.upsert({
+      user_id: 'owner',
+      device_id: 'iphone-0003',
+      fcm_token: 'fcm-token-cccccccccccccccc',
+      platform: 'ios',
+      app_variant: 'beta',
+      updated_at: new Date().toISOString(),
+    });
+    // A dead socket still looks focused, but the probe fails: every path pushes.
+    expect((await f.deliver('dead', 'agent')).delivery).toBe('push');
+    await send(f.service, agent, 'question', randomUUID());
+    await until(() => f.pushes.length === 2);
+    f.setFocused(true);
+    const before = f.probes.length;
+    expect((await f.deliver('live', 'agent')).delivery).toBe('none');
+    await send(f.service, agent, 'another', randomUUID());
+    await until(async () =>
+      (await messages(f.store)).some(
+        (row) => row.kind === 'user_text' && row.text === 'another' && row.status === 'answered',
+      ),
+    );
+    await until(() => f.probes.length >= before + 2);
+    expect(f.pushes).toHaveLength(2);
+  });
+
+  it('a settled result ring pushes only when the focused phone fails the probe', async () => {
+    const f = fixture(undefined, true);
+    await f.stores.devices.upsert({
+      user_id: 'owner',
+      device_id: 'phone-0001',
+      fcm_token: 'fcm-token-aaaaaaaaaaaaaaaa',
+      platform: 'android',
+      app_variant: 'beta',
+      updated_at: new Date().toISOString(),
+    });
+    const delivered = await f.deliver('settled-probe');
+    const invite = (await f.stores.invites.list('owner'))[0]!;
+    f.setFocused(true);
+    const count = f.pushes.length;
+    await f.service.pushSettledResult({ ...invite, status: 'declined' });
+    expect(f.pushes).toHaveLength(count);
+    f.setFocused(false);
+    await f.service.pushSettledResult({ ...invite, status: 'declined' });
+    expect(f.pushes.at(-1)).toMatchObject({ message_id: delivered.messageId });
   });
 
   it('marks an interrupted turn answered when its late result arrives', async () => {

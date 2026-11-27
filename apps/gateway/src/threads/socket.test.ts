@@ -231,6 +231,64 @@ describe('phone socket', () => {
     expect(slow.readyState).toBe(WebSocket.OPEN);
   });
 
+  it('stops counting a focused socket once its ping goes unanswered (finding 13)', async () => {
+    const { connect, hub } = await setup({ pingMs: 100, unansweredMs: 50 });
+    const lost = await connect('alice', false);
+    const agentId = `agt_${'a'.repeat(20)}`;
+    lost.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
+    await tick();
+    expect(hub.isFocused('alice', agentId)).toBe(true);
+    // The first ping goes out at 100 ms; 50 ms later it counts as unanswered.
+    await tick(170);
+    expect(lost.readyState).toBe(WebSocket.OPEN);
+    expect(hub.isFocused('alice', agentId)).toBe(false);
+  });
+
+  it('confirms focus with a ping, terminating a silent socket and sharing a probe', async () => {
+    const { connect, hub } = await setup({ pingMs: 60_000 });
+    const agentId = `agt_${'a'.repeat(20)}`;
+    expect(await hub.confirmFocused('alice', agentId, 100)).toBe(false);
+    const live = await connect();
+    live.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
+    await tick();
+    let pings = 0;
+    live.on('ping', () => pings++);
+    const first = hub.confirmFocused('alice', agentId, 1_000);
+    const second = hub.confirmFocused('alice', agentId, 1_000);
+    expect(second).toBe(first);
+    expect(await first).toBe(true);
+    expect(pings).toBe(1);
+    expect(hub.isFocused('alice', agentId)).toBe(true);
+
+    const silent = await connect('bob', false);
+    silent.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
+    await tick();
+    const gone = closed(silent);
+    const started = Date.now();
+    expect(await hub.confirmFocused('bob', agentId, 100)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(await gone).toBe(1006);
+    expect(hub.isFocused('bob', agentId)).toBe(false);
+  });
+
+  it('waits as long as the heartbeat before cutting a slow focused socket', async () => {
+    const { connect, hub } = await setup({ pingMs: 60_000, unansweredMs: 400 });
+    const agentId = `agt_${'a'.repeat(20)}`;
+    const slow = await connect('alice', false);
+    slow.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
+    await tick();
+    let settled = false;
+    const probe = hub.confirmFocused('alice', agentId).then((result) => {
+      settled = true;
+      return result;
+    });
+    // A pong the heartbeat would still accept may arrive here, so the socket stays open.
+    await tick(250);
+    expect(settled).toBe(false);
+    expect(slow.readyState).toBe(WebSocket.OPEN);
+    expect(await probe).toBe(false);
+  });
+
   it('terminates an unresponsive socket and expires a connection', async () => {
     const { connect } = await setup({ pingMs: 30, lifetimeMs: 200 });
     const idle = await connect('alice', false);
