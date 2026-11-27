@@ -302,6 +302,9 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // A connector rings its owner with its own token, checked by the route (ADR-024).
   '/v1/connectors/ring',
   '/v1/connectors/ring/:inviteId',
+  // A connector asks its owner to allow one action, with its own token, checked by the route.
+  '/v1/connectors/approvals',
+  '/v1/connectors/approvals/:approvalId',
   // A connector adds words its calls listen for, with its own token, checked by the route.
   '/v1/connectors/words',
   // Private chats (ADR-044): a connector offers a pairing and lists devices with its own token.
