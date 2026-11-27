@@ -13,7 +13,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Callable
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -203,3 +203,102 @@ async def post_ring(client: httpx.AsyncClient, server: str, token: str, reason: 
             _error_message(response, f"Twring did not ring (HTTP {response.status_code})."),
             code=_error_code(response),
         )
+
+
+APPROVAL_STATUSES = frozenset({"pending", "allowed", "denied", "expired"})
+APPROVAL_WAIT_MAX_S = 25
+MAX_APPROVAL_TITLE = 80
+MAX_APPROVAL_DESCRIPTION = 500
+MAX_ORIGIN_LABEL = 40
+APPROVAL_EXPIRES_MIN_S = 10
+APPROVAL_EXPIRES_MAX_S = 600
+
+
+def _approval_url(server: str, approval_id: str = "") -> str:
+    base = f"{server}/v1/connectors/approvals"
+    return f"{base}/{quote(approval_id, safe='')}" if approval_id else base
+
+
+def _approval_body(response: httpx.Response, approval_id: str = "") -> dict:
+    """The approval as `{approval_id, status, expires_at}`, or LinkError if it cannot be read."""
+    try:
+        body = response.json()
+    except ValueError as error:
+        raise LinkError("The Twring server sent an answer this plugin does not understand.") from error
+    if not isinstance(body, dict):
+        raise LinkError("The Twring server sent an answer this plugin does not understand.")
+    found = body.get("approval_id", approval_id)
+    status = body.get("status")
+    if not isinstance(found, str) or not found or status not in APPROVAL_STATUSES:
+        raise LinkError("The Twring server sent an answer this plugin does not understand.")
+    expires_at = body.get("expires_at")
+    return {"approval_id": found, "status": status, "expires_at": expires_at if isinstance(expires_at, str) else ""}
+
+
+async def create_approval(
+    client: httpx.AsyncClient,
+    server: str,
+    token: str,
+    *,
+    request_id: str,
+    title: str,
+    description: str,
+    origin_label: str | None,
+    expires_in_s: int,
+) -> dict:
+    """Asks the owner, in Twring's Hermes chat, to allow or deny one thing; the phone rings.
+    `request_id` is also the idempotency key, so a retried create returns the same approval."""
+    body: dict[str, Any] = {
+        "local_agent": AGENT_ID,
+        "request_id": request_id,
+        "title": title[:MAX_APPROVAL_TITLE],
+        "description": description[:MAX_APPROVAL_DESCRIPTION],
+        "expires_in_s": max(APPROVAL_EXPIRES_MIN_S, min(APPROVAL_EXPIRES_MAX_S, int(expires_in_s))),
+    }
+    if origin_label:
+        body["origin_label"] = origin_label[:MAX_ORIGIN_LABEL]
+    try:
+        response = await client.post(
+            _approval_url(server),
+            headers={"authorization": f"Bearer {token}", "idempotency-key": request_id},
+            json=body,
+        )
+    except httpx.HTTPError as error:
+        raise LinkError("Could not reach the Twring server.") from error
+    if response.status_code not in (200, 201):
+        raise LinkError(_error_message(response, f"Twring did not ask for your OK (HTTP {response.status_code})."))
+    return _approval_body(response)
+
+
+async def wait_approval(
+    client: httpx.AsyncClient, server: str, token: str, approval_id: str, wait_s: float
+) -> dict:
+    """Waits up to `wait_s` (at most 25 s) for the owner's answer. An approval the server no longer
+    knows (restart, cleanup) is expired: it never becomes an allow."""
+    wait = max(0, min(APPROVAL_WAIT_MAX_S, int(wait_s)))
+    try:
+        response = await client.get(
+            _approval_url(server, approval_id),
+            params={"wait": wait},
+            headers={"authorization": f"Bearer {token}"},
+            timeout=wait + 5,
+        )
+    except httpx.HTTPError as error:
+        raise LinkError("Could not reach the Twring server.") from error
+    if response.status_code == 404:
+        return {"approval_id": approval_id, "status": "expired", "expires_at": ""}
+    if response.status_code != 200:
+        raise LinkError(_error_message(response, f"Twring did not answer (HTTP {response.status_code})."))
+    return _approval_body(response, approval_id)
+
+
+async def cancel_approval(client: httpx.AsyncClient, server: str, token: str, approval_id: str) -> None:
+    """Tells Twring this computer stopped waiting, so the card in the chat stops asking."""
+    try:
+        response = await client.delete(
+            _approval_url(server, approval_id), headers={"authorization": f"Bearer {token}"}
+        )
+    except httpx.HTTPError as error:
+        raise LinkError("Could not reach the Twring server.") from error
+    if response.status_code not in (200, 204, 404):
+        raise LinkError(_error_message(response, f"Twring did not stop the request (HTTP {response.status_code})."))

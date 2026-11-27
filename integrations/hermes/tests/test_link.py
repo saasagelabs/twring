@@ -7,10 +7,13 @@ import pytest
 
 from twring_link import (
     LinkError,
+    cancel_approval,
     check_server,
+    create_approval,
     post_message,
     post_ring,
     start_link,
+    wait_approval,
     wait_for_approval,
 )
 
@@ -236,3 +239,143 @@ async def test_an_unreachable_server_has_no_reason_code():
         with pytest.raises(LinkError) as caught:
             await post_message(c, SERVER, TOKEN, "hi")
     assert caught.value.code is None
+
+
+def approval(status="pending", approval_id="ap_1"):
+    return {"approval_id": approval_id, "status": status, "expires_at": "2026-11-28T10:10:00.000Z"}
+
+
+async def test_create_approval_asks_for_the_owners_ok_with_the_request_id_as_idempotency_key():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["key"] = request.headers.get("idempotency-key")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json=approval())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        result = await create_approval(
+            c, SERVER, TOKEN, request_id="req_1", title="Run a command", description="rm -rf build",
+            origin_label="from Telegram", expires_in_s=297,
+        )
+    assert seen["url"] == f"{SERVER}/v1/connectors/approvals"
+    assert seen["auth"] == f"Bearer {TOKEN}"
+    assert seen["key"] == "req_1"
+    assert seen["body"] == {
+        "local_agent": "hermes",
+        "request_id": "req_1",
+        "title": "Run a command",
+        "description": "rm -rf build",
+        "origin_label": "from Telegram",
+        "expires_in_s": 297,
+    }
+    assert result == approval()
+
+
+async def test_create_approval_keeps_every_field_inside_twrings_limits():
+    seen = {}
+
+    def handler(request):
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=approval())
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        await create_approval(
+            c, SERVER, TOKEN, request_id="req_1", title="t" * 200, description="d" * 900,
+            origin_label=None, expires_in_s=5000,
+        )
+    body = seen["body"]
+    assert len(body["title"]) == 80 and len(body["description"]) == 500
+    assert body["expires_in_s"] == 600
+    assert "origin_label" not in body
+
+
+@pytest.mark.parametrize(
+    "status,code",
+    [(404, "agent_not_saved"), (409, "approvals_full"), (409, "approval_private_chat"), (403, "session_scoped"), (500, "boom")],
+)
+async def test_a_refused_approval_is_an_error_without_the_token(status, code):
+    def handler(request):
+        return httpx.Response(status, json={"error": {"code": code, "message": f"refused: {code}"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        with pytest.raises(LinkError) as raised:
+            await create_approval(
+                c, SERVER, TOKEN, request_id="r", title="t", description="", origin_label=None, expires_in_s=60
+            )
+    assert TOKEN not in str(raised.value)
+
+
+async def test_create_approval_when_the_server_is_unreachable_is_an_error():
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        with pytest.raises(LinkError):
+            await create_approval(
+                c, SERVER, TOKEN, request_id="r", title="t", description="", origin_label=None, expires_in_s=60
+            )
+
+
+async def test_create_approval_with_an_answer_it_cannot_read_is_an_error():
+    def handler(request):
+        return httpx.Response(201, json={"approval_id": "ap_1", "status": "maybe"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        with pytest.raises(LinkError):
+            await create_approval(
+                c, SERVER, TOKEN, request_id="r", title="t", description="", origin_label=None, expires_in_s=60
+            )
+
+
+async def test_wait_approval_long_polls_and_returns_the_decision():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json=approval("allowed"))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        result = await wait_approval(c, SERVER, TOKEN, "ap_1", 40)
+    assert seen["url"] == f"{SERVER}/v1/connectors/approvals/ap_1?wait=25"
+    assert seen["auth"] == f"Bearer {TOKEN}"
+    assert result["status"] == "allowed"
+
+
+async def test_an_approval_the_server_no_longer_knows_counts_as_expired():
+    def handler(request):
+        return httpx.Response(404, json={"error": {"code": "not_found", "message": "gone"}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        result = await wait_approval(c, SERVER, TOKEN, "ap_1", 5)
+    assert result["status"] == "expired"
+
+
+@pytest.mark.parametrize("response", [httpx.Response(502), httpx.Response(429)])
+async def test_wait_approval_server_trouble_is_an_error_the_caller_retries(response):
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response)) as c:
+        with pytest.raises(LinkError):
+            await wait_approval(c, SERVER, TOKEN, "ap_1", 5)
+
+
+@pytest.mark.parametrize("status", [204, 200, 404])
+async def test_cancel_approval_stops_the_card_and_a_gone_approval_is_fine(status):
+    seen = {}
+
+    def handler(request):
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        return httpx.Response(status)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+        await cancel_approval(c, SERVER, TOKEN, "ap_1")
+    assert seen == {"method": "DELETE", "url": f"{SERVER}/v1/connectors/approvals/ap_1"}
+
+
+async def test_cancel_approval_refused_is_an_error():
+    async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: httpx.Response(500))) as c:
+        with pytest.raises(LinkError):
+            await cancel_approval(c, SERVER, TOKEN, "ap_1")
