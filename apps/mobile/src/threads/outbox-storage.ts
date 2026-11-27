@@ -82,7 +82,10 @@ export function rebaseOutboxUri(savedUri: string, currentDocumentUri: string): s
  * `<document>/chat-state/<kind>-<scope>.json`. A save writes `<name>.json.tmp` first and then
  * moves it over the saved file, so an app killed mid-write never leaves a half-written file.
  */
-export function fileStore(kind: 'outbox' | 'drafts' | 'private', scope: string): JsonStore {
+export function fileStore(
+  kind: 'outbox' | 'drafts' | 'private' | 'agents',
+  scope: string,
+): JsonStore {
   const files = async () => {
     const { Directory, File, Paths } = await import('expo-file-system');
     const folder = new Directory(Paths.document, STATE_FOLDER);
