@@ -149,7 +149,7 @@ describe('invite state', () => {
   it('a re-check that is rate limited or unauthorized keeps ringing, and a late one is ignored while answering', () => {
     const ringing: IncomingState = { phase: 'ringing' };
     const limited = new ApiError('http', 'rate_limited', 'r', undefined, 429);
-    const unauthorized = new ApiError('http', 'unauthorized', 'r', undefined, 401);
+    const unauthorized = new ApiError('http', undefined, 'r', undefined, 401);
     expect(reduceIncoming(ringing, { type: 'LOAD_FAILED', error: limited })).toBe(ringing);
     expect(reduceIncoming(ringing, { type: 'LOAD_FAILED', error: unauthorized })).toBe(ringing);
     const answering: IncomingState = { phase: 'answering' };
