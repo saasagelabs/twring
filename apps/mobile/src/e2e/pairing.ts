@@ -181,7 +181,14 @@ interface ClaimPlan {
   key?: 'typed';
   /** The connector the QR names; the claim answer must name the same one (R4-2). */
   connectorId?: string;
-  /** A typed offer's connector commitment, checked against the claim answer's connector id. */
+  /**
+   * A typed offer's connector commitment, checked against the claim answer's connector id.
+   * Known limit: it is optional so older connectors keep pairing, and the typed code itself
+   * carries no flag saying the computer made one. A hostile server can therefore strip it from
+   * the lookup and the phone falls back to the unchecked, pre-R4-2 behaviour. The QR path has no
+   * such gap (the fragment never reaches the server). Make it required once connectors without
+   * it are retired.
+   */
   connectorMac?: string;
 }
 
