@@ -13,8 +13,10 @@ from typing import Any, Callable
 
 try:  # loaded by Hermes as a package
     from . import twring_outbound
+    from .hooks import register_hooks
 except ImportError:  # loaded directly (tests)
     import twring_outbound  # type: ignore[no-redef]
+    from hooks import register_hooks  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +120,7 @@ _TOOLS: dict[str, tuple[Callable[..., str], str, dict[str, Any], list[str]]] = {
 
 
 def register_tools(ctx: Any) -> None:
-    """Registers the Twring tools in the `twring` toolset (shown only while linked)."""
+    """Registers the Twring tools in the `twring` toolset (shown only while linked) and the Twring hooks."""
     for name, (handler, description, properties, required) in _TOOLS.items():
         ctx.register_tool(
             name=name,
@@ -133,3 +135,6 @@ def register_tools(ctx: Any) -> None:
             description=description,
             emoji="📞",
         )
+
+    # Hermes imports only this module in CLI and cron processes, so the hooks are armed here too.
+    register_hooks(ctx)

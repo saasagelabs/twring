@@ -106,3 +106,12 @@ def test_a_handler_never_raises(ctx, monkeypatch):
 
     monkeypatch.setattr(twring_outbound, "ring_owner", boom)
     assert json.loads(ctx.tools["twring_ring_owner"]["handler"]({"reason": "x"})) == {"delivered": "none", "why": "error"}
+
+
+def test_registering_the_tools_also_arms_the_hooks_for_terminal_sessions():
+    import hooks
+
+    hooks._reset_for_tests()
+    c = FakeCtx()
+    tools.register_tools(c)
+    assert sorted(name for name, _ in c.hooks) == ["api_request_error", "post_approval_response", "pre_approval_request"]
