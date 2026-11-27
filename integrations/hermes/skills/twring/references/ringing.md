@@ -4,36 +4,20 @@
 
 A ring is a real phone call to your owner's phone, with a full-screen incoming call and a ringtone. It interrupts whatever they're doing, so treat it as you would calling a busy person: ring when it's worth it, and say why in one breath.
 
-## The command
+## The tool
 
-```
-twring-connect ring "<why you are ringing>" [--wait] [--agent <id>] [--session <ref>]
-```
+Call `twring_ring_owner` with:
+- `reason`: why you are ringing, at most 140 characters. It is spoken the moment they answer.
+- `details` (optional): the longer version. It goes to their Twring chat before the phone rings.
 
-- Use the exact command your call instructions give you. The connector may give a full form such as `node /home/you/twring-connect.mjs ring`, or `& 'C:\...\node.exe' ... ring` on Windows.
-- `--wait` waits until they answer, decline or miss the call, and the exit code says which. Without it, the command returns once the phone is ringing.
-- `--agent` picks which of your paired agents rings, when one computer has several.
-- `--session` names your session (a Claude session id or Codex thread id), so answering continues that conversation.
-- `twring-connect ring --cancel` stops your last ring if it is still ringing (for example, you sorted it out yourself). It prints how the ring ended if your owner already answered, declined or missed it. Stopping a running `ring --wait` cancels the ring too.
+The phone rings for 30 seconds. The tool answers at once:
 
-The phone rings for 30 seconds.
-
-| Exit code (`--wait`) | Meaning | What to do |
+| Result | Meaning | What to do |
 | --- | --- | --- |
-| 0 | Answered | You're on a call now. Your message was already spoken. Continue from there. |
-| 2 | Refused by Twring | Read the printed reason. Don't retry in a loop. |
-| 3 | Declined (may print a note) | Respect the note (see below). |
-| 4 | Missed | It's in their call history with a Call back button. Don't keep ringing. |
-| 5 | Cancelled | The ring was withdrawn. |
-| 1 | Error | Network or setup problem. The printed line says what. |
+| `{"delivered": "ring"}` | The phone is ringing | If they answer, you're on a call and your message was already spoken. Continue from there. |
+| `{"delivered": "chat", "ring": "refused", "why": "..."}` | Twring refused the ring; your news is in their chat | Don't ring again for it. |
 
-**Refusals (2)** say why:
-- Do Not Disturb or quiet hours is on;
-- they're on another call;
-- the phone is already ringing for another call;
-- this agent has rung six times in the last hour.
-
-In every case, wait and try later only if it still matters, and leave the result somewhere they'll see it.
+A refusal means do not disturb or quiet hours, another call, a ring already going, or six rings in the last hour. Never retry in a loop.
 
 ## Writing the ring message
 

@@ -280,6 +280,19 @@ it('formats a line for each visible status', () => {
   ]);
 });
 
+/** The generic build of a source file: drops the Hermes-only blocks and every marker line. */
+function genericOf(source: string): string {
+  let skipping = false;
+  const kept: string[] = [];
+  for (const line of source.replace(/\r/g, '').split('\n')) {
+    if (line === '<!-- only:hermes -->') skipping = true;
+    else if (line === '<!-- /only -->') skipping = false;
+    else if (line !== '<!-- not:hermes -->' && line !== '<!-- /not -->' && !skipping)
+      kept.push(line);
+  }
+  return kept.join('\n');
+}
+
 it('embeds every source skill file with normalized line endings', async () => {
   const source = fileURLToPath(new URL('../../../skills/twring/', import.meta.url));
   const paths = await filePaths(source);
@@ -287,6 +300,6 @@ it('embeds every source skill file with normalized line endings', async () => {
   for (const file of SKILL_FILES) {
     const path = join(source, ...file.path.split('/'));
     expect(relative(source, path).split(sep).join('/')).toBe(file.path);
-    expect(file.content).toBe((await readFile(path, 'utf8')).replace(/\r/g, ''));
+    expect(file.content).toBe(genericOf(await readFile(path, 'utf8')));
   }
 });
