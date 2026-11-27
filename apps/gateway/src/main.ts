@@ -554,6 +554,8 @@ threadService =
           calls?.registry.hasLiveCallToAgent(userId, agentId) ?? false,
         ring: ringService,
         isFocused: (userId, agentId) => phoneSocketHub?.isFocused(userId, agentId) ?? false,
+        confirmFocused: (userId, agentId) =>
+          phoneSocketHub?.confirmFocused(userId, agentId) ?? Promise.resolve(false),
         notify: (userId, frame) => phoneSocketHub?.publish(userId, frame),
         ...(env.PRIVATE_CHATS_ENABLED && {
           privateChats: privateChatAccess(env, connectorHub),
