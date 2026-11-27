@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, AppState, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
@@ -9,12 +9,15 @@ import { Sheet } from '@/components/Sheet';
 import { StatusDot } from '@/components/StatusDot';
 import { TextButton } from '@/components/TextButton';
 import { Toggle } from '@/components/Toggle';
+import { useFocusRefresh } from '@/hooks/foreground';
 import { ringPlatform, type RingPermissions } from '@/platform/ring';
 import type { RingSettings as Settings } from '@/ring/protocol';
 import { allowNotifications } from '@/ring/service';
 import {
+  createSettingsReadGate,
   deviceTimeZone,
   formFromSettings,
+  sameForm,
   persistRingSettings,
   ringSummary,
   settingsFromForm,
@@ -101,23 +104,44 @@ export function RingSettings({
   const [resultSheet, setResultSheet] = useState(false);
   const [invalid, setInvalid] = useState<'start' | 'end' | undefined>(undefined);
 
+  // A save wins over any read issued before it ended, even one that answers after it.
+  const readGate = useRef(createSettingsReadGate()).current;
+  const readRef = useRef<AbortController | undefined>(undefined);
+  // The settings the form was last filled from, to tell unsaved edits from an untouched form.
+  const loadedRef = useRef<Settings | undefined>(undefined);
   // Fetches settings; the initial state is already 'loading', so the effect sets no state itself.
+  // A refetch keeps what is shown until the answer arrives, and a failed one keeps it too.
   function fetchSettings() {
     const api = twringApi();
     if (api === undefined) return () => undefined;
+    readRef.current?.abort();
     const controller = new AbortController();
+    readRef.current = controller;
+    const canApply = readGate.issueRead();
     api.ringSettings(controller.signal).then(
       (settings) => {
+        if (controller.signal.aborted || !canApply()) return;
+        const shown = loadedRef.current;
+        loadedRef.current = settings;
         setLoad({ state: 'loaded', settings });
-        setForm(formFromSettings(settings));
+        // Hours typed but not saved yet stay; an untouched form follows the newer settings.
+        setForm((current) =>
+          current === undefined || shown === undefined || sameForm(current, formFromSettings(shown))
+            ? formFromSettings(settings)
+            : current,
+        );
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setLoad({ state: 'failed', error: apiErrorCopy(error) });
+        if (!controller.signal.aborted)
+          setLoad((current) =>
+            current.state === 'loaded' ? current : { state: 'failed', error: apiErrorCopy(error) },
+          );
       },
     );
     return () => controller.abort();
   }
-  useEffect(fetchSettings, []);
+  // Settings change on other phones and the web: read them on every visit and return to the app.
+  useFocusRefresh(fetchSettings);
   function reload() {
     setLoad({ state: 'loading' });
     fetchSettings();
@@ -138,14 +162,18 @@ export function RingSettings({
     }
     setInvalid(undefined);
     setSaving(true);
+    readGate.saveStarted();
     setSaveError(undefined);
     void persistRingSettings(check.settings, previous ?? check.settings, (request) =>
       api.updateRingSettings(request),
     ).then((result) => {
       setSaving(false);
+      readGate.saveEnded();
       setForm(result.form);
-      if (result.ok) setLoad({ state: 'loaded', settings: result.settings });
-      else setSaveError({ error: apiErrorCopy(result.error), next });
+      if (result.ok) {
+        loadedRef.current = result.settings;
+        setLoad({ state: 'loaded', settings: result.settings });
+      } else setSaveError({ error: apiErrorCopy(result.error), next });
     });
   }
 
@@ -226,7 +254,15 @@ export function RingSettings({
               <SettingsRow
                 label="When work finishes after a call"
                 value={form.afterCallResult === 'message' ? 'Send a message' : 'Ring me'}
-                onPress={saving ? undefined : () => setResultSheet(true)}
+                onPress={
+                  saving
+                    ? undefined
+                    : () => {
+                        // Read the latest first so a choice never overwrites a newer one unseen.
+                        fetchSettings();
+                        setResultSheet(true);
+                      }
+                }
               />
               <Text style={[type.caption, styles.explainer, { color: palette.textSecondary }]}>
                 Your agent's answer is always saved in the chat.

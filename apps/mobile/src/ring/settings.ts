@@ -12,6 +12,17 @@ export interface RingSettingsForm {
 export const DEFAULT_QUIET_START = '22:00';
 export const DEFAULT_QUIET_END = '07:00';
 
+/** Whether two forms show the same choices (an untouched form equals the one it was filled from). */
+export function sameForm(a: RingSettingsForm, b: RingSettingsForm): boolean {
+  return (
+    a.dnd === b.dnd &&
+    a.quietEnabled === b.quietEnabled &&
+    a.start === b.start &&
+    a.end === b.end &&
+    (a.afterCallResult ?? 'ring') === (b.afterCallResult ?? 'ring')
+  );
+}
+
 export function formFromSettings(settings: RingSettings): RingSettingsForm {
   return {
     dnd: settings.dnd,
@@ -99,4 +110,27 @@ export function ringSummary(settings: RingSettings): string {
   const quiet = settings.quiet_hours;
   if (quiet?.enabled === true) return `Quiet from ${quiet.start} to ${quiet.end}.`;
   return 'Agents can ring you any time.';
+}
+
+/**
+ * Orders settings reads against saves. A read may apply only when no save is in flight and no
+ * save began after the read was issued, so an old answer never overwrites a newer save.
+ */
+export function createSettingsReadGate() {
+  let saves = 0;
+  let saving = false;
+  return {
+    /** Call when a read is issued; the returned check says whether its answer may apply. */
+    issueRead(): () => boolean {
+      const issuedAt = saves;
+      return () => !saving && saves === issuedAt;
+    },
+    saveStarted(): void {
+      saves += 1;
+      saving = true;
+    },
+    saveEnded(): void {
+      saving = false;
+    },
+  };
 }

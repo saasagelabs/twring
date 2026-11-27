@@ -36,6 +36,14 @@ vi.mock('@/auth', () => ({
   }),
 }));
 
+let foreground: (() => void) | undefined;
+vi.mock('@/hooks/foreground', () => ({
+  onForeground: (listener: () => void) => {
+    foreground = listener;
+    return () => undefined;
+  },
+}));
+
 const { languageStore } = await import('./store');
 
 beforeEach(async () => {
@@ -111,5 +119,31 @@ describe('language store across an account change', () => {
     signIn({ status: 'signed_in', userId: 'user-a' });
     expect(languageStore.get()).toEqual({ status: 'loaded', language: 'de' });
     expect(gets).toHaveLength(asked);
+  });
+});
+
+describe('languageStore on return to the app', () => {
+  it('re-reads the language, at most once a minute', async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    try {
+      void languageStore.load(true);
+      gets.splice(0).forEach((get) => get.resolve('en'));
+      await Promise.resolve();
+      expect(foreground).toBeDefined();
+      foreground?.();
+      expect(gets).toHaveLength(1);
+      gets.splice(0).forEach((get) => get.resolve('es'));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(languageStore.get()).toEqual({ status: 'loaded', language: 'es' });
+      foreground?.();
+      expect(gets).toHaveLength(0);
+      vi.setSystemTime(1_000_000 + 61_000);
+      foreground?.();
+      expect(gets).toHaveLength(1);
+    } finally {
+      gets.splice(0).forEach((get) => get.resolve('en'));
+      vi.useRealTimers();
+    }
   });
 });

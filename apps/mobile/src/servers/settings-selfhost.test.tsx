@@ -52,6 +52,12 @@ vi.mock('@/auth', () => ({
 vi.mock('@/auth/apple-sign-in', () => ({ appleAuthorizationCode: vi.fn() }));
 vi.mock('@/call/start', () => ({ startCall: vi.fn() }));
 vi.mock('@/config/env', () => ({ mobileEnv: { ok: false } }));
+vi.mock('@/hooks/foreground', async () => {
+  const { useEffect } = await import('react');
+  return {
+    useFocusRefresh: (refresh: () => (() => void) | void) => useEffect(() => refresh(), [refresh]),
+  };
+});
 vi.mock('@/language/language', () => import('../language/language'));
 vi.mock('@/language/store', () => ({
   languageStore: { load: () => Promise.resolve() },

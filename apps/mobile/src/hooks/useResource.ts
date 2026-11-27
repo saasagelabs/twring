@@ -3,6 +3,8 @@ import { useCallback, useRef, useState } from 'react';
 
 import { apiErrorCopy, type ErrorCopy } from '@/api/errors';
 
+import { onForeground } from './foreground';
+
 export interface Resource<T> {
   data: T | undefined;
   error: ErrorCopy | undefined;
@@ -33,7 +35,8 @@ export const STATUS_POLL_MS = 20_000;
 /**
  * Loads `load` whenever the screen gains focus, cancelling the previous request. Keeps the last
  * good data on screen while reloading so a refresh never blanks the list. With `pollMs`, also
- * reloads quietly on that interval while the screen is in focus; a failed quiet reload keeps the
+ * reloads quietly on that interval while the screen is in focus. Also reloads quietly when the app
+ * returns to the foreground while the screen is in focus; a failed quiet reload keeps the
  * last good data and shows no error. With `cache`, shows the saved copy (marked `stale`) until a
  * load succeeds, and saves every successful load; a saved copy never replaces loaded data.
  */
@@ -92,8 +95,10 @@ export function useResource<T>(
       reload();
       const timer =
         pollMs === undefined ? undefined : setInterval(() => reload({ silent: true }), pollMs);
+      const stopForeground = onForeground(() => reload({ silent: true }));
       return () => {
         focused = false;
+        stopForeground();
         if (timer !== undefined) clearInterval(timer);
         inflight.current?.abort();
       };

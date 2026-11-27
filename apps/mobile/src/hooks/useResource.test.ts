@@ -6,6 +6,7 @@ const react = vi.hoisted(() => ({
   cursor: 0,
   refCursor: 0,
   focus: undefined as (() => () => void) | undefined,
+  foreground: new Set<() => void>(),
 }));
 
 vi.mock('react', () => ({
@@ -24,6 +25,12 @@ vi.mock('react', () => ({
 vi.mock('expo-router', () => ({
   useFocusEffect: (effect: () => () => void) => {
     react.focus = effect;
+  },
+}));
+vi.mock('./foreground', () => ({
+  onForeground: (listener: () => void) => {
+    react.foreground.add(listener);
+    return () => react.foreground.delete(listener);
   },
 }));
 vi.mock('@/api/errors', () => ({ apiErrorCopy: () => ({ title: 'No connection' }) }));
@@ -54,6 +61,7 @@ beforeEach(() => {
   react.state = [];
   react.refs = [];
   react.focus = undefined;
+  react.foreground.clear();
 });
 
 describe('useResource with a saved copy', () => {
@@ -102,5 +110,25 @@ describe('useResource with a saved copy', () => {
     await settle();
     expect(view()).toMatchObject({ data: undefined, stale: false });
     expect(view().error).toBeDefined();
+  });
+});
+
+describe('useResource on return to the app', () => {
+  it('reloads quietly while focused, keeping the data, and not after blur', async () => {
+    const load = vi.fn((_signal: AbortSignal) => Promise.resolve(load.mock.calls.length));
+    const hook = render(load);
+    hook();
+    const blur = react.focus?.();
+    await settle();
+    expect(load).toHaveBeenCalledTimes(1);
+    react.foreground.forEach((listener) => listener());
+    const during = hook();
+    expect(during.loading).toBe(false);
+    expect(during.data).toBe(1);
+    await settle();
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(hook().data).toBe(2);
+    blur?.();
+    expect(react.foreground.size).toBe(0);
   });
 });

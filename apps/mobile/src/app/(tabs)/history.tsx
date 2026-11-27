@@ -1,4 +1,4 @@
-import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import type { Agent } from '@twring/contracts';
 import { isAiApp } from '@/agents/ai-app';
 import { useCallback, useEffect, useState } from 'react';
@@ -31,6 +31,7 @@ import {
 import type { HistoryEntry } from '@/ring/protocol';
 import { parseCallBack } from '@/ring/missed';
 import { markMissedSeen } from '@/ring/missed-seen';
+import { useFocusRefresh } from '@/hooks/foreground';
 import { space, type, usePalette } from '@/theme/tokens';
 
 const DELETE_ACTION = 'delete';
@@ -68,11 +69,10 @@ export default function HistoryScreen() {
   const params = useLocalSearchParams<{ call_back?: string; name?: string }>();
 
   // Seeing Recents sees every missed call: Chats drops them and their notifications go.
-  useFocusEffect(
-    useCallback(() => {
-      void markMissedSeen();
-    }, []),
-  );
+  // Also on return to the foreground, when Recents reloads with rings missed while away.
+  useFocusRefresh(() => {
+    void markMissedSeen();
+  });
 
   // "Call back" on a missed-call notification: call that agent once, then forget the link.
   const callBack = parseCallBack(params);

@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import type { MeUsageResponse } from '@twring/contracts';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
@@ -14,6 +14,7 @@ import { Screen } from '@/components/Screen';
 import { SettingsGroup, SettingsRow } from '@/components/SettingsGroup';
 import { TextButton } from '@/components/TextButton';
 import { mobileEnv } from '@/config/env';
+import { useFocusRefresh } from '@/hooks/foreground';
 import { languageName } from '@/language/language';
 import { languageStore, useLanguageState } from '@/language/store';
 import { activeServerUrl, useActiveServer } from '@/servers/active';
@@ -64,7 +65,8 @@ export default function SettingsScreen() {
   // Hidden the same way: an older or your own server without the setting answers 404.
   const language = useLanguageState();
 
-  useEffect(() => {
+  // On every visit and every return to the app: usage and these rows change elsewhere.
+  useFocusRefresh(() => {
     const api = twringApi();
     // Without a configured server, the section simply stays hidden.
     if (api === undefined) return;
@@ -78,10 +80,12 @@ export default function SettingsScreen() {
     void languageStore.load(true);
     api.listSpeechKeys(controller.signal).then(
       () => setVoiceAccounts(true),
-      () => setVoiceAccounts(false),
+      () => {
+        if (!controller.signal.aborted) setVoiceAccounts(false);
+      },
     );
     return () => controller.abort();
-  }, []);
+  });
 
   function signOut() {
     void authController()?.signOut();

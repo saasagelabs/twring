@@ -3,6 +3,7 @@ import { useEffect, useSyncExternalStore } from 'react';
 
 import { twringApi } from '@/api';
 import { authController } from '@/auth';
+import { onForeground } from '@/hooks/foreground';
 import { onActiveServerChanged } from '@/servers/active';
 
 /** `unavailable`: the server has no language setting (older or your own server), or it failed. */
@@ -44,6 +45,7 @@ export const languageStore = {
   /** Asks the server once; `force` asks again (Settings opening). */
   load(force = false): Promise<void> {
     watchAccount();
+    watchForeground();
     if (loading !== undefined && !force) return loading;
     if (state.status !== 'unknown' && !force) return Promise.resolve();
     const api = twringApi();
@@ -103,6 +105,23 @@ let watchingAccount = false;
  * signing in must not keep the first one's language. Started on the first read, when sign-in
  * already exists; a session refresh for the same account changes nothing.
  */
+/** Least time between foreground re-reads, so app switching does not spam the server. */
+export const FOREGROUND_REFRESH_MS = 60_000;
+let watchingForeground = false;
+let lastForegroundRead = 0;
+
+/** The language can change on another phone or the web: re-read it when the app comes back. */
+function watchForeground(): void {
+  if (watchingForeground) return;
+  watchingForeground = true;
+  onForeground(() => {
+    const now = Date.now();
+    if (now - lastForegroundRead < FOREGROUND_REFRESH_MS) return;
+    lastForegroundRead = now;
+    void languageStore.load(true);
+  });
+}
+
 function watchAccount(): void {
   if (watchingAccount) return;
   const auth = authController();
