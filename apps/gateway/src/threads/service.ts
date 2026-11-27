@@ -37,6 +37,9 @@ export interface ThreadTurnTimeouts {
   idleMs: number;
   totalMs: number;
 }
+/** Past the total turn cap, how long a `sent`/`working` turn with no live run is left alone. */
+const STALE_TURN_MARGIN_MS = 5 * 60_000;
+
 export const THREAD_TURN_TIMEOUTS: ThreadTurnTimeouts = {
   connectMs: 10_000,
   firstEventMs: 60_000,
@@ -725,7 +728,9 @@ export class ThreadService {
     try {
       result = await this.options.store.appendUserMessage(userId, agentId, {
         ...input,
-        status: mcpApp || ready ? 'sent' : 'queued',
+        // An AI app reads its mailbox (check_replies) and never runs a turn here: the message is
+        // delivered, shown as Sent, never as Working (finding 8).
+        status: mcpApp ? 'answered' : ready ? 'sent' : 'queued',
       });
     } catch (error) {
       if (error instanceof ThreadStoreError && error.code === 'queue_full')
@@ -1234,6 +1239,41 @@ export class ThreadService {
           'private_turn_idle',
         );
       }
+      await this.interruptStale();
+    }
+  }
+
+  /**
+   * Lease expiry for plain turns: one still `sent` or `working` past the total turn cap plus a
+   * margin, with no live run here, lost its run (a crash, a failed write). It becomes interrupted.
+   */
+  private async interruptStale(): Promise<void> {
+    const now = Date.now();
+    const cutoff = new Date(now - this.timeouts.totalMs - STALE_TURN_MARGIN_MS).toISOString();
+    const live = new Set([...this.running.values()].map((run) => run.messageId));
+    for (const { userId, agentId, message } of await this.options.store.staleInFlight(cutoff)) {
+      if (live.has(message.id)) continue;
+      // An answer or a Stop that landed since keeps its status.
+      const changed = await this.options.store.updateUserMessage(userId, message.id, {
+        status: 'interrupted',
+        from: ['sent', 'working'],
+      });
+      if (!changed) continue;
+      this.upsert(userId, changed);
+      const protocol = await this.options.agents
+        .get(userId, agentId)
+        .then((record) => record?.protocol)
+        .catch(() => undefined);
+      this.options.log?.info(
+        {
+          event: 'thread_turn_stale',
+          message_id: message.id,
+          agent_id: agentId,
+          protocol: protocol ?? 'unknown',
+          age_ms: now - Date.parse(message.updated_at),
+        },
+        'thread_turn_stale',
+      );
     }
   }
 
