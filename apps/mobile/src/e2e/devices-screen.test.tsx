@@ -14,11 +14,21 @@ const mocks = vi.hoisted(() => ({
   approveWaiting: vi.fn(),
   denyWaiting: vi.fn(),
   resumePendingApprove: vi.fn(),
+  resetPrivateChats: vi.fn(),
   announce: vi.fn(),
   /** What `twringApi()` returns: undefined is a phone with no server to load the list from. */
   api: undefined as { privateDevices?: () => Promise<unknown> } | undefined,
   /** The effects of the last render, in order: the first one loads the list when Devices opens. */
   effects: [] as (() => unknown)[],
+  /** The focus effect of the last render (Devices reloads when it comes back into view). */
+  focus: undefined as (() => unknown) | undefined,
+  removeDevice: vi.fn(),
+  listWaiting: vi.fn(),
+  appState: 'active',
+  appListeners: [] as ((next: string) => void)[],
+  /** What `privateKeychain()` returns. */
+  store: {},
+  ref: undefined as { current: unknown } | undefined,
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -29,6 +39,7 @@ vi.mock('react', async (importOriginal) => {
       mocks.effects.push(fn);
     },
     useCallback: (fn: unknown) => fn,
+    useRef: (initial: unknown) => (mocks.ref ??= { current: initial }),
     useState: (initial: unknown) => {
       const slot = mocks.cursor++;
       if (!(slot in mocks.state)) mocks.state[slot] = initial;
@@ -43,12 +54,30 @@ vi.mock('react', async (importOriginal) => {
 });
 vi.mock('react-native', () => ({
   AccessibilityInfo: { announceForAccessibility: mocks.announce },
+  AppState: {
+    get currentState() {
+      return mocks.appState;
+    },
+    addEventListener: (_: string, fn: (next: string) => void) => {
+      mocks.appListeners.push(fn);
+      return {
+        remove: () => {
+          mocks.appListeners = mocks.appListeners.filter((l) => l !== fn);
+        },
+      };
+    },
+  },
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'Text',
   View: 'View',
   ActivityIndicator: 'ActivityIndicator',
 }));
-vi.mock('expo-router', () => ({ router: { push: mocks.push } }));
+vi.mock('expo-router', () => ({
+  router: { push: mocks.push },
+  useFocusEffect: (fn: () => unknown) => {
+    mocks.focus = fn;
+  },
+}));
 vi.mock('@/api', () => ({ twringApi: () => mocks.api }));
 vi.mock('@/components/ErrorNotice', () => ({ ErrorNotice: 'ErrorNotice' }));
 vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
@@ -65,16 +94,22 @@ vi.mock('@/e2e/approve', async () => ({
   approveWaiting: mocks.approveWaiting,
   denyWaiting: mocks.denyWaiting,
   resumePendingApprove: mocks.resumePendingApprove,
+  listWaiting: mocks.listWaiting,
   forgetApprovalSecrets: () => Promise.resolve(),
 }));
+vi.mock('@/e2e/pairing', async () => import('./pairing'));
 vi.mock('@/e2e/pair-api', () => ({ approveApi: () => ({}) }));
-vi.mock('@/e2e/devices', async () => import('./devices'));
+vi.mock('@/e2e/devices', async () => ({
+  ...(await import('./devices')),
+  removeDevice: mocks.removeDevice,
+}));
 vi.mock('@/platform/haptics', () => ({ playCallFeedback: vi.fn() }));
 vi.mock('@/e2e/share-history', () => ({ shareHistory: vi.fn() }));
 vi.mock('@/threads/chats', () => ({
   chatController: () => undefined,
   forgetThisPhonePrivateKeys: vi.fn(),
-  privateKeychain: () => ({}),
+  privateKeychain: () => mocks.store,
+  resetPrivateChats: mocks.resetPrivateChats,
 }));
 vi.mock('@/theme/tokens', () => ({
   type: new Proxy({}, { get: () => ({ fontSize: 0 }) }),
@@ -144,6 +179,13 @@ beforeEach(() => {
   mocks.claimWaiting.mockReset();
   mocks.approveWaiting.mockReset().mockResolvedValue({ ok: true });
   mocks.denyWaiting.mockReset().mockResolvedValue({ ok: true });
+  mocks.resetPrivateChats.mockReset();
+  mocks.removeDevice.mockReset().mockResolvedValue(undefined);
+  mocks.listWaiting.mockReset().mockResolvedValue([]);
+  mocks.appState = 'active';
+  mocks.appListeners = [];
+  mocks.store = {};
+  mocks.ref = undefined;
 });
 
 describe('devices screen', () => {
@@ -251,6 +293,16 @@ describe('opening Devices', () => {
     await flush();
     expect(api.privateDevices).toHaveBeenCalledTimes(2);
     expect(mocks.state[ERROR]).toBeUndefined();
+    // Open chats read the trusted list again, so the approved phone's messages open at once.
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps open chats as they are when no saved approve finished', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.resumePendingApprove.mockResolvedValueOnce('ended');
+    open();
+    await flush();
+    expect(mocks.resetPrivateChats).not.toHaveBeenCalled();
   });
 
   it('changes nothing once the screen closed before the list arrived', async () => {
@@ -313,11 +365,14 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (approve.props.onPress as () => void)();
     await flush();
     expect(mocks.approveWaiting.mock.calls[0]?.[1]).toEqual(checked);
+    // The approved phone is trusted now: open chats read the list again to open its messages.
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
     mocks.state[APPROVING] = { claimed, checked };
     const deny = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
     (deny.props.onPress as () => void)();
     await flush();
     expect(mocks.denyWaiting.mock.calls[0]?.[1]).toBe('pap_x');
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the codes on screen after a network failure, so tapping again carries on', async () => {
@@ -403,6 +458,7 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (approve.props.onPress as () => void)();
     await flush();
     expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.resetPrivateChats).not.toHaveBeenCalled();
     expect(mocks.state[ERROR]).toBe(
       'You already have 5 devices. Remove one here, then tap the waiting phone again.',
     );
@@ -541,5 +597,101 @@ describe('phones this phone has not approved (P5b)', () => {
     (rm.props.onPress as () => void)();
     expect(mocks.state[CONNECTING]).toBeUndefined();
     expect(mocks.state[REMOVING]).toMatchObject({ name: 'iPhone' });
+  });
+});
+
+describe('Devices stays current (stale audit 1, 2)', () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const laptop = dev(1, 'computer', 'Laptop');
+  const me = dev(0, 'phone', 'Pixel');
+
+  function removeRow(id: string) {
+    mocks.api = {
+      ...listing(me, laptop),
+      removePrivateDevice: vi.fn(() => Promise.resolve()),
+    } as typeof mocks.api;
+    mocks.state[STATE] = devicesStateFrom([me, laptop], me.id);
+    mocks.state[4] = me.id;
+    mocks.state[REMOVING] = { id, name: 'Laptop', kind: 'Computer', thisPhone: id === me.id };
+    const button = render().find(
+      (e) => e.type === 'GhostButton' && String(e.props.label).startsWith('Remove'),
+    )!;
+    (button.props.onPress as () => void)();
+  }
+
+  it('removing another device makes open chats read the trusted list again', async () => {
+    removeRow(laptop.id);
+    await flush();
+    expect(mocks.removeDevice).toHaveBeenCalled();
+    expect(mocks.resetPrivateChats).toHaveBeenCalledTimes(1);
+  });
+
+  it('removing this phone leaves it to the wipe, with no extra reset', async () => {
+    removeRow(me.id);
+    await flush();
+    expect(mocks.removeDevice).toHaveBeenCalled();
+    expect(mocks.resetPrivateChats).not.toHaveBeenCalled();
+  });
+
+  it('a device dropped from the trusted list on load resets open chats', async () => {
+    const { memoryStore } = await import('./test-fixtures');
+    const { saveTrusted } = await import('./pairing');
+    const store = memoryStore();
+    await saveTrusted(store, [
+      {
+        id: laptop.id,
+        kind: 'computer',
+        name: 'Laptop',
+        public_key: 'A'.repeat(43),
+        verified_at: at,
+      },
+    ]);
+    mocks.store = store;
+    mocks.api = listing(me, { ...laptop, revoked_at: at } as ReturnType<typeof dev>);
+    render();
+    mocks.effects[0]();
+    await flush();
+    await flush();
+    expect(mocks.resetPrivateChats).toHaveBeenCalled();
+  });
+
+  it('reloads when the screen comes back into view, not on the first focus', async () => {
+    const api = listing(me);
+    mocks.api = api;
+    render();
+    const blur = mocks.focus!() as () => void;
+    blur();
+    expect(api.privateDevices).not.toHaveBeenCalled();
+    render();
+    (mocks.focus!() as () => void)();
+    await flush();
+    expect(api.privateDevices).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for waiting phones while in view, reloads on foreground, stops in the background', async () => {
+    vi.useFakeTimers();
+    try {
+      const api = listing(me);
+      mocks.api = api;
+      mocks.listWaiting.mockResolvedValue([{ id: 'pap_w', name: 'New phone' }]);
+      render();
+      const blur = mocks.focus!() as () => void;
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(mocks.state[WAITING]).toEqual([{ id: 'pap_w', name: 'New phone' }]);
+      const calls = mocks.listWaiting.mock.calls.length;
+      for (const l of [...mocks.appListeners]) l('background');
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(mocks.listWaiting.mock.calls.length).toBe(calls);
+      for (const l of [...mocks.appListeners]) l('active');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(api.privateDevices).toHaveBeenCalledTimes(1);
+      blur();
+      expect(mocks.appListeners).toEqual([]);
+      const after = mocks.listWaiting.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(20_000);
+      expect(mocks.listWaiting.mock.calls.length).toBe(after);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -10,7 +10,7 @@ import {
   type RecoveryBackupRequest,
   type SealedEnvelopeV1,
 } from '@twring/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DEVICE_KEY_NAME, loadDeviceKey } from './device-key';
 import {
@@ -22,7 +22,7 @@ import {
   PAIR_AGAIN_ACTION,
 } from './devices';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
-import { PrivateChats, SealError } from './private-chats';
+import { PrivateChats, SealError, SENDER_LOOKUP_MS } from './private-chats';
 import { PAIR_AGAIN } from './private-state';
 import { REWRAP_JOBS_KEY } from './rewrap';
 import {
@@ -483,5 +483,212 @@ describe('edge cases (verifier)', () => {
     });
     await c.context(AGENT);
     expect(lines.join('\n')).not.toContain(base64urlEncode(phone.privateKey));
+  });
+});
+
+describe('a phone approved after the chat loaded (device test 2026-11-27)', () => {
+  const newPhone = keys();
+  const trustedPhone: TrustedDevice = {
+    id: newPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: newPhone.pub,
+    verified_at: at,
+  };
+  const listedNew = (): E2eDevice => ({
+    id: newPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: newPhone.pub,
+    added_at: at,
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  function fromPhone(from: ReturnType<typeof keys>, seq: number): SealedThreadMessage {
+    const key = newMessageKey();
+    const aad = messageAad({
+      accountId: CON,
+      agentId: AGENT,
+      senderDevice: from.id,
+      senderSeq: seq,
+    });
+    const { nonce, body } = sealBody(key, { text: `back ${seq}` }, aad);
+    return {
+      id: `msg_${String(seq).padStart(20, 'b')}`,
+      kind: 'sealed',
+      author: 'user',
+      sealed: [
+        {
+          v: 1,
+          sender_device: from.id,
+          sender_seq: seq,
+          nonce,
+          body,
+          keys: [
+            { device: phone.id, wrapped: wrapKey(key, from.privateKey, phone.publicKey, aad) },
+          ],
+        },
+      ],
+    } as unknown as SealedThreadMessage;
+  }
+
+  async function loaded(server: () => E2eDevice[]) {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer()]);
+    let calls = 0;
+    const c = chats(store, () => {
+      calls++;
+      return { devices: server() };
+    });
+    await c.context(AGENT);
+    return { store, c, calls: () => calls };
+  }
+
+  it('opens after a reset once this phone trusts the new one', async () => {
+    let listNew = false;
+    const { store, c } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      ...(listNew ? [listedNew()] : []),
+    ]);
+    await saveTrusted(store, [trustedComputer(), trustedPhone]);
+    listNew = true;
+    c.reset();
+    await c.context(AGENT);
+    const opened = c.open(AGENT, [fromPhone(newPhone, 1)]);
+    expect(opened?.map((m) => [m.state, m.state === 'ok' && m.author])).toEqual([['ok', 'user']]);
+  });
+
+  it('opens without a reset: the chat reads the trusted list again once', async () => {
+    const { store, c, calls } = await loaded(() => [listedPhone(phone.id), listed(computer)]);
+    await saveTrusted(store, [trustedComputer(), trustedPhone]);
+    const messages = [fromPhone(newPhone, 1), fromPhone(newPhone, 2)];
+    // Waiting for the list: the chat shows loading, never a stale "Couldn't open".
+    expect(c.open(AGENT, messages)).toBeUndefined();
+    await c.context(AGENT);
+    expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual(['ok', 'ok']);
+    // The keychain knew it: the server's list was not read again.
+    expect(calls()).toBe(1);
+  });
+
+  it('a sender no list trusts still cannot open, and is looked up once per 30 s', async () => {
+    const { c, calls } = await loaded(() => [listedPhone(phone.id), listed(computer)]);
+    const stranger = keys();
+    const messages = [fromPhone(stranger, 1), fromPhone(stranger, 2), fromPhone(stranger, 3)];
+    expect(c.open(AGENT, messages)).toBeUndefined();
+    await c.context(AGENT);
+    expect(calls()).toBe(2);
+    expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual([
+      'couldnt_open',
+      'couldnt_open',
+      'couldnt_open',
+    ]);
+    // Opening again (each new message) reads nothing more inside the window.
+    c.open(AGENT, [...messages]);
+    await settle();
+    expect(calls()).toBe(2);
+  });
+
+  it('a stalled lookup stops holding the chat on loading after a deadline', async () => {
+    let stall = false;
+    const { c } = await loaded(() =>
+      stall
+        ? (new Promise(() => undefined) as unknown as E2eDevice[])
+        : [listedPhone(phone.id), listed(computer)],
+    );
+    stall = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const messages = [fromPhone(keys(), 1)];
+      expect(c.open(AGENT, messages)).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(SENDER_LOOKUP_MS);
+      expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual(['couldnt_open']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a sender the server removed is not trusted again by the lookup', async () => {
+    const { store, c } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      { ...listedNew(), revoked_at: at },
+    ]);
+    expect(c.open(AGENT, [fromPhone(newPhone, 1)])).toBeUndefined();
+    await c.context(AGENT);
+    expect(c.open(AGENT, [fromPhone(newPhone, 1)])?.map((m) => m.state)).toEqual(['couldnt_open']);
+    expect((await loadTrusted(store)).some((d) => d.id === newPhone.id)).toBe(false);
+  });
+});
+
+describe('a trusted list changed elsewhere reaches loaded chats (stale audit 0)', () => {
+  const otherPhone = keys();
+  const trustedOther: TrustedDevice = {
+    id: otherPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: otherPhone.pub,
+    verified_at: at,
+  };
+  const listedOther = (extra: Partial<E2eDevice> = {}): E2eDevice => ({
+    id: otherPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: otherPhone.pub,
+    added_at: at,
+    ...extra,
+  });
+
+  async function loaded(server: () => E2eDevice[]) {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer(), trustedOther]);
+    const c = chats(store, () => ({ devices: server() }));
+    await c.context(AGENT);
+    const told: string[][] = [];
+    c.onTrustedChanged((ids) => told.push(ids));
+    return { c, told };
+  }
+
+  it('a phone removed on another phone stops being trusted in the open chat at once', async () => {
+    let removed = false;
+    const { c, told } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      listedOther(removed ? { revoked_at: at } : {}),
+    ]);
+    removed = true;
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([[AGENT]]);
+    const ctx = await c.context(AGENT);
+    expect(ctx?.trusted.some((d) => d.id === otherPhone.id)).toBe(false);
+  });
+
+  it('a computer reinstalled meanwhile shows its notice and tells the chats', async () => {
+    let reinstalled = false;
+    const { c, told } = await loaded(() =>
+      reinstalled
+        ? [
+            listedPhone(phone.id),
+            listed(computer, { revoked_at: at }),
+            listed(keys()),
+            listedOther(),
+          ]
+        : [listedPhone(phone.id), listed(computer), listedOther()],
+    );
+    expect(c.notice(AGENT)).toBeUndefined();
+    reinstalled = true;
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([[AGENT]]);
+    expect(c.notice(AGENT)).toBe(REINSTALLED);
+  });
+
+  it('an unchanged list tells nobody', async () => {
+    const { c, told } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      listedOther(),
+    ]);
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([]);
   });
 });
