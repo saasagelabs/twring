@@ -83,6 +83,8 @@ export class ChatController {
   /** Opened previews of private chats' last messages, by chat; the saved ones load first. */
   private readonly previews = new Map<string, ListPreview>();
   private readonly previewing = new Set<string>();
+  /** Bumped when opened previews are dropped, so an open still running cannot put one back. */
+  private previewGeneration = 0;
   private filesAvailable = false;
   private socket?: ReturnType<typeof connectThreadSocket>;
   private appSubscription?: { remove(): void };
@@ -214,11 +216,13 @@ export class ChatController {
     if (this.privacy && !this.previewing.has(last.id)) {
       const privacy = this.privacy;
       const epoch = this.epoch;
+      const generation = this.previewGeneration;
       this.previewing.add(last.id);
       void privacy
         .openPreview(agentId, last)
         .then((text) => {
-          if (epoch !== this.epoch || text === undefined || !text.trim()) return;
+          if (epoch !== this.epoch || generation !== this.previewGeneration) return;
+          if (text === undefined || !text.trim()) return;
           const preview = { messageId: last.id, text: previewText(text) };
           this.previews.set(agentId, preview);
           if (this.previewStore)
@@ -361,10 +365,16 @@ export class ChatController {
       ? this.privacy.notice(agentId)
       : undefined;
 
+  private dropPreviews(): void {
+    this.previews.clear();
+    this.previewGeneration++;
+    this.previewing.clear();
+  }
+
   /** After a restore, pairing or approval: private chats load the key and computers again. */
   resetPrivate(): void {
     this.opened.clear();
-    this.previews.clear();
+    this.dropPreviews();
     this.privacy?.reset();
     this.emit();
   }
@@ -380,7 +390,7 @@ export class ChatController {
    */
   private async dropOpenedPrivate(): Promise<void> {
     this.opened.clear();
-    this.previews.clear();
+    this.dropPreviews();
     this.search.forgetPrivate();
     await clearSealedFiles();
     this.emit();
@@ -808,6 +818,8 @@ export class ChatController {
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
     this.previews.delete(agentId);
+    this.previewGeneration++;
+    this.previewing.clear();
     if (this.previewStore)
       void forgetListPreview(this.previewStore, agentId).catch(() => undefined);
   }
