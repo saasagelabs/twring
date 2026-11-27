@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   BackHandler,
   KeyboardAvoidingView,
   Pressable,
@@ -42,6 +43,7 @@ import {
   INITIAL_INCOMING,
   inviteFrom,
   reduceIncoming,
+  RING_RECHECK_MS,
   secondsLeft,
   type IncomingInvite,
 } from '@/ring/invite-state';
@@ -195,7 +197,10 @@ export default function IncomingCallScreen() {
     };
   }, [inviteId]);
 
-  // The server's view: details plus whether it is still ringing.
+  // The server's view: details plus whether it is still ringing. Asked again every few seconds
+  // and on coming back to the foreground while it rings, so a ring answered or cancelled
+  // elsewhere ends here even when the cancel push never arrived.
+  const [recheck, setRecheck] = useState(0);
   useEffect(() => {
     const api = twringApi();
     if (api === undefined || inviteId === '') return;
@@ -210,7 +215,20 @@ export default function IncomingCallScreen() {
       },
     );
     return () => controller.abort();
-  }, [inviteId]);
+  }, [inviteId, recheck]);
+  const waiting = state.phase === 'ringing' || state.phase === 'failed';
+  useEffect(() => {
+    if (!waiting) return;
+    const again = () => setRecheck((n) => n + 1);
+    const handle = setInterval(again, RING_RECHECK_MS);
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') again();
+    });
+    return () => {
+      clearInterval(handle);
+      subscription.remove();
+    };
+  }, [waiting]);
 
   // Answered elsewhere, declined elsewhere, or the agent gave up.
   useEffect(

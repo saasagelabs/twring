@@ -113,6 +113,39 @@ describe('invite state', () => {
     ).toEqual({ phase: 'ended', why: 'not_found' });
   });
 
+  it('a re-check while ringing ends the ring the server already ended, and ignores a network blip', () => {
+    const ringing: IncomingState = { phase: 'ringing' };
+    expect(reduceIncoming(ringing, { type: 'LOADED', status: 'answered' })).toEqual({
+      phase: 'ended',
+      why: 'answered_elsewhere',
+    });
+    expect(reduceIncoming(ringing, { type: 'LOADED', status: 'cancelled' })).toEqual({
+      phase: 'ended',
+      why: 'cancelled',
+    });
+    expect(reduceIncoming(ringing, { type: 'LOADED', status: 'pending' })).toEqual(ringing);
+    expect(reduceIncoming(ringing, { type: 'LOAD_FAILED', error: new ApiError('network') })).toBe(
+      ringing,
+    );
+    expect(
+      reduceIncoming(ringing, {
+        type: 'LOAD_FAILED',
+        error: new ApiError('http', 'not_found', 'r', undefined, 404),
+      }),
+    ).toEqual({ phase: 'ended', why: 'not_found' });
+    const failed = reduceIncoming(
+      { phase: 'answering' },
+      {
+        type: 'ANSWER_FAILED',
+        error: new ApiError('network'),
+      },
+    );
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'answered' })).toEqual({
+      phase: 'ended',
+      why: 'answered_elsewhere',
+    });
+  });
+
   it('ignores everything once ended, and a late server answer after acting', () => {
     const ended: IncomingState = { phase: 'ended', why: 'declined' };
     expect(reduceIncoming(ended, { type: 'ANSWER' })).toBe(ended);
