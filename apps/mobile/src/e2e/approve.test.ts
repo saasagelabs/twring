@@ -746,6 +746,30 @@ describe('a saved approve and other approvals', () => {
     expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
   });
 
+  it('a resume the server took while sign-out cleared the keys is dropped without a word', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    env.api.accept = () => Promise.reject(new Error('offline'));
+    const wait = () => Promise.resolve();
+    await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    env.api.accept = async () => {
+      await held;
+      return { status: 200, body: { ...env.row(), state: 'accepted' } };
+    };
+    const resumed = resumePendingApprove({ api: env.api, store: env.tStore, wait });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await forgetPrivateDevice(env.tStore);
+    release();
+    // Not 'ended': Devices would say the approve failed, after the person's own sign-out.
+    expect(await resumed).toBe('removed');
+    expect(await loadTrusted(env.tStore)).toEqual([]);
+    expect(await hasRewrapWork(env.tStore)).toBe(false);
+  });
+
   it('an approve that starts while sign-out is clearing the keys saves nothing either', async () => {
     const env = await setup();
     const { checked } = await toCodes(env);
@@ -778,14 +802,14 @@ describe('a saved approve and other approvals', () => {
     clearNow();
     await forgot;
     answerNow();
-    expect(await approving).toEqual({ ok: false, code: 'closed' });
+    expect(await approving).toEqual({ ok: false, code: 'forgotten' });
     expect(await loadTrusted(store)).toEqual([]);
     expect(await hasRewrapWork(store)).toBe(false);
   });
 
   it.each([
     ['its answer lost', 'network'],
-    ['the server taking it', 'closed'],
+    ['the server taking it', 'forgotten'],
   ] as const)(
     'an approve from the sheet still on its way at sign-out saves nothing (%s)',
     async (_, code) => {

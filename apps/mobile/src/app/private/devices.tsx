@@ -261,7 +261,7 @@ export default function PrivateDevicesScreen() {
       }
       // Only an approval that is over for good drops its saved nonce and claim: after 'cap' (a
       // device freed up) or a network failure, tapping the waiting phone again carries on.
-      if (!out.ok && ['mismatch', 'closed', 'expired'].includes(out.code))
+      if (!out.ok && ['mismatch', 'closed', 'expired', 'forgotten'].includes(out.code))
         await forgetApprovalSecrets(deps.store, id);
       // The new phone's older private messages: shared in the background, resumed on next open.
       const api = twringApi();
@@ -271,7 +271,9 @@ export default function PrivateDevicesScreen() {
       setApproving(undefined);
       // After the reload, which clears the error it finds none of its own.
       await load();
-      if (!out.ok) setError(APPROVE_FAILED);
+      // 'forgotten': this phone's keys were cleared meanwhile, by the person's own sign-out or
+      // removal, so there is nothing to tell them about this approve.
+      if (!out.ok && out.code !== 'forgotten') setError(APPROVE_FAILED);
     } finally {
       setBusy(false);
     }

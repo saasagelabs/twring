@@ -656,6 +656,10 @@ export async function clearAfterApproves(
   }
 }
 
+/**
+ * Fails with 'forgotten' when this phone's keys were cleared while the accept was on its way
+ * (sign-out, this phone removed): the server may have taken it, but nothing of it is kept here.
+ */
 export async function approveWaiting(
   deps: {
     api: Pick<ApproveApi, 'accept'>;
@@ -666,7 +670,7 @@ export async function approveWaiting(
     wait?: (ms: number) => Promise<void>;
   },
   checked: CheckedApproval,
-): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> {
+): Promise<{ ok: true } | { ok: false; code: ApproveFailure | 'forgotten' }> {
   // Only the approval that was claimed and whose reveal opened its commitment (`checkReveal`).
   const approval = checked.approval;
   const epoch = epochNow(deps.store);
@@ -687,7 +691,7 @@ export async function approveWaiting(
   // at the same moment is neither vouched for in the note nor saved back.
   const done = await withTrustLock(
     deps.store,
-    async (): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> => {
+    async (): Promise<{ ok: true } | { ok: false; code: ApproveFailure | 'forgotten' }> => {
       const removed = await removedIds(deps.store);
       const trusted = (await loadTrusted(deps.store)).filter(
         (d) => d.id !== approval.device_id && !removed.includes(d.id),
@@ -747,7 +751,10 @@ export async function approveWaiting(
           ]);
         await unremove(deps.store, approval.device_id);
       });
-      if (saved === undefined) return { ok: false, code: 'closed' };
+      if (saved === undefined) {
+        deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: 'forgotten' });
+        return { ok: false, code: 'forgotten' };
+      }
       await saved;
       return { ok: true };
     },
@@ -766,7 +773,7 @@ export async function approveWaiting(
   );
   await queued?.catch(() => undefined);
   await forgetApprovalSecrets(deps.store, approval.id);
-  if (queued === undefined) return { ok: false, code: 'closed' };
+  if (queued === undefined) return { ok: false, code: 'forgotten' };
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
 }
@@ -791,7 +798,10 @@ type ResumeDeps = {
   log?: Log;
   wait?: (ms: number) => Promise<void>;
 };
-/** 'waiting': still offline, kept for later; 'removed': dropped, the person removed that phone. */
+/**
+ * 'waiting': still offline, kept for later; 'removed': dropped, as the person removed that phone
+ * or this phone's own keys were cleared meanwhile (nothing to tell them).
+ */
 export type ResumeResult = 'none' | 'done' | 'waiting' | 'ended' | 'removed';
 const resuming = new WeakMap<SecureKeyValue, Promise<ResumeResult>>();
 
@@ -831,6 +841,10 @@ async function resumeOnce(deps: ResumeDeps): Promise<ResumeResult> {
   const out = await approveWaiting(deps, saved);
   if (out.ok) return 'done';
   if (out.code === 'network') return 'waiting';
+  if (out.code === 'forgotten') {
+    await end(saved.approval.id);
+    return 'removed';
+  }
   await end(saved.approval.id);
   return 'ended';
 }

@@ -65,6 +65,7 @@ vi.mock('@/e2e/approve', async () => ({
   approveWaiting: mocks.approveWaiting,
   denyWaiting: mocks.denyWaiting,
   resumePendingApprove: mocks.resumePendingApprove,
+  forgetApprovalSecrets: () => Promise.resolve(),
 }));
 vi.mock('@/e2e/pair-api', () => ({ approveApi: () => ({}) }));
 vi.mock('@/e2e/devices', async () => import('./devices'));
@@ -389,6 +390,20 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     (notice.props.onRetry as () => void)();
     await flush();
     expect(mocks.state[ERROR]).toBe(LOAD_FAILED);
+  });
+
+  it('says nothing when the keys were cleared meanwhile by sign-out or removing this phone', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed, checked };
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'forgotten' });
+    const approve = render().find(
+      (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
+    )!;
+    (approve.props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.state[ERROR]).toBeUndefined();
   });
 
   it('says a refused approve after the list reloads, not before it', async () => {
