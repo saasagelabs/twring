@@ -133,7 +133,11 @@ describe('writeExtensionFiles', () => {
         'utf8',
       ),
     );
-    expect(read('NotificationService.swift')).toContain('class NotificationService');
+    const service = read('NotificationService.swift');
+    expect(service).toContain('class NotificationService');
+    // iOS shows an empty alert as a blank "Twring" banner: a hidden message gets a neutral line.
+    expect(service).not.toMatch(/(deliver\(|return )UNMutableNotificationContent\(\)/);
+    expect(service).toContain('Sign in to see your messages.');
 
     const info = read(`${NSE_TARGET}-Info.plist`);
     expect(info).toContain('com.apple.usernotifications.service');
