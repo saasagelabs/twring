@@ -98,3 +98,20 @@ describe('iOS ring platform', () => {
     expect(await old.ringingInvites?.()).toEqual([]);
   });
 });
+
+describe('iOS visible chat', () => {
+  it('tells native which chat is on screen and tolerates old or missing modules', async () => {
+    const ids: (string | null)[] = [];
+    native.module = { setVisibleChat: (id: string | null) => ids.push(id) };
+    (await import('./ring.ios')).ringPlatform.setVisibleChat('agt_123');
+    expect(ids).toEqual(['agt_123']);
+    native.module = {};
+    vi.resetModules();
+    const oldBuild = await import('./ring.ios');
+    expect(() => oldBuild.ringPlatform.setVisibleChat(null)).not.toThrow();
+    native.present = false;
+    vi.resetModules();
+    const missing = await import('./ring.ios');
+    expect(() => missing.ringPlatform.setVisibleChat(null)).not.toThrow();
+  });
+});

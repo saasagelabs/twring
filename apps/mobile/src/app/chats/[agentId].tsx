@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 import {
   AccessibilityInfo,
   Alert,
+  AppState,
   FlatList,
   Share,
   Pressable,
@@ -124,6 +125,19 @@ export default function ChatScreen() {
     useCallback(() => {
       if (id) ringPlatform.clearMessages(id);
       return () => stopMessageSpeech();
+    }, [id]),
+  );
+  // Native shows no notification for the chat on screen; a chat behind the home screen is not.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return undefined;
+      const show = (state: string) => ringPlatform.setVisibleChat(state === 'active' ? id : null);
+      show(AppState.currentState);
+      const subscription = AppState.addEventListener('change', show);
+      return () => {
+        subscription.remove();
+        ringPlatform.setVisibleChat(null);
+      };
     }, [id]),
   );
   const palette = usePalette();

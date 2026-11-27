@@ -9,6 +9,7 @@ import { mobileEnv } from '@/config/env';
 import { activeServerUrl, onActiveServerChanged } from '../servers/active';
 import { profileStore } from '../servers/profiles';
 import { STATUS_POLL_MS } from '@/hooks/useResource';
+import { ringPlatform } from '../platform/ring';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
@@ -457,6 +458,9 @@ export class ChatController {
   async open(agentId: string): Promise<void> {
     const epoch = this.epoch;
     this.focusCounts.set(agentId, (this.focusCounts.get(agentId) ?? 0) + 1);
+    // Focus first, so the server stops pushing this chat while its messages load.
+    this.ensureSocket();
+    this.socket?.setFocus(agentId);
     await this.refreshList();
     if (epoch !== this.epoch || this.availability === false || !this.focusCounts.has(agentId))
       return;
@@ -666,6 +670,8 @@ export class ChatController {
   /** Signing out forgets the saved queue and drafts; switching servers keeps them for later. */
   async clear(options: { forget?: boolean } = {}): Promise<void> {
     this.epoch++;
+    // No chat of the old account or server stays on screen for notifications.
+    ringPlatform.setVisibleChat(null);
     this.filling.abort();
     this.filling = new AbortController();
     this.socket?.close();

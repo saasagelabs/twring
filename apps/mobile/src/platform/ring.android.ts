@@ -21,6 +21,7 @@ interface CordRingModule {
   setShowWhenLocked(on: boolean): void;
   clearMissedCalls(): void;
   clearMessages?(agentId: string): void;
+  setVisibleChat?(agentId: string | null): void;
   addListener(
     event: 'onRing' | 'onRingCancel' | 'onRingDeclined' | 'onPushToken',
     listener: (data: Record<string, string>) => void,
@@ -85,6 +86,7 @@ export const ringPlatform: RingPlatform = {
   setShowWhenLocked: (on) => safely(() => native?.setShowWhenLocked(on), undefined),
   clearMissedCalls: () => safely(() => native?.clearMissedCalls(), undefined),
   clearMessages: (agentId) => safely(() => native?.clearMessages?.(agentId), undefined),
+  setVisibleChat: (agentId) => safely(() => native?.setVisibleChat?.(agentId), undefined),
   onRing: (listener) => listen('onRing', listener),
   onRingCancel: (listener) => listen('onRingCancel', listener),
   onRingDeclined: (listener) => listen('onRingDeclined', () => listener()),

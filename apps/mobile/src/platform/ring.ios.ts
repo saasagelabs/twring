@@ -34,6 +34,7 @@ interface CordRingModule {
   notify(title: string, body: string): void;
   clearMissedCalls(): void;
   clearMessages(agentId: string): void;
+  setVisibleChat?(agentId: string | null): void;
   setRingAccount?(ref: string | null): void;
   ringingInvites?(): Promise<string[]>;
   ringOver?(inviteId: string, status: string): void;
@@ -86,6 +87,7 @@ export const ringPlatform: RingPlatform = {
   setShowWhenLocked: () => undefined,
   clearMissedCalls: () => safely(() => native?.clearMissedCalls(), undefined),
   clearMessages: (agentId) => safely(() => native?.clearMessages(agentId), undefined),
+  setVisibleChat: (agentId) => safely(() => native?.setVisibleChat?.(agentId), undefined),
   // CallKit shows the ring; JS never opens its own incoming screen for a push.
   onRing: () => () => undefined,
   onRingCancel: () => () => undefined,
