@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   approveWaiting,
   checkReveal,
+  clearAfterApproves,
   claimWaiting,
   approverUpdate,
   denyWaiting,
@@ -722,7 +723,7 @@ describe('a saved approve and other approvals', () => {
     expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(other);
   });
 
-  it('sign-out waits for one still finishing, so nothing of it is saved after the keys went', async () => {
+  it('sign-out during a resume leaves nothing of it saved after the keys went', async () => {
     const env = await setup();
     const { checked } = await toCodes(env);
     env.api.accept = () => Promise.reject(new Error('offline'));
@@ -737,12 +738,91 @@ describe('a saved approve and other approvals', () => {
       throw new Error('offline');
     };
     const resumed = resumePendingApprove({ api: env.api, store: env.tStore, wait });
-    const forgot = forgetPrivateDevice(env.tStore);
     await new Promise((resolve) => setTimeout(resolve, 5));
+    // The resume is waiting on the server; sign-out does not wait for it (this would hang).
+    await forgetPrivateDevice(env.tStore);
     release();
     expect(await resumed).toBe('waiting');
-    await forgot;
     expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
+  });
+
+  it('an approve that starts while sign-out is clearing the keys saves nothing either', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    const store = env.tStore;
+    let clearNow: () => void = () => undefined;
+    const clearHeld = new Promise<void>((resolve) => {
+      clearNow = resolve;
+    });
+    let answerNow: () => void = () => undefined;
+    const answerHeld = new Promise<void>((resolve) => {
+      answerNow = resolve;
+    });
+    const remove = store.deleteItemAsync.bind(store);
+    store.deleteItemAsync = async (key) => {
+      await clearHeld;
+      return remove(key);
+    };
+    const accept = env.api.accept.bind(env.api);
+    env.api.accept = async (id, device, note) => {
+      await answerHeld;
+      return accept(id, device, note);
+    };
+    const forgot = forgetPrivateDevice(store);
+    // Starts with the keys still there, and is answered only after they went.
+    const approving = approveWaiting(
+      { api: env.api, store, wait: () => Promise.resolve() },
+      checked,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    clearNow();
+    await forgot;
+    answerNow();
+    expect(await approving).toEqual({ ok: false, code: 'closed' });
+    expect(await loadTrusted(store)).toEqual([]);
+    expect(await hasRewrapWork(store)).toBe(false);
+  });
+
+  it.each([
+    ['its answer lost', 'network'],
+    ['the server taking it', 'closed'],
+  ] as const)(
+    'an approve from the sheet still on its way at sign-out saves nothing (%s)',
+    async (_, code) => {
+      const env = await setup();
+      const { checked } = await toCodes(env);
+      const accept = env.api.accept.bind(env.api);
+      let release: () => void = () => undefined;
+      const held = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      env.api.accept = async (id, device, note) => {
+        await held;
+        if (code === 'network') throw new Error('offline');
+        return accept(id, device, note);
+      };
+      const wait = () => Promise.resolve();
+      const approving = approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      // Sign-out never waits for the network: this would hang if it did.
+      await forgetPrivateDevice(env.tStore);
+      release();
+      expect(await approving).toEqual({ ok: false, code });
+      expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
+      expect(await loadTrusted(env.tStore)).toEqual([]);
+      expect(await hasRewrapWork(env.tStore)).toBe(false);
+    },
+  );
+
+  it('an approve started after an earlier sign-out is saved as usual', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    await clearAfterApproves(env.tStore, () => Promise.resolve());
+    expect(await approveWaiting({ api: env.api, store: env.tStore }, checked)).toEqual({
+      ok: true,
+    });
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).toContain(env.n.deviceId);
+    expect(await hasRewrapWork(env.tStore)).toBe(true);
   });
 });
 

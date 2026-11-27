@@ -227,12 +227,19 @@ describe('opening Devices', () => {
     expect(mocks.state[ERROR]).toBe(APPROVE_UNFINISHED);
   });
 
-  it('keeps the load error when the list fails, whatever the saved approve did', async () => {
+  it('keeps the load error when the list fails and the saved approve still waits', async () => {
     mocks.resumePendingApprove.mockResolvedValueOnce('waiting');
     open();
     await flush();
     expect(mocks.resumePendingApprove).toHaveBeenCalled();
     expect(mocks.state[ERROR]).toBe(LOAD_FAILED);
+  });
+
+  it('says a saved approve that ended even when the list failed, as no Retry could say it', async () => {
+    mocks.resumePendingApprove.mockResolvedValueOnce('ended');
+    open();
+    await flush();
+    expect(mocks.state[ERROR]).toBe(APPROVE_FAILED);
   });
 
   it('loads the list again after a saved approve finished, so the new phone shows', async () => {

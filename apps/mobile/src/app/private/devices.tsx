@@ -130,13 +130,13 @@ export default function PrivateDevicesScreen() {
     return out;
   }, []);
   /**
-   * After the list loaded (which clears the error): what became of that approve, if anything. A
-   * list that failed keeps its own error; a saved approve still waiting is tried again with it.
+   * After the list loaded (which clears the error): what became of that approve, if anything. One
+   * that ended is said even when the list failed, as it is gone and no Retry could say it; one
+   * still waiting leaves a failed list its own error and is tried again with it.
    */
   const sayResumed = (found: Loaded, out: ResumeResult) => {
-    if ('error' in found) return;
     if (out === 'ended') setError(APPROVE_FAILED);
-    else if (out === 'waiting') setError(APPROVE_UNFINISHED);
+    else if (out === 'waiting' && !('error' in found)) setError(APPROVE_UNFINISHED);
   };
 
   useEffect(() => {

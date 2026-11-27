@@ -13,7 +13,7 @@ import { z } from 'zod';
 
 import type { SecureKeyValue } from '../auth/storage';
 import type { JsonStore } from '../threads/outbox-storage';
-import { PENDING_APPROVE_KEY_NAME, settlePendingApprove } from './approve';
+import { clearAfterApproves, PENDING_APPROVE_KEY_NAME } from './approve';
 import { forgetDeviceKey, loadOrCreateDeviceKey, nextSeq } from './device-key';
 import { forgetTrusted, loadTrusted, type TrustedDevice } from './pairing';
 import {
@@ -513,14 +513,16 @@ export class PrivateChats {
 
 /** The phone's private chat keys in the keychain, removed on sign-out. */
 export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> {
-  // An approve finishing right now would save its record again after the keys went.
-  await settlePendingApprove(store);
-  await Promise.all([
-    forgetDeviceKey(store).catch(() => undefined),
-    forgetTrusted(store).catch(() => undefined),
-    // Re-wrap jobs share this phone's keys with a new phone, and an approve left to finish
-    // vouches for one: both go with the keys.
-    store.deleteItemAsync(REWRAP_JOBS_KEY).catch(() => undefined),
-    store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
-  ]);
+  // An approve still waiting on the server would otherwise save its record again after the keys
+  // went (`clearAfterApproves`).
+  await clearAfterApproves(store, async () => {
+    await Promise.all([
+      forgetDeviceKey(store).catch(() => undefined),
+      forgetTrusted(store).catch(() => undefined),
+      // Re-wrap jobs share this phone's keys with a new phone, and an approve left to finish
+      // vouches for one: both go with the keys.
+      store.deleteItemAsync(REWRAP_JOBS_KEY).catch(() => undefined),
+      store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
+    ]);
+  });
 }

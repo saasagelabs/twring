@@ -604,6 +604,58 @@ export async function checkReveal(
 const ACCEPT_RETRY_MS = [1_000, 3_000];
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Counts each time this phone's private keys are forgotten (sign-out, this phone removed). An
+ * approve started before writes nothing after it: its answer can come seconds later.
+ */
+const forgets = new WeakMap<SecureKeyValue, number>();
+/** Forgets still clearing the keys: an approve that starts meanwhile writes nothing either. */
+const clearing = new WeakMap<SecureKeyValue, number>();
+/** The approve writes running right now, which a forget lets finish before it clears the keys. */
+const writing = new WeakMap<SecureKeyValue, Set<Promise<unknown>>>();
+
+/** What an approve starting now holds on to: -1 (never kept) while the keys are being cleared. */
+function epochNow(store: SecureKeyValue): number {
+  return (clearing.get(store) ?? 0) > 0 ? -1 : (forgets.get(store) ?? 0);
+}
+
+/** Runs `work` while the keys an approve started with are kept; undefined once they were forgotten. */
+function whileKept<T>(
+  store: SecureKeyValue,
+  epoch: number,
+  work: () => Promise<T>,
+): Promise<T> | undefined {
+  if ((forgets.get(store) ?? 0) !== epoch) return undefined;
+  const run = work();
+  const runs = writing.get(store) ?? new Set<Promise<unknown>>();
+  writing.set(store, runs);
+  runs.add(run);
+  void run.then(
+    () => runs.delete(run),
+    () => runs.delete(run),
+  );
+  return run;
+}
+
+/**
+ * Clears this phone's private keys with `clear` so that no approve writes anything after: those
+ * already running and those starting meanwhile write nothing more, and writes already under way
+ * finish first. It never waits for the network.
+ */
+export async function clearAfterApproves(
+  store: SecureKeyValue,
+  clear: () => Promise<void>,
+): Promise<void> {
+  forgets.set(store, (forgets.get(store) ?? 0) + 1);
+  clearing.set(store, (clearing.get(store) ?? 0) + 1);
+  try {
+    await Promise.all([...(writing.get(store) ?? [])].map((run) => run.catch(() => undefined)));
+    await clear();
+  } finally {
+    clearing.set(store, (clearing.get(store) ?? 1) - 1);
+  }
+}
+
 export async function approveWaiting(
   deps: {
     api: Pick<ApproveApi, 'accept'>;
@@ -617,6 +669,7 @@ export async function approveWaiting(
 ): Promise<{ ok: true } | { ok: false; code: ApproveFailure }> {
   // Only the approval that was claimed and whose reveal opened its commitment (`checkReveal`).
   const approval = checked.approval;
+  const epoch = epochNow(deps.store);
   const me = await loadDeviceKey(deps.store);
   if (
     me === undefined ||
@@ -677,35 +730,43 @@ export async function approveWaiting(
         deps.log?.('e2e_phone_approval_failed', { approval_id: approval.id, reason: answer.code });
         return answer;
       }
-      const current = (await loadTrusted(deps.store)).filter((d) => !removed.includes(d.id));
-      if (!current.some((d) => d.id === approval.device_id))
-        await saveTrusted(deps.store, [
-          ...current,
-          {
-            id: approval.device_id,
-            kind: 'phone',
-            name: approval.name,
-            public_key: approval.public_key,
-            verified_at: new Date((deps.now ?? Date.now)()).toISOString(),
-          },
-        ]);
-      await unremove(deps.store, approval.device_id);
+      // Signed out, or this phone removed, while the answer was on its way: the keys it vouched
+      // with are gone, so nothing of it is saved (`clearAfterApproves`).
+      const saved = whileKept(deps.store, epoch, async () => {
+        const current = (await loadTrusted(deps.store)).filter((d) => !removed.includes(d.id));
+        if (!current.some((d) => d.id === approval.device_id))
+          await saveTrusted(deps.store, [
+            ...current,
+            {
+              id: approval.device_id,
+              kind: 'phone',
+              name: approval.name,
+              public_key: approval.public_key,
+              verified_at: new Date((deps.now ?? Date.now)()).toISOString(),
+            },
+          ]);
+        await unremove(deps.store, approval.device_id);
+      });
+      if (saved === undefined) return { ok: false, code: 'closed' };
+      await saved;
       return { ok: true };
     },
   );
   // A network failure may be an accept the server took, so it is kept to finish later; any other
   // end (done, or refused for good) leaves nothing to finish.
   if (!done.ok && done.code === 'network')
-    await deps.store
-      .setItemAsync(PENDING_APPROVE_KEY_NAME, JSON.stringify(checked))
-      .catch(() => undefined);
+    await whileKept(deps.store, epoch, () =>
+      deps.store.setItemAsync(PENDING_APPROVE_KEY_NAME, JSON.stringify(checked)),
+    )?.catch(() => undefined);
   else await dropPending(deps.store, approval.id);
   if (!done.ok) return done;
   // Older private messages: this phone shares them next (`rewrap.ts`), now and on later opens.
-  await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
-    () => undefined,
+  const queued = whileKept(deps.store, epoch, () =>
+    queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }),
   );
+  await queued?.catch(() => undefined);
   await forgetApprovalSecrets(deps.store, approval.id);
+  if (queued === undefined) return { ok: false, code: 'closed' };
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
 }
