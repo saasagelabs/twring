@@ -452,6 +452,14 @@ describe('the connector the computer names (R4-2)', () => {
     expect(app39Lookup.safeParse(typedLookup(CON_B)).success).toBe(true);
   });
 
+  it('limit: a server that drops connector_mac from the typed lookup is not caught', async () => {
+    // The typed code carries no flag saying the computer committed to a connector, so a server
+    // that strips connector_mac downgrades a new computer to the old, unchecked behaviour.
+    const d = deps(fakeApi(answerNaming(CON_A), { body: lookupAnswer() }));
+    const r = await claimPairing(d, parseTypedPairCode(TYPED)!);
+    expect(r.ok && r.connector.connector_id).toBe(CON_A);
+  });
+
   it('ignores a fragment that is not a connector id', () => {
     const odd = input(makeQr({ s: 'https://api.twring.com/#c=nope' }));
     expect(odd.kind === 'qr' && odd.connectorId).toBeUndefined();
