@@ -362,7 +362,10 @@ describe('pairPhone', () => {
     });
     expect(await pairPhone(run.options)).toBe('paired');
     const text = run.lines.join('\n');
-    expect(text).not.toMatch(/secret|private key|\bkeys?\b|connector|\bmac\b|mcp|e2e/i);
+    // The typed code is random letters and digits, so it can spell a word like MCP by chance.
+    const wording = text.replace(/\b[0-9A-Z]{4}(?:-[0-9A-Z]{4}){3}\b/g, '<code>');
+    expect(wording).toContain('<code>');
+    expect(wording).not.toMatch(/secret|private key|\bkeys?\b|connector|\bmac\b|mcp|e2e/i);
     expect(text).not.toContain(run.options.config.e2e!.private_key);
     expect(text).not.toContain(parsePairLink(link)!.x);
   });
