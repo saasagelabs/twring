@@ -49,6 +49,7 @@ import {
   interruptedNotice,
   labelFor,
   MISSING_MESSAGE,
+  NOT_DELIVERED,
   sealedBubble,
   SERVER_READABLE_MARK,
 } from '@/e2e/private-state';
@@ -574,6 +575,18 @@ export default function ChatScreen() {
         </View>
       ) : null;
       const bubble = sealedBubble(message, openedById, name);
+      // Removed by another phone: what it sent since was never read; the rest stays hidden.
+      if (bubble === undefined && chat.undelivered.has(message.id))
+        return (
+          <Bubble
+            text={NOT_DELIVERED}
+            muted
+            time={timeOf(message.created_at)}
+            sender="You"
+            own
+            onLink={setUrl}
+          />
+        );
       if (bubble === undefined) return gapRow;
       const sealedTarget: ActionTarget = {
         id: message.id,

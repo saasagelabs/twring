@@ -14,6 +14,7 @@ import { ringPlatform } from '../platform/ring';
 import type { OpenedMessage } from '../e2e/sealed-thread';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
 import { phoneQuote } from '../e2e/private-quote';
+import { undeliveredIds } from '../e2e/private-state';
 import { noKeychain, scopedKeychain } from '../e2e/scoped-keychain';
 import type { SecureKeyValue } from '../auth/storage';
 import {
@@ -111,7 +112,11 @@ export class ChatController {
                 ...(message.replyTo !== undefined && { replyTo: message.replyTo }),
               },
               signal,
-            )
+            ).catch((error: unknown) => {
+              // A failed private send: was this phone removed by another one meanwhile?
+              this.checkPrivateRemoved(agentId);
+              throw error;
+            })
           : message.voice
             ? await this.api.sendVoiceNote(
                 agentId,
@@ -164,7 +169,10 @@ export class ChatController {
           replyTo === undefined
             ? undefined
             : this.getOpened(agentId)?.find((message) => message.id === replyTo);
-        return this.privacy.seal(agentId, text, phoneQuote(target), files);
+        return this.privacy.seal(agentId, text, phoneQuote(target), files).catch((error) => {
+          this.checkPrivateRemoved(agentId);
+          throw error;
+        });
       },
       sealFile: async (agentId, file) => {
         if (!this.privacy) throw Object.assign(new Error(), { code: 'seal_failed' });
@@ -278,6 +286,26 @@ export class ChatController {
     this.privacy !== undefined && this.isPrivate(agentId)
       ? this.privacy.notice(agentId)
       : undefined;
+
+  /** Another phone removed this one from private chats; true until Set up. */
+  getPrivateRemoved = (agentId: string): boolean =>
+    this.privacy !== undefined && this.isPrivate(agentId) && this.privacy.removed();
+
+  /** This phone's unanswered private messages once it was removed: shown as not delivered. */
+  getUndelivered = (agentId: string): ReadonlySet<string> =>
+    this.getPrivateRemoved(agentId)
+      ? undeliveredIds(
+          this.getChat(agentId).messages,
+          (m) => this.privacy!.sealedToRemoved(m),
+          this.privacy!.removedSince(),
+        )
+      : NONE_UNDELIVERED;
+
+  /** Reads the device list again (throttled) to learn whether this phone was removed. */
+  checkPrivateRemoved(agentId: string): void {
+    if (this.privacy !== undefined && this.isPrivate(agentId))
+      void this.privacy.checkRemoved(agentId);
+  }
 
   /** After a restore, pairing or approval: private chats load the key and computers again. */
   resetPrivate(): void {
@@ -403,6 +431,8 @@ export class ChatController {
         void this.outbox.flush();
         return;
       }
+      // Back in the app: a phone removed meanwhile learns it before sending.
+      for (const agentId of this.focusCounts.keys()) this.checkPrivateRemoved(agentId);
       // A socket the server refused for good stays one handle: reopen that same one.
       if (this.socket?.stopped()) this.socket.reconnect();
       // One waiting out a backoff after a lost network tries again now.
@@ -464,6 +494,8 @@ export class ChatController {
     await this.refreshList();
     if (epoch !== this.epoch || this.availability === false || !this.focusCounts.has(agentId))
       return;
+    // The chat opened again: a phone removed meanwhile learns it before sending.
+    this.checkPrivateRemoved(agentId);
     try {
       const page = await this.api.listMessages(agentId, { limit: 50 });
       if (epoch !== this.epoch || !this.focusCounts.has(agentId)) return;
@@ -895,12 +927,16 @@ export function useChat(agentId: string) {
     opened: active?.getOpened(agentId),
     pairAgain: active?.getPairAgain(agentId) ?? false,
     privateNotice: active?.getPrivateNotice(agentId),
+    /** Another phone removed this one: its unanswered messages were not delivered. */
+    privateRemoved: active?.getPrivateRemoved(agentId) ?? false,
+    undelivered: active?.getUndelivered(agentId) ?? NONE_UNDELIVERED,
     available: active?.getAvailability() ?? false,
     filesAvailable: active?.getFilesAvailable() ?? false,
   };
 }
 
 const EMPTY_CHAT = emptyChat();
+const NONE_UNDELIVERED: ReadonlySet<string> = new Set();
 const EMPTY_LIST: ThreadSummary[] = [];
 const noopSubscribe = () => () => undefined;
 const zero = () => 0;
