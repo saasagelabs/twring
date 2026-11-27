@@ -241,4 +241,24 @@ describe('legacy AI app rows stuck sent before the deploy', () => {
     await t.service.sweep();
     expect(await status(t.store, message.id)).toBe('answered');
   });
+
+  it('show Sent after a gateway restart, while plain turns are interrupted', async () => {
+    const app = setup('mcp-app');
+    const { message } = await app.store.appendUserMessage('owner', agent, {
+      clientId: randomUUID(),
+      text: 'fresh mailbox message',
+      status: 'sent',
+    });
+    await app.service.start();
+    expect(await status(app.store, message.id)).toBe('answered');
+
+    const plain = setup('cord-rest');
+    const turn = await plain.store.appendUserMessage('owner', agent, {
+      clientId: randomUUID(),
+      text: 'plain turn',
+      status: 'sent',
+    });
+    await plain.service.start();
+    expect(await status(plain.store, turn.message.id)).toBe('interrupted');
+  });
 });

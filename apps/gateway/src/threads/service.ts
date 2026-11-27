@@ -461,6 +461,7 @@ export class ThreadService {
     // Concurrent starts share one run; a stop() in between cancels it (epoch), so no interval leaks.
     this.starting ??= (async () => {
       const epoch = this.epoch;
+      await this.settleAppMessages();
       await this.options.store.interruptInFlight();
       await this.options.store.expirePendingApprovals();
       if (epoch !== this.epoch || this.timer) return;
@@ -1244,6 +1245,26 @@ export class ThreadService {
   }
 
   /**
+   * An AI app never runs a turn here, so an owner message an older gateway stored as `sent` was
+   * delivered to its mailbox: it becomes answered (Sent) before a restart interrupts in-flight turns.
+   */
+  private async settleAppMessages(): Promise<void> {
+    const all = new Date(Date.now() + 60_000).toISOString();
+    for (const { userId, agentId, message } of await this.options.store.staleInFlight(all)) {
+      const protocol = await this.options.agents
+        .get(userId, agentId)
+        .then((record) => record?.protocol)
+        .catch(() => undefined);
+      if (protocol !== 'mcp-app') continue;
+      const changed = await this.options.store.updateUserMessage(userId, message.id, {
+        status: 'answered',
+        from: ['sent', 'working'],
+      });
+      if (changed) this.upsert(userId, changed);
+    }
+  }
+
+  /**
    * Lease expiry for plain turns: one still `sent` or `working` past the total turn cap plus a
    * margin, with no live run here, lost its run (a crash, a failed write). It becomes interrupted.
    */
@@ -1253,17 +1274,19 @@ export class ThreadService {
     const live = new Set([...this.running.values()].map((run) => run.messageId));
     for (const { userId, agentId, message } of await this.options.store.staleInFlight(cutoff)) {
       if (live.has(message.id)) continue;
-      // An answer or a Stop that landed since keeps its status.
-      const changed = await this.options.store.updateUserMessage(userId, message.id, {
-        status: 'interrupted',
-        from: ['sent', 'working'],
-      });
-      if (!changed) continue;
-      this.upsert(userId, changed);
       const protocol = await this.options.agents
         .get(userId, agentId)
         .then((record) => record?.protocol)
         .catch(() => undefined);
+      // An AI app never runs a turn here: an old row stored as sent was delivered to its mailbox,
+      // so it shows Sent (answered), not Interrupted. An answer or a Stop that landed since keeps
+      // its status.
+      const changed = await this.options.store.updateUserMessage(userId, message.id, {
+        status: protocol === 'mcp-app' ? 'answered' : 'interrupted',
+        from: ['sent', 'working'],
+      });
+      if (!changed) continue;
+      this.upsert(userId, changed);
       this.options.log?.info(
         {
           event: 'thread_turn_stale',
