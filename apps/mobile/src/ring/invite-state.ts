@@ -23,7 +23,12 @@ export type IncomingState =
   | { phase: 'declining' }
   | { phase: 'ended'; why: EndedWhy }
   /** Answering failed for an ordinary call reason (busy line, limit, computer offline). */
-  | { phase: 'failed'; error: ErrorCopy };
+  | {
+      phase: 'failed';
+      error: ErrorCopy;
+      /** The answer never got a server reply (network, timeout), so it may have landed. */
+      mayHaveLanded?: true;
+    };
 
 export type IncomingEvent =
   /** `GET /v1/invites/:id` answered with this status. */
@@ -100,7 +105,10 @@ export function answerFailure(error: unknown): IncomingState {
       return { phase: 'ended', why: 'answered_elsewhere' };
     }
   }
-  return { phase: 'failed', error: apiErrorCopy(error) };
+  const unheard = !(error instanceof ApiError && error.kind === 'http');
+  return unheard
+    ? { phase: 'failed', error: apiErrorCopy(error), mayHaveLanded: true }
+    : { phase: 'failed', error: apiErrorCopy(error) };
 }
 
 export function reduceIncoming(state: IncomingState, event: IncomingEvent): IncomingState {
@@ -108,11 +116,11 @@ export function reduceIncoming(state: IncomingState, event: IncomingEvent): Inco
   switch (event.type) {
     case 'LOADED':
       // The server's word only matters while nothing is in flight. A re-check that still says
-      // pending keeps a failed answer's message on screen. So does "answered": the failed answer
-      // may have reached the server, and Try again resumes this phone's own call (a ring answered
-      // on another phone gets "already handled" from that answer instead).
+      // pending keeps a failed answer's message on screen. So does "answered" when the failed
+      // answer got no reply and may have reached the server: Try again resumes this phone's own
+      // call. After a server refusal (busy, limit), "answered" can only mean another phone.
       if (state.phase === 'failed')
-        return event.status === 'pending' || event.status === 'answered'
+        return event.status === 'pending' || (event.status === 'answered' && state.mayHaveLanded)
           ? state
           : phaseForStatus(event.status);
       if (state.phase !== 'loading' && state.phase !== 'ringing') return state;

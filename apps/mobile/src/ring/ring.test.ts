@@ -150,6 +150,19 @@ describe('invite state', () => {
       phase: 'ended',
       why: 'cancelled',
     });
+    // A refused answer (busy line) never reached the server: "answered" was another phone.
+    const refused = reduceIncoming(
+      { phase: 'answering' },
+      {
+        type: 'ANSWER_FAILED',
+        error: new ApiError('http', 'call_in_progress', 'r', undefined, 409),
+      },
+    );
+    expect(refused.phase).toBe('failed');
+    expect(reduceIncoming(refused, { type: 'LOADED', status: 'answered' })).toEqual({
+      phase: 'ended',
+      why: 'answered_elsewhere',
+    });
   });
 
   it('a re-check that is rate limited or unauthorized keeps ringing, and a late one is ignored while answering', () => {
