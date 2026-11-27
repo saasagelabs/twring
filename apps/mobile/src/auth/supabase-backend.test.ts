@@ -428,6 +428,17 @@ describe('supabase backend starting with an expired session', () => {
     expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
   });
 
+  it('signs out when the network is back but the refresh token was revoked meanwhile', async () => {
+    const { controller, answers, store } = await expiredStart('offline');
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    answers.next = { status: 400, body: { code: 'refresh_token_not_found', msg: 'Invalid' } };
+    await vi.advanceTimersByTimeAsync(61_000);
+    await controller.refreshAccessToken().catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_out' });
+    expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
+  });
+
   it('treats a malformed stored session as none', async () => {
     const store = new MemoryStore();
     const storage = chunkedSecureStorage(store);
