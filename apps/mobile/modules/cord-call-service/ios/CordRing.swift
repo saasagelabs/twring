@@ -595,6 +595,8 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     case "cord.message":
       return userInfo["agent_id"] as? String
     case "cord.sealed":
+      // The routing fields ride outside the seal; open it only when they are missing.
+      if let agentId = userInfo["agent_id"] as? String { return agentId }
       let data = Self.stringKeyed(userInfo)
       guard data["kind"] as? String == "message" else { return nil }
       return CordSeal.open(keys: CordSealKeys.all(), data: data, now: Date())?["agent_id"]
