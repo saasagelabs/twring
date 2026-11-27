@@ -182,4 +182,123 @@ describe('thread socket', () => {
     expect(FakeSocket.instances).toHaveLength(2);
     socket.close();
   });
+  it('retryNow skips a long backoff wait at once', async () => {
+    vi.useFakeTimers();
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: () => undefined,
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    for (let i = 0; i < 5; i++) {
+      FakeSocket.instances.at(-1)?.end(1006);
+      await vi.advanceTimersByTimeAsync(10_000);
+    }
+    FakeSocket.instances.at(-1)?.end(1006);
+    expect(FakeSocket.instances).toHaveLength(6);
+    expect(vi.getTimerCount()).toBe(1);
+    socket.retryNow();
+    expect(FakeSocket.instances).toHaveLength(7);
+    expect(vi.getTimerCount()).toBe(0);
+    // Debounced: a second call within 1 s does nothing.
+    FakeSocket.instances[6].end(1006);
+    socket.retryNow();
+    expect(FakeSocket.instances).toHaveLength(7);
+    // The backoff starts again from 1 s.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(FakeSocket.instances).toHaveLength(8);
+    socket.close();
+  });
+  it('retryNow leaves a blocked, closed or open socket alone', () => {
+    vi.useFakeTimers();
+    const make = () =>
+      connectThreadSocket({
+        url: 'http://localhost:3000',
+        requireSecureMedia: false,
+        headers: () => ({}),
+        onFrame: () => undefined,
+        onState: () => undefined,
+        timers,
+        WebSocketImpl: FakeSocket,
+      });
+    const open = make();
+    FakeSocket.instances[0].open();
+    open.retryNow();
+    expect(FakeSocket.instances).toHaveLength(1);
+    open.close();
+    open.retryNow({ networkChanged: true });
+    expect(FakeSocket.instances).toHaveLength(1);
+    const evicted = make();
+    FakeSocket.instances[1].end(4409);
+    evicted.retryNow({ networkChanged: true });
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(evicted.stopped()).toBe(true);
+    evicted.close();
+  });
+  it.each([0, 1])(
+    'retryNow on a network change replaces a socket in state %i once',
+    async (ready) => {
+      vi.useFakeTimers();
+      const states: string[] = [];
+      const socket = connectThreadSocket({
+        url: 'http://localhost:3000',
+        requireSecureMedia: false,
+        headers: () => ({}),
+        onFrame: () => undefined,
+        onState: (state) => states.push(state),
+        timers,
+        WebSocketImpl: FakeSocket,
+      });
+      const old = FakeSocket.instances[0];
+      if (ready === 1) old.open();
+      socket.retryNow({ networkChanged: true });
+      socket.retryNow({ networkChanged: true });
+      expect(FakeSocket.instances).toHaveLength(2);
+      expect(old.readyState).toBe(3);
+      // The old socket's late close is ignored: no retry, no state change.
+      const before = [...states];
+      old.onclose?.({ code: 1006 });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(FakeSocket.instances).toHaveLength(2);
+      expect(states).toEqual(before);
+      socket.close();
+    },
+  );
+  it('retryNow during a token refresh waits for the new token', async () => {
+    vi.useFakeTimers();
+    let token = 'old';
+    let finish = () => undefined as void;
+    const refreshAuth = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = () => {
+            token = 'new';
+            resolve();
+          };
+        }),
+    );
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({ authorization: token }),
+      refreshAuth,
+      onFrame: () => undefined,
+      onState: () => undefined,
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    FakeSocket.instances[0].onerror?.({ status: 401 });
+    socket.retryNow();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(FakeSocket.instances).toHaveLength(1);
+    finish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeSocket.instances).toHaveLength(2);
+    expect(FakeSocket.instances[1].options?.headers.authorization).toBe('new');
+    expect(refreshAuth).toHaveBeenCalledTimes(1);
+    socket.close();
+  });
 });
