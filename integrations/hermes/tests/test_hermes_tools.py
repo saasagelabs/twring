@@ -2,19 +2,32 @@
 (the `hermes` terminal, cron). Needs Hermes installed (run with Hermes's own Python); skipped
 elsewhere."""
 
+import importlib.util
 import sys
 from pathlib import Path
 
 import pytest
 
-pytest.importorskip("hermes_cli.plugins")
-
-from ruamel.yaml import YAML  # noqa: E402  (ships with Hermes; PyYAML does not since 0.23)
-from hermes_cli.plugins import PluginManager, PluginManifest  # noqa: E402
-from toolsets import resolve_toolset  # noqa: E402
-from tools.registry import registry  # noqa: E402
-
 PLUGIN = Path(__file__).resolve().parent.parent
+
+# conftest.py puts the plugin folder first on sys.path for the unit tests, and the plugin's own
+# tools.py would then shadow Hermes's `tools` package. Hermes itself loads the plugin as
+# hermes_plugins.twring, so import Hermes's modules with the plugin folder off the path, and drop
+# a plugin `tools` module another test may have imported. Hermes's `tools` stays in sys.modules
+# for the rest of this process, so Hermes's own lazy imports find it too.
+if importlib.util.find_spec("hermes_cli") is None:
+    pytest.skip("needs Hermes installed (run with Hermes's own Python)", allow_module_level=True)
+_saved_path = list(sys.path)
+sys.path[:] = [p for p in sys.path if Path(p or ".").resolve() != PLUGIN]
+if not hasattr(sys.modules.get("tools"), "__path__"):
+    sys.modules.pop("tools", None)
+try:
+    from ruamel.yaml import YAML  # noqa: E402  (ships with Hermes; PyYAML does not since 0.23)
+    from hermes_cli.plugins import PluginManager, PluginManifest  # noqa: E402
+    from toolsets import resolve_toolset  # noqa: E402
+    from tools.registry import registry  # noqa: E402
+finally:
+    sys.path[:] = _saved_path
 
 
 @pytest.fixture
