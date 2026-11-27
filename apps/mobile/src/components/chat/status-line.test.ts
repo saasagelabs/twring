@@ -39,7 +39,7 @@ it('is empty when there is nothing to say', () => {
 });
 
 it('uses the AI app reply copy', () => {
-  expect(statusLineContent({ ...base, aiApp: true, latest: { status: 'sent' } })).toMatchObject({
+  expect(statusLineContent({ ...base, aiApp: true, latest: { status: 'queued' } })).toMatchObject({
     kind: 'status',
     text: 'Hermes reads this when it checks',
     tone: 'tertiary',
@@ -92,12 +92,10 @@ it('a private message sent or working shows Working and Stop', () => {
   }
 });
 
-it('a stopped private message reads Stopped, and queued is not working', () => {
+it('a stopped private message clears the line, and queued is not working', () => {
   const stopped = latestOwn([sealedMine('stopped')]);
   expect(statusLineContent({ ...base, working: stopped!.working, latest: stopped })).toEqual({
-    kind: 'status',
-    tone: 'tertiary',
-    text: 'Stopped',
+    kind: 'empty',
   });
   expect(latestOwn([sealedMine('queued')])).toMatchObject({ working: false });
 });
@@ -179,4 +177,26 @@ it('a private_unsent failure offers Delete in the status line, not Retry', () =>
   });
   expect(content).toMatchObject({ kind: 'status', tone: 'danger', deleteClientId: 'c1' });
   expect(content).not.toHaveProperty('retryClientId');
+});
+
+it('a turn that has ended clears the line', () => {
+  for (const status of ['sent', 'answered', 'stopped', 'interrupted'] as const) {
+    expect(statusLineContent({ ...base, latest: { status } })).toEqual({ kind: 'empty' });
+    expect(statusLineContent({ ...base, aiApp: true, latest: { status } })).toEqual({
+      kind: 'empty',
+    });
+  }
+});
+
+it('queued, expired and failed still show', () => {
+  for (const status of ['queued', 'expired'] as const) {
+    expect(statusLineContent({ ...base, latest: { status } })).toMatchObject({
+      kind: 'status',
+      tone: 'tertiary',
+    });
+  }
+  expect(statusLineContent({ ...base, latest: { status: 'failed' } })).toMatchObject({
+    kind: 'status',
+    tone: 'danger',
+  });
 });

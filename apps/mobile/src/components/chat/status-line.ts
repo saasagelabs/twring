@@ -65,6 +65,17 @@ export function latestOwn(
   return undefined;
 }
 
+/**
+ * A turn that has ended leaves the line empty: delivery state belongs to the message, and this
+ * line shows only what the person can still wait for or act on (queued, expired, failed).
+ */
+const FINAL: ReadonlySet<UserMessageStatus> = new Set([
+  'sent',
+  'answered',
+  'stopped',
+  'interrupted',
+]);
+
 /** One line above the composer: working beats the latest send's status; otherwise nothing. */
 export function statusLineContent(input: StatusLineInput): StatusLineContent {
   if (input.working) {
@@ -93,7 +104,7 @@ export function statusLineContent(input: StatusLineInput): StatusLineContent {
       text: aiApp ? aiAppReplyStatus(name) : messageStatus('sending', name),
     };
   }
-  if (latest) {
+  if (latest && !FINAL.has(latest.status)) {
     const failed = latest.status === 'failed';
     return {
       kind: 'status',
