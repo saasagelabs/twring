@@ -15,6 +15,7 @@ import {
   showComputerCallHint,
 } from '@/agents/ai-app';
 import { agentStatusFor, formatWhen, historyRow } from '@/agents/labels';
+import { PHONE_OFFLINE_LABEL, usePhoneOnline } from '@/net/usePhoneOnline';
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
 import { callAgent } from '@/call/call-agent';
 import { Avatar } from '@/components/Avatar';
@@ -78,6 +79,7 @@ export default function AgentDetailScreen() {
   // Polled while open so the computer's online status stays current.
   const detail = useResource(load, { pollMs: STATUS_POLL_MS });
   const exporter = useChatExport(detail.data?.agent);
+  const phoneOnline = usePhoneOnline();
 
   function confirmDelete(agent: Agent) {
     const aiApp = isAiApp(agent);
@@ -124,7 +126,10 @@ export default function AgentDetailScreen() {
 
   const { agent, calls, voiceLabel } = detail.data;
   const aiApp = isAiApp(agent);
-  const status = agentStatusFor(agent);
+  // With no network on this phone, the computer's cached Online/Offline is stale.
+  const status = phoneOnline
+    ? agentStatusFor(agent)
+    : { label: PHONE_OFFLINE_LABEL, tone: 'warning' as const };
   const lastCall = calls[0];
   const editable = canEditAgent(agent);
   const offline = agent.connector_online === false || agent.connector_removed === true;
@@ -163,7 +168,7 @@ export default function AgentDetailScreen() {
           name={agent.name}
           avatarVersion={agent.avatar_version}
           size={56}
-          online={agent.connector_online}
+          online={phoneOnline ? agent.connector_online : undefined}
         />
         <View style={styles.identityText}>
           <Text
@@ -177,8 +182,10 @@ export default function AgentDetailScreen() {
         </View>
         {canCall(agent) && (
           <CallPill
-            accessibilityLabel={offline ? `Call ${agent.name}, offline` : `Call ${agent.name}`}
-            disabled={offline}
+            accessibilityLabel={
+              offline || !phoneOnline ? `Call ${agent.name}, offline` : `Call ${agent.name}`
+            }
+            disabled={offline || !phoneOnline}
             onPress={() => callAgent(agent)}
           />
         )}

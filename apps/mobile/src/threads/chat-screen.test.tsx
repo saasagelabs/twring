@@ -19,7 +19,14 @@ const mocks = vi.hoisted(() => {
     latest: { current: undefined as boolean | undefined },
     give: vi.fn(),
   };
-  return { state: [] as unknown[], cursor: 0, deleted: [] as string[], chat, consent };
+  return {
+    state: [] as unknown[],
+    cursor: 0,
+    deleted: [] as string[],
+    chat,
+    consent,
+    phoneOnline: true,
+  };
 });
 
 vi.mock('react', async (importOriginal) => {
@@ -83,6 +90,10 @@ vi.mock('expo-file-system', () => ({
 vi.mock('@/agents/labels', () => ({
   agentStatusFor: () => ({ label: 'Online' }),
   callRefusal: () => undefined,
+}));
+vi.mock('@/net/usePhoneOnline', () => ({
+  PHONE_OFFLINE_LABEL: 'Waiting for network',
+  usePhoneOnline: () => mocks.phoneOnline,
 }));
 vi.mock('@/agents/ai-app', () => ({
   aiAppEmptyChat: () => '',
@@ -262,8 +273,30 @@ function setConsent(given: boolean | undefined) {
 beforeEach(() => {
   mocks.state = [];
   mocks.deleted = [];
+  mocks.phoneOnline = true;
   setConsent(undefined);
   gave.mockClear();
+});
+
+describe("the header follows the phone's own network", () => {
+  beforeEach(() => setChat({ private: false, messages: [] }));
+  const subtitle = (all: ReactElement<Props>[]) =>
+    of(all, 'Text').find((t) => t.props.ellipsizeMode === 'tail')?.props.children;
+
+  it("shows the computer's status while the phone is online", () => {
+    const { all } = render();
+    expect(subtitle(all)).toBe('Online');
+    expect(of(all, 'Avatar')[0].props.online).toBe(true);
+    expect(of(all, 'CallButton')[0].props.disabled).toBe(false);
+  });
+
+  it('shows "Waiting for network" and no presence dot while the phone is offline', () => {
+    mocks.phoneOnline = false;
+    const { all } = render();
+    expect(subtitle(all)).toBe('Waiting for network');
+    expect(of(all, 'Avatar')[0].props.online).toBeUndefined();
+    expect(of(all, 'CallButton')[0].props.disabled).toBe(true);
+  });
 });
 
 describe('an ordinary chat (flag on or off) is unchanged', () => {
