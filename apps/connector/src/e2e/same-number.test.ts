@@ -4,9 +4,9 @@ import { askSameNumber } from './pair';
 
 const answers = (...given: string[]) => {
   const asked: string[] = [];
-  const ask = async (question: string) => {
+  const ask = (question: string) => {
     asked.push(question);
-    return given.shift() ?? '';
+    return Promise.resolve(given.shift() ?? '');
   };
   return { ask, asked };
 };
