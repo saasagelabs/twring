@@ -39,6 +39,9 @@ export type IncomingEvent =
   /** The decline was sent, or no longer needed (already handled or expired). */
   | { type: 'DECLINE_DONE' };
 
+/** How often the incoming-call screen asks the server whether the ring is still on. */
+export const RING_RECHECK_MS = 4000;
+
 export const INITIAL_INCOMING: IncomingState = { phase: 'loading' };
 
 /**
@@ -104,14 +107,20 @@ export function reduceIncoming(state: IncomingState, event: IncomingEvent): Inco
   if (state.phase === 'ended') return state;
   switch (event.type) {
     case 'LOADED':
-      // The server's word only matters before the user acted.
+      // The server's word only matters while nothing is in flight. A re-check that still says
+      // pending keeps a failed answer's message on screen.
+      if (state.phase === 'failed')
+        return event.status === 'pending' ? state : phaseForStatus(event.status);
       if (state.phase !== 'loading' && state.phase !== 'ringing') return state;
       return phaseForStatus(event.status);
     case 'LOAD_FAILED': {
-      if (state.phase !== 'loading') return state;
+      if (state.phase !== 'loading' && state.phase !== 'ringing' && state.phase !== 'failed') {
+        return state;
+      }
       const failure = answerFailure(event.error);
+      if (failure.phase === 'ended') return failure;
       // Unreachable server: ring on from the push details; answering will tell.
-      return failure.phase === 'ended' ? failure : { phase: 'ringing' };
+      return state.phase === 'loading' ? { phase: 'ringing' } : state;
     }
     case 'TICK':
       if (state.phase !== 'loading' && state.phase !== 'ringing' && state.phase !== 'failed') {
