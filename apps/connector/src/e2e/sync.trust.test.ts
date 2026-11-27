@@ -250,3 +250,71 @@ describe('the removed-device memory cannot be flushed by the server (R3-9)', () 
     expect(state.e2e.revoked).toEqual([newPhone.id]);
   });
 });
+
+describe('a removed phone the server still lists as revoked', () => {
+  const config = (): E2eConfig => ({
+    device_id: computer.id,
+    public_key: computer.key,
+    private_key: base64urlEncode(computer.privateKey),
+    devices: trusted(),
+    revoked: [newPhone.id],
+    seq: 0,
+  });
+  const run = (
+    state: { e2e: E2eConfig },
+    rows: E2eDeviceWithNote[],
+    lines: string[],
+    refusalLog?: { last?: string },
+  ) =>
+    syncDevices({
+      server: baseConfig.server,
+      token: baseConfig.token,
+      fetch: () =>
+        Promise.resolve(new Response(JSON.stringify({ devices: rows }), { status: 200 })),
+      now: () => NOW,
+      log: (line) => lines.push(line),
+      ...(refusalLog !== undefined && { refusalLog }),
+      persist: (change) => {
+        state.e2e = e2eConfigSchema.parse(change(state.e2e));
+        return Promise.resolve(state.e2e);
+      },
+    });
+
+  it('is skipped silently, not counted as a refused note', async () => {
+    const state = { e2e: config() };
+    const lines: string[] = [];
+    const out = await run(
+      state,
+      [listed(noteFrom(trustedPhone), newPhone, { revoked_at: '2026-11-25T11:59:30.000Z' })],
+      lines,
+    );
+    expect(out?.added).toBe(0);
+    expect(lines).toEqual([]);
+    expect(state.e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
+  });
+
+  it('is still refused and never added when listed as active', async () => {
+    const state = { e2e: config() };
+    const lines: string[] = [];
+    const out = await run(state, [listed(noteFrom(trustedPhone))], lines);
+    expect(out?.added).toBe(0);
+    expect(lines).toEqual(['e2e_trust_note_refused removed (1)']);
+    expect(state.e2e.devices.map((d) => d.id)).toEqual([trustedPhone.id]);
+  });
+
+  it('logs the same refusals once per session and again when they change', async () => {
+    const state = { e2e: config() };
+    const lines: string[] = [];
+    const refusalLog = {};
+    const active = [listed(noteFrom(trustedPhone))];
+    await run(state, active, lines, refusalLog);
+    await run(state, active, lines, refusalLog);
+    expect(lines).toEqual(['e2e_trust_note_refused removed (1)']);
+    await run(state, [], lines, refusalLog);
+    await run(state, active, lines, refusalLog);
+    expect(lines).toEqual([
+      'e2e_trust_note_refused removed (1)',
+      'e2e_trust_note_refused removed (1)',
+    ]);
+  });
+});

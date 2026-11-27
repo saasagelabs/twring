@@ -619,6 +619,7 @@ function run(config: ConnectorConfig): Promise<number> {
   });
   // Private chats: read the account's devices after each connect and every 10 minutes, so a
   // removed phone stops getting messages, and a phone paired meanwhile turns private chats on.
+  const refusalLog: { last?: string } = {};
   const syncPrivate = async () => {
     const before = helloFeatures(e2e).join();
     if ((await persistE2e((current) => current)) === undefined) return;
@@ -629,6 +630,7 @@ function run(config: ConnectorConfig): Promise<number> {
       persist: persistE2e,
       signal: client.stopSignal,
       log,
+      refusalLog,
     });
     if (result !== undefined && result.revoked > 0)
       log(`private chats: ${result.revoked} removed devices forgotten`);
