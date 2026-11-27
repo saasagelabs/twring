@@ -76,7 +76,9 @@ export default function AgentsScreen() {
         </Text>
       </Screen>
     );
-  const sorted = sortChatAgents(agents.data ?? [], chats.threads);
+  // Rows wait for the chat list or its saved copy: agents alone sort and read wrong.
+  const waitingForChats = (agents.data?.length ?? 0) > 0 && !chats.ready;
+  const sorted = waitingForChats ? [] : sortChatAgents(agents.data ?? [], chats.threads);
   const summaries = new Map(chats.threads.map((thread) => [thread.agent_id, thread]));
   const empty = agents.data?.length === 0 && !agents.stale;
   return (
@@ -106,7 +108,7 @@ export default function AgentsScreen() {
         ) : undefined
       }
     >
-      {agents.loading && (
+      {(agents.loading || waitingForChats) && (
         <View
           accessibilityRole="progressbar"
           accessibilityLabel="Loading agents"
@@ -136,7 +138,14 @@ export default function AgentsScreen() {
       )}
       <View>
         {sorted.map((agent) => {
-          const row = homeRow(agent, summaries.get(agent.id), missed, chats.off);
+          const row = homeRow(
+            agent,
+            summaries.get(agent.id),
+            missed,
+            chats.off,
+            undefined,
+            chats.preview(agent.id),
+          );
           return (
             <ListRow
               key={agent.id}

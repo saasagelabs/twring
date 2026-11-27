@@ -169,6 +169,73 @@ async function setup(
 }
 
 describe('private chats in the chat data layer', () => {
+  it('the Chats list opens the last private message in memory and keeps only a short preview', async () => {
+    const store = keychain();
+    const me = await loadOrCreateDeviceKey(store);
+    await confirmPairing(
+      { store },
+      {
+        id: COMPUTER_ID,
+        kind: 'computer',
+        name: 'Computer',
+        public_key: base64urlEncode(computer.publicKey),
+        verified_at: at,
+      },
+    );
+    const long = 'see you at six '.repeat(20);
+    const last = sealedMsg(fromComputer(me.deviceId, me.publicKey, long, 1), 'agent');
+    const summaries = memoryStore();
+    const api = {
+      listThreads: vi.fn().mockResolvedValue({
+        threads: [
+          {
+            agent_id: privateAgent,
+            last_message: last,
+            unread: 1,
+            last_message_at: at,
+            read_seq: 0,
+            private: true,
+          },
+        ],
+        files: true,
+      }),
+    };
+    const privacy = new PrivateChats({
+      store,
+      replay: memoryStore(),
+      addressOf: () => Promise.resolve(`cord-connector://${ACCOUNT}/${LOCAL}`),
+    });
+    const options = { summaries, previews: store, privacy };
+    const controller = new ChatController(api as unknown as TwringApi, undefined, options);
+    await controller.refreshList();
+    expect(controller.getPreview(privateAgent)).toBeUndefined();
+    await vi.waitFor(() => expect(controller.getPreview(privateAgent)).toBeDefined());
+    expect(controller.getPreview(privateAgent)).toBe(long.trim().slice(0, 120).trimEnd());
+    // No opened text in the saved list; only the keychain holds the short line.
+    expect(JSON.stringify(summaries.value)).not.toContain('see you');
+    await vi.waitFor(() => expect(JSON.stringify([...store.m.values()])).toContain('see you'));
+    expect(JSON.stringify([...store.m.values()])).not.toContain(long.trim());
+    // The next start shows it from the keychain before anything is opened.
+    const next = new ChatController(
+      { listThreads: () => new Promise(() => undefined) } as unknown as TwringApi,
+      undefined,
+      {
+        summaries,
+        previews: store,
+        privacy: new PrivateChats({
+          store,
+          replay: memoryStore(),
+          addressOf: () => Promise.resolve(undefined),
+        }),
+      },
+    );
+    await vi.waitFor(() =>
+      expect(next.getPreview(privateAgent)).toBe(long.trim().slice(0, 120).trimEnd()),
+    );
+    await next.clear({ forget: true });
+    expect(JSON.stringify([...store.m.values()])).not.toContain('see you');
+  });
+
   it('sends a sealed body, never text, for a private agent', async () => {
     const t = await setup();
     t.controller.send(privateAgent, 'hello');

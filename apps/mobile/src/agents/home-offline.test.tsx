@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   resource: {},
   replace: vi.fn(),
+  chatsReady: true,
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -52,7 +53,14 @@ vi.mock('@/theme/tokens', () => ({
   type: new Proxy({}, { get: () => ({}) }),
 }));
 vi.mock('@/threads/chats', () => ({
-  useChatList: () => ({ available: true, off: false, threads: [], refresh: () => undefined }),
+  useChatList: () => ({
+    available: true,
+    off: false,
+    ready: mocks.chatsReady,
+    threads: [],
+    preview: () => undefined,
+    refresh: () => undefined,
+  }),
 }));
 vi.mock('@/threads/presentation', () => ({ sortChatAgents: (agents: unknown[]) => agents }));
 vi.mock('@/components/Brand', () => ({ TwringLockup: 'TwringLockup' }));
@@ -89,6 +97,7 @@ async function render(): Promise<ReactElement<Props>[]> {
 
 beforeEach(() => {
   mocks.replace.mockClear();
+  mocks.chatsReady = true;
 });
 
 describe('agents home offline', () => {
@@ -109,5 +118,18 @@ describe('agents home offline', () => {
     mocks.resource = { data: [], stale: false, error: undefined, loading: false };
     await render();
     expect(mocks.replace).toHaveBeenCalledWith('/onboarding');
+  });
+
+  it('shows the skeleton, not agent-only rows, until the chat list or its saved copy is ready', async () => {
+    mocks.resource = { data: [agent], stale: false, error: undefined, loading: false };
+    mocks.chatsReady = false;
+    let tree = await render();
+    expect(tree.some((e) => e.type === 'ListRow')).toBe(false);
+    expect(tree.filter((e) => e.type === 'Skeleton')).toHaveLength(3);
+    // Ready also covers a failed chat list load, so rows always come.
+    mocks.chatsReady = true;
+    tree = await render();
+    expect(tree.find((e) => e.type === 'ListRow')?.props.title).toBe('Home agent');
+    expect(tree.some((e) => e.type === 'Skeleton')).toBe(false);
   });
 });

@@ -45,6 +45,7 @@ import {
 import { PAIR_AGAIN } from './private-state';
 import { readRewraps, REWRAP_JOBS_KEY, type RewrapApi } from './rewrap';
 import { VOICE_CONSENT_KEY } from './voice-consent';
+import { forgetListPreviews } from './list-previews';
 
 /**
  * Private chats in the chat data layer (ADR-044): seals what the phone sends and opens what it
@@ -413,6 +414,19 @@ export class PrivateChats {
     return opened.state === 'ok' ? opened.text : undefined;
   }
 
+  /** A chat's last message for the Chats list, opened in a throwaway context; never throws. */
+  async openPreview(agentId: string, message: ThreadMessage): Promise<string | undefined> {
+    if (message.kind !== 'sealed') return undefined;
+    try {
+      const ctx = await this.context(agentId);
+      if (ctx === undefined) return undefined;
+      const opened = openMessage(createPhoneContext({ ...ctx, seen: undefined }), message);
+      return opened.state === 'ok' ? opened.text : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /** The whole chat for an export, opened in a throwaway context so the chat's window stays. */
   async openForExport(
     agentId: string,
@@ -526,6 +540,8 @@ export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> 
       store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
       // Voice-note consent is asked again after signing back in.
       store.deleteItemAsync(VOICE_CONSENT_KEY).catch(() => undefined),
+      // The Chats list's opened previews go with the keys that opened them.
+      forgetListPreviews(store).catch(() => undefined),
     ]);
   });
 }
