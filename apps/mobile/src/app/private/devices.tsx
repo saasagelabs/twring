@@ -49,6 +49,9 @@ const REMOVE_FAILED = 'Twring could not remove that device. Check your connectio
 const APPROVE_FAILED =
   "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
 const DECIDE_OFFLINE = 'Twring could not reach the server. Check your connection and tap again.';
+/** The request stays open and this phone keeps its claim, so the same tap works once one is gone. */
+const APPROVE_AT_CAP =
+  'You already have 5 devices. Remove one here, then tap the waiting phone again.';
 const APPROVE_UNFINISHED =
   "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.";
 
@@ -276,7 +279,8 @@ export default function PrivateDevicesScreen() {
       await load();
       // 'forgotten': this phone's keys were cleared meanwhile, by the person's own sign-out or
       // removal, so there is nothing to tell them about this approve.
-      if (!out.ok && out.code !== 'forgotten' && !deniedAnyway) setError(APPROVE_FAILED);
+      if (!out.ok && out.code === 'cap') setError(APPROVE_AT_CAP);
+      else if (!out.ok && out.code !== 'forgotten' && !deniedAnyway) setError(APPROVE_FAILED);
     } finally {
       setBusy(false);
     }

@@ -392,6 +392,22 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(mocks.state[ERROR]).toBe(LOAD_FAILED);
   });
 
+  it('at the device cap says to remove one here, as tapping the waiting phone again works then', async () => {
+    mocks.api = listing(dev(0, 'phone', 'Pixel'));
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed, checked };
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'cap' });
+    const approve = render().find(
+      (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
+    )!;
+    (approve.props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.state[ERROR]).toBe(
+      'You already have 5 devices. Remove one here, then tap the waiting phone again.',
+    );
+  });
+
   it('says nothing when the keys were cleared meanwhile by sign-out or removing this phone', async () => {
     mocks.api = listing(dev(0, 'phone', 'Pixel'));
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
@@ -410,8 +426,7 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     mocks.api = listing(dev(0, 'phone', 'Pixel'));
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
     mocks.state[APPROVING] = { claimed, checked };
-    // 'cap' keeps the claim, so nothing here touches the keychain stub.
-    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'cap' });
+    mocks.approveWaiting.mockResolvedValueOnce({ ok: false, code: 'closed' });
     const approve = render().find(
       (e) => e.type === 'GhostButton' && e.props.label === 'Codes match, approve',
     )!;
