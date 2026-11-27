@@ -16,6 +16,7 @@ import {
 } from '@/agents/ai-app';
 import { agentStatusFor, formatWhen, historyRow } from '@/agents/labels';
 import { PHONE_OFFLINE_LABEL, usePhoneOnline } from '@/net/usePhoneOnline';
+import { loadNotice, useReloadWhenOnline } from '@/net/load-notices';
 import { apiErrorCopy, twringApi, type ErrorCopy } from '@/api';
 import { callAgent } from '@/call/call-agent';
 import { Avatar } from '@/components/Avatar';
@@ -80,6 +81,8 @@ export default function AgentDetailScreen() {
   const detail = useResource(load, { pollMs: STATUS_POLL_MS });
   const exporter = useChatExport(detail.data?.agent);
   const phoneOnline = usePhoneOnline();
+  const failedLoad = loadNotice([detail], phoneOnline);
+  useReloadWhenOnline(phoneOnline, [detail]);
 
   function confirmDelete(agent: Agent) {
     const aiApp = isAiApp(agent);
@@ -150,8 +153,8 @@ export default function AgentDetailScreen() {
       refreshing={detail.refreshing}
       onRefresh={() => detail.reload({ refresh: true })}
     >
-      {detail.error !== undefined && (
-        <ErrorNotice error={detail.error} onRetry={() => detail.reload()} />
+      {failedLoad !== undefined && (
+        <ErrorNotice error={failedLoad.error} onRetry={failedLoad.retry} />
       )}
       {deleteError !== undefined && <ErrorNotice error={deleteError} />}
       {clearError !== undefined && <ErrorNotice error={clearError} />}

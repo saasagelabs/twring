@@ -20,6 +20,7 @@ import { KeyboardAvoidingView, KeyboardGestureArea } from 'react-native-keyboard
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { agentStatusFor, callRefusal } from '@/agents/labels';
 import { PHONE_OFFLINE_LABEL, usePhoneOnline } from '@/net/usePhoneOnline';
+import { loadNotice, useReloadWhenOnline } from '@/net/load-notices';
 import { aiAppEmptyChat, canCall, isAiApp, showComputerCallHint } from '@/agents/ai-app';
 import { autoListenTarget } from '@/threads/auto-listen';
 import { ApiError, twringApi } from '@/api';
@@ -268,6 +269,9 @@ export default function ChatScreen() {
   const offline = agent.data ? callRefusal(agent.data) !== undefined : true;
   // With no network on this phone, the computer's cached Online/Offline is stale.
   const phoneOnline = usePhoneOnline();
+  const loadSources = [agent, messagePage];
+  const failedLoad = loadNotice(loadSources, phoneOnline);
+  useReloadWhenOnline(phoneOnline, loadSources);
   const lastUser = latestOwn(messages);
   const working = !!chat.state.progress || lastUser?.working === true;
   const start = () => {
@@ -807,7 +811,7 @@ export default function ChatScreen() {
             </KeyboardGestureArea>
           )}
           {pill.show && rows.length > 0 && <NewReplyPill count={pill.count} onPress={toBottom} />}
-          {(removed || agent.error || messagePage.error || chat.privateNotice !== undefined) && (
+          {(removed || failedLoad !== undefined || chat.privateNotice !== undefined) && (
             // Opaque, so a notice laid over the messages stays readable.
             <View
               pointerEvents="box-none"
@@ -823,11 +827,8 @@ export default function ChatScreen() {
                   }
                 />
               )}
-              {agent.error && !removed && (
-                <ErrorNotice error={agent.error} onRetry={() => agent.reload()} />
-              )}
-              {messagePage.error && !removed && (
-                <ErrorNotice error={messagePage.error} onRetry={() => messagePage.reload()} />
+              {failedLoad !== undefined && !removed && (
+                <ErrorNotice error={failedLoad.error} onRetry={failedLoad.retry} />
               )}
             </View>
           )}

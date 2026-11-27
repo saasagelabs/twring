@@ -20,6 +20,8 @@ export interface ErrorCopy {
   detail?: string;
   /** True when trying the same thing again may work. */
   retryable: boolean;
+  /** Set only when the phone could not reach the server at all (no network). */
+  network?: true;
 }
 
 function detailOf(error: ApiError): string | undefined {
@@ -54,6 +56,7 @@ export function apiErrorCopy(
       return {
         message: "Twring couldn't reach its server. Check your internet connection and try again.",
         retryable: true,
+        network: true,
       };
     case 'timeout':
       return { message: 'The server took too long to answer. Try again.', retryable: true };
