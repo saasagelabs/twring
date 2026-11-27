@@ -60,6 +60,12 @@ import { SearchIndex, memorySearchStore, type SearchRow } from './search-index';
 import { deleteSearchDatabase, sqliteSearchStore } from './search-store';
 import { connectThreadSocket } from './socket';
 
+/** After a 404 (chats off), the list is asked again after 20 s, doubling up to 5 min. */
+const OFF_RETRY_MIN_MS = 20_000;
+const OFF_RETRY_MAX_MS = 5 * 60_000;
+/** How long the server's echo of this phone's own Clear chat is recognised as that echo. */
+const OWN_CLEAR_ECHO_MS = 60_000;
+
 export class ChatController {
   private revision = 0;
   private epoch = 0;
@@ -74,6 +80,10 @@ export class ChatController {
   private readonly focusCounts = new Map<string, number>();
   private summaries: ThreadSummary[] = [];
   private availability: boolean | undefined;
+  /** While chats are off (404): when the list may be asked again, and the wait after that. */
+  private offRetryAt = 0;
+  private offBackoffMs = OFF_RETRY_MIN_MS;
+  private readonly timers: OutboxTimers;
   /** The chat list arrived since the last clear: each chat's privacy is known. */
   private listLoaded = false;
   /** The saved list from last time is on screen until the server's arrives. */
@@ -85,6 +95,8 @@ export class ChatController {
   private readonly previewStore?: SecureKeyValue;
   /** Opened previews of private chats' last messages, by chat; the saved ones load first. */
   private readonly previews = new Map<string, ListPreview>();
+  /** When this phone last cleared each chat, so the server's echo of it keeps newer typing. */
+  private readonly clearedHere = new Map<string, number>();
   private readonly previewing = new Set<string>();
   /** Bumped when opened previews are dropped, so an open still running cannot put one back. */
   private previewGeneration = 0;
@@ -124,6 +136,7 @@ export class ChatController {
     } = {},
     timers: OutboxTimers = systemTimers,
   ) {
+    this.timers = timers;
     this.privacy = stores.privacy;
     this.privacy?.onRemoved(() => void this.dropOpenedPrivate());
     this.shareHistory = stores.shareHistory;
@@ -572,8 +585,9 @@ export class ChatController {
   }
 
   async refreshList(): Promise<void> {
-    if (this.availability === false) return;
     if (this.listPromise) return this.listPromise;
+    // Chats off is asked again with a growing wait, so it comes back without a restart.
+    if (this.availability === false && this.timers.now() < this.offRetryAt) return;
     const epoch = this.epoch;
     this.listPromise = this.api
       .listThreads()
@@ -582,6 +596,7 @@ export class ChatController {
         this.summaries = threads;
         this.filesAvailable = files;
         this.availability = true;
+        this.offBackoffMs = OFF_RETRY_MIN_MS;
         this.listLoaded = true;
         this.listFailed = false;
         // Plain summaries only: a private chat's last message is still sealed here.
@@ -598,8 +613,13 @@ export class ChatController {
         if (epoch !== this.epoch) return;
         if (error instanceof ApiError && error.kind === 'http' && error.status === 404) {
           this.availability = false;
+          this.offRetryAt = this.timers.now() + this.offBackoffMs;
+          this.offBackoffMs = Math.min(this.offBackoffMs * 2, OFF_RETRY_MAX_MS);
           this.socket?.close();
           this.socket = undefined;
+          // ensureSocket adds these again when chats come back.
+          this.appSubscription?.remove();
+          this.appSubscription = undefined;
           this.stopNetInfo?.();
           this.stopNetInfo = undefined;
           this.emit();
@@ -634,10 +654,12 @@ export class ChatController {
     // The chat opened again: a phone removed meanwhile learns it before sending.
     this.checkPrivateRemoved(agentId);
     try {
+      const knownSeq = this.getChat(agentId).messages.at(-1)?.seq ?? 0;
       const page = await this.api.listMessages(agentId, { limit: 50 });
       if (epoch !== this.epoch || !this.focusCounts.has(agentId)) return;
+      // Cached messages the page no longer holds were deleted or cleared while this chat was shut.
       this.put(agentId, {
-        ...openLatest(this.getChat(agentId), page),
+        ...openLatest(replaceLatest(this.getChat(agentId), page, knownSeq), page),
         hasOlder: page.hasMore,
       });
       for (const message of page.messages) this.outbox.reconcile(message);
@@ -814,7 +836,15 @@ export class ChatController {
   frame(frame: ThreadSocketFrame): void {
     const agentId = frame.type === 'message.upserted' ? frame.message.agent_id : frame.agent_id;
     if (frame.type === 'message.upserted') this.outbox.reconcile(frame.message);
-    if (frame.type === 'thread.cleared') void this.search.forgetAgent(agentId);
+    if (frame.type === 'thread.cleared') {
+      void this.search.forgetAgent(agentId);
+      // Cleared elsewhere: the same as Clear chat here, so no old send, draft or preview remains.
+      // The echo of this phone's own clear is skipped: what was typed since then is new.
+      const clearedHere = this.clearedHere.get(agentId);
+      this.clearedHere.delete(agentId);
+      if (clearedHere === undefined || Date.now() - clearedHere > OWN_CLEAR_ECHO_MS)
+        this.dropChatData(agentId);
+    }
     this.put(agentId, applyFrame(this.getChat(agentId), agentId, frame));
     // Progress arrives every 250 ms while a reply streams; only real changes refresh the list.
     if (frame.type !== 'turn.progress') void this.refreshList();
@@ -873,6 +903,8 @@ export class ChatController {
     this.hydrated = false;
     this.listFailed = false;
     this.availability = undefined;
+    this.offRetryAt = 0;
+    this.offBackoffMs = OFF_RETRY_MIN_MS;
     this.filesAvailable = false;
     this.emit();
     await Promise.all([outbox, drafts, search, privacy, summaries?.catch(() => undefined)]);
@@ -886,6 +918,11 @@ export class ChatController {
   }
   /** After "Clear chat": unsent messages are dropped and the composer starts empty too. */
   forgetChat(agentId: string): void {
+    this.clearedHere.set(agentId, Date.now());
+    this.dropChatData(agentId);
+  }
+  /** Unsent messages, draft and list preview of one chat: gone after a clear, here or elsewhere. */
+  private dropChatData(agentId: string): void {
     void clearSealedFiles();
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
