@@ -117,7 +117,7 @@ export function authController(): AuthController | undefined {
     ...(config.googleIosClientId !== undefined && { iosClientId: config.googleIosClientId }),
   });
 
-  const backend = supabaseBackend(supabase.auth);
+  const backend = supabaseBackend(supabase.auth, () => storage.getItem(AUTH_STORAGE_KEY));
   // supabase/migrations: deletes auth.uid()'s own account; no arguments, signed-in users only.
   deleteOwnAccount = async () => {
     const { error } = await supabase.rpc('delete_my_account');
