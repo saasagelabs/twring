@@ -212,8 +212,8 @@ describe('turning private on pairs the computer this agent runs on', () => {
 });
 
 describe('undeliveredIds (finding 14)', () => {
-  const msg = (id: string, kind: string, author?: 'user' | 'agent') =>
-    ({ ...base(), id, kind, author, sealed: [], text: '' }) as unknown as ThreadMessage;
+  const msg = (id: string, kind: string, author?: 'user' | 'agent', created_at = at) =>
+    ({ ...base(), id, kind, author, sealed: [], text: '', created_at }) as unknown as ThreadMessage;
   const toMe = new Set(['a1']);
   const sealedToMe = (m: { id: string }) => toMe.has(m.id);
 
@@ -225,11 +225,23 @@ describe('undeliveredIds (finding 14)', () => {
       msg('a2', 'sealed', 'agent'),
       msg('u3', 'sealed', 'user'),
     ];
-    expect([...undeliveredIds(list, sealedToMe)]).toEqual(['u3', 'u2']);
+    expect([...undeliveredIds(list, sealedToMe, at)]).toEqual(['u3', 'u2']);
   });
 
   it('a plain agent reply also counts as an answer', () => {
     const list = [msg('u1', 'sealed', 'user'), msg('t1', 'agent_text')];
-    expect(undeliveredIds(list, sealedToMe).size).toBe(0);
+    expect(undeliveredIds(list, sealedToMe, at).size).toBe(0);
+  });
+
+  it('only marks own messages sent at or after the removal', () => {
+    const before = '2026-11-25T09:59:00.000Z';
+    const after = '2026-11-25T10:01:00.000Z';
+    const list = [msg('u1', 'sealed', 'user', before), msg('u2', 'sealed', 'user', after)];
+    expect([...undeliveredIds(list, sealedToMe, at)]).toEqual(['u2']);
+  });
+
+  it('an unknown removal time marks nothing', () => {
+    const list = [msg('u1', 'sealed', 'user')];
+    expect(undeliveredIds(list, sealedToMe, undefined).size).toBe(0);
   });
 });

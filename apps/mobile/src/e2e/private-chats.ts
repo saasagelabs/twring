@@ -114,6 +114,8 @@ export class PrivateChats {
   private removedSelf = false;
   /** The removed phone's device id (public), to tell which replies it could still have read. */
   private removedDevice: string | undefined;
+  /** When the server revoked this phone (its own `revoked_at`); undefined if it did not say. */
+  private removedAt: string | undefined;
   /** Bumped by `reset` and `forget`: a load started before one never keeps what it read. */
   private generation = 0;
   /** This phone's saved list held a computer before the server's list was applied. */
@@ -171,7 +173,8 @@ export class PrivateChats {
       if (stale()) return;
       const before = this.trusted;
       if (removedPhone(server, before, me.deviceId)) {
-        await this.forgetRemoved(me.deviceId);
+        const revokedAt = server.find((d) => d.id === me.deviceId)?.revoked_at;
+        await this.forgetRemoved(me.deviceId, revokedAt);
         return;
       }
       this.known = server.some(
@@ -188,6 +191,11 @@ export class PrivateChats {
   /** Another phone removed this one; true until Set up resets the chats. */
   removed(): boolean {
     return this.removedSelf;
+  }
+
+  /** When the server removed this phone, if it said; undefined until then or after Set up. */
+  removedSince(): string | undefined {
+    return this.removedSelf ? this.removedAt : undefined;
   }
 
   /** Once removed: whether a sealed message was still sealed to this phone before removal. */
@@ -224,10 +232,11 @@ export class PrivateChats {
    * replay state and re-wrap jobs), then the chats are told so they drop opened files and text.
    * It can only come back through a fresh approval as a new device.
    */
-  private async forgetRemoved(deviceId: string): Promise<void> {
+  private async forgetRemoved(deviceId: string, revokedAt: string | undefined): Promise<void> {
     this.deps.log?.('e2e_phone_removed');
     this.removedSelf = true;
     this.removedDevice = deviceId;
+    this.removedAt = revokedAt;
     this.known = false;
     this.trusted = [];
     this.contexts.clear();
@@ -262,6 +271,7 @@ export class PrivateChats {
     this.removedChecked.clear();
     this.removedSelf = false;
     this.removedDevice = undefined;
+    this.removedAt = undefined;
     this.known = undefined;
   }
 
@@ -551,6 +561,7 @@ export class PrivateChats {
     this.removedChecked.clear();
     this.removedSelf = false;
     this.removedDevice = undefined;
+    this.removedAt = undefined;
     this.known = undefined;
     this.trusted = [];
     await this.wipeStored();

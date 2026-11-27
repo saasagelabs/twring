@@ -339,6 +339,7 @@ describe('a phone removed while its chat is open (finding 14)', () => {
     expect(calls()).toBe(2);
     expect(told).toBe(1);
     expect(c.removed()).toBe(true);
+    expect(c.removedSince()).toBe(at);
     expect(c.notice(AGENT)).toBe(REMOVED_PHONE);
     await expect(c.seal(AGENT, 'hi')).rejects.toEqual(new SealError('pair_again'));
     expect(await c.context(AGENT)).toBeUndefined();

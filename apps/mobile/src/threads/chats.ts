@@ -293,7 +293,11 @@ export class ChatController {
   /** This phone's unanswered private messages once it was removed: shown as not delivered. */
   getUndelivered = (agentId: string): ReadonlySet<string> =>
     this.getPrivateRemoved(agentId)
-      ? undeliveredIds(this.getChat(agentId).messages, (m) => this.privacy!.sealedToRemoved(m))
+      ? undeliveredIds(
+          this.getChat(agentId).messages,
+          (m) => this.privacy!.sealedToRemoved(m),
+          this.privacy!.removedSince(),
+        )
       : NONE_UNDELIVERED;
 
   /** Reads the device list again (throttled) to learn whether this phone was removed. */
