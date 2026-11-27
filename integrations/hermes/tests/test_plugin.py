@@ -99,3 +99,13 @@ def test_a_broken_tools_module_does_not_stop_calls(plugin_package, monkeypatch):
     monkeypatch.setitem(sys.modules, "twring_plugin.tools", broken)
     module.register(FakeCtx())
     assert calls == ["platform"]
+
+
+def test_disclosure_covers_the_phone_approval_transport():
+    readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
+    manifest = manifest_text()
+    for text in (readme, manifest):
+        assert "hermes twring approvals on" in text
+        assert "/v1/connectors/approvals" in text
+    for phrase in ("[Y/n]", "transport_fallback", "hermes twring approvals status", "GET long-poll", "DELETE", "origin label", "over 500 characters", "`twring` approval transport"):
+        assert phrase in readme, phrase

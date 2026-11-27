@@ -8,7 +8,12 @@ description: >
   Android). Live two-way voice calls and typed chat in one conversation with your own Hermes,
   dangerous-command approvals answered by voice or tap, and Hermes can message you or ring your
   phone from any chat, the terminal or a scheduled job. Twring does the speech; Hermes keeps its
-  own model, memory and tools.
+  own model, memory and tools. `hermes twring link` asks whether to approve Hermes's commands from
+  your phone (Enter means yes; `hermes twring approvals on|off|status` changes it). When on, every
+  approval from any surface sends the command (after Hermes's redaction), its reason and where it
+  came from to the Twring server over HTTPS (POST, GET long-poll, DELETE on
+  /v1/connectors/approvals); long commands, private chats and an unreachable server fall back to
+  Hermes's own prompt.
 author: SaaSage Labs
 license: Apache-2.0
 homepage: https://twring.com

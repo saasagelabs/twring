@@ -54,6 +54,9 @@ def test_tools_and_hooks_load_without_the_gateway(clean_registry):
     assert sorted(resolve_toolset("twring")) == ["twring_message_owner", "twring_ring_owner"]
     for hook in ("pre_approval_request", "post_approval_response", "api_request_error"):
         assert manager._hooks.get(hook), f"{hook} not registered"
+    # The one register() entry also registers the approval transport and the Hermes skill.
+    assert manager.get_approval_transport("twring") is not None
+    assert "twring:twring" in manager._plugin_skills
     # The adapter (and with it the gateway) stayed deferred.
     assert {n for n in sys.modules if n.endswith(".adapter")} == adapter_modules_before
 
