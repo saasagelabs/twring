@@ -146,6 +146,22 @@ describe('invite state', () => {
     });
   });
 
+  it('a re-check that is rate limited or unauthorized keeps ringing, and a late one is ignored while answering', () => {
+    const ringing: IncomingState = { phase: 'ringing' };
+    const limited = new ApiError('http', 'rate_limited', 'r', undefined, 429);
+    const unauthorized = new ApiError('http', 'unauthorized', 'r', undefined, 401);
+    expect(reduceIncoming(ringing, { type: 'LOAD_FAILED', error: limited })).toBe(ringing);
+    expect(reduceIncoming(ringing, { type: 'LOAD_FAILED', error: unauthorized })).toBe(ringing);
+    const answering: IncomingState = { phase: 'answering' };
+    expect(reduceIncoming(answering, { type: 'LOADED', status: 'answered' })).toBe(answering);
+    expect(
+      reduceIncoming(answering, {
+        type: 'LOAD_FAILED',
+        error: new ApiError('http', 'not_found', 'r', undefined, 404),
+      }),
+    ).toBe(answering);
+  });
+
   it('ignores everything once ended, and a late server answer after acting', () => {
     const ended: IncomingState = { phase: 'ended', why: 'declined' };
     expect(reduceIncoming(ended, { type: 'ANSWER' })).toBe(ended);
