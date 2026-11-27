@@ -47,13 +47,18 @@ minimumReleaseAgeExclude:
   - expo-image-manipulator@57.0.23
   - expo-image-picker@57.0.22
 
-# Security patches for transitive dependencies flagged by pnpm audit (2026-10-07, 2026-11-02).
+# Security patches for transitive dependencies flagged by pnpm audit (2026-10-07, 2026-11-02,
+# 2026-11-27).
 overrides:
   shell-quote: ^1.11.0
   source-map-js: ^1.2.2
-  node-forge: ^1.4.1
+  node-forge: ^1.4.4
   vite: ^8.3.3
   'zod@>=4.0.0 <4.6.6': ^4.6.6
+  'fast-uri@>=3.0.0 <3.1.9': ^3.1.9
+  'fast-uri@>=4.0.0 <4.2.3': ^4.2.3
+  'glob@>=9.0.0 <14.0.2': ^14.0.6
+  'minimatch@>=7.0.0 <11.0.1': ^11.0.5
 
 # Advisories with no usable patched release. Each line says why it is safe to carry; remove it once
 # a fixed version ships.
@@ -70,6 +75,10 @@ auditConfig:
     # forcing it would break link parsing in the app. Worst case is a slow parse of a crafted link
     # on the person's own phone. Remove once expo-router moves to a fixed query-string.
     - GHSA-qr28-fpjm-wq7f # decode-uri-component 0.2.2 (via expo-router > query-string)
+    # 2026-11-27. decode-uri-component <=0.4.2 (wrong or slow decode of crafted input): same package
+    # and path as above, fixed only in the ESM-only 0.5.0, so the same reason holds. Remove together
+    # with the entry above.
+    - GHSA-vcc3-ghjq-m6fr # decode-uri-component 0.2.2 (via expo-router > query-string)
     # 2026-11-18. picomatch <=4.0.7 (slow match on a crafted extglob pattern): no fixed release
     # exists yet (4.0.7 is the latest). It reaches Twring only through build tooling (Metro and the
     # Expo CLI file watcher, eslint's glob); no server package depends on it and it is not bundled
