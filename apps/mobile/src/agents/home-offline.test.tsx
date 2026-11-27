@@ -36,6 +36,7 @@ vi.mock('@/agents/home-rows', () => ({
 vi.mock('@/api', () => ({ twringApi: () => undefined }));
 vi.mock('@/call/start', () => ({ startCall: vi.fn() }));
 vi.mock('@/config/env', () => ({ mobileEnv: { ok: true } }));
+vi.mock('@/hooks/foreground', () => ({ useFocusRefresh: () => undefined }));
 vi.mock('@/hooks/useResource', () => ({
   STATUS_POLL_MS: 1,
   useResource: () => ({ ...mocks.resource, reload: () => undefined }),

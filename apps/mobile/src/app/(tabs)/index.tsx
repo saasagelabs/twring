@@ -1,5 +1,5 @@
 import type { Agent } from '@twring/contracts';
-import { router, useFocusEffect } from 'expo-router';
+import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -18,6 +18,7 @@ import { PrimaryButton } from '@/components/PrimaryButton';
 import { Screen } from '@/components/Screen';
 import { Skeleton } from '@/components/Skeleton';
 import { mobileEnv } from '@/config/env';
+import { useFocusRefresh } from '@/hooks/foreground';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { onboardingSeen, shouldShowOnboarding } from '@/onboarding/state';
 import { unseenMissed } from '@/ring/missed';
@@ -31,20 +32,19 @@ const savedAgents = agentCache();
 /** Agents with a missed ring the owner has not seen yet, and a way to mark them all seen. */
 function useUnseenMissed(): [ReadonlySet<string>, () => void] {
   const [missed, setMissed] = useState<ReadonlySet<string>>(new Set());
-  useFocusEffect(
-    useCallback(() => {
-      const api = twringApi();
-      if (!api) return;
-      const controller = new AbortController();
-      void Promise.all([api.history(controller.signal), missedLastSeen()])
-        .then(([entries, seen]) => {
-          if (!controller.signal.aborted)
-            setMissed(new Set(unseenMissed(entries, seen).map((entry) => entry.agent_id)));
-        })
-        .catch(() => undefined);
-      return () => controller.abort();
-    }, []),
-  );
+  // Also on return to the foreground: a ring missed while away shows without switching tabs.
+  useFocusRefresh(() => {
+    const api = twringApi();
+    if (!api) return;
+    const controller = new AbortController();
+    void Promise.all([api.history(controller.signal), missedLastSeen()])
+      .then(([entries, seen]) => {
+        if (!controller.signal.aborted)
+          setMissed(new Set(unseenMissed(entries, seen).map((entry) => entry.agent_id)));
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  });
   return [
     missed,
     () => {
