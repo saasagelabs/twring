@@ -45,6 +45,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
   private var alertsAllowed = false
   private var answered: [String: Any]?
   private var opened: [String: Any]?
+  private var visibleChat: String?
   private var emitter: ((String, [String: Any]) -> Void)?
 
   override init() {
@@ -573,8 +574,33 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
     _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
     withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
   ) {
-    backgroundPush(notification.request.content.userInfo)
+    let userInfo = notification.request.content.userInfo
+    backgroundPush(userInfo)
+    // The open chat already shows this message: no banner or sound on top of it.
+    if let agentId = messageAgentId(userInfo), agentId == lock.withLock({ visibleChat }) {
+      completionHandler([])
+      return
+    }
     completionHandler([.banner, .list, .sound])
+  }
+
+  /// The chat on screen, set by JS on focus and cleared on blur and background.
+  func setVisibleChat(_ agentId: String?) {
+    lock.withLock { visibleChat = agentId }
+  }
+
+  /// The agent a message push belongs to; nil for other pushes or a sealed one that does not open.
+  private func messageAgentId(_ userInfo: [AnyHashable: Any]) -> String? {
+    switch userInfo["type"] as? String {
+    case "cord.message":
+      return userInfo["agent_id"] as? String
+    case "cord.sealed":
+      let data = Self.stringKeyed(userInfo)
+      guard data["kind"] as? String == "message" else { return nil }
+      return CordSeal.open(keys: CordSealKeys.all(), data: data, now: Date())?["agent_id"]
+    default:
+      return nil
+    }
   }
 
   func userNotificationCenter(
