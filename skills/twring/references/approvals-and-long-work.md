@@ -25,7 +25,7 @@ What that means for you:
 6. **Work that continues after the call can't be approved.** Pending approvals are denied when the call ends. If the rest of the job needs permission, stop there, then ring and ask.
 <!-- /not -->
 <!-- only:hermes -->
-6. **After the call, approvals take the usual route.** An approval still pending when the call ends goes to the card on their phone if they turned approvals from the phone on, and is denied otherwise. A later request goes to the card on their phone if they turned approvals from the phone on, or waits where you asked, and the plugin rings them after sixty seconds. Never act on silence.
+6. **After the call, approvals take the usual route.** An approval still pending when the call ends is denied; if you still need it, ask again after the call. A later request goes to the card on their phone if they turned approvals from the phone on, or waits where you asked, and the plugin rings them after sixty seconds. Never act on silence.
 <!-- /only -->
 
 You still carry out what's approved, with your own tools and safeguards. Twring never runs your tools.
