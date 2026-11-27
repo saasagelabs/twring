@@ -158,8 +158,8 @@ describe('devices screen', () => {
       .filter((e) => e.type === 'SettingsRow' && e.props.label !== 'Save a recovery key')
       .map((e) => [e.props.label, e.props.value]);
     expect(rows).toEqual([
-      ['Pixel (This phone)', 'Phone, added 2026-11-20'],
-      ['Laptop', 'Computer, added 2026-11-20'],
+      ['Pixel (This phone)', 'Phone, added 20 Nov'],
+      ['Laptop', 'Computer, added 20 Nov'],
     ]);
     expect(texts(all)).not.toContain('Remove a device to add a new one.');
   });

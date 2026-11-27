@@ -71,8 +71,40 @@ export interface DeviceRow {
   thisPhone: boolean;
   /** False for a phone this phone has not approved (it cannot read that phone's private chats). */
   connected: boolean;
-  /** The added date, for display (`YYYY-MM-DD`). */
+  /** The added date (`YYYY-MM-DD`). */
   added: string;
+  /** The added date in plain words ("27 Nov"). */
+  addedLabel?: string;
+  /** Another phone with this name was added later: likely an old install, shown, never removed. */
+  oldInstall?: boolean;
+}
+
+/** Under a same-name phone that is probably left over from an earlier install of the app. */
+export const OLD_INSTALL =
+  'Probably an old install of this app. Remove it if you no longer use it.';
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "2026-11-27T..." as "27 Nov"; the raw date when it is not one. */
+export function addedLabel(addedAt: string): string {
+  const m = /^\d{4}-(\d{2})-(\d{2})/.exec(addedAt);
+  const month = m ? MONTHS[Number(m[1]) - 1] : undefined;
+  return m && month ? `${Number(m[2])} ${month}` : addedAt.slice(0, 10);
+}
+
+/**
+ * A phone that shares its name with another phone added after it, or with this phone, is likely
+ * an old install of the app (a reinstall pairs as a new device). This phone is never one.
+ */
+function isOldInstall(d: E2eDevice, active: readonly E2eDevice[], selfId?: string): boolean {
+  if (d.kind !== 'phone' || d.id === selfId) return false;
+  return active.some(
+    (o) =>
+      o.id !== d.id &&
+      o.kind === 'phone' &&
+      o.name === d.name &&
+      (o.id === selfId || o.added_at > d.added_at),
+  );
 }
 
 export interface DevicesState {
@@ -104,6 +136,8 @@ export function devicesStateFrom(
         d.kind === 'computer' ||
         trustedIds.has(d.id),
       added: d.added_at.slice(0, 10),
+      addedLabel: addedLabel(d.added_at),
+      oldInstall: isOldInstall(d, active, selfId),
     })),
     count: `${active.length} of ${MAX_PAIRED_DEVICES} devices`,
     canAdd,
