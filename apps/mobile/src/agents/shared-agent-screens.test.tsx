@@ -79,6 +79,10 @@ vi.mock('@/agents/labels', () => ({
   historyRow: () => ({}),
   protocolLabel: () => 'Computer',
 }));
+vi.mock('@/net/load-notices', async () => ({
+  ...(await import('../net/load-notices')),
+  useReloadWhenOnline: () => undefined,
+}));
 vi.mock('@/net/usePhoneOnline', () => ({
   PHONE_OFFLINE_LABEL: 'Waiting for network',
   usePhoneOnline: () => mocks.phoneOnline,

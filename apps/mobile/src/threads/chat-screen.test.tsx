@@ -91,6 +91,7 @@ vi.mock('@/agents/labels', () => ({
   agentStatusFor: () => ({ label: 'Online' }),
   callRefusal: () => undefined,
 }));
+vi.mock('@/net/load-notices', () => import('../net/load-notices'));
 vi.mock('@/net/usePhoneOnline', () => ({
   PHONE_OFFLINE_LABEL: 'Waiting for network',
   usePhoneOnline: () => mocks.phoneOnline,
