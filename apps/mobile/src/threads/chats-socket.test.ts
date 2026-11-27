@@ -128,3 +128,26 @@ describe('thread socket on network changes', () => {
     expect(retryNow).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('thread socket when the network returns as a different one', () => {
+  it('replaces the socket after offline when the new network differs from the last connected one', async () => {
+    handles.length = 0;
+    netListeners.length = 0;
+    const api = {
+      listMessages: vi.fn().mockResolvedValue({ messages: [], hasMore: false }),
+      listThreads: vi.fn().mockResolvedValue({ threads: [], files: false }),
+      markRead: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TwringApi;
+    const controller = new ChatController(api, { url: 'wss://x', requireSecureMedia: true });
+    await controller.open(agent);
+    const emit = (state: NetInfoState) => netListeners.forEach((listener) => listener(state));
+    const { retryNow } = handles[0];
+    emit(net('wifi', true, '10.0.0.2'));
+    // Wi-Fi off with a short gap before mobile data: the socket opened on Wi-Fi may still look open,
+    // and a plain retryNow() returns early while a socket exists.
+    emit(net('none', false));
+    emit(net('cellular', true, '100.64.1.9'));
+    expect(retryNow).toHaveBeenLastCalledWith({ networkChanged: true });
+    await controller.clear();
+  });
+});
