@@ -68,7 +68,6 @@ export function StatusLine({
       {content.kind === 'status' && (
         <>
           <Text
-            numberOfLines={1}
             style={[
               styles.status,
               { color: content.tone === 'danger' ? palette.danger : palette.textTertiary },
