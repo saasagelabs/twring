@@ -35,24 +35,33 @@ export interface StatusLineInput {
     voice?: { serverReadable?: true };
   };
   /** The newest own message the server knows about. */
-  latest?: { status: UserMessageStatus; errorCode?: string };
+  latest?: { status: UserMessageStatus; errorCode?: string; awaitingReply?: boolean };
 }
 
 /**
  * The newest message this person sent, plain or private, as the status line reads it. A private
  * message counts as working once sent: its computer starts on it at once, so Stop shows then.
  */
-export function latestOwn(
-  messages: readonly ThreadMessage[],
-): { id: string; status: UserMessageStatus; errorCode?: string; working: boolean } | undefined {
+export function latestOwn(messages: readonly ThreadMessage[]):
+  | {
+      id: string;
+      status: UserMessageStatus;
+      errorCode?: string;
+      working: boolean;
+      /** Nothing from the agent has arrived after this message yet. */
+      awaitingReply: boolean;
+    }
+  | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
+    const awaitingReply = i === messages.length - 1;
     if (m.kind === 'user_text')
       return {
         id: m.id,
         status: m.status,
         ...(m.error_code !== undefined && { errorCode: m.error_code }),
         working: m.status === 'working',
+        awaitingReply,
       };
     if (m.kind === 'sealed' && m.author === 'user' && m.status !== undefined)
       return {
@@ -60,6 +69,7 @@ export function latestOwn(
         status: m.status,
         ...(m.error_code !== undefined && { errorCode: m.error_code }),
         working: m.status === 'sent' || m.status === 'working',
+        awaitingReply,
       };
   }
   return undefined;
@@ -104,6 +114,13 @@ export function statusLineContent(input: StatusLineInput): StatusLineContent {
       text: aiApp ? aiAppReplyStatus(name) : messageStatus('sending', name),
     };
   }
+  // An AI app reads messages when it next checks, so until its reply arrives the line says so.
+  if (
+    aiApp &&
+    latest?.awaitingReply === true &&
+    (latest.status === 'sent' || latest.status === 'answered')
+  )
+    return { kind: 'status', tone: 'tertiary', text: aiAppReplyStatus(name) };
   if (latest && !FINAL.has(latest.status)) {
     const failed = latest.status === 'failed';
     return {

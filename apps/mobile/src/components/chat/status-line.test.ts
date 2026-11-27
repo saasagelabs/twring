@@ -107,7 +107,12 @@ it('a plain message works as before', () => {
     status: 'sent',
     text: 'hi',
   } as unknown as ThreadMessage;
-  expect(latestOwn([plain])).toEqual({ id: 'msg_p', status: 'sent', working: false });
+  expect(latestOwn([plain])).toEqual({
+    id: 'msg_p',
+    status: 'sent',
+    working: false,
+    awaitingReply: true,
+  });
 });
 
 it('a failure code with its own copy wins over the server text', () => {
@@ -186,6 +191,27 @@ it('a turn that has ended clears the line', () => {
       kind: 'empty',
     });
   }
+});
+
+it('an AI app keeps "reads this when it checks" until its reply arrives', () => {
+  for (const status of ['sent', 'answered'] as const) {
+    expect(
+      statusLineContent({ ...base, aiApp: true, latest: { status, awaitingReply: true } }),
+    ).toEqual({ kind: 'status', tone: 'tertiary', text: 'Hermes reads this when it checks' });
+    expect(
+      statusLineContent({ ...base, aiApp: true, latest: { status, awaitingReply: false } }),
+    ).toEqual({ kind: 'empty' });
+    expect(statusLineContent({ ...base, latest: { status, awaitingReply: true } })).toEqual({
+      kind: 'empty',
+    });
+  }
+});
+
+it('latestOwn says whether a reply has arrived after the newest own message', () => {
+  const mine = { kind: 'user_text', id: 'm1', status: 'answered' } as unknown as ThreadMessage;
+  const reply = { kind: 'agent_text', id: 'm2' } as unknown as ThreadMessage;
+  expect(latestOwn([mine])?.awaitingReply).toBe(true);
+  expect(latestOwn([mine, reply])?.awaitingReply).toBe(false);
 });
 
 it('queued, expired and failed still show', () => {
