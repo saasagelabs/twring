@@ -40,6 +40,11 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
   /** True after close() or a refusal (4403, 4409): only reconnect() opens it again. */
   stopped(): boolean;
   reconnect(): void;
+  /**
+   * Skips a backoff wait now (the app came to the front, or the network changed). With
+   * networkChanged, a socket still connecting or open is replaced too: it may sit on the old network.
+   */
+  retryNow(options?: { networkChanged?: boolean }): void;
   close(): void;
 } {
   const url = `${options.url.replace(/\/+$/, '').replace(/^http/, 'ws')}/v1/me/socket`;
@@ -61,7 +66,9 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
   let openedAt: number | undefined;
   let focus: string | null = null;
   let generation = 0;
-  const delays = [1_000, 2_000, 5_000, 10_000, 30_000];
+  let refreshing: Promise<unknown> | undefined;
+  let lastRetryNow: number | undefined;
+  const delays = [1_000, 2_000, 5_000, 10_000];
   const clearTimers = () => {
     if (retryTimer !== undefined) timers.clearTimeout(retryTimer);
     if (resetTimer !== undefined) timers.clearTimeout(resetTimer);
@@ -109,8 +116,12 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
         generation++;
         socket = undefined;
         ws.close();
-        const refreshing = options.refreshAuth?.().catch(() => undefined);
-        retryLater(refreshing);
+        const pending = options.refreshAuth?.().catch(() => undefined);
+        refreshing = pending;
+        void pending?.then(() => {
+          if (refreshing === pending) refreshing = undefined;
+        });
+        retryLater(pending);
       }
     };
     ws.onclose = (event) => {
@@ -172,6 +183,34 @@ export function connectThreadSocket(options: ThreadSocketOptions): {
       clearTimers();
       generation++;
       socket?.close();
+      connect();
+    },
+    retryNow({ networkChanged = false } = {}) {
+      if (stopped || blocked) return;
+      if (socket && !networkChanged) return;
+      const now = timers.now();
+      if (lastRetryNow !== undefined && now - lastRetryNow < 1_000) return;
+      lastRetryNow = now;
+      retryStep = 0;
+      if (socket) {
+        // Replaced, not reconnect(): the 4409 guard (evictionRetried, blocked) stays as it is.
+        generation++;
+        const old = socket;
+        socket = undefined;
+        old.close();
+        connect();
+        return;
+      }
+      const pending = refreshing;
+      if (pending) {
+        // Waits for the new token instead of being refused again with the stale one.
+        clearTimers();
+        const scheduled = generation;
+        void pending.then(() => {
+          if (scheduled === generation) connect();
+        });
+        return;
+      }
       connect();
     },
     close() {
