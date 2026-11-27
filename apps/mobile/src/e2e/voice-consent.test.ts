@@ -70,15 +70,24 @@ describe('voice-note consent per private chat', () => {
     expect(await hasVoiceConsent(failing, 'a1')).toBe(false);
   });
 
-  it('keeps the newest 200 chats', async () => {
+  it('keeps the newest 60 chats', async () => {
     const store = memory();
     for (let i = 0; i <= VOICE_CONSENT_CAP; i++) await giveVoiceConsent(store, `a${i}`);
     const ids = JSON.parse(store.map.get(VOICE_CONSENT_KEY) ?? '') as string[];
-    expect(VOICE_CONSENT_CAP).toBe(200);
-    expect(ids).toHaveLength(200);
+    expect(VOICE_CONSENT_CAP).toBe(60);
+    expect(ids).toHaveLength(60);
     expect(ids[0]).toBe('a1');
     expect(await hasVoiceConsent(store, 'a0')).toBe(false);
     expect(await hasVoiceConsent(store, `a${VOICE_CONSENT_CAP}`)).toBe(true);
+  });
+
+  it('a full list of real agent ids fits in one SecureStore entry', async () => {
+    const store = memory();
+    for (let i = 0; i < VOICE_CONSENT_CAP + 5; i++)
+      await giveVoiceConsent(store, `agt_${String(i).padStart(20, 'x')}`);
+    expect(new TextEncoder().encode(store.map.get(VOICE_CONSENT_KEY) ?? '').length).toBeLessThan(
+      2048,
+    );
   });
 
   it('sign-out removes every consent', async () => {

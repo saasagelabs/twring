@@ -8,8 +8,11 @@ import { writeWhileKept } from './approve';
  * private again remove it.
  */
 export const VOICE_CONSENT_KEY = 'twring.e2e.voice_consent.v1';
-/** The oldest consents go first past this many chats. */
-export const VOICE_CONSENT_CAP = 200;
+/**
+ * The oldest consents go first past this many chats. Agent ids are 24 characters, so 60 of them
+ * stay under the 2048 bytes SecureStore keeps reliably in one entry.
+ */
+export const VOICE_CONSENT_CAP = 60;
 
 function parse(raw: string | null): string[] {
   if (raw === null) return [];
