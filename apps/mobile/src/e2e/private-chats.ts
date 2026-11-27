@@ -98,6 +98,8 @@ const savedSchema = z.record(
 
 /** A chat's re-wraps are read again at most this often while the app runs. */
 export const REWRAP_ASK_MS = 5 * 60_000;
+/** How often one chat may read the device list to learn whether this phone was removed. */
+export const REMOVED_CHECK_MS = 30_000;
 
 export class PrivateChats {
   private readonly contexts = new Map<string, PhoneSealContext>();
@@ -110,6 +112,8 @@ export class PrivateChats {
   private readonly lostKeys = new Set<string>();
   /** Another phone removed this one: its keys are forgotten and nothing is sealed. */
   private removedSelf = false;
+  /** The removed phone's device id (public), to tell which replies it could still have read. */
+  private removedDevice: string | undefined;
   /** Bumped by `reset` and `forget`: a load started before one never keeps what it read. */
   private generation = 0;
   /** This phone's saved list held a computer before the server's list was applied. */
@@ -124,6 +128,8 @@ export class PrivateChats {
   private readonly rewrapAsked = new Map<string, number>();
   private readonly rewrapLoading = new Map<string, Promise<void>>();
   private readonly removedListeners = new Set<() => void>();
+  /** When each chat last read the device list to learn whether this phone was removed. */
+  private readonly removedChecked = new Map<string, number>();
 
   constructor(private readonly deps: PrivateChatDeps) {}
 
@@ -135,8 +141,9 @@ export class PrivateChats {
 
   /** What a private chat says above the composer, if anything: most specific first. */
   notice(agentId: string): string | undefined {
-    if (this.contexts.get(agentId) === undefined) return undefined;
+    // Removal clears every context: the notice must not wait for one.
     if (this.removedSelf) return REMOVED_PHONE;
+    if (this.contexts.get(agentId) === undefined) return undefined;
     if (this.reinstalled.has(agentId)) return REINSTALLED;
     if (this.lostKeys.has(agentId) && this.pairAgain(agentId)) return LOST_KEYS;
     // No computer trusted, then or now, and the server does not know this phone: a new or wiped
@@ -164,7 +171,7 @@ export class PrivateChats {
       if (stale()) return;
       const before = this.trusted;
       if (removedPhone(server, before, me.deviceId)) {
-        await this.forgetRemoved();
+        await this.forgetRemoved(me.deviceId);
         return;
       }
       this.known = server.some(
@@ -178,6 +185,34 @@ export class PrivateChats {
     }
   }
 
+  /** Another phone removed this one; true until Set up resets the chats. */
+  removed(): boolean {
+    return this.removedSelf;
+  }
+
+  /** Once removed: whether a sealed message was still sealed to this phone before removal. */
+  sealedToRemoved(message: SealedThreadMessage): boolean {
+    const id = this.removedDevice;
+    return id !== undefined && message.sealed.some((e) => e.keys.some((k) => k.device === id));
+  }
+
+  /**
+   * Reads the device list again to learn whether another phone removed this one: a reply with no
+   * key for this phone, a failed send, or the chat coming back into view. At most once per chat in
+   * `REMOVED_CHECK_MS`; a reset meanwhile drops the answer.
+   */
+  async checkRemoved(agentId: string): Promise<void> {
+    if (this.removedSelf) return;
+    const ctx = this.contexts.get(agentId);
+    if (ctx === undefined) return;
+    const now = Date.now();
+    const checked = this.removedChecked.get(agentId);
+    if (checked !== undefined && now - checked < REMOVED_CHECK_MS) return;
+    this.removedChecked.set(agentId, now);
+    const generation = this.generation;
+    await this.readDevices(agentId, ctx.accountId, ctx.me, () => generation !== this.generation);
+  }
+
   /** Called once this phone learns another phone removed it (R3-4): the chats drop opened text. */
   onRemoved(listener: () => void): () => void {
     this.removedListeners.add(listener);
@@ -189,9 +224,10 @@ export class PrivateChats {
    * replay state and re-wrap jobs), then the chats are told so they drop opened files and text.
    * It can only come back through a fresh approval as a new device.
    */
-  private async forgetRemoved(): Promise<void> {
+  private async forgetRemoved(deviceId: string): Promise<void> {
     this.deps.log?.('e2e_phone_removed');
     this.removedSelf = true;
+    this.removedDevice = deviceId;
     this.known = false;
     this.trusted = [];
     this.contexts.clear();
@@ -223,7 +259,9 @@ export class PrivateChats {
     this.reinstalled.clear();
     this.lostKeys.clear();
     this.rewrapAsked.clear();
+    this.removedChecked.clear();
     this.removedSelf = false;
+    this.removedDevice = undefined;
     this.known = undefined;
   }
 
@@ -243,6 +281,8 @@ export class PrivateChats {
     const ready = this.contexts.get(agentId);
     // A re-wrap read under way: the chat is drawn again once it is in.
     if (ready) return (this.rewrapLoading.get(agentId) ?? Promise.resolve()).then(() => ready);
+    // Removed: no new key is made until Set up resets the chats.
+    if (this.removedSelf) return Promise.resolve(undefined);
     let work = this.loading.get(agentId);
     if (!work) {
       const generation = this.generation;
@@ -299,6 +339,7 @@ export class PrivateChats {
     files?: SealedPayload['files'],
   ): Promise<SealedEnvelopeV1> {
     if (text.length > MAX_USER_MESSAGE_CHARS) throw new SealError('too_long');
+    if (this.removedSelf) throw new SealError('pair_again');
     let ctx: PhoneSealContext | undefined;
     try {
       ctx = await this.context(agentId);
@@ -436,6 +477,8 @@ export class PrivateChats {
     const sealed = messages.filter((m): m is SealedThreadMessage => m.kind === 'sealed');
     const keyless = (m: SealedThreadMessage) =>
       m.sealed.every((e) => !e.keys.some((k) => k.device === ctx.me.deviceId));
+    // A reply sealed without this phone: the computer may no longer trust it (removed elsewhere).
+    if (sealed.some((m) => m.author === 'agent' && keyless(m))) void this.checkRemoved(agentId);
     // A message with no key for this phone may have one from another phone: read them first.
     if (
       sealed.some((m) => keyless(m) && ctx.rewraps?.has(m.id) !== true) &&
@@ -505,7 +548,9 @@ export class PrivateChats {
     this.reinstalled.clear();
     this.lostKeys.clear();
     this.rewrapAsked.clear();
+    this.removedChecked.clear();
     this.removedSelf = false;
+    this.removedDevice = undefined;
     this.known = undefined;
     this.trusted = [];
     await this.wipeStored();

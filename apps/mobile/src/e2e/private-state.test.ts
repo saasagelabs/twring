@@ -12,6 +12,7 @@ import {
   VOICE_WARNING,
   sealedBubble,
   turnOnPrivate,
+  undeliveredIds,
 } from './private-state';
 import type { TrustedDevice } from './pairing';
 import type { OpenedMessage } from './sealed-thread';
@@ -207,5 +208,28 @@ describe('turning private on pairs the computer this agent runs on', () => {
     });
     expect(push).not.toHaveBeenCalled();
     expect(setPrivate).not.toHaveBeenCalled();
+  });
+});
+
+describe('undeliveredIds (finding 14)', () => {
+  const msg = (id: string, kind: string, author?: 'user' | 'agent') =>
+    ({ ...base(), id, kind, author, sealed: [], text: '' }) as unknown as ThreadMessage;
+  const toMe = new Set(['a1']);
+  const sealedToMe = (m: { id: string }) => toMe.has(m.id);
+
+  it('marks own messages after the last reply this phone could read, skipping keyless ones', () => {
+    const list = [
+      msg('u1', 'sealed', 'user'),
+      msg('a1', 'sealed', 'agent'),
+      msg('u2', 'sealed', 'user'),
+      msg('a2', 'sealed', 'agent'),
+      msg('u3', 'sealed', 'user'),
+    ];
+    expect([...undeliveredIds(list, sealedToMe)]).toEqual(['u3', 'u2']);
+  });
+
+  it('a plain agent reply also counts as an answer', () => {
+    const list = [msg('u1', 'sealed', 'user'), msg('t1', 'agent_text')];
+    expect(undeliveredIds(list, sealedToMe).size).toBe(0);
   });
 });

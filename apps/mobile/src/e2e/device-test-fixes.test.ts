@@ -309,6 +309,67 @@ describe('a removed phone (bug 3)', () => {
   });
 });
 
+describe('a phone removed while its chat is open (finding 14)', () => {
+  async function loaded(revoked: () => boolean) {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer()]);
+    let calls = 0;
+    const c = chats(store, () => {
+      calls++;
+      return {
+        devices: [listedPhone(phone.id, revoked() ? { revoked_at: at } : {}), listed(computer)],
+      };
+    });
+    await c.context(AGENT);
+    return { store, c, calls: () => calls };
+  }
+  const other = keys();
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('a reply with no key for this phone reads the list, shows removed and makes no new key', async () => {
+    let revoked = false;
+    const { store, c, calls } = await loaded(() => revoked);
+    expect(calls()).toBe(1);
+    revoked = true;
+    let told = 0;
+    c.onRemoved(() => void told++);
+    c.open(AGENT, [replyTo(other)]);
+    await settle();
+    await settle();
+    expect(calls()).toBe(2);
+    expect(told).toBe(1);
+    expect(c.removed()).toBe(true);
+    expect(c.notice(AGENT)).toBe(REMOVED_PHONE);
+    await expect(c.seal(AGENT, 'hi')).rejects.toEqual(new SealError('pair_again'));
+    expect(await c.context(AGENT)).toBeUndefined();
+    expect(await loadDeviceKey(store)).toBeUndefined();
+  });
+
+  it('a second keyless reply inside 30 s reads nothing more; a reset clears the wait', async () => {
+    const { c, calls } = await loaded(() => false);
+    c.open(AGENT, [replyTo(other)]);
+    await settle();
+    c.open(AGENT, [replyTo(other)]);
+    await c.checkRemoved(AGENT);
+    expect(calls()).toBe(2);
+    c.reset();
+    await c.context(AGENT);
+    expect(calls()).toBe(3);
+    await c.checkRemoved(AGENT);
+    expect(calls()).toBe(4);
+  });
+
+  it('a phone the server still trusts keeps its key and its chat', async () => {
+    const { store, c } = await loaded(() => false);
+    c.open(AGENT, [replyTo(other)]);
+    await settle();
+    expect(c.removed()).toBe(false);
+    expect(c.notice(AGENT)).not.toBe(REMOVED_PHONE);
+    expect((await loadDeviceKey(store))?.deviceId).toBe(phone.id);
+    expect(c.open(AGENT, [replyTo(phone)])?.map((m) => m.state)).toEqual(['ok']);
+  });
+});
+
 describe('edge cases (verifier)', () => {
   async function pairedPhone() {
     const store = await storeWithPhoneKey();

@@ -148,6 +148,30 @@ export function interruptedNotice(
 }
 
 /** How a private message is drawn; undefined while the keys load (nothing is drawn yet). */
+/** A message this phone sent after another phone removed it: the computer never read it. */
+export const NOT_DELIVERED = 'Not delivered';
+
+/**
+ * This phone's own private messages with no reply after them, once another phone removed it. A
+ * reply sealed without this phone (the computer's "could not open") is not an answer.
+ */
+export function undeliveredIds(
+  messages: readonly ThreadMessage[],
+  sealedToMe: (message: Extract<ThreadMessage, { kind: 'sealed' }>) => boolean,
+): Set<string> {
+  const ids = new Set<string>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.kind !== 'sealed') {
+      if (message.kind === 'agent_text') break;
+      continue;
+    }
+    if (message.author === 'user') ids.add(message.id);
+    else if (sealedToMe(message)) break;
+  }
+  return ids;
+}
+
 export function sealedBubble(
   message: ThreadMessage,
   opened: ReadonlyMap<string, OpenedMessage> | undefined,
