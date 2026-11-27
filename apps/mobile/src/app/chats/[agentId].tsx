@@ -19,6 +19,7 @@ import {
 import { KeyboardAvoidingView, KeyboardGestureArea } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { agentStatusFor, callRefusal } from '@/agents/labels';
+import { PHONE_OFFLINE_LABEL, usePhoneOnline } from '@/net/usePhoneOnline';
 import { aiAppEmptyChat, canCall, isAiApp, showComputerCallHint } from '@/agents/ai-app';
 import { autoListenTarget } from '@/threads/auto-listen';
 import { ApiError, twringApi } from '@/api';
@@ -265,10 +266,12 @@ export default function ChatScreen() {
     if (autoListenId) router.setParams({ listen: undefined });
   }, [autoListenId]);
   const offline = agent.data ? callRefusal(agent.data) !== undefined : true;
+  // With no network on this phone, the computer's cached Online/Offline is stale.
+  const phoneOnline = usePhoneOnline();
   const lastUser = latestOwn(messages);
   const working = !!chat.state.progress || lastUser?.working === true;
   const start = () => {
-    if (agent.data && canCall(agent.data) && !offline) {
+    if (agent.data && canCall(agent.data) && !offline && phoneOnline) {
       stopMessageSpeech();
       setCallForThisChat(true);
       callAgent(agent.data);
@@ -700,7 +703,7 @@ export default function ChatScreen() {
             name={name}
             avatarVersion={agent.data?.avatar_version}
             size={36}
-            online={aiApp ? undefined : !offline}
+            online={aiApp || !phoneOnline ? undefined : !offline}
           />
           <View style={styles.titleBlock}>
             <Text numberOfLines={1} style={[styles.name, { color: palette.textPrimary }]}>
@@ -714,11 +717,13 @@ export default function ChatScreen() {
               {/* Working shows once, in the status line above the message box. */}
               {aiApp
                 ? 'AI app'
-                : agent.data?.connector_online === false
-                  ? 'Offline · check your computer is on'
-                  : agent.data
-                    ? agentStatusFor(agent.data).label
-                    : ''}
+                : !phoneOnline
+                  ? PHONE_OFFLINE_LABEL
+                  : agent.data?.connector_online === false
+                    ? 'Offline · check your computer is on'
+                    : agent.data
+                      ? agentStatusFor(agent.data).label
+                      : ''}
             </Text>
           </View>
         </Pressable>
@@ -726,7 +731,12 @@ export default function ChatScreen() {
           <OnCallChip startedAt={liveCall.connectedAt} />
         ) : (
           canCall(agent.data) && (
-            <CallButton name={name} variant="fill" disabled={offline} onPress={start} />
+            <CallButton
+              name={name}
+              variant="fill"
+              disabled={offline || !phoneOnline}
+              onPress={start}
+            />
           )
         )}
       </View>
@@ -751,7 +761,7 @@ export default function ChatScreen() {
                   name={name}
                   avatarVersion={agent.data?.avatar_version}
                   size={72}
-                  online={aiApp ? undefined : !offline}
+                  online={aiApp || !phoneOnline ? undefined : !offline}
                 />
                 <Text style={[type.title, { color: palette.textPrimary }]}>{name}</Text>
                 <Text style={[type.body, { color: palette.textSecondary, textAlign: 'center' }]}>

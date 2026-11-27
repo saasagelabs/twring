@@ -15,7 +15,7 @@ const mocks = vi.hoisted(() => {
     loading: false,
     refreshing: false,
   };
-  return { state: [] as unknown[], cursor: 0, resource };
+  return { state: [] as unknown[], cursor: 0, resource, phoneOnline: true };
 });
 
 vi.mock('react', async (importOriginal) => {
@@ -79,6 +79,10 @@ vi.mock('@/agents/labels', () => ({
   historyRow: () => ({}),
   protocolLabel: () => 'Computer',
 }));
+vi.mock('@/net/usePhoneOnline', () => ({
+  PHONE_OFFLINE_LABEL: 'Waiting for network',
+  usePhoneOnline: () => mocks.phoneOnline,
+}));
 vi.mock('@/agents/shared', () => import('./shared'));
 vi.mock('@/api', () => ({ apiErrorCopy: () => ({}), twringApi: () => undefined }));
 vi.mock('@/language/language', () => import('../language/language'));
@@ -138,6 +142,8 @@ import { SHARED_AGENT_NOTE, VIEW_ONLY_AGENT_NOTE } from './shared';
 type Props = {
   label?: string;
   accessibilityLabel?: string;
+  online?: boolean;
+  disabled?: boolean;
   children?: ReactNode;
   footer?: ReactNode;
   headerRight?: ReactNode;
@@ -187,6 +193,7 @@ async function screen(file: keyof typeof screens): Promise<() => ReactElement> {
 beforeEach(() => {
   mocks.state = [];
   mocks.resource.data = undefined;
+  mocks.phoneOnline = true;
 });
 
 describe('agent detail screen', () => {
@@ -251,6 +258,18 @@ describe('agent detail screen', () => {
     // Read only, so a shared agent keeps it.
     expect(out).toContain('Photos and files');
     expect(everything(tree)).toContain(SHARED_AGENT_NOTE);
+  });
+
+  it('shows "Waiting for network" in place of the computer status while the phone is offline', async () => {
+    detail({ connector_online: true });
+    const render = await screen('index');
+    expect(names(render())).toContain('Online');
+    mocks.phoneOnline = false;
+    const tree = elements(render());
+    const label = tree.find((e) => e.type === 'StatusLabel');
+    expect(label?.props.label).toBe('Waiting for network');
+    expect(tree.find((e) => e.type === 'Avatar')?.props.online).toBeUndefined();
+    expect(tree.find((e) => e.type === 'CallPill')?.props.disabled).toBe(true);
   });
 
   it('shows the shared note for a shared agent the person owns, with controls', async () => {
