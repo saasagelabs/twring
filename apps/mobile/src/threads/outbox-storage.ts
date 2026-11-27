@@ -83,7 +83,7 @@ export function rebaseOutboxUri(savedUri: string, currentDocumentUri: string): s
  * moves it over the saved file, so an app killed mid-write never leaves a half-written file.
  */
 export function fileStore(
-  kind: 'outbox' | 'drafts' | 'private' | 'agents',
+  kind: 'outbox' | 'drafts' | 'private' | 'agents' | 'summaries',
   scope: string,
 ): JsonStore {
   const files = async () => {

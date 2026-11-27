@@ -587,6 +587,18 @@ describe('a failed send', () => {
     expect(shown.join(' ')).not.toContain('Update Twring');
   });
 
+  it('an older failure wraps its message inside the screen next to Retry', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    mocks.chat.pending = [
+      failedVoice('c1', '2026-11-25T09:00:00.000Z'),
+      failedVoice('c2', '2026-11-25T10:00:00.000Z'),
+    ];
+    const error = of(render().items, 'Text').find((t) =>
+      Children.toArray(t.props.children).map(String).join('').startsWith("Didn't go through"),
+    )!;
+    expect(error.props.style).toMatchObject({ flexShrink: 1 });
+  });
+
   it('deletes a failed message from this phone after asking', async () => {
     const { Alert } = await import('react-native');
     setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
