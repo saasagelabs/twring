@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { open, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, stat } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
 import { loadConfig, saveConfig, type ConnectorConfig } from '../config';
 import { e2eConfigSchema, type E2eConfig } from './keys';
@@ -84,8 +85,10 @@ export function withCommandFields(
  * and Linux). Waits up to `waitMs` for another holder; a lock older than LOCK_STALE_MS is removed.
  * The lock holds a random token and is removed afterwards only if it still holds this one, so a
  * change that ran past LOCK_STALE_MS never removes the lock of the process that took it over.
+ * The folder is made first (as saveConfig does): a computer's first link has none yet.
  */
 async function withFileLock<T>(lockPath: string, waitMs: number, fn: () => Promise<T>): Promise<T> {
+  await mkdir(dirname(lockPath), { recursive: true, mode: 0o700 });
   const deadline = Date.now() + waitMs;
   const token = `${process.pid} ${randomUUID()}\n`;
   for (;;) {
