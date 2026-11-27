@@ -85,7 +85,12 @@ export function applyTrustNotes(
   const out = [...trusted];
   const refused: TrustNoteRefusal[] = [];
   for (const listed of server) {
-    if (listed.trust_note !== undefined && removed.includes(listed.id)) {
+    // Only an active listing of a removed phone is refused: a revoked row needs no decision.
+    if (
+      listed.trust_note !== undefined &&
+      listed.revoked_at === undefined &&
+      removed.includes(listed.id)
+    ) {
       refused.push('removed');
       continue;
     }
@@ -152,6 +157,8 @@ export interface SyncDevicesOptions {
   now?: () => number;
   /** Ids, counts and reasons only. */
   log?: (line: string) => void;
+  /** Held per session: refusals are logged only when they change from the last sync. */
+  refusalLog?: { last?: string };
 }
 
 /**
@@ -218,10 +225,13 @@ export async function syncDevices(
       ...(settled.pending.length > 0 && { pending: settled.pending }),
     };
   });
-  for (const reason of new Set(refused))
-    options.log?.(
-      `e2e_trust_note_refused ${reason} (${refused.filter((r) => r === reason).length})`,
-    );
+  const lines = [...new Set(refused)]
+    .sort()
+    .map((reason) => `${reason} (${refused.filter((r) => r === reason).length})`);
+  const key = lines.join(',');
+  if (options.refusalLog === undefined || options.refusalLog.last !== key)
+    for (const line of lines) options.log?.(`e2e_trust_note_refused ${line}`);
+  if (options.refusalLog !== undefined) options.refusalLog.last = key;
   return counts;
 }
 
