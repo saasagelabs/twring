@@ -250,7 +250,10 @@ export default function PrivateDevicesScreen() {
         approve && approving.checked !== undefined
           ? await approveWaiting(deps, approving.checked)
           : await denyWaiting(deps, id);
-      playCallFeedback(out.ok ? (approve ? 'connected' : 'ended') : 'error');
+      // A deny the server already took (its first answer was lost), or a request that ran out:
+      // that phone is not added either way, which is what the person asked for.
+      const deniedAnyway = !approve && !out.ok && ['closed', 'expired'].includes(out.code);
+      playCallFeedback(out.ok || deniedAnyway ? (approve ? 'connected' : 'ended') : 'error');
       // Nothing is over yet: the sheet stays with the same codes and tapping again carries on (an
       // accept the server already took gets the same answer again). After an approve only Approve
       // stays: if it went through, a deny would be refused and this phone would never finish it.
@@ -273,7 +276,7 @@ export default function PrivateDevicesScreen() {
       await load();
       // 'forgotten': this phone's keys were cleared meanwhile, by the person's own sign-out or
       // removal, so there is nothing to tell them about this approve.
-      if (!out.ok && out.code !== 'forgotten') setError(APPROVE_FAILED);
+      if (!out.ok && out.code !== 'forgotten' && !deniedAnyway) setError(APPROVE_FAILED);
     } finally {
       setBusy(false);
     }

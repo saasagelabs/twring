@@ -162,8 +162,17 @@ export interface ApproveApi {
 
 type Log = (event: string, fields?: Record<string, string | number>) => void;
 
+/** 'removed': the person removed this phone earlier, so its id can never be added again. */
 export type ApproveFailure =
-  'already_added' | 'cap' | 'busy' | 'expired' | 'closed' | 'mismatch' | 'outdated' | 'network';
+  | 'already_added'
+  | 'removed'
+  | 'cap'
+  | 'busy'
+  | 'expired'
+  | 'closed'
+  | 'mismatch'
+  | 'outdated'
+  | 'network';
 
 const errorSchema = z.object({ error: z.object({ code: z.string() }) });
 const listSchema = z.object({ approvals: z.array(phoneApprovalSchema).max(16) });
@@ -172,10 +181,13 @@ function failure(status: number, body: unknown): ApproveFailure {
   const parsed = errorSchema.safeParse(body);
   const code = parsed.success ? parsed.data.error.code : undefined;
   if (code === 'already_added') return 'already_added';
+  if (code === 'device_removed') return 'removed';
   if (code === 'device_cap') return 'cap';
   if (code === 'approval_cap') return 'busy';
   if (status === 410 || code === 'expired') return 'expired';
-  if (code === 'approval_closed' || code === 'not_found') return 'closed';
+  // 'device_conflict': the new phone can never be added (the server turned the request down).
+  if (code === 'approval_closed' || code === 'not_found' || code === 'device_conflict')
+    return 'closed';
   return 'network';
 }
 
@@ -203,12 +215,30 @@ function approvalFrom(
 // New phone
 
 /** The new phone asks to be approved (making its device key if it has none). */
-export async function requestApproval(deps: {
+type RequestDeps = {
   api: Pick<ApproveApi, 'request'>;
   store: SecureKeyValue;
   phoneName: string;
   log?: Log;
-}): Promise<{ ok: true; approval: PhoneApproval } | { ok: false; code: ApproveFailure }> {
+  /** The same wipe as Remove this phone, for a phone the person removed earlier. */
+  forgetSelf?: () => Promise<void>;
+};
+
+export async function requestApproval(
+  deps: RequestDeps,
+): Promise<{ ok: true; approval: PhoneApproval } | { ok: false; code: ApproveFailure }> {
+  const out = await askToBeApproved(deps);
+  if (out.ok || out.code !== 'removed' || deps.forgetSelf === undefined) return out;
+  // Removed earlier while it kept its key (it had not opened a private chat since): that id stays
+  // removed, so this phone forgets its keys and asks once more as a new phone.
+  deps.log?.('e2e_phone_removed');
+  await deps.forgetSelf();
+  return askToBeApproved(deps);
+}
+
+async function askToBeApproved(
+  deps: RequestDeps,
+): Promise<{ ok: true; approval: PhoneApproval } | { ok: false; code: ApproveFailure }> {
   const me = await loadOrCreateDeviceKey(deps.store, deps.log);
   const secret = newApprovalSecret();
   const commitment = base64urlEncode(approvalCommitment(me.publicKey, secret));

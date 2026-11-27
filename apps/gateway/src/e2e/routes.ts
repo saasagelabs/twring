@@ -108,6 +108,7 @@ const MESSAGES: Partial<Record<GatewayErrorCode, string>> = {
   handle_taken: 'This code is in use. Make a new one.',
   rate_limited: 'Too many tries. Wait a minute and try again.',
   already_added: 'This phone is already set up for private chats.',
+  device_removed: 'This phone was removed from private chats. Set it up again as a new phone.',
   approval_cap: 'Too many phones are waiting for approval. Try again in a few minutes.',
   approval_closed: 'This request was already answered.',
   expired: 'This request expired. Ask again from the new phone.',
@@ -519,7 +520,8 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
           409,
           cause.code === 'already_added' ||
             cause.code === 'approval_cap' ||
-            cause.code === 'device_cap'
+            cause.code === 'device_cap' ||
+            cause.code === 'device_removed'
             ? cause.code
             : 'device_conflict',
         );
@@ -678,12 +680,13 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
       try {
         accepted = devices.acceptApproval(userId, approval.id, approver.id, body.data.note);
       } catch (cause) {
-        if (cause instanceof E2eDeviceError)
-          return sendError(
-            reply,
-            409,
-            cause.code === 'device_cap' ? 'device_cap' : 'device_conflict',
-          );
+        if (cause instanceof E2eDeviceError) {
+          if (cause.code === 'device_cap') return sendError(reply, 409, 'device_cap');
+          // The new phone can never be added (its id was removed while it waited): the request
+          // is turned down, so it ends at once instead of when it expires.
+          devices.denyApproval(userId, approval.id);
+          return sendError(reply, 409, 'device_conflict');
+        }
         throw cause;
       }
       if (!accepted) return sendError(reply, 409, 'approval_closed');

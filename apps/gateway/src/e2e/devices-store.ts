@@ -29,7 +29,8 @@ export class E2eDeviceError extends Error {
       | 'device_conflict'
       | 'handle_taken'
       | 'approval_cap'
-      | 'already_added',
+      | 'already_added'
+      | 'device_removed',
   ) {
     super(code);
     this.name = 'E2eDeviceError';
@@ -451,7 +452,9 @@ export class E2eDeviceStore {
   /**
    * A new phone asks to be approved (C3 #11, Task 27). Its open request, if any, is replaced; an
    * account holds at most MAX_OPEN_APPROVALS open ones. Refused when the phone is already active
-   * (unless it asks as a second phone, ADR-045) or a new phone finds the account at the device cap.
+   * (unless it asks as a second phone, ADR-045), when the person removed this device id (it stays
+   * removed: the phone asks again with a new key), or when a new phone finds the account at the
+   * device cap.
    */
   requestApproval(userId: string, request: PhoneApprovalRequest, expiresAt: Date): PhoneApproval {
     const now = this.now().toISOString();
@@ -472,6 +475,12 @@ export class E2eDeviceStore {
         if (self.public_key !== request.public_key || others.n === 0)
           throw new E2eDeviceError('already_added');
       } else {
+        // Its accept could never add it (`insertDevice` refuses a removed id), so the request
+        // would wait in vain until it expires.
+        const removed = this.db
+          .prepare('SELECT 1 FROM e2e_devices WHERE user_id=? AND id=? AND revoked_at IS NOT NULL')
+          .get(userId, request.device_id);
+        if (removed !== undefined) throw new E2eDeviceError('device_removed');
         const active = this.db
           .prepare('SELECT COUNT(*) AS n FROM e2e_devices WHERE user_id=? AND revoked_at IS NULL')
           .get(userId) as { n: number };

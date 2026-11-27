@@ -18,6 +18,7 @@ export type PrivateChatErrorCode =
   | 'private_unsupported'
   | 'private_is_one_way'
   | 'already_added'
+  | 'device_removed'
   | 'approval_cap'
   | 'approval_closed'
   | 'expired'

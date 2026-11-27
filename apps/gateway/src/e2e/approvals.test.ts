@@ -185,6 +185,39 @@ describe('approving a second phone (C3 #11, Task 27)', () => {
     expect(res.json().id).toMatch(/^pap_[a-z2-7]{20}$/);
   });
 
+  it('a removed phone asking again is told so at once, and asks with a new key', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 2);
+    const removed = await g.send('DELETE', `/v1/e2e/devices/${idOf(2)}`, { user: 'u1' });
+    expect(removed.statusCode).toBe(204);
+    // Its accept could never add that id again, so the request would only wait until it expires.
+    const again = await request(g, 'u1', 2);
+    expect(again.statusCode).toBe(409);
+    expect(again.json().error.code).toBe('device_removed');
+    expect((await request(g, 'u1', 8)).statusCode).toBe(200);
+  });
+
+  it('an accept for a phone removed while it waited turns the request down', async () => {
+    const g = await start();
+    addPhone(g, 'u1', 1);
+    addPhone(g, 'u1', 9);
+    // ADR-045: an active phone asks another phone to approve it, then is removed meanwhile.
+    const id = (await request(g, 'u1', 9)).json().id as string;
+    expect((await claim(g, id, 1)).statusCode).toBe(200);
+    expect((await g.send('DELETE', `/v1/e2e/devices/${idOf(9)}`, { user: 'u1' })).statusCode).toBe(
+      204,
+    );
+    const late = await accept(g, id, 1);
+    expect(late.statusCode).toBe(409);
+    expect(late.json().error.code).toBe('device_conflict');
+    // The new phone sees the end at once, not after the 10 minutes.
+    const seen = await g.send('GET', `/v1/e2e/approvals/${id}?device_id=${idOf(9)}`, {
+      user: 'u1',
+    });
+    expect(seen.json().state).toBe('denied');
+  });
+
   it('the only active phone still gets already_added', async () => {
     const g = await start();
     addPhone(g, 'u1', 1);

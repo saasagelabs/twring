@@ -850,6 +850,73 @@ describe('a saved approve and other approvals', () => {
   });
 });
 
+describe('a phone the person removed earlier', () => {
+  const removedAnswer = () =>
+    Promise.resolve({
+      status: 409,
+      body: { error: { code: 'device_removed', message: 'x' } },
+    });
+
+  it('forgets its keys and asks again as a new phone', async () => {
+    const env = await setup();
+    const asked: string[] = [];
+    const request = env.api.request.bind(env.api);
+    env.api.request = (body) => {
+      asked.push(body.device_id);
+      return asked.length === 1 ? removedAnswer() : request(body);
+    };
+    let forgot = 0;
+    const out = await requestApproval({
+      api: env.api,
+      store: env.nStore,
+      phoneName: 'New',
+      forgetSelf: async () => {
+        forgot += 1;
+        await forgetPrivateDevice(env.nStore);
+      },
+    });
+    expect(out.ok).toBe(true);
+    expect(forgot).toBe(1);
+    expect(asked).toHaveLength(2);
+    expect(asked[0]).toBe(env.n.deviceId);
+    expect(asked[1]).not.toBe(env.n.deviceId);
+  });
+
+  it('says so when it cannot forget its keys itself, and asks only once', async () => {
+    const env = await setup();
+    let asked = 0;
+    env.api.request = () => {
+      asked += 1;
+      return removedAnswer();
+    };
+    expect(await requestApproval({ api: env.api, store: env.nStore, phoneName: 'New' })).toEqual({
+      ok: false,
+      code: 'removed',
+    });
+    expect(asked).toBe(1);
+  });
+
+  it('an accept the server can never apply ends at once, not as a network failure', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    let tries = 0;
+    env.api.accept = () => {
+      tries += 1;
+      return Promise.resolve({
+        status: 409,
+        body: { error: { code: 'device_conflict', message: 'x' } },
+      });
+    };
+    const wait = () => Promise.resolve();
+    expect(await approveWaiting({ api: env.api, store: env.tStore, wait }, checked)).toEqual({
+      ok: false,
+      code: 'closed',
+    });
+    expect(tries).toBe(1);
+    expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
+  });
+});
+
 describe('turning a phone down', () => {
   it('a deny that never got through keeps the claim, so trying again carries on', async () => {
     const env = await setup();

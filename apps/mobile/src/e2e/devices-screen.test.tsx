@@ -434,6 +434,21 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(mocks.state[APPROVING]).toEqual({ claimed });
   });
 
+  it.each(['closed', 'expired'])(
+    'says nothing after a deny the server already took or that ran out (%s)',
+    async (code) => {
+      mocks.api = listing(dev(0, 'phone', 'Pixel'));
+      mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+      mocks.state[APPROVING] = { claimed };
+      mocks.denyWaiting.mockResolvedValueOnce({ ok: false, code });
+      const deny = render().find((e) => e.type === 'GhostButton' && e.props.label === 'Deny')!;
+      (deny.props.onPress as () => void)();
+      await flush();
+      expect(mocks.state[APPROVING]).toBeUndefined();
+      expect(mocks.state[ERROR]).toBeUndefined();
+    },
+  );
+
   it('keeps the sheet after a deny that never got through, so tapping Deny again carries on', async () => {
     mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
     mocks.state[APPROVING] = { claimed };

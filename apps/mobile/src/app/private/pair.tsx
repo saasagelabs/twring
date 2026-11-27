@@ -42,7 +42,12 @@ import { RECOVERY_COPY, restoreOffer } from '@/e2e/recovery';
 import { shareHistory } from '@/e2e/share-history';
 import { playCallFeedback } from '@/platform/haptics';
 import { activeServerUrl } from '@/servers/active';
-import { chatController, privateKeychain, resetPrivateChats } from '@/threads/chats';
+import {
+  chatController,
+  forgetThisPhonePrivateKeys,
+  privateKeychain,
+  resetPrivateChats,
+} from '@/threads/chats';
 import { font } from '@/theme/fonts';
 import { space, type, usePalette } from '@/theme/tokens';
 
@@ -65,6 +70,7 @@ const FAILURE_COPY: Record<PairFailure, string> = {
 
 const APPROVE_FAILURE_COPY: Record<ApproveFailure | 'denied' | 'refused', string> = {
   already_added: 'This phone already has private chats.',
+  removed: 'This phone was removed from private chats. Try again to set it up as a new phone.',
   cap: 'You already have 5 devices. Remove one under Devices on your other phone first.',
   busy: 'Too many phones are waiting. Try again in a few minutes.',
   expired: 'This took too long, so nothing was saved. Try again.',
@@ -142,6 +148,7 @@ export default function PrivatePairScreen() {
         api: approveApi(),
         store: privateKeychain(),
         phoneName: deps().phoneName,
+        forgetSelf: forgetThisPhonePrivateKeys,
       });
       if (out.ok) setStep({ kind: 'approve', id: out.approval.id });
       else fail(APPROVE_FAILURE_COPY[out.code], 'approve');

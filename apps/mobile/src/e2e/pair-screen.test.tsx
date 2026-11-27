@@ -111,6 +111,7 @@ vi.mock('@/e2e/recovery', () => ({
 vi.mock('@/threads/chats', () => ({
   privateKeychain: () => ({ deviceOnly: true }),
   resetPrivateChats: vi.fn(),
+  forgetThisPhonePrivateKeys: vi.fn(),
   chatController: () =>
     mocks.hasController ? { loadedPrivateAgentIds: mocks.loadedPrivateAgentIds } : undefined,
 }));
