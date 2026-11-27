@@ -1,6 +1,13 @@
-import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
-import { AccessibilityInfo, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AccessibilityInfo,
+  ActivityIndicator,
+  AppState,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { twringApi } from '@/api';
 import { ErrorNotice } from '@/components/ErrorNotice';
@@ -40,6 +47,7 @@ import {
   type DevicesState,
 } from '@/e2e/devices';
 import { approveApi } from '@/e2e/pair-api';
+import { loadTrusted } from '@/e2e/pairing';
 import { playCallFeedback } from '@/platform/haptics';
 import { shareHistory } from '@/e2e/share-history';
 import {
@@ -71,7 +79,15 @@ type Approving = {
 };
 /** How often the approving phone asks whether the new phone sent what the code needs. */
 const REVEAL_POLL_MS = 2_000;
+/** How often an open Devices screen asks for phones waiting to be approved. */
+export const WAITING_POLL_MS = 5_000;
 type Loaded = { state: DevicesState; self?: string; waiting: Waiting[] } | { error: string };
+
+const trustedIds = (list: readonly { id: string }[]): string =>
+  list
+    .map((d) => d.id)
+    .sort()
+    .join(' ');
 
 /** The list from the server; reading it also drops devices the server removed from this phone. */
 async function fetchDevices(): Promise<Loaded> {
@@ -79,14 +95,18 @@ async function fetchDevices(): Promise<Loaded> {
   if (api?.privateDevices === undefined) return { error: LOAD_FAILED };
   try {
     const store = privateKeychain();
-    const [server, me, waiting] = await Promise.all([
+    const [server, me, waiting, before] = await Promise.all([
       listDevices({ list: () => api.privateDevices!() }),
       loadDeviceKey(store),
       listWaiting({ api: approveApi(), store }).catch(() => []),
+      loadTrusted(store).catch(() => undefined),
     ]);
     const self = me?.deviceId;
     // Phones another of this person's phones approved become trusted here too.
     const trusted = await syncTrusted(store, server, undefined, me).catch(() => undefined);
+    // Trusted devices came or went: open chats read the list again (stale audit 1).
+    if (before !== undefined && trusted !== undefined && trustedIds(before) !== trustedIds(trusted))
+      resetPrivateChats();
     return {
       state: devicesStateFrom(server, self, trusted && new Set(trusted.map((t) => t.id))),
       ...(self !== undefined && { self }),
@@ -166,6 +186,41 @@ export default function PrivateDevicesScreen() {
     };
   }, [apply, finishLostApprove, load]);
 
+  // Back on this screen, or the app back in front: the list again (stale audit 2). While the
+  // screen is in view and the app in front, phones asking to be approved show without leaving.
+  const focusedBefore = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      // The first focus is the opening load above; later ones read the list again.
+      if (focusedBefore.current) void load();
+      focusedBefore.current = true;
+      let stop: (() => void) | undefined;
+      const watch = () => {
+        stop?.();
+        stop = pollApproval(async () => {
+          const found = await listWaiting({ api: approveApi(), store: privateKeychain() });
+          if (live) setWaiting(found.map((a) => ({ id: a.id, name: a.name })));
+        }, WAITING_POLL_MS);
+      };
+      if (AppState.currentState === 'active') watch();
+      const sub = AppState.addEventListener('change', (next) => {
+        if (next === 'active') {
+          void load();
+          watch();
+        } else {
+          stop?.();
+          stop = undefined;
+        }
+      });
+      return () => {
+        live = false;
+        stop?.();
+        sub.remove();
+      };
+    }, [load]),
+  );
+
   /** An error inside the approve sheet, read out at once (focus stays on the button). */
   const sayInSheet = (message: string) => {
     setSheetError(message);
@@ -188,6 +243,8 @@ export default function PrivateDevicesScreen() {
       );
       playCallFeedback('ended');
       setRemoving(undefined);
+      // Another phone removed: open chats stop trusting it at once (this phone's own removal wipes).
+      if (row.id !== selfId) resetPrivateChats();
       await load();
     } catch {
       playCallFeedback('error');

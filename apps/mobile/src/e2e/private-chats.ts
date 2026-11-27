@@ -104,6 +104,13 @@ export const REMOVED_CHECK_MS = 30_000;
 /** A sender lookup stops holding a chat on loading after this; a stalled read then shows what is known. */
 export const SENDER_LOOKUP_MS = 10_000;
 
+/** A trusted list compared by what decides trust: ids, kinds and keys, in any order. */
+const trustKey = (list: readonly TrustedDevice[]): string =>
+  list
+    .map((d) => `${d.id} ${d.kind} ${d.public_key}`)
+    .sort()
+    .join('|');
+
 export class PrivateChats {
   private readonly contexts = new Map<string, PhoneSealContext>();
   private readonly loading = new Map<string, Promise<PhoneSealContext | undefined>>();
@@ -133,6 +140,7 @@ export class PrivateChats {
   private readonly rewrapAsked = new Map<string, number>();
   private readonly rewrapLoading = new Map<string, Promise<void>>();
   private readonly removedListeners = new Set<() => void>();
+  private readonly trustListeners = new Set<(agentIds: string[]) => void>();
   /** When each chat last read the device list to learn whether this phone was removed. */
   private readonly removedChecked = new Map<string, number>();
   /** Per chat: when each sender device it did not know was last looked up, and the read running. */
@@ -186,9 +194,11 @@ export class PrivateChats {
       this.known = server.some(
         (d) => d.id === me.deviceId && d.kind === 'phone' && d.revoked_at === undefined,
       );
-      this.trusted = await syncTrusted(this.deps.store, server, this.deps.log, me);
-      if (reinstalledFor(server, this.trusted, connectorId, before)) this.reinstalled.add(agentId);
+      const trusted = await syncTrusted(this.deps.store, server, this.deps.log, me);
+      const was = this.reinstalled.has(agentId);
+      if (reinstalledFor(server, trusted, connectorId, before)) this.reinstalled.add(agentId);
       else this.reinstalled.delete(agentId);
+      this.setTrusted(trusted, was !== this.reinstalled.has(agentId));
     } catch {
       // Offline or a bad answer: nothing changes.
     }
@@ -231,6 +241,25 @@ export class PrivateChats {
   onRemoved(listener: () => void): () => void {
     this.removedListeners.add(listener);
     return () => this.removedListeners.delete(listener);
+  }
+
+  /**
+   * Called when the trusted list or a chat's reinstalled state changed (a device removed or added
+   * elsewhere): the loaded chats it names open their messages again and redraw.
+   */
+  onTrustedChanged(listener: (agentIds: string[]) => void): () => void {
+    this.trustListeners.add(listener);
+    return () => this.trustListeners.delete(listener);
+  }
+
+  /** The one place the trusted list changes: every loaded chat gets it, and a change is told. */
+  private setTrusted(trusted: TrustedDevice[], reinstalledChanged = false): void {
+    const changed = reinstalledChanged || trustKey(trusted) !== trustKey(this.trusted);
+    this.trusted = trusted;
+    for (const ctx of this.contexts.values()) ctx.trusted = trusted;
+    if (!changed) return;
+    const agentIds = [...this.contexts.keys()];
+    for (const listener of this.trustListeners) listener(agentIds);
   }
 
   /**
@@ -369,8 +398,7 @@ export class PrivateChats {
     if (ctx === undefined) throw new SealError('not_computer');
     // Read again: a pairing done since this chat opened counts at once.
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
-    this.trusted = trusted;
-    ctx.trusted = trusted;
+    this.setTrusted(trusted);
     if (
       this.removedSelf ||
       this.reinstalled.has(agentId) ||
@@ -435,8 +463,7 @@ export class PrivateChats {
     const ctx = await this.context(agentId).catch(() => undefined);
     if (ctx === undefined) throw new SealError('not_computer');
     const trusted = await loadTrusted(this.deps.store).catch(() => ctx.trusted);
-    this.trusted = trusted;
-    ctx.trusted = trusted;
+    this.setTrusted(trusted);
     if (
       this.removedSelf ||
       this.reinstalled.has(agentId) ||
@@ -590,8 +617,7 @@ export class PrivateChats {
     const work = (async () => {
       const trusted = await loadTrusted(this.deps.store);
       if (stale()) return;
-      this.trusted = trusted;
-      ctx.trusted = trusted;
+      this.setTrusted(trusted);
       if ([...unknown].every((id) => trusted.some((d) => d.id === id))) return;
       await this.readDevices(agentId, ctx.accountId, ctx.me, () => generation !== this.generation);
       if (!stale()) ctx.trusted = this.trusted;

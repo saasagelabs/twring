@@ -126,6 +126,11 @@ export class ChatController {
   ) {
     this.privacy = stores.privacy;
     this.privacy?.onRemoved(() => void this.dropOpenedPrivate());
+    // A device trusted or removed elsewhere: those chats open their messages again with the list.
+    this.privacy?.onTrustedChanged((agentIds) => {
+      for (const id of agentIds) this.opened.delete(id);
+      this.emit();
+    });
     this.shareHistory = stores.shareHistory;
     this.sealedFiles = stores.sealedFiles ?? deviceSealedFiles;
     this.summaryStore = stores.summaries;

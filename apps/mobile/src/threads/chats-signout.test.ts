@@ -24,6 +24,7 @@ vi.mock('../e2e/private-chats', () => ({
   forgetPrivateDevice: () => Promise.resolve(),
   PrivateChats: class {
     onRemoved() {}
+    onTrustedChanged() {}
     forget() {
       return Promise.resolve();
     }

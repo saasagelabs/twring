@@ -620,3 +620,75 @@ describe('a phone approved after the chat loaded (device test 2026-11-27)', () =
     expect((await loadTrusted(store)).some((d) => d.id === newPhone.id)).toBe(false);
   });
 });
+
+describe('a trusted list changed elsewhere reaches loaded chats (stale audit 0)', () => {
+  const otherPhone = keys();
+  const trustedOther: TrustedDevice = {
+    id: otherPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: otherPhone.pub,
+    verified_at: at,
+  };
+  const listedOther = (extra: Partial<E2eDevice> = {}): E2eDevice => ({
+    id: otherPhone.id,
+    kind: 'phone',
+    name: 'Moto',
+    public_key: otherPhone.pub,
+    added_at: at,
+    ...extra,
+  });
+
+  async function loaded(server: () => E2eDevice[]) {
+    const store = await storeWithPhoneKey();
+    await saveTrusted(store, [trustedComputer(), trustedOther]);
+    const c = chats(store, () => ({ devices: server() }));
+    await c.context(AGENT);
+    const told: string[][] = [];
+    c.onTrustedChanged((ids) => told.push(ids));
+    return { c, told };
+  }
+
+  it('a phone removed on another phone stops being trusted in the open chat at once', async () => {
+    let removed = false;
+    const { c, told } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      listedOther(removed ? { revoked_at: at } : {}),
+    ]);
+    removed = true;
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([[AGENT]]);
+    const ctx = await c.context(AGENT);
+    expect(ctx?.trusted.some((d) => d.id === otherPhone.id)).toBe(false);
+  });
+
+  it('a computer reinstalled meanwhile shows its notice and tells the chats', async () => {
+    let reinstalled = false;
+    const { c, told } = await loaded(() =>
+      reinstalled
+        ? [
+            listedPhone(phone.id),
+            listed(computer, { revoked_at: at }),
+            listed(keys()),
+            listedOther(),
+          ]
+        : [listedPhone(phone.id), listed(computer), listedOther()],
+    );
+    expect(c.notice(AGENT)).toBeUndefined();
+    reinstalled = true;
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([[AGENT]]);
+    expect(c.notice(AGENT)).toBe(REINSTALLED);
+  });
+
+  it('an unchanged list tells nobody', async () => {
+    const { c, told } = await loaded(() => [
+      listedPhone(phone.id),
+      listed(computer),
+      listedOther(),
+    ]);
+    await c.checkRemoved(AGENT);
+    expect(told).toEqual([]);
+  });
+});
