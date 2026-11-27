@@ -811,6 +811,7 @@ export function chatController(): ChatController | undefined {
             fileStore('outbox', signingOut).remove(),
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
+            fileStore('agents', signingOut).remove(),
             deleteSearchDatabase(signingOut),
             clearSealedFiles(),
             forgetPrivateDevice(privateKeychain(signingOut)),

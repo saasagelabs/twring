@@ -3,6 +3,7 @@ import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { agentCache, OFFLINE_SAVED_AGENTS } from '@/agents/agent-cache';
 import { homeRow } from '@/agents/home-rows';
 import { twringApi } from '@/api';
 import { startCall } from '@/call/start';
@@ -24,6 +25,8 @@ import { markMissedSeen, missedLastSeen } from '@/ring/missed-seen';
 import { radius, space, type, usePalette } from '@/theme/tokens';
 import { useChatList } from '@/threads/chats';
 import { sortChatAgents } from '@/threads/presentation';
+
+const savedAgents = agentCache();
 
 /** Agents with a missed ring the owner has not seen yet, and a way to mark them all seen. */
 function useUnseenMissed(): [ReadonlySet<string>, () => void] {
@@ -57,13 +60,14 @@ export default function AgentsScreen() {
     (signal: AbortSignal) => twringApi()?.listAgents(signal) ?? Promise.resolve<Agent[]>([]),
     [],
   );
-  const agents = useResource(load, { pollMs: STATUS_POLL_MS });
+  const agents = useResource(load, { pollMs: STATUS_POLL_MS, cache: savedAgents });
   const chats = useChatList();
   const [missed, markSeen] = useUnseenMissed();
   useEffect(() => {
-    if (agents.data && shouldShowOnboarding(agents.data.length, onboardingSeen()))
+    // Only a fresh list decides onboarding: a saved one may be out of date.
+    if (agents.data && !agents.stale && shouldShowOnboarding(agents.data.length, onboardingSeen()))
       router.replace('/onboarding');
-  }, [agents.data]);
+  }, [agents.data, agents.stale]);
   if (!mobileEnv.ok)
     return (
       <Screen title="Twring">
@@ -74,7 +78,7 @@ export default function AgentsScreen() {
     );
   const sorted = sortChatAgents(agents.data ?? [], chats.threads);
   const summaries = new Map(chats.threads.map((thread) => [thread.agent_id, thread]));
-  const empty = agents.data?.length === 0;
+  const empty = agents.data?.length === 0 && !agents.stale;
   return (
     <Screen
       brand
@@ -113,7 +117,16 @@ export default function AgentsScreen() {
           ))}
         </View>
       )}
-      {agents.error && <ErrorNotice error={agents.error} onRetry={() => agents.reload()} />}
+      {agents.error && agents.stale ? (
+        <Text
+          accessibilityRole="alert"
+          style={[type.caption, { color: palette.textSecondary, textAlign: 'center' }]}
+        >
+          {OFFLINE_SAVED_AGENTS}
+        </Text>
+      ) : (
+        agents.error && <ErrorNotice error={agents.error} onRetry={() => agents.reload()} />
+      )}
       {empty && (
         <Text style={[type.body, { color: palette.textSecondary, textAlign: 'center' }]}>
           {chats.off
@@ -133,7 +146,7 @@ export default function AgentsScreen() {
                   name={agent.name}
                   avatarVersion={agent.avatar_version}
                   size={48}
-                  online={row.aiApp ? undefined : !row.offline}
+                  online={row.aiApp || agents.stale ? undefined : !row.offline}
                 />
               }
               title={agent.name}
