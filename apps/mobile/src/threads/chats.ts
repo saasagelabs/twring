@@ -404,6 +404,8 @@ export class ChatController {
       }
       // A socket the server refused for good stays one handle: reopen that same one.
       if (this.socket?.stopped()) this.socket.reconnect();
+      // One waiting out a backoff after a lost network tries again now.
+      else this.socket?.retryNow();
       this.socket?.setFocus([...this.focusCounts.keys()].at(-1) ?? null);
       for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
       this.reloadFocused();

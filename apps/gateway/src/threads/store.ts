@@ -1450,6 +1450,24 @@ export class SqliteThreadStore {
     ).count;
   }
 
+  /**
+   * Plain owner turns still `sent` or `working` that were last touched before `before`: a backstop
+   * for turns whose run was lost. Never sealed messages or private chats (PrivateIdle owns those).
+   */
+  async staleInFlight(
+    before: string,
+  ): Promise<{ userId: string; agentId: string; message: ThreadMessage }[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.kind='user_text' AND m.status IN ('sent','working') AND t.private=0 AND m.updated_at<? ORDER BY m.seq",
+      )
+      .all(before) as (Row & { agent_id: string })[];
+    return rows.flatMap((row) => {
+      const message = this.tryDecode(row, row.agent_id);
+      return message ? [{ userId: row.user_id, agentId: row.agent_id, message }] : [];
+    });
+  }
+
   /** Queued too long (the computer stayed offline): `expired`. Returns the changed messages. */
   async expireQueued(): Promise<ThreadMessage[]> {
     return this.changeStatuses(
