@@ -514,4 +514,17 @@ describe('a stuck message after a restart', () => {
     expect(canRetry({ errorCode: 'agent_offline' })).toBe(true);
     expect(canRetry({ error: new ApiError('network') })).toBe(true);
   });
+
+  it('a private message that retrying cannot fix offers Delete, not Retry', () => {
+    for (const code of [
+      'pair_again',
+      'not_computer',
+      'too_long',
+      'file_too_large',
+      'unsupported_file_type',
+    ]) {
+      expect(canRetry({ errorCode: code })).toBe(false);
+    }
+    expect(canRetry({ errorCode: 'seal_failed' })).toBe(true);
+  });
 });

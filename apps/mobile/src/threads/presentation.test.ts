@@ -276,4 +276,20 @@ describe('failedSendText', () => {
       "Didn't go through: The server said no.",
     );
   });
+
+  it('says why a private message could not be sent, never "try again later"', () => {
+    for (const code of [
+      'pair_again',
+      'not_computer',
+      'too_long',
+      'seal_failed',
+      'file_too_large',
+      'unsupported_file_type',
+    ]) {
+      expect(failedSendText('Claude Code', code, undefined)).not.toMatch(/try again later/);
+    }
+    expect(failedSendText('Claude Code', 'pair_again', undefined)).toBe(
+      "Didn't go through: this phone was removed from private chats. Set it up again to send here.",
+    );
+  });
 });
