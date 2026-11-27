@@ -55,8 +55,8 @@ jobs:
           UV="$(find "$HOME/.hermes/tools" -name uv -type f | head -1)"
           "$UV" pip install --python "$HERMES_PY" --target "$RUNNER_TEMP/testlibs" --quiet "pytest==8.3.5" "pytest-asyncio==0.25.3"
           echo "PYTHONPATH=$RUNNER_TEMP/testlibs" >> "$GITHUB_ENV"
-      - name: Adapter inside Hermes, against a fake Twring server
+      - name: Adapter, tools and hooks inside Hermes
         run: |
-          "$HERMES_PY" -m pytest -q -p no:cacheprovider -W ignore::DeprecationWarning tests/test_adapter.py
+          "$HERMES_PY" -m pytest -q -p no:cacheprovider -W ignore::DeprecationWarning tests/test_adapter.py tests/test_hermes_tools.py
       - name: Hermes catalog check
         run: hermes plugins validate . --install-deps

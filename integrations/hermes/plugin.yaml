@@ -1,23 +1,34 @@
 name: twring
 label: Twring
 kind: platform
-version: 0.1.3
+version: 0.2.0
 manifest_version: 1
 description: >
   Call Hermes from your phone and let it call you back, through the Twring app (iPhone and
   Android). Live two-way voice calls and typed chat in one conversation with your own Hermes,
-  dangerous-command approvals answered by voice or tap, and a phone ring when a scheduled job
-  finishes. Twring does the speech; Hermes keeps its own model, memory and tools.
+  dangerous-command approvals answered by voice or tap, and Hermes can message you or ring your
+  phone from any chat, the terminal or a scheduled job. Twring does the speech; Hermes keeps its
+  own model, memory and tools.
 author: SaaSage Labs
 license: Apache-2.0
 homepage: https://twring.com
 requires_hermes: '>=0.23.1'
 tags: [voice, phone, calls, approvals, platform]
-# Tells Twring when Hermes starts and ends a tool (name and success only), so a sentence the owner
-# paused in can be joined safely. The hooks never block or change a tool.
+# Hermes imports tools.py in every process (terminal, cron, gateway) because of this list; the
+# platform adapter stays deferred. Both tools are shown only while this Hermes is linked.
+provides_tools:
+  - twring_ring_owner
+  - twring_message_owner
+# pre_tool_call / post_tool_call tell Twring when Hermes starts and ends a tool (name and success
+# only). pre_approval_request / post_approval_response ring the owner once when an approval at the
+# computer waits 60 s (never the command text). api_request_error tells the owner when a scheduled
+# job stops on an error (the error type only). The hooks never block or change anything.
 provides_hooks:
   - pre_tool_call
   - post_tool_call
+  - pre_approval_request
+  - post_approval_response
+  - api_request_error
 requires_env:
   - name: TWRING_TOKEN
     description: "This computer's Twring link token. Run `hermes twring link` to get it from the Twring app; it is saved for you."
@@ -37,6 +48,6 @@ optional_env:
     prompt: 'Home channel'
     password: false
   - name: TWRING_RING_ON_DELIVERY
-    description: 'Ring your phone when a scheduled job delivers a result (true or false, default true)'
+    description: 'Ring your phone when a scheduled job delivers a result or stops on an error (true or false, default true)'
     prompt: 'Ring on delivery? (true/false)'
     password: false

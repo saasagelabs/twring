@@ -35,6 +35,10 @@ That's it: **Hermes** now appears in the Twring app. Press Call.
 
 `hermes gateway setup` offers the same link step. `hermes twring status` shows whether you're linked, and `hermes twring unlink` forgets the link on this computer (then delete Hermes in the app too).
 
+### Hermes can message you or ring you from anywhere
+
+From any chat (Telegram, Discord, the terminal) or a scheduled job, Hermes can send a message to your Twring chat with it (`twring_message_owner`) or ring your phone (`twring_ring_owner`) when it is blocked on you, finished something long, or hit a failure. If the ring is refused (quiet hours, Do Not Disturb, the hourly limit), the news is still in your Twring chat. When Hermes asks for your OK at the computer and nobody answers for 60 seconds, your phone rings once: "Hermes is waiting for your OK in Telegram." A scheduled job that stops on an error tells you too.
+
 ### Ring me when a scheduled job finishes
 
 Deliver any Hermes cron job to `twring`. Its result is saved in your Twring chat and your phone rings with its first sentence (at most 140 characters). Set `TWRING_RING_ON_DELIVERY=false` for a notification instead of a ring.
@@ -55,12 +59,13 @@ Self-host Twring? Link to it with `hermes twring link --server https://your-twri
 | `TWRING_SERVER` | Twring server, default `https://api.twring.com` |
 | `TWRING_ALLOWED_USERS` | `owner` (the linked Twring account), set by `link` |
 | `TWRING_HOME_CHANNEL` | Where scheduled-job results go: `owner`, set by `link` |
-| `TWRING_RING_ON_DELIVERY` | Ring for scheduled-job results (`true` by default) |
+| `TWRING_RING_ON_DELIVERY` | Ring for scheduled-job results and stopped scheduled jobs (`true` by default) |
 
 ## What this plugin does on your computer (disclosure)
 
-- **Network:** one outbound WebSocket to your Twring server (`wss://api.twring.com/v1/connectors/socket` by default) while `hermes gateway` runs, plus HTTPS calls to the same server to link, to post scheduled-job results to your chat and to ring your phone. Nothing else is contacted. Redirects are refused, and the token only travels in an `Authorization` header to the server you linked.
+- **Network:** one outbound WebSocket to your Twring server (`wss://api.twring.com/v1/connectors/socket` by default) while `hermes gateway` runs, plus HTTPS calls to the same server to link, to post messages and scheduled-job results to your chat, and to ring your phone. Those HTTPS calls also happen outside the gateway when Hermes uses its Twring tools, when an approval at the computer waits 60 seconds, and when a scheduled job stops on an error. Nothing else is contacted. Redirects are refused, and the token only travels in an `Authorization` header to the server you linked.
 - **What goes to Twring:** the text of your turns comes from Twring, and Hermes's replies, approval questions (the command, cut to fit the card, and Hermes's reason) and scheduled-job results go to Twring, which shows them in your app and speaks them on calls. While a turn runs, the name of each tool Hermes starts and whether it succeeded go to Twring (never its arguments or output), so Twring knows Hermes acted on that turn.
+- **Tools and hooks:** two tools, `twring_message_owner` and `twring_ring_owner`, shown to Hermes only while it is linked; Hermes decides when to use them and never sees the token. Hooks on Hermes's approvals and model errors send only "Hermes is waiting for your OK in <where>." (never the command) and "A scheduled Hermes job stopped: <error type>." (never the error text). They never block, change or answer an approval.
 - **Stored credential:** one long-lived link token (`TWRING_TOKEN`), saved through Hermes's own `.env` route by `hermes twring link`. The plugin writes no files of its own. Revoke it by deleting Hermes in the Twring app.
 - **Approvals:** answered only by you, through Hermes's approval system. A command too long to show on the phone gets Hermes's Deny-only card: it can be declined from the phone and approved only at the computer.
 - **No shell commands, no background processes** besides the gateway's own connection, **no telemetry**, **no self-update** (updates come only through the Hermes catalog).
@@ -86,7 +91,7 @@ pip install pytest pytest-asyncio httpx websockets
 python -m pytest -q        # protocol, linking and CLI tests
 ```
 
-`tests/test_adapter.py` runs the adapter inside real Hermes against a fake Twring server; run it with Hermes's own Python. Then validate the plugin as the catalog does:
+`tests/test_adapter.py` runs the adapter inside real Hermes against a fake Twring server; run it with Hermes's own Python. `tests/test_hermes_tools.py` checks, also with Hermes's Python, that the tools and hooks load in a process that never starts the gateway. Then validate the plugin as the catalog does:
 
 ```sh
 hermes plugins validate . --install-deps

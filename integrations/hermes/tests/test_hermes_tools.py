@@ -1,0 +1,66 @@
+"""The Twring tools and hooks inside real Hermes, in a process that never starts the gateway
+(the `hermes` terminal, cron). Needs Hermes installed (run with Hermes's own Python); skipped
+elsewhere."""
+
+import sys
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip("hermes_cli.plugins")
+
+import yaml  # noqa: E402  (ships with Hermes)
+from hermes_cli.plugins import PluginManager, PluginManifest  # noqa: E402
+from toolsets import resolve_toolset  # noqa: E402
+from tools.registry import registry  # noqa: E402
+
+PLUGIN = Path(__file__).resolve().parent.parent
+
+
+@pytest.fixture
+def clean_registry():
+    """Undo what loading the plugin leaves behind, as Hermes's own
+    tests/hermes_cli/test_deferred_platform_client_tools.py does."""
+    from gateway.platform_registry import platform_registry
+
+    before_tools = set(registry._tools)
+    before_modules = set(sys.modules)
+    yield
+    for name in set(registry._tools) - before_tools:
+        registry._tools.pop(name, None)
+    platform_registry.unregister("twring")
+    for name in set(sys.modules) - before_modules:
+        if name.startswith("hermes_plugins."):
+            sys.modules.pop(name, None)
+
+
+def twring_manifest():
+    data = yaml.safe_load((PLUGIN / "plugin.yaml").read_text(encoding="utf-8"))
+    return PluginManifest(
+        name=data["name"],
+        kind=data["kind"],
+        source="user",
+        path=str(PLUGIN),
+        key=data["name"],
+        provides_tools=data["provides_tools"],
+        provides_hooks=data["provides_hooks"],
+    )
+
+
+def test_tools_and_hooks_load_without_the_gateway(clean_registry):
+    adapter_modules_before = {n for n in sys.modules if n.endswith(".adapter")}
+    manager = PluginManager()
+    manager._register_deferred_platform(twring_manifest())
+    assert sorted(resolve_toolset("twring")) == ["twring_message_owner", "twring_ring_owner"]
+    for hook in ("pre_approval_request", "post_approval_response", "api_request_error"):
+        assert manager._hooks.get(hook), f"{hook} not registered"
+    # The adapter (and with it the gateway) stayed deferred.
+    assert {n for n in sys.modules if n.endswith(".adapter")} == adapter_modules_before
+
+
+def test_tools_are_hidden_while_hermes_is_not_linked(clean_registry, monkeypatch):
+    monkeypatch.delenv("TWRING_TOKEN", raising=False)
+    manager = PluginManager()
+    manager._register_deferred_platform(twring_manifest())
+    entry = registry._tools["twring_ring_owner"]
+    assert entry.check_fn() is False
