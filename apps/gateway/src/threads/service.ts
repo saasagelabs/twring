@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isAdapterError, type TwringAgentAdapter } from '@twring/agent-adapter';
 import {
   APPROVAL_HOLD_MS,
+  CONNECTOR_APPROVALS_MAX_PENDING,
   MAX_ACTIVITY_LABEL_CHARS,
   MAX_STORED_AGENT_MESSAGE_CHARS,
   parseConnectorEndpoint,
@@ -12,6 +13,7 @@ import {
   sanitizeRingText,
   truncateRingText,
   userRef,
+  type ConnectorApproval,
   type SealedEnvelopeV1,
   type ThreadMessage,
   type ThreadSocketFrame,
@@ -103,6 +105,7 @@ export class ThreadServiceError extends Error {
       | 'private_unsupported'
       | 'private_thread'
       | 'not_private'
+      | 'approvals_full'
       | 'computer_offline',
     readonly current?: ThreadMessage,
   ) {
@@ -127,6 +130,11 @@ interface Running {
     timer: ReturnType<typeof setTimeout>;
     deciding?: Promise<ThreadMessage>;
   };
+}
+
+/** What the computer sees of its approval (ADR-047). */
+function connectorView(message: Extract<ThreadMessage, { kind: 'approval' }>): ConnectorApproval {
+  return { approval_id: message.id, status: message.status, expires_at: message.expires_at };
 }
 
 /** An adapter that never answers a decision must not hold the turn (or its run slot) forever. */
@@ -180,6 +188,9 @@ export class ThreadService {
   /** Sealed replies dropped as not this account's, not private, or not a known turn (ADR-044). */
   sealedRepliesRejected = 0;
   private readonly running = new Map<string, Running>();
+  /** Connector approvals (ADR-047): expiry timers and long-poll waiters, by message id. */
+  private readonly connectorApprovalTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly connectorApprovalWaiters = new Map<string, Set<() => void>>();
   private readonly newSessionNotices = new Map<string, number>();
   private readonly sendLocks = new Map<string, Promise<void>>();
   private readonly timeouts: ThreadTurnTimeouts;
@@ -482,6 +493,10 @@ export class ThreadService {
       this.epoch++;
       clearInterval(this.timer);
       this.timer = undefined;
+      for (const timer of this.connectorApprovalTimers.values()) clearTimeout(timer);
+      this.connectorApprovalTimers.clear();
+      for (const wake of [...this.connectorApprovalWaiters.values()].flatMap((set) => [...set]))
+        wake();
       return;
     }
     return this.stopMessage(userId, messageId);
@@ -578,6 +593,10 @@ export class ThreadService {
   ): Promise<ThreadMessage> {
     const current = await this.options.store.findMessageById(userId, agentId, messageId);
     if (current?.kind !== 'approval') throw new ThreadServiceError('approval_not_found');
+    // A computer's approval outside a call (ADR-047) has no turn or relay: decided here.
+    const fromComputer = await this.options.store.findConnectorApproval(userId, messageId);
+    if (fromComputer !== undefined && fromComputer.agentId === agentId)
+      return this.decideConnectorApproval(userId, agentId, fromComputer.message, decision);
     const run = this.running.get(keyOf(userId, agentId));
     const pending = run?.approval;
     if (
@@ -623,6 +642,208 @@ export class ThreadService {
       pending.deciding = undefined;
       throw error;
     }
+  }
+
+  /** A linked computer asks its owner to allow one action outside a call (ADR-047). */
+  async createConnectorApproval(
+    userId: string,
+    agentId: string,
+    input: {
+      connectorId: string;
+      agentName: string;
+      requestId: string;
+      title: string;
+      description: string;
+      originLabel?: string;
+      expiresInS: number;
+    },
+  ): Promise<{ approval: ConnectorApproval; created: boolean }> {
+    // A private chat is sealed: this server must never read the command (ADR-044).
+    if (await this.options.store.isPrivate(userId, agentId))
+      throw new ThreadServiceError('private_thread');
+    const title =
+      input.originLabel === undefined ? input.title : `${input.title} (${input.originLabel})`;
+    let saved;
+    try {
+      saved = await this.options.store.appendMessage(userId, agentId, {
+        kind: 'approval',
+        approval_id: input.requestId,
+        title,
+        ...(input.description !== '' && { description: input.description }),
+        status: 'pending',
+        expires_at: new Date(Date.now() + input.expiresInS * 1000).toISOString(),
+        clientId: `connector:${input.connectorId}:${input.requestId}`,
+        meta: { origin: 'connector', request_id: input.requestId, connector_id: input.connectorId },
+        maxPending: CONNECTOR_APPROVALS_MAX_PENDING,
+      });
+    } catch (cause) {
+      if (cause instanceof ThreadStoreError && cause.code === 'approvals_full')
+        throw new ThreadServiceError('approvals_full');
+      throw cause;
+    }
+    const message = saved.message;
+    if (message.kind !== 'approval') throw new ThreadServiceError('approval_not_found');
+    if (!saved.created) {
+      const now = await this.readConnectorApproval(userId, input.connectorId, message.id);
+      return { approval: now ?? connectorView(message), created: false };
+    }
+    const timer = setTimeout(
+      () => void this.expireConnectorApproval(userId, agentId, message.id).catch(() => undefined),
+      Math.max(0, Date.parse(message.expires_at) - Date.now()),
+    );
+    timer.unref();
+    this.connectorApprovalTimers.set(message.id, timer);
+    this.upsert(userId, message);
+    this.options.log?.info(
+      { event: 'connector_approval_created', agent_id: agentId, message_id: message.id },
+      'connector_approval_created',
+    );
+    void this.announceConnectorApproval(userId, agentId, input.agentName, message);
+    return { approval: connectorView(message), created: true };
+  }
+
+  /** The approval as the computer sees it, long-polled up to `waitMs`. Undefined: not this computer's. */
+  async getConnectorApproval(
+    userId: string,
+    connectorId: string,
+    approvalId: string,
+    waitMs: number,
+    signal?: AbortSignal,
+  ): Promise<ConnectorApproval | undefined> {
+    const first = await this.readConnectorApproval(userId, connectorId, approvalId);
+    if (first === undefined || first.status !== 'pending' || waitMs <= 0 || signal?.aborted)
+      return first;
+    await new Promise<void>((resolve) => {
+      const set = this.connectorApprovalWaiters.get(approvalId) ?? new Set();
+      this.connectorApprovalWaiters.set(approvalId, set);
+      const done = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener('abort', done);
+        set.delete(done);
+        if (set.size === 0) this.connectorApprovalWaiters.delete(approvalId);
+        resolve();
+      };
+      const timer = setTimeout(done, waitMs);
+      timer.unref();
+      set.add(done);
+      signal?.addEventListener('abort', done, { once: true });
+      // Settled between the first read and now: no wake-up will come for it.
+      void this.readConnectorApproval(userId, connectorId, approvalId).then((now) => {
+        if (now?.status !== 'pending') done();
+      });
+    });
+    return this.readConnectorApproval(userId, connectorId, approvalId);
+  }
+
+  /** The computer gave up (timeout, interrupt, answered elsewhere): the card stops asking. */
+  async cancelConnectorApproval(
+    userId: string,
+    connectorId: string,
+    approvalId: string,
+  ): Promise<ConnectorApproval | undefined> {
+    const found = await this.options.store.findConnectorApproval(userId, approvalId);
+    if (found === undefined || found.connectorId !== connectorId) return undefined;
+    if (found.message.status !== 'pending') return connectorView(found.message);
+    const expired = await this.expireConnectorApproval(userId, found.agentId, approvalId);
+    return connectorView(expired?.kind === 'approval' ? expired : found.message);
+  }
+
+  private async readConnectorApproval(
+    userId: string,
+    connectorId: string,
+    approvalId: string,
+  ): Promise<ConnectorApproval | undefined> {
+    const found = await this.options.store.findConnectorApproval(userId, approvalId);
+    if (found === undefined || found.connectorId !== connectorId) return undefined;
+    // Past its time but the timer has not run (or the process slept): never answer pending.
+    if (found.message.status === 'pending' && Date.parse(found.message.expires_at) <= Date.now()) {
+      const expired = await this.expireConnectorApproval(userId, found.agentId, approvalId);
+      return connectorView(
+        expired?.kind === 'approval' ? expired : { ...found.message, status: 'expired' },
+      );
+    }
+    return connectorView(found.message);
+  }
+
+  private async decideConnectorApproval(
+    userId: string,
+    agentId: string,
+    current: Extract<ThreadMessage, { kind: 'approval' }>,
+    decision: 'approve' | 'deny',
+  ): Promise<ThreadMessage> {
+    if (current.status !== 'pending') throw new ThreadServiceError('approval_conflict', current);
+    if (Date.parse(current.expires_at) <= Date.now()) {
+      const expired = await this.expireConnectorApproval(userId, agentId, current.id);
+      throw new ThreadServiceError('approval_conflict', expired ?? current);
+    }
+    const updated = await this.options.store.updateApproval(
+      userId,
+      agentId,
+      current.id,
+      decision === 'approve' ? 'allowed' : 'denied',
+    );
+    if (!updated)
+      throw new ThreadServiceError(
+        'approval_conflict',
+        (await this.options.store.findMessageById(userId, agentId, current.id)) ?? current,
+      );
+    this.settleConnectorApproval(userId, updated);
+    this.options.log?.info(
+      { event: 'connector_approval_decided', agent_id: agentId, message_id: current.id, decision },
+      'connector_approval_decided',
+    );
+    return updated;
+  }
+
+  /** Marks a pending connector approval expired. Undefined when it was no longer pending. */
+  private async expireConnectorApproval(
+    userId: string,
+    agentId: string,
+    messageId: string,
+  ): Promise<ThreadMessage | undefined> {
+    const updated = await this.options.store.updateApproval(userId, agentId, messageId, 'expired');
+    if (updated) this.settleConnectorApproval(userId, updated);
+    else {
+      clearTimeout(this.connectorApprovalTimers.get(messageId));
+      this.connectorApprovalTimers.delete(messageId);
+    }
+    return updated;
+  }
+
+  private settleConnectorApproval(userId: string, message: ThreadMessage): void {
+    clearTimeout(this.connectorApprovalTimers.get(message.id));
+    this.connectorApprovalTimers.delete(message.id);
+    this.upsert(userId, message);
+    for (const wake of [...(this.connectorApprovalWaiters.get(message.id) ?? [])]) wake();
+  }
+
+  /**
+   * A chat ring (answering opens the chat, never a call) with the title only; a refused ring, a
+   * live call with this agent or a ring error leaves the push. Never throws.
+   */
+  private async announceConnectorApproval(
+    userId: string,
+    agentId: string,
+    agentName: string,
+    message: ThreadMessage,
+  ): Promise<void> {
+    const ring = this.options.ring;
+    if (!ring || message.kind !== 'approval') return;
+    if (!this.options.hasLiveCallToAgent(userId, agentId)) {
+      try {
+        const result = await ring.ring({
+          userId,
+          agentId,
+          agentName,
+          reason: truncateRingText(sanitizeRingText(`Needs your OK: ${message.title}`), 140),
+          messageId: message.id,
+        });
+        if ('invite' in result) return;
+      } catch {
+        /* Fall back to the push. */
+      }
+    }
+    await this.notifyApproval(userId, agentId, agentName, message);
   }
 
   private async expireApproval(run: Running, agentId: string): Promise<void> {
