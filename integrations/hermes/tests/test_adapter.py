@@ -382,6 +382,8 @@ def test_call_instructions_keep_answers_short_and_keep_hermes_off_the_token():
     hint = twring.CALL_HINT
     assert "one to three short sentences" in hint
     assert "TWRING_TOKEN" in hint and "cron" in hint
+    assert "twring_message_owner" in hint and "twring_ring_owner" in hint
+    assert "twring:twring" in hint
     assert "\u2014" not in hint
 
 

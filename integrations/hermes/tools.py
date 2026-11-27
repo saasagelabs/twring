@@ -15,10 +15,12 @@ try:  # loaded by Hermes as a package
     from . import twring_outbound
     from .approval_transport import register_transport
     from .hooks import register_hooks
+    from .twring_skill import register_skill
 except ImportError:  # loaded directly (tests)
     import twring_outbound  # type: ignore[no-redef]
     from approval_transport import register_transport  # type: ignore[no-redef]
     from hooks import register_hooks  # type: ignore[no-redef]
+    from twring_skill import register_skill  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
@@ -146,3 +148,8 @@ def register_tools(ctx: Any) -> None:
         register_transport(ctx)
     except Exception:
         logger.warning("Twring: could not register the phone approval transport", exc_info=True)
+
+    try:
+        register_skill(ctx)
+    except Exception:
+        logger.warning("Twring: could not register the Twring skill", exc_info=True)

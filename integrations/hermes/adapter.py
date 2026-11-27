@@ -123,9 +123,10 @@ CALL_HINT = (
     f"with {TEXT_TURN_TAG} was typed in the Twring chat: answer in normal written text; markdown, "
     "lists and code are fine there, and the call rules do not apply. If a call ends while you are "
     "still working on something your owner asked for, keep going and finish it: your final reply "
-    "reaches their Twring chat, and Twring may ring them with it. To call your owner back later, "
-    "schedule a cron job that delivers to twring; its result rings their phone. Never read or use "
-    "TWRING_TOKEN, and never call the Twring server yourself."
+    "reaches their Twring chat, and Twring may ring them with it. To reach your owner later, use "
+    "the twring_message_owner tool, or twring_ring_owner when they must act now; a cron job that "
+    "delivers to twring also rings them. Your full Twring instructions are in the skill "
+    "twring:twring. Never read or use TWRING_TOKEN, and never call the Twring server yourself."
 )
 
 
