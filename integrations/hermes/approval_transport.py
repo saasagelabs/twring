@@ -57,6 +57,7 @@ _SKIP_SEGMENTS = {"agent", "main", "dm", "group", "thread", "channel"}
 
 _lock = threading.Lock()
 _cancelled: set[str] = set()
+_registered_for: set[int] = set()
 
 
 class TransportDeclined(Exception):
@@ -175,13 +176,21 @@ async def present(request: Any):
 def register_transport(ctx: Any) -> bool:
     """Registers the `twring` approval transport. It does nothing until the owner turns it on
     (`hermes twring approvals on` sets `security.approval.transport: twring`). False on a Hermes
-    without approval transports, which keeps its own prompts."""
+    without approval transports, which keeps its own prompts. Once per plugin manager: Hermes calls
+    both `tools.register_tools` and the plugin's `register`, and a second call returns True."""
     register = getattr(ctx, "register_approval_transport", None)
     if not callable(register):
         return False
+    owner = id(getattr(ctx, "_manager", None) or ctx)
+    with _lock:
+        if owner in _registered_for:
+            return True
+        _registered_for.add(owner)
     try:
         register(TRANSPORT_NAME, present)
     except Exception:
+        with _lock:
+            _registered_for.discard(owner)
         logger.debug("Twring: approval transport not registered", exc_info=True)
         return False
     register_hook = getattr(ctx, "register_hook", None)

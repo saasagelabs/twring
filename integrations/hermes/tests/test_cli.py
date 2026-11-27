@@ -2,7 +2,7 @@
 
 import httpx
 
-from cli import link_flow, qr_payload
+from cli import APPROVAL_QUESTION, approvals_command, link_flow, phone_approvals_on, qr_payload, set_phone_approvals
 
 SERVER = "https://api.twring.com"
 TOKEN = "cct_" + "c" * 43
@@ -95,3 +95,113 @@ def test_the_qr_code_is_shown_when_one_can_be_drawn():
     )
     assert payloads == ["cord://link?code=ABCDEFGH&server=https%3A%2F%2Fapi.twring.com"]
     assert "[QR]" in lines
+
+
+def approved_server():
+    return fake_server([{"status": "approved", "connector_token": TOKEN, "connector_id": "con_1"}])
+
+
+def test_saying_yes_at_link_turns_on_phone_approvals():
+    lines, asked, turned = [], [], []
+    code = link_flow(
+        server=SERVER,
+        computer_name="vps (Hermes)",
+        out=lines.append,
+        save=lambda **values: None,
+        client_factory=approved_server(),
+        render_qr=lambda payload: None,
+        ask=lambda question: asked.append(question) or "",
+        set_approvals=lambda on: turned.append(on) or True,
+    )
+    assert code == 0
+    assert asked == [APPROVAL_QUESTION]
+    assert turned == [True]
+    assert any("from your phone" in line for line in lines)
+
+
+def test_saying_no_at_link_leaves_hermes_approvals_alone():
+    lines, turned = [], []
+    code = link_flow(
+        server=SERVER,
+        computer_name="vps (Hermes)",
+        out=lines.append,
+        save=lambda **values: None,
+        client_factory=approved_server(),
+        render_qr=lambda payload: None,
+        ask=lambda question: "n",
+        set_approvals=lambda on: turned.append(on) or True,
+    )
+    assert code == 0
+    assert turned == []
+    assert any("hermes twring approvals on" in line for line in lines)
+
+
+def test_without_a_question_link_never_touches_approvals():
+    turned = []
+    link_flow(
+        server=SERVER,
+        computer_name="vps (Hermes)",
+        out=lambda line: None,
+        save=lambda **values: None,
+        client_factory=approved_server(),
+        render_qr=lambda payload: None,
+        set_approvals=lambda on: turned.append(on) or True,
+    )
+    assert turned == []
+
+
+def test_a_failed_link_does_not_ask_about_approvals():
+    asked = []
+    link_flow(
+        server=SERVER,
+        computer_name="vps (Hermes)",
+        out=lambda line: None,
+        save=lambda **values: None,
+        client_factory=fake_server([{"status": "rejected"}]),
+        render_qr=lambda payload: None,
+        ask=lambda question: asked.append(question) or "y",
+    )
+    assert asked == []
+
+
+def test_turning_approvals_on_selects_twring_with_the_desk_prompt_as_fallback():
+    written = []
+    assert set_phone_approvals(True, write=lambda key, value: written.append((key, value))) is True
+    assert written == [
+        ("security.approval.transport", "twring"),
+        ("security.approval.transport_fallback", "builtin"),
+    ]
+
+
+def test_turning_approvals_off_restores_hermes_defaults():
+    written = []
+    set_phone_approvals(False, write=lambda key, value: written.append((key, value)))
+    assert written == [
+        ("security.approval.transport", "builtin"),
+        ("security.approval.transport_fallback", "deny"),
+    ]
+
+
+def test_a_refused_config_write_is_reported_not_crashed():
+    def refuse(key, value):
+        raise SystemExit(1)
+
+    lines = []
+    assert approvals_command("on", out=lines.append, write=refuse, read=lambda: {}) == 1
+    assert any("did not accept" in line for line in lines)
+
+
+def test_approvals_status_says_where_hermes_asks():
+    on = {"security": {"approval": {"transport": "twring", "transport_fallback": "builtin"}}}
+    lines = []
+    assert approvals_command("status", out=lines.append, write=lambda k, v: None, read=lambda: on) == 0
+    assert "on" in lines[-1] and "Twring app" in lines[-1]
+    lines.clear()
+    approvals_command("status", out=lines.append, write=lambda k, v: None, read=lambda: {})
+    assert "off" in lines[-1] and "hermes twring approvals on" in lines[-1]
+
+
+def test_phone_approvals_on_reads_the_transport_setting():
+    assert phone_approvals_on(read=lambda: {"security": {"approval": {"transport": "twring"}}}) is True
+    assert phone_approvals_on(read=lambda: {"security": {"approval": {"transport": "builtin"}}}) is False
+    assert phone_approvals_on(read=lambda: {}) is False

@@ -13,9 +13,11 @@ from typing import Any, Callable
 
 try:  # loaded by Hermes as a package
     from . import twring_outbound
+    from .approval_transport import register_transport
     from .hooks import register_hooks
 except ImportError:  # loaded directly (tests)
     import twring_outbound  # type: ignore[no-redef]
+    from approval_transport import register_transport  # type: ignore[no-redef]
     from hooks import register_hooks  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
@@ -138,3 +140,9 @@ def register_tools(ctx: Any) -> None:
 
     # Hermes imports only this module in CLI and cron processes, so the hooks are armed here too.
     register_hooks(ctx)
+
+    try:
+        # Registered in every Hermes process; it stays inactive until `hermes twring approvals on`.
+        register_transport(ctx)
+    except Exception:
+        logger.warning("Twring: could not register the phone approval transport", exc_info=True)

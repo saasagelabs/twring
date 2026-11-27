@@ -224,3 +224,26 @@ def test_register_transport_names_it_twring_and_watches_hermes_answers():
 
 def test_an_older_hermes_without_transports_is_left_alone():
     assert transport.register_transport(object()) is False
+
+
+def test_registering_twice_through_register_tools_registers_the_transport_once():
+    import tools
+
+    transport._registered_for.clear()
+    calls = []
+
+    class Ctx:
+        def register_tool(self, **kwargs):
+            pass
+
+        def register_hook(self, name, fn):
+            pass
+
+        def register_approval_transport(self, name, fn):
+            calls.append(name)
+
+    ctx = Ctx()
+    tools.register_tools(ctx)
+    tools.register_tools(ctx)
+    assert calls == ["twring"]
+    transport._registered_for.clear()

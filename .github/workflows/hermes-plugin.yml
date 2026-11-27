@@ -58,5 +58,8 @@ jobs:
       - name: Adapter, tools and hooks inside Hermes
         run: |
           "$HERMES_PY" -m pytest -q -p no:cacheprovider -W ignore::DeprecationWarning tests/test_adapter.py tests/test_hermes_tools.py
+      - name: Approval transport registers inside Hermes
+        run: |
+          "$HERMES_PY" -c "import sys; sys.path.insert(0, '.'); import approval_transport as t; from hermes_cli.approval_transport import ApprovalRequest; r = ApprovalRequest.create(command='ls', description='', pattern_key='k', pattern_keys=('k',), session_key='s', surface='cli', allow_session=True, allow_permanent=True); assert 'once' in r.allowed_choices and r.respond('once').choice == 'once'"
       - name: Hermes catalog check
         run: hermes plugins validate . --install-deps
