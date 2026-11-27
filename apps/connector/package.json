@@ -24,6 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "gen:skill": "node scripts/gen-skill.mjs",
+    "check:skill": "node scripts/gen-skill.mjs --check",
     "bundle": "node scripts/bundle.mjs"
   }
 }
