@@ -17,6 +17,7 @@ import {
   createSettingsReadGate,
   deviceTimeZone,
   formFromSettings,
+  sameForm,
   persistRingSettings,
   ringSummary,
   settingsFromForm,
@@ -106,6 +107,8 @@ export function RingSettings({
   // A save wins over any read issued before it ended, even one that answers after it.
   const readGate = useRef(createSettingsReadGate()).current;
   const readRef = useRef<AbortController | undefined>(undefined);
+  // The settings the form was last filled from, to tell unsaved edits from an untouched form.
+  const loadedRef = useRef<Settings | undefined>(undefined);
   // Fetches settings; the initial state is already 'loading', so the effect sets no state itself.
   // A refetch keeps what is shown until the answer arrives, and a failed one keeps it too.
   function fetchSettings() {
@@ -118,8 +121,15 @@ export function RingSettings({
     api.ringSettings(controller.signal).then(
       (settings) => {
         if (controller.signal.aborted || !canApply()) return;
+        const shown = loadedRef.current;
+        loadedRef.current = settings;
         setLoad({ state: 'loaded', settings });
-        setForm(formFromSettings(settings));
+        // Hours typed but not saved yet stay; an untouched form follows the newer settings.
+        setForm((current) =>
+          current === undefined || shown === undefined || sameForm(current, formFromSettings(shown))
+            ? formFromSettings(settings)
+            : current,
+        );
       },
       (error: unknown) => {
         if (!controller.signal.aborted)
@@ -160,8 +170,10 @@ export function RingSettings({
       setSaving(false);
       readGate.saveEnded();
       setForm(result.form);
-      if (result.ok) setLoad({ state: 'loaded', settings: result.settings });
-      else setSaveError({ error: apiErrorCopy(result.error), next });
+      if (result.ok) {
+        loadedRef.current = result.settings;
+        setLoad({ state: 'loaded', settings: result.settings });
+      } else setSaveError({ error: apiErrorCopy(result.error), next });
     });
   }
 

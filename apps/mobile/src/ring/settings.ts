@@ -12,6 +12,17 @@ export interface RingSettingsForm {
 export const DEFAULT_QUIET_START = '22:00';
 export const DEFAULT_QUIET_END = '07:00';
 
+/** Whether two forms show the same choices (an untouched form equals the one it was filled from). */
+export function sameForm(a: RingSettingsForm, b: RingSettingsForm): boolean {
+  return (
+    a.dnd === b.dnd &&
+    a.quietEnabled === b.quietEnabled &&
+    a.start === b.start &&
+    a.end === b.end &&
+    (a.afterCallResult ?? 'ring') === (b.afterCallResult ?? 'ring')
+  );
+}
+
 export function formFromSettings(settings: RingSettings): RingSettingsForm {
   return {
     dnd: settings.dnd,
