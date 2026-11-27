@@ -183,6 +183,12 @@ const KNOWN_ERRORS: Record<string, string> = {
   private_thread: 'this chat is private. Record the voice note again.',
   private_unsent: 'the app closed before this was sent. Send it again.',
   computer_update: 'update Twring on your computer to send photos and files in a private chat.',
+  pair_again: 'this phone was removed from private chats. Set it up again to send here.',
+  not_computer: 'private chats work only with agents on your computer.',
+  too_long: 'this message is too long. Shorten it and send again.',
+  seal_failed: "Twring couldn't make this message private. Try again.",
+  file_too_large: 'this file is over 10 MB. Send a smaller one.',
+  unsupported_file_type: 'Twring can send photos, PDFs and text files. This file is another type.',
 };
 
 export type TextSegment =

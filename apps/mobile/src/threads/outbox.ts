@@ -151,6 +151,18 @@ function errorCodeOf(error: unknown): string | undefined {
  * False when sending again cannot help: the message's text or file is gone, or a private chat
  * refuses a voice note the person has not agreed to let the server read. Delete is offered then.
  */
+/**
+ * Failures a retry cannot fix (private-chat codes from `SealError`, and file limits): the
+ * person gets Delete and sends again. `seal_failed` stays retryable.
+ */
+const NOT_RETRYABLE: ReadonlySet<string> = new Set([
+  'pair_again',
+  'not_computer',
+  'too_long',
+  'file_too_large',
+  'unsupported_file_type',
+]);
+
 export function canRetry(pending: {
   errorCode?: string;
   error?: unknown;
@@ -158,6 +170,7 @@ export function canRetry(pending: {
 }): boolean {
   const code = pending.errorCode ?? errorCodeOf(pending.error);
   if (code === PRIVATE_UNSENT || code === FILE_MISSING || code === VOICE_MISSING) return false;
+  if (code !== undefined && NOT_RETRYABLE.has(code)) return false;
   if (code === PRIVATE_THREAD && pending.voice && pending.voice.serverReadable !== true)
     return false;
   return true;
