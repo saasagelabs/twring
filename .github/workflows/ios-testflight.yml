@@ -1,6 +1,6 @@
 # Signed iPhone build uploaded to App Store Connect (TestFlight). Start by hand from main:
-# Actions, "iOS: TestFlight build", Run workflow. The owner approves each run (environment
-# testflight). Upload only: external testing and App Store submission stay in App Store Connect.
+# Actions, "iOS: TestFlight build", Run workflow. The testflight environment holds the signing
+# keys and admits main only; runs start without an approval (owner choice 2026-11-27). Upload only: external testing and App Store submission stay in App Store Connect.
 # app: production builds Twring; staging builds Twring Staging (com.twring.app.staging, its own
 # App Store Connect app), which talks to the staging server for internal testing.
 name: 'iOS: TestFlight build'
