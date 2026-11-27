@@ -105,7 +105,9 @@ export function apnsRequestFor(
   if (alertToken === undefined) return undefined;
   if (data.type === 'cord.message') {
     const silent = data.silent === '1';
-    // Sealed: the same alert, which a Notification Service Extension can open and rewrite.
+    // Sealed: the same alert, which a Notification Service Extension can open and rewrite. Every
+    // message alert is mutable, so the extension can also hide one for an account not signed in on
+    // that phone (an extension that predates this delivers an unsealed alert unchanged).
     const sealed = sealedMessageFor(target, data);
     return {
       token: alertToken,
@@ -119,7 +121,7 @@ export function apnsRequestFor(
           alert: { body: MESSAGE_PUSH_TEXT },
           'thread-id': data.agent_id,
           ...(silent ? { 'interruption-level': 'passive' } : { sound: 'default' }),
-          ...(sealed !== undefined && { 'mutable-content': 1 }),
+          'mutable-content': 1,
         },
         ...redactMessagePush(data),
         ...(sealed !== undefined && { sealed: JSON.stringify(sealed) }),

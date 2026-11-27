@@ -113,6 +113,8 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
       let value = ref ?? ""
       let changed = defaults.string(forKey: Self.accountKey) != value
       defaults.set(value, forKey: Self.accountKey)
+      // Every time, not only on a change: an update copies the account on its first sign-in check.
+      CordAccountShare.set(value)
       return changed
     }
     guard changed else { return }

@@ -313,3 +313,49 @@ enum CordRingDedupe {
     return all.filter { now - $0.value < ttl }
   }
 }
+
+/// The signed-in account's ref, copied into the shared keychain group so the Notification Service
+/// Extension can hide message alerts for another account (the app's own copy is in UserDefaults,
+/// which the extension cannot read). Same values as CordRingGate's `stored`: no item means never
+/// written (shown as before), an empty value means signed out. Not a secret, but kept off iCloud.
+enum CordAccountShare {
+  private static let service = "com.twring.account"
+  private static let item = "ring"
+
+  /// nil when nothing was written, or the keychain cannot be read (locked): alerts show as before.
+  static func stored() -> String? {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: item,
+      kSecMatchLimit as String: kSecMatchLimitOne,
+      kSecReturnData as String: true,
+    ]
+    var result: CFTypeRef?
+    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+      let data = result as? Data
+    else { return nil }
+    return String(data: data, encoding: .utf8)
+  }
+
+  /// Saves `value` ("" when signed out). Best effort: a failure leaves alerts as before.
+  static func set(_ value: String) {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: service,
+      kSecAttrAccount as String: item,
+    ]
+    SecItemDelete(query as CFDictionary)
+    var add = query
+    add[kSecValueData as String] = Data(value.utf8)
+    add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    add[kSecAttrSynchronizable as String] = kCFBooleanFalse
+    var status = errSecMissingEntitlement
+    if let group = CordSealKeys.sharedGroup {
+      var shared = add
+      shared[kSecAttrAccessGroup as String] = group
+      status = SecItemAdd(shared as CFDictionary, nil)
+    }
+    if status == errSecMissingEntitlement { SecItemAdd(add as CFDictionary, nil) }
+  }
+}

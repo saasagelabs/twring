@@ -17,21 +17,20 @@ import {
  * OneSignal's onesignal-expo-plugin (MIT), without depending on it.
  */
 export const NSE_TARGET = 'TwringNotificationService';
-export const NSE_SWIFT = ['NotificationService.swift', 'CordSeal.swift'] as const;
+export const NSE_SWIFT = [
+  'NotificationService.swift',
+  'CordSeal.swift',
+  'CordRingGate.swift',
+] as const;
 const NSE_INFO_PLIST = `${NSE_TARGET}-Info.plist`;
 const NSE_ENTITLEMENTS = `${NSE_TARGET}.entitlements`;
 /** Read by CordSealKeys (modules/cord-call-service/ios/CordSeal.swift). */
 export const KEYCHAIN_GROUP_KEY = 'TwringKeychainGroup';
 
 const SOURCES = join(import.meta.dirname, 'notification-service');
-const CORD_SEAL = join(
-  import.meta.dirname,
-  '..',
-  'modules',
-  'cord-call-service',
-  'ios',
-  'CordSeal.swift',
-);
+const MODULE_IOS = join(import.meta.dirname, '..', 'modules', 'cord-call-service', 'ios');
+/** Module sources the extension compiles too (one source each, shared with the app). */
+const SHARED_SWIFT = ['CordSeal.swift', 'CordRingGate.swift'] as const;
 
 export const nseBundleId = (appId: string) => `${appId}.NotificationService`;
 export const sharedGroup = (appId: string) => `${appId}.shared`;
@@ -52,7 +51,7 @@ function fill(template: string, values: Record<string, string>): string {
   });
 }
 
-/** Writes the extension's sources into ios/<target>/ (CordSeal.swift from the module: one source). */
+/** Writes the extension's sources into ios/<target>/ (shared Swift copied from the module). */
 export function writeExtensionFiles(
   iosRoot: string,
   values: { appId: string; version: string; buildNumber: string },
@@ -65,7 +64,7 @@ export function writeExtensionFiles(
     KEYCHAIN_GROUP: sharedGroup(values.appId),
   };
   copyFileSync(join(SOURCES, 'NotificationService.swift'), join(dir, 'NotificationService.swift'));
-  copyFileSync(CORD_SEAL, join(dir, 'CordSeal.swift'));
+  for (const name of SHARED_SWIFT) copyFileSync(join(MODULE_IOS, name), join(dir, name));
   writeFileSync(
     join(dir, NSE_INFO_PLIST),
     fill(readFileSync(join(SOURCES, 'Info.plist'), 'utf8'), fields),
