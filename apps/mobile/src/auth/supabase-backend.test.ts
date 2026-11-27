@@ -1,7 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { AuthBackendError } from './controller';
+import { AuthBackendError, AuthController, RESTORE_TIMEOUT_MS } from './controller';
 import { chunkedSecureStorage, type SecureKeyValue } from './storage';
 import { supabaseBackend } from './supabase-backend';
 
@@ -340,5 +340,144 @@ describe('supabase backend test sign-in (email and password)', () => {
     const { backend } = passwordClient('offline');
     const result = await withFakeClock(() => backend.signInWithPassword('a@example.com', 'pw'));
     expect(result).toMatchObject({ status: 'rejected', reason: new AuthBackendError('network') });
+  });
+});
+
+describe('supabase backend starting with an expired session', () => {
+  // Device test 2026-11-27: opened offline an hour after last use, the app showed Sign in.
+  async function expiredStart(first: Answer, advanceMs = 40_000, stored = true) {
+    const store = new MemoryStore();
+    const storage = chunkedSecureStorage(store);
+    if (stored) await storage.setItem('cord.auth', JSON.stringify(session('tok-old', -600)));
+    const answers = { next: first };
+    const fetch = (input: RequestInfo | URL): Promise<Response> => {
+      const url = input instanceof Request ? input.url : String(input);
+      if (!url.includes('grant_type=refresh_token')) {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      const answer = answers.next;
+      if (answer === 'offline') {
+        return Promise.reject(new TypeError('Unable to resolve host'));
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify(answer.body ?? {}), {
+          status: answer.status,
+          headers: { 'content-type': 'application/json' },
+        }),
+      );
+    };
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    const supabase = createClient(URL, 'sb_publishable_test', {
+      auth: {
+        storage,
+        storageKey: 'cord.auth',
+        autoRefreshToken: false,
+        persistSession: true,
+        detectSessionInUrl: false,
+      },
+      global: { fetch },
+    });
+    clients.push(supabase.auth);
+    const controller = new AuthController({
+      backend: supabaseBackend(supabase.auth, () => storage.getItem('cord.auth')),
+      google: {
+        signIn: () => Promise.resolve({ type: 'cancelled' }),
+        signOut: () => Promise.resolve(),
+      },
+    });
+    const seen: string[] = [];
+    controller.subscribe(() => seen.push(controller.getState().status));
+    controller.start();
+    // Supabase retries a passing failure with backoff for up to a refresh tick (30 s).
+    await vi.advanceTimersByTimeAsync(advanceMs);
+    return { controller, answers, store, seen };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it.each<[string, Answer]>([
+    ['offline', 'offline'],
+    ['a Supabase outage (503)', { status: 503, body: { msg: 'unavailable' } }],
+    // Not 429: Supabase itself deletes an expired session whose refresh was rate limited.
+  ])('stays signed in when the refresh fails because %s', async (_name, answer) => {
+    const { controller } = await expiredStart(answer);
+    expect(controller.getState()).toEqual({
+      status: 'signed_in',
+      userId: USER.id,
+      email: USER.email,
+    });
+    expect(controller.accessToken()).toBe('tok-old');
+  });
+
+  it('renews the session once the network is back', async () => {
+    const { controller, answers } = await expiredStart('offline');
+    answers.next = { status: 200, body: session('tok-2', 3600) };
+    // Past Supabase's cooldown for a refresh token that just failed.
+    await vi.advanceTimersByTimeAsync(61_000);
+    await expect(controller.refreshAccessToken()).resolves.toBe('tok-2');
+    expect(controller.accessToken()).toBe('tok-2');
+    expect(controller.getState()).toMatchObject({ status: 'signed_in', userId: USER.id });
+  });
+
+  it.each<[string, Answer]>([
+    ['revoked', { status: 400, body: { code: 'refresh_token_not_found', msg: 'Invalid' } }],
+    ['refused', { status: 400, body: { error: 'invalid_grant', msg: 'Invalid' } }],
+  ])('signs out when the refresh token is %s', async (_name, answer) => {
+    const { controller, store } = await expiredStart(answer);
+    expect(controller.getState()).toEqual({ status: 'signed_out' });
+    expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
+  });
+
+  it('signs out when the network is back but the refresh token was revoked meanwhile', async () => {
+    const { controller, answers, store } = await expiredStart('offline');
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    answers.next = { status: 400, body: { code: 'refresh_token_not_found', msg: 'Invalid' } };
+    await vi.advanceTimersByTimeAsync(61_000);
+    await controller.refreshAccessToken().catch(() => undefined);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_out' });
+    expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
+  });
+
+  it('shows the stored session by the restore timeout while Supabase still retries offline', async () => {
+    const { controller, seen } = await expiredStart('offline', RESTORE_TIMEOUT_MS);
+    expect(controller.getState()).toEqual({
+      status: 'signed_in',
+      userId: USER.id,
+      email: USER.email,
+    });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    expect(seen).not.toContain('signed_out');
+  });
+
+  it('signs out when the retried refresh finally finds the token revoked', async () => {
+    const { controller, answers, store } = await expiredStart('offline', RESTORE_TIMEOUT_MS);
+    expect(controller.getState()).toMatchObject({ status: 'signed_in' });
+    answers.next = { status: 400, body: { code: 'refresh_token_not_found', msg: 'Invalid' } };
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(controller.getState()).toMatchObject({ status: 'signed_out' });
+    expect([...store.items.keys()].filter((key) => key.startsWith('cord.auth'))).toEqual([]);
+  });
+
+  it('shows Sign in at the restore timeout when nothing is stored', async () => {
+    const { controller } = await expiredStart('offline', RESTORE_TIMEOUT_MS, false);
+    expect(controller.getState()).toEqual({ status: 'signed_out' });
+  });
+
+  it('treats a malformed stored session as none', async () => {
+    const store = new MemoryStore();
+    const storage = chunkedSecureStorage(store);
+    await storage.setItem('cord.auth', '{"access_token":1}');
+    const supabase = createClient(URL, 'sb_publishable_test', {
+      auth: { storage, storageKey: 'cord.auth', autoRefreshToken: false, persistSession: true },
+      global: { fetch: () => Promise.reject(new TypeError('offline')) },
+    });
+    clients.push(supabase.auth);
+    const backend = supabaseBackend(supabase.auth, () => Promise.resolve('not json'));
+    await expect(backend.getSession()).resolves.toBeNull();
+    await expect(backend.storedSession?.()).resolves.toBeNull();
   });
 });

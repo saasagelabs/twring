@@ -37,15 +37,63 @@ function sessionIsOver(error: AuthError): boolean {
   return !(status === 429 || (status !== undefined && status >= 500));
 }
 
-/** Supabase Auth behind the controller's `AuthBackend` (ADR-021). No native modules. */
-export function supabaseBackend(auth: SupabaseClient['auth']): AuthBackend {
+/**
+ * The stored session as Supabase saved it, or null when it is missing or not a session. Read only
+ * when Supabase could not refresh an expired one; the tokens are passed on, never logged.
+ */
+function parseStored(raw: string | null): Session | null {
+  if (raw === null) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (typeof value !== 'object' || value === null) return null;
+    const stored = value as Partial<Session>;
+    const user = stored.user as { id?: unknown } | undefined;
+    if (
+      typeof stored.access_token !== 'string' ||
+      typeof stored.refresh_token !== 'string' ||
+      typeof user !== 'object' ||
+      user === null ||
+      typeof user.id !== 'string'
+    ) {
+      return null;
+    }
+    return stored as Session;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Supabase Auth behind the controller's `AuthBackend` (ADR-021). No native modules. `readStored`
+ * returns the raw session Supabase keeps in its storage, for starting offline.
+ */
+export function supabaseBackend(
+  auth: SupabaseClient['auth'],
+  readStored?: () => Promise<string | null>,
+): AuthBackend {
   return {
     async getSession() {
-      const { data } = await auth.getSession();
-      return toSession(data.session);
+      const { data, error } = await auth.getSession();
+      if (data.session !== null || error === null || sessionIsOver(error)) {
+        return toSession(data.session);
+      }
+      // An expired session that could not be refreshed right now (offline, outage, rate limit):
+      // Supabase keeps it, so the user stays signed in. Requests with its old access token are
+      // refused and refreshed (or kept waiting) as usual, and auto refresh renews it once online.
+      if (readStored === undefined) return null;
+      return toSession(parseStored(await readStored().catch(() => null)));
+    },
+    async storedSession() {
+      if (readStored === undefined) return null;
+      return toSession(parseStored(await readStored().catch(() => null)));
     },
     onChange(listener) {
-      const { data } = auth.onAuthStateChange((_event, session) => listener(toSession(session)));
+      const { data } = auth.onAuthStateChange((event, session) => {
+        // The first event repeats `getSession`, which the controller reads itself. Without a
+        // session it may only mean the refresh failed for now: never let it sign the user out.
+        if (event === 'INITIAL_SESSION' && session === null) return;
+        listener(toSession(session));
+      });
       return () => data.subscription.unsubscribe();
     },
     async signInWithIdToken(idToken, apple) {
