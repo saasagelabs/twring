@@ -24,6 +24,8 @@ export function homeRow(
   unseenMissedAgents: ReadonlySet<string>,
   chatsOff: boolean,
   now: Date = new Date(),
+  /** A private chat's opened last-message preview, when the phone has one. */
+  opened?: string,
 ): HomeRow {
   const offline = agent.connector_online === false || agent.connector_removed === true;
   const aiApp = isAiApp(agent);
@@ -37,7 +39,7 @@ export function homeRow(
     line = agentRowLine(offline);
     lineTone = 'secondary';
   } else {
-    const preview = rowLine(thread?.last_message);
+    const preview = rowLine(thread?.last_message, opened);
     line = preview.text;
     lineTone =
       line === 'Working…' ? 'working' : preview.tone === 'normal' ? 'secondary' : preview.tone;

@@ -21,7 +21,11 @@ export function callCardLine(
 }
 
 /** The Chats row's second line; a missed call is drawn in `danger`. */
-export function rowLine(message: ThreadMessage | null | undefined): {
+export function rowLine(
+  message: ThreadMessage | null | undefined,
+  /** A private message's opened preview, when the phone has one. */
+  opened?: string,
+): {
   text: string;
   tone: 'normal' | 'danger' | 'accent';
 } {
@@ -43,13 +47,19 @@ export function rowLine(message: ThreadMessage | null | undefined): {
     return { text, tone: message.outcome === 'missed' ? 'danger' : 'normal' };
   }
   return {
-    text: rowSecondLine(message),
+    text: rowSecondLine(message, opened),
     tone: message?.kind === 'approval' && message.status === 'pending' ? 'accent' : 'normal',
   };
 }
 
-export function rowSecondLine(message: ThreadMessage | null | undefined): string {
+export function rowSecondLine(message: ThreadMessage | null | undefined, opened?: string): string {
   if (!message) return 'Say hello, or call.';
+  // A private chat is never shown as empty: its text is only on this phone, when opened.
+  if (message.kind === 'sealed') {
+    if (message.author === 'agent') return opened ?? 'Private message';
+    if (message.status === 'sent' || message.status === 'working') return 'Working…';
+    return `You: ${opened ?? 'Private message'}`;
+  }
   if (message.kind === 'user_text') {
     if (!message.text && message.attachments?.length) return filesPreview(message.attachments);
     if (message.status === 'sent' || message.status === 'working') return 'Working…';

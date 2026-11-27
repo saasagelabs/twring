@@ -57,6 +57,21 @@ const ring = (
   reason: 'Need your help',
   outcome,
 });
+describe('private rows', () => {
+  const sealed = (author: 'user' | 'agent', status?: 'sent' | 'answered') =>
+    ({ id: 'm1', kind: 'sealed', author, ...(status && { status }) }) as unknown as ThreadMessage;
+  it('never reads as an empty chat, and shows the opened preview when there is one', () => {
+    expect(rowSecondLine(sealed('agent'))).toBe('Private message');
+    expect(rowSecondLine(sealed('user', 'answered'))).toBe('You: Private message');
+    expect(rowSecondLine(sealed('user', 'sent'))).toBe('Working…');
+    expect(rowLine(sealed('agent'), 'see you at 6')).toEqual({
+      text: 'see you at 6',
+      tone: 'normal',
+    });
+    expect(rowSecondLine(sealed('user', 'answered'), 'on my way')).toBe('You: on my way');
+  });
+});
+
 describe('chat presentation', () => {
   it('shows approval row state and countdown', () => {
     const approval = { kind: 'approval', status: 'pending' } as ThreadMessage;
