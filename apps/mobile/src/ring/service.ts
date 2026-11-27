@@ -380,13 +380,38 @@ function registerSignedIn(): void {
 }
 
 /**
- * Wires the ring into the app while someone is signed in: registers for pushes, opens the
- * incoming-call screen on a ring, and sends declines tapped on the notification.
+ * Whether agents can ring this phone now:
+ * - `on`: a member is signed in;
+ * - `off`: nobody is signed in, or the account is on the waitlist;
+ * - `unknown`: sign-in or access is still being read (a cold start, up to 8 seconds offline), or
+ *   the access check failed.
  */
-export function useRingCoordinator(signedIn: boolean): void {
+export type RingState = 'on' | 'off' | 'unknown';
+
+/** The ring state from the root layout's sign-in and access (`signedIn` includes sign-in off). */
+export function ringState(app: {
+  loading: boolean;
+  signedIn: boolean;
+  member: boolean;
+  waitlist: boolean;
+}): RingState {
+  if (app.loading) return 'unknown';
+  if (!app.signedIn) return 'off';
+  if (app.member) return 'on';
+  return app.waitlist ? 'off' : 'unknown';
+}
+
+/**
+ * Wires the ring into the app while a member is signed in: registers for pushes, opens the
+ * incoming-call screen on a ring, and sends declines tapped on the notification. Only a real
+ * sign-out or a waitlist answer clears the stored ring account. While the state is unknown it
+ * stays as it is: the ring gates and the iPhone's message alerts read it, and clearing it at
+ * every cold start silenced rings and hid message text until access was known.
+ */
+export function useRingCoordinator(state: RingState): void {
   useEffect(() => {
-    if (!ringPlatform.supported) return;
-    if (!signedIn) {
+    if (!ringPlatform.supported || state === 'unknown') return;
+    if (state === 'off') {
       void pushRegistration.signedOut();
       return;
     }
@@ -432,5 +457,5 @@ export function useRingCoordinator(signedIn: boolean): void {
       subscriptions.forEach((unsubscribe) => unsubscribe?.());
       appState.remove();
     };
-  }, [signedIn]);
+  }, [state]);
 }

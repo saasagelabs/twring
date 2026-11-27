@@ -13,7 +13,7 @@ import { checkAccess, useAccess, useAccessIdentity } from '@/access/store';
 import { mobileEnv } from '@/config/env';
 import { initSentry, setCrashUser, wrapRoot } from '@/observability/sentry';
 import { callBackgroundService } from '@/platform/call-service';
-import { useRingCoordinator } from '@/ring/service';
+import { ringState, useRingCoordinator } from '@/ring/service';
 import { watchServerIdentity } from '@/servers/switching';
 import { FONT_ASSETS } from '@/theme/fonts';
 import { callPalette } from '@/theme/tokens';
@@ -76,8 +76,10 @@ function RootLayout() {
   const userId = auth.status === 'signed_in' ? auth.userId : undefined;
   useEffect(() => setCrashUser(userId), [userId]);
 
-  // Agents can ring this phone while someone is signed in (Android).
-  useRingCoordinator(member && !loading);
+  // Agents can ring this phone while a member is signed in. Signed out or on the waitlist, they
+  // cannot; while sign-in or access is still read, the last account stays as it is.
+  const waitlist = signedIn && sameAccount && access.status === 'waitlist';
+  useRingCoordinator(ringState({ loading, signedIn, member, waitlist }));
 
   if (loading || accessPending || !fontsReady) return null;
   return (
