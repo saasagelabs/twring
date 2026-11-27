@@ -4,6 +4,7 @@ Needs Hermes installed (run with Hermes's own Python); skipped elsewhere.
 """
 
 import asyncio
+import concurrent.futures
 import json
 
 import pytest
@@ -742,3 +743,56 @@ async def test_a_call_that_drops_while_asking_hands_the_approval_to_the_phone_ca
     await fake.wait_for(lambda m: m["type"] == "approval.required" and m["approval_id"] == "req24")
     adapter._drop_open_turns()
     assert await asking is None
+
+
+async def test_an_answer_after_the_call_wait_ran_out_does_not_show_as_approved(linked):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t25")
+    await adapter.on_processing_start(event)
+    answer = await asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req25", "rm x", "", 0.2)
+    assert answer == "deny"
+    await fake.wait_for(lambda m: m["type"] == "approval.resolved" and m["approval_id"] == "req25")
+    waiting: concurrent.futures.Future = concurrent.futures.Future()
+    waiting.cancel()
+    adapter._approvals["req25b"] = (TWRING_SESSION, next(iter(adapter._turns)), waiting)
+    await adapter._on_approval_decision({"approval_id": "req25b", "decision": "approve"})
+    await asyncio.sleep(0.05)
+    assert not any(
+        m["type"] == "approval.resolved" and m.get("decision") == "approve" for m in fake.agent_frames()
+    )
+
+
+async def test_an_answer_that_lands_as_the_wait_runs_out_stands(linked, monkeypatch):
+    adapter, fake, events = linked
+
+    class LandsAtTheBuzzer(concurrent.futures.Future):
+        def result(self, timeout=None):
+            if timeout is not None and not self.done():
+                self.set_result("approve")
+                raise concurrent.futures.TimeoutError()
+            return super().result(timeout)
+
+    async def open_card(*args):
+        return LandsAtTheBuzzer()
+
+    monkeypatch.setattr(adapter, "_open_call_approval", open_card)
+    answer = await asyncio.to_thread(adapter._ask_in_call, TWRING_SESSION, "req26", "rm x", "", 1)
+    assert answer == "approve"
+
+
+async def test_a_card_that_opens_too_late_is_closed_not_left_waiting(linked, monkeypatch):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t27")
+    await adapter.on_processing_start(event)
+    real_open = adapter._open_call_approval
+
+    async def slow_open(*args):
+        await asyncio.sleep(0.3)
+        return await real_open(*args)
+
+    monkeypatch.setattr(adapter, "_open_call_approval", slow_open)
+    monkeypatch.setattr(adapter, "_open_card_timeout_s", 0.05)
+    assert await asyncio.to_thread(adapter._ask_in_call, TWRING_SESSION, "req27", "rm x", "", 1) is None
+    await asyncio.sleep(0.4)
+    assert "req27" not in adapter._approvals
+    assert not any(m["type"] == "approval.required" and m["approval_id"] == "req27" for m in fake.agent_frames())

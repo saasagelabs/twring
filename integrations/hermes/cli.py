@@ -68,6 +68,17 @@ def _hermes_set_config(key: str, value: str) -> None:
     set_config_value(key, value)
 
 
+def _hermes_is_managed() -> bool:
+    try:
+        from hermes_cli.config import is_managed
+    except ImportError:
+        return False
+    try:
+        return bool(is_managed())
+    except Exception:
+        return False
+
+
 def _hermes_read_config() -> dict:
     try:
         from hermes_cli.config import load_config_readonly
@@ -79,10 +90,15 @@ def _hermes_read_config() -> dict:
 def set_phone_approvals(on: bool, *, write: Callable[[str, str], None] = _hermes_set_config) -> bool:
     """Turns phone approvals on (Hermes's prompt stays as the fallback) or back to Hermes's defaults.
     Written through Hermes's own config route; False when Hermes refused the change."""
-    values = ("twring", "builtin") if on else ("builtin", "deny")
+    # Order keeps every half-done state safe: turning on writes the fallback first, so a
+    # failed transport write leaves Hermes as it was; turning off clears the transport first.
+    if on:
+        writes = ((_FALLBACK_KEY, "builtin"), (_TRANSPORT_KEY, "twring"))
+    else:
+        writes = ((_TRANSPORT_KEY, "builtin"), (_FALLBACK_KEY, "deny"))
     try:
-        write(_TRANSPORT_KEY, values[0])
-        write(_FALLBACK_KEY, values[1])
+        for key, value in writes:
+            write(key, value)
     except (SystemExit, Exception):
         return False
     return True
@@ -102,9 +118,13 @@ def approvals_command(
     out: Callable[[str], None] = print,
     write: Callable[[str, str], None] = _hermes_set_config,
     read: Callable[[], dict] = _hermes_read_config,
+    managed: Callable[[], bool] = _hermes_is_managed,
 ) -> int:
     """`hermes twring approvals on | off | status`."""
     if action in ("on", "off"):
+        if managed():
+            out("Hermes is managed by a package manager, so it cannot change its own config. Set security.approval.transport in your managed Hermes config instead.")
+            return 1
         if not set_phone_approvals(action == "on", write=write):
             out("Hermes did not accept the change. Set security.approval.transport to twring in config.yaml, or try again.")
             return 1

@@ -115,3 +115,42 @@ def test_registering_the_tools_also_arms_the_hooks_for_terminal_sessions():
     c = FakeCtx()
     tools.register_tools(c)
     assert sorted(name for name, _ in c.hooks) == ["api_request_error", "post_approval_response", "pre_approval_request"]
+
+
+def test_a_failing_hook_registration_still_registers_the_transport_and_skill(monkeypatch):
+    import approval_transport
+    import hooks
+    import twring_skill
+
+    def boom(ctx):
+        raise RuntimeError("hooks broke")
+
+    registered = []
+    monkeypatch.setattr(hooks, "register_hooks", boom)
+    monkeypatch.setattr(approval_transport, "register_transport", lambda ctx: registered.append("transport"))
+    monkeypatch.setattr(twring_skill, "register_skill", lambda ctx: registered.append("skill"))
+    c = FakeCtx()
+    tools.register_tools(c)
+    assert registered == ["transport", "skill"]
+    assert c.tools
+
+
+def test_hooks_are_marked_registered_only_after_they_register(monkeypatch):
+    import hooks
+
+    monkeypatch.setattr(hooks, "_registered_for", set())
+
+    class Flaky(FakeCtx):
+        fail = True
+
+        def register_hook(self, name, callback):
+            if self.fail:
+                raise RuntimeError("not yet")
+            super().register_hook(name, callback)
+
+    c = Flaky()
+    with pytest.raises(RuntimeError):
+        hooks.register_hooks(c)
+    c.fail = False
+    hooks.register_hooks(c)
+    assert len(c.hooks) == 3

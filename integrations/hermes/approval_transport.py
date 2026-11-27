@@ -56,7 +56,9 @@ _PLACES = {
 _SKIP_SEGMENTS = {"agent", "main", "dm", "group", "thread", "channel"}
 
 _lock = threading.Lock()
-_cancelled: set[str] = set()
+# Request ids Hermes stopped waiting on, oldest first, capped so stray hook calls cannot pile up.
+_cancelled: dict[str, None] = {}
+MAX_CANCELLED = 256
 _registered_for: set[int] = set()
 
 
@@ -108,7 +110,10 @@ def _on_post_approval_response(**kwargs: Any) -> None:
         request_id = str(kwargs.get("request_id") or "")
         if request_id and choice.startswith(_FAILED_CHOICES):
             with _lock:
-                _cancelled.add(request_id)
+                _cancelled.pop(request_id, None)
+                while len(_cancelled) >= MAX_CANCELLED:
+                    _cancelled.pop(next(iter(_cancelled)))
+                _cancelled[request_id] = None
     except Exception:
         pass
     return None
@@ -170,7 +175,7 @@ async def present(request: Any):
             return request.respond("deny")
     finally:
         with _lock:
-            _cancelled.discard(request.request_id)
+            _cancelled.pop(request.request_id, None)
 
 
 def register_transport(ctx: Any) -> bool:

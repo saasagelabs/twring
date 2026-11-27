@@ -172,6 +172,14 @@ class TestFailedScheduledJob:
         hooks._on_api_request_error(**cron_error(retryable=True, retry_count=3))
         assert len(env.sent) == 1
 
+    def test_unknown_retryable_with_attempts_left_is_not_reported(self, env):
+        hooks._on_api_request_error(**cron_error(retryable=None, retry_count=1))
+        assert env.sent == []
+
+    def test_unknown_retryable_on_the_final_attempt_is_reported(self, env):
+        hooks._on_api_request_error(**cron_error(retryable=None, retry_count=3))
+        assert len(env.sent) == 1
+
     def test_chat_only_when_scheduled_job_rings_are_off(self, env, monkeypatch):
         monkeypatch.setenv("TWRING_RING_ON_DELIVERY", "false")
         hooks._on_api_request_error(**cron_error())

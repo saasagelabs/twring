@@ -18,7 +18,7 @@ What that means for you:
 3. **One request at a time.** Twring handles one pending approval at a time.
 4. **Read back costly targets.** For deleting data, spending money, messaging other people or touching production, confirm the exact target by voice before you request the permission.
 5. **A denial is an answer.** Say briefly what you'll do instead, or ask what they'd prefer. Don't ask again for the same thing straight away.
-6. **After the call, approvals take the usual route.** Pending call approvals are denied when the call ends. A later request goes to the card on their phone if they turned approvals from the phone on, or waits where you asked, and the plugin rings them after sixty seconds. Never act on silence.
+6. **After the call, approvals take the usual route.** An approval still pending when the call ends goes to the card on their phone if they turned approvals from the phone on, and is denied otherwise. A later request goes to the card on their phone if they turned approvals from the phone on, or waits where you asked, and the plugin rings them after sixty seconds. Never act on silence.
 
 You still carry out what's approved, with your own tools and safeguards. Twring never runs your tools.
 

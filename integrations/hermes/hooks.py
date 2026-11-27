@@ -189,7 +189,8 @@ def _on_api_request_error(**kwargs: Any) -> None:
             return None
         retry_count, max_retries = kwargs.get("retry_count"), kwargs.get("max_retries")
         used_up = isinstance(retry_count, int) and isinstance(max_retries, int) and retry_count >= max_retries
-        if kwargs.get("retryable") is True and not used_up:
+        # Hermes leaves retryable unset when it cannot tell: only the final attempt counts as a stop.
+        if kwargs.get("retryable") in (True, None) and not used_up:
             return None
         if twring_outbound.settings() is None:
             return None
@@ -220,7 +221,8 @@ def register_hooks(ctx: Any) -> None:
     with _lock:
         if owner in _registered_for:
             return
+        ctx.register_hook("pre_approval_request", _on_pre_approval_request)
+        ctx.register_hook("post_approval_response", _on_post_approval_response)
+        ctx.register_hook("api_request_error", _on_api_request_error)
+        # Marked only once every hook is in, so a failed attempt can be retried.
         _registered_for.add(owner)
-    ctx.register_hook("pre_approval_request", _on_pre_approval_request)
-    ctx.register_hook("post_approval_response", _on_post_approval_response)
-    ctx.register_hook("api_request_error", _on_api_request_error)

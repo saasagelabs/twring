@@ -1,6 +1,6 @@
 ---
 name: twring
-description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as ring_me, message_me or add_words, or when you are deciding whether to message, send a file to, or ring your owner.
+description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as twring_message_owner or twring_ring_owner, or when you are deciding whether to message, send a file to, or ring your owner.
 metadata:
   version: 0.7.0
   build: hermes

@@ -495,9 +495,12 @@ class TwringAdapter(BasePlatformAdapter):
         decision = "approve" if message.get("decision") == "approve" else "deny"
         if waiting is not None:
             # Asked for the phone-approval transport: it hands the choice to Hermes itself.
-            resolved = not waiting.done()
-            if resolved:
+            try:
                 waiting.set_result(decision)
+            except concurrent.futures.InvalidStateError:
+                # Timed out or released first: that path owns the card's outcome, so say nothing.
+                return
+            resolved = True
         else:
             from tools.approval import resolve_gateway_approval_card
 
@@ -790,6 +793,8 @@ class TwringAdapter(BasePlatformAdapter):
         await self._emit(turn, [approval_required(turn, prompt.request_id, prompt.command, prompt.description)])
         return SendResult(success=True, message_id=prompt.request_id)
 
+    _open_card_timeout_s = 5.0
+
     def _ask_in_call(
         self, session_key: str, request_id: str, command: str, description: str, timeout_s: float
     ) -> Optional[str]:
@@ -798,17 +803,25 @@ class TwringAdapter(BasePlatformAdapter):
         loop = self._loop
         if loop is None or loop.is_closed() or "twring" not in str(session_key).split(":"):
             return None
+        opening = asyncio.run_coroutine_threadsafe(
+            self._open_call_approval(session_key, request_id, command, description), loop
+        )
         try:
-            waiting = asyncio.run_coroutine_threadsafe(
-                self._open_call_approval(session_key, request_id, command, description), loop
-            ).result(timeout=5)
+            waiting = opening.result(timeout=self._open_card_timeout_s)
         except Exception:
+            # A late open must not leave a card nobody waits on: stop it, and close any card it sent.
+            opening.cancel()
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._spawn, self._expire_call_approval(request_id))
             return None
         if waiting is None:
             return None
         try:
             return waiting.result(timeout=max(float(timeout_s), 0.0))
         except concurrent.futures.TimeoutError:
+            if not waiting.cancel():
+                # The answer landed just as the wait ran out: it stands.
+                return waiting.result()
             with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(self._spawn, self._expire_call_approval(request_id))
             return "deny"
@@ -846,7 +859,7 @@ class TwringAdapter(BasePlatformAdapter):
         for approval_id, (_, _, waiting) in list(self._approvals.items()):
             if waiting is not None:
                 self._approvals.pop(approval_id, None)
-                if not waiting.done():
+                with contextlib.suppress(concurrent.futures.InvalidStateError):
                     waiting.set_result(None)
 
     async def get_chat_info(self, chat_id: str) -> dict[str, Any]:

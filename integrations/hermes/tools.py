@@ -7,20 +7,15 @@ imports the adapter or the gateway. The model never sees the link token or the s
 
 from __future__ import annotations
 
+import importlib
 import json
 import logging
 from typing import Any, Callable
 
 try:  # loaded by Hermes as a package
     from . import twring_outbound
-    from .approval_transport import register_transport
-    from .hooks import register_hooks
-    from .twring_skill import register_skill
 except ImportError:  # loaded directly (tests)
     import twring_outbound  # type: ignore[no-redef]
-    from approval_transport import register_transport  # type: ignore[no-redef]
-    from hooks import register_hooks  # type: ignore[no-redef]
-    from twring_skill import register_skill  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +120,26 @@ _TOOLS: dict[str, tuple[Callable[..., str], str, dict[str, Any], list[str]]] = {
 
 def register_tools(ctx: Any) -> None:
     """Registers the Twring tools in the `twring` toolset (shown only while linked) and the Twring hooks."""
+    try:
+        _register_twring_tools(ctx)
+    except Exception:
+        logger.warning("Twring: could not register the Twring tools", exc_info=True)
+
+    # Hermes imports only this module in CLI and cron processes, so the hooks are armed here too.
+    # Each piece is optional: one that fails to load or register never stops the others.
+    for module, attr, what in (
+        ("hooks", "register_hooks", "the Twring hooks"),
+        # Registered in every Hermes process; it stays inactive until `hermes twring approvals on`.
+        ("approval_transport", "register_transport", "the phone approval transport"),
+        ("twring_skill", "register_skill", "the Twring skill"),
+    ):
+        try:
+            getattr(_sibling(module), attr)(ctx)
+        except Exception:
+            logger.warning("Twring: could not register %s", what, exc_info=True)
+
+
+def _register_twring_tools(ctx: Any) -> None:
     for name, (handler, description, properties, required) in _TOOLS.items():
         ctx.register_tool(
             name=name,
@@ -140,16 +155,8 @@ def register_tools(ctx: Any) -> None:
             emoji="📞",
         )
 
-    # Hermes imports only this module in CLI and cron processes, so the hooks are armed here too.
-    register_hooks(ctx)
 
-    try:
-        # Registered in every Hermes process; it stays inactive until `hermes twring approvals on`.
-        register_transport(ctx)
-    except Exception:
-        logger.warning("Twring: could not register the phone approval transport", exc_info=True)
-
-    try:
-        register_skill(ctx)
-    except Exception:
-        logger.warning("Twring: could not register the Twring skill", exc_info=True)
+def _sibling(module: str) -> Any:
+    if __package__:
+        return importlib.import_module(f".{module}", __package__)
+    return importlib.import_module(module)

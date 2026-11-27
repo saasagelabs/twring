@@ -247,3 +247,13 @@ def test_registering_twice_through_register_tools_registers_the_transport_once()
     tools.register_tools(ctx)
     assert calls == ["twring"]
     transport._registered_for.clear()
+
+
+def test_cancelled_ids_stay_bounded():
+    transport._cancelled.clear()
+    for n in range(transport.MAX_CANCELLED + 50):
+        transport._on_post_approval_response(request_id=f"req_{n}", choice="transport_interrupted")
+    assert len(transport._cancelled) == transport.MAX_CANCELLED
+    assert f"req_{transport.MAX_CANCELLED + 49}" in transport._cancelled
+    assert "req_0" not in transport._cancelled
+    transport._cancelled.clear()

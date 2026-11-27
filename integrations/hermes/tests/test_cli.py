@@ -168,8 +168,8 @@ def test_turning_approvals_on_selects_twring_with_the_desk_prompt_as_fallback():
     written = []
     assert set_phone_approvals(True, write=lambda key, value: written.append((key, value))) is True
     assert written == [
-        ("security.approval.transport", "twring"),
         ("security.approval.transport_fallback", "builtin"),
+        ("security.approval.transport", "twring"),
     ]
 
 
@@ -205,3 +205,24 @@ def test_phone_approvals_on_reads_the_transport_setting():
     assert phone_approvals_on(read=lambda: {"security": {"approval": {"transport": "twring"}}}) is True
     assert phone_approvals_on(read=lambda: {"security": {"approval": {"transport": "builtin"}}}) is False
     assert phone_approvals_on(read=lambda: {}) is False
+
+
+def test_a_failed_transport_write_after_the_fallback_leaves_approvals_off():
+    written = []
+
+    def write(key, value):
+        if key == "security.approval.transport":
+            raise SystemExit(1)
+        written.append((key, value))
+
+    assert set_phone_approvals(True, write=write) is False
+    assert written == [("security.approval.transport_fallback", "builtin")]
+
+
+def test_a_managed_hermes_is_reported_not_claimed_as_success():
+    written, lines = [], []
+    code = approvals_command(
+        "on", out=lines.append, write=lambda k, v: written.append((k, v)), read=lambda: {}, managed=lambda: True
+    )
+    assert code == 1 and written == []
+    assert "managed" in lines[-1]
