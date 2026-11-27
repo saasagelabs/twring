@@ -9,7 +9,7 @@ import pytest
 
 pytest.importorskip("hermes_cli.plugins")
 
-import yaml  # noqa: E402  (ships with Hermes)
+from ruamel.yaml import YAML  # noqa: E402  (ships with Hermes; PyYAML does not since 0.23)
 from hermes_cli.plugins import PluginManager, PluginManifest  # noqa: E402
 from toolsets import resolve_toolset  # noqa: E402
 from tools.registry import registry  # noqa: E402
@@ -35,7 +35,7 @@ def clean_registry():
 
 
 def twring_manifest():
-    data = yaml.safe_load((PLUGIN / "plugin.yaml").read_text(encoding="utf-8"))
+    data = YAML(typ="safe").load((PLUGIN / "plugin.yaml").read_text(encoding="utf-8"))
     return PluginManifest(
         name=data["name"],
         kind=data["kind"],
