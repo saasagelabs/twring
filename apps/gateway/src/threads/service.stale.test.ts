@@ -226,3 +226,19 @@ describe('stale in-flight sweep', () => {
     expect(stale(t.logs)).toHaveLength(0);
   });
 });
+
+describe('legacy AI app rows stuck sent before the deploy', () => {
+  it('show Sent (answered), not Interrupted, after the stale sweep', async () => {
+    const t = setup('mcp-app');
+    t.ago(THREAD_TURN_TIMEOUTS.totalMs + 10 * MINUTE);
+    // A row written by the old gateway: an AI app message stored as sent.
+    const { message } = await t.store.appendUserMessage('owner', agent, {
+      clientId: randomUUID(),
+      text: 'old mailbox message',
+      status: 'sent',
+    });
+    t.reset();
+    await t.service.sweep();
+    expect(await status(t.store, message.id)).toBe('answered');
+  });
+});
