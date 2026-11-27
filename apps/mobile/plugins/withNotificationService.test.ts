@@ -71,6 +71,7 @@ describe('addExtensionTarget', () => {
     expect(once).toMatch(/PBXTargetDependency/);
     expect(once).toContain('NotificationService.swift in Sources');
     expect(once).toContain('CordSeal.swift in Sources');
+    expect(once).toContain('CordRingGate.swift in Sources');
   });
 
   it('matches the app target: bundle id, deployment target, Swift version and team', () => {
@@ -119,6 +120,19 @@ describe('writeExtensionFiles', () => {
         'utf8',
       ),
     );
+    expect(read('CordRingGate.swift')).toBe(
+      readFileSync(
+        join(
+          import.meta.dirname,
+          '..',
+          'modules',
+          'cord-call-service',
+          'ios',
+          'CordRingGate.swift',
+        ),
+        'utf8',
+      ),
+    );
     expect(read('NotificationService.swift')).toContain('class NotificationService');
 
     const info = read(`${NSE_TARGET}-Info.plist`);
@@ -143,6 +157,17 @@ describe('CordSeal.swift compiles alone in the extension', () => {
     );
     const imports = source.match(/^import \w+/gm);
     expect(imports).toEqual(['import CryptoKit', 'import Foundation', 'import Security']);
+    expect(source).not.toMatch(/CordRing\.|ExpoModulesCore|UIApplication/);
+  });
+});
+
+describe('CordRingGate.swift compiles alone in the extension', () => {
+  it('uses only Foundation', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, '..', 'modules', 'cord-call-service', 'ios', 'CordRingGate.swift'),
+      'utf8',
+    );
+    expect(source.match(/^import \w+/gm)).toEqual(['import Foundation']);
     expect(source).not.toMatch(/CordRing\.|ExpoModulesCore|UIApplication/);
   });
 });

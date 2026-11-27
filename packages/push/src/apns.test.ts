@@ -72,7 +72,7 @@ describe('what an iPhone gets', () => {
     expect(sent).not.toContain('All tests pass');
   });
 
-  it('a sealer that fails or throws leaves the redacted alert', () => {
+  it('a sealer that fails or throws leaves the redacted alert, still mutable for the account check', () => {
     for (const sealMessage of [
       () => undefined,
       () => {
@@ -80,9 +80,11 @@ describe('what an iPhone gets', () => {
       },
     ]) {
       const request = apnsRequestFor({ ...ios, sealMessage }, message, BUNDLE);
-      expect(request?.body).toMatchObject({ aps: { alert: { body: 'New message' } } });
+      expect(request?.body).toMatchObject({
+        aps: { alert: { body: 'New message' }, 'mutable-content': 1 },
+        user_ref: message.user_ref,
+      });
       expect(request?.body).not.toHaveProperty('sealed');
-      expect(request?.body).not.toHaveProperty(['aps', 'mutable-content']);
     }
   });
 
