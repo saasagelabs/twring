@@ -19,7 +19,12 @@ export interface Resource<T> {
 export interface ResourceCache<T> {
   /** The saved copy, or undefined when there is none (or it cannot be used). */
   load(): Promise<T | undefined>;
-  save(value: T): void;
+  /**
+   * Called when a load starts; the function it returns saves that load's result. Binding the save
+   * at the start keeps a load that finishes after an account or server switch from being saved
+   * for the new one.
+   */
+  saver(): (value: T) => void;
 }
 
 /** How often screens showing a computer's online status refresh while in focus. */
@@ -50,13 +55,14 @@ export function useResource<T>(
       const controller = new AbortController();
       inflight.current = controller;
       if (!options.silent) setPending(options.refresh ? 'refresh' : 'load');
+      const save = cache?.saver();
       load(controller.signal).then(
         (value) => {
           if (controller.signal.aborted) return;
           fresh.current = true;
           setData(value);
           setStale(false);
-          cache?.save(value);
+          save?.(value);
           setError(undefined);
           setPending('none');
         },

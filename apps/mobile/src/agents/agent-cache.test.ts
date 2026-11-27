@@ -38,7 +38,7 @@ describe('agent cache', () => {
     const { store } = stores();
     let scope = 'hosted_u1';
     const cache = agentCache(() => scope, store);
-    cache.save([agent] as never);
+    cache.saver()([agent] as never);
     await Promise.resolve();
     expect(await cache.load()).toHaveLength(1);
     scope = 'hosted_u2';
@@ -47,10 +47,22 @@ describe('agent cache', () => {
     expect(await cache.load()).toBeUndefined();
   });
 
+  it('drops a save when the account changed while the load ran', async () => {
+    const { files, store } = stores();
+    let scope = 'hosted_u1';
+    const cache = agentCache(() => scope, store);
+    const save = cache.saver();
+    scope = 'hosted_u2';
+    save([agent] as never);
+    await Promise.resolve();
+    expect(files.get('hosted_u2')?.value).toBeUndefined();
+    expect(files.get('hosted_u1')?.value).toBeUndefined();
+  });
+
   it('reads and writes nothing before the account is known', async () => {
     const { files, store } = stores();
     const cache = agentCache(() => undefined, store);
-    cache.save([agent] as never);
+    cache.saver()([agent] as never);
     expect(await cache.load()).toBeUndefined();
     expect(files.size).toBe(0);
   });

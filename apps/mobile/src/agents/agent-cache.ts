@@ -32,12 +32,15 @@ export function agentCache(
         return undefined;
       }
     },
-    save(agents) {
+    saver() {
       const key = scope();
-      if (key !== undefined)
+      return (agents) => {
+        // The scope the load started under: a switch meanwhile drops the save.
+        if (key === undefined || scope() !== key) return;
         void store(key)
           .save({ agents })
           .catch(() => undefined);
+      };
     },
   };
 }

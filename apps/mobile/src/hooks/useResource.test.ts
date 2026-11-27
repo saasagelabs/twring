@@ -59,7 +59,7 @@ beforeEach(() => {
 describe('useResource with a saved copy', () => {
   it('shows the saved copy when the load fails, then the fresh result', async () => {
     const save = vi.fn();
-    const cache = { load: () => Promise.resolve(['saved']), save };
+    const cache = { load: () => Promise.resolve(['saved']), saver: () => save };
     let fail = true;
     const view = render(
       () => (fail ? Promise.reject(new Error('offline')) : Promise.resolve(['fresh'])),
@@ -82,7 +82,7 @@ describe('useResource with a saved copy', () => {
     const saved = deferred<string[] | undefined>();
     const view = render(() => Promise.resolve(['fresh']), {
       load: () => saved.promise,
-      save: () => undefined,
+      saver: () => () => undefined,
     });
     view();
     react.focus!();
@@ -95,7 +95,7 @@ describe('useResource with a saved copy', () => {
   it('with no saved copy, a failed load shows nothing and the error', async () => {
     const view = render(() => Promise.reject(new Error('offline')), {
       load: () => Promise.resolve(undefined),
-      save: () => undefined,
+      saver: () => () => undefined,
     });
     view();
     react.focus!();
