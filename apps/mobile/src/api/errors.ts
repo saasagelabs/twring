@@ -192,6 +192,14 @@ export function apiErrorCopy(
       return withDetail({ message: "You're already on a call. End it first.", retryable: true });
     case 'approval_already_decided':
       return withDetail({ message: 'This approval was already decided.', retryable: false });
+    // Answers to a computer's approval request (ADR-047); the app never receives them.
+    case 'approval_private_chat':
+    case 'approvals_full':
+    case 'session_scoped':
+      return withDetail({
+        message: 'This computer could not ask for approval. Try again from the computer.',
+        retryable: false,
+      });
     case 'file_too_large':
       return withDetail({
         message: 'That file is over 10 MB. Send a smaller one.',

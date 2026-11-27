@@ -192,6 +192,7 @@ Future incoming calls need stronger anti-abuse/ringing controls.
 ### 5.2 The agent rings the owner (ADR-024)
 
 - **Who can ring:** only a paired connector, with its token (`POST /v1/connectors/ring`, rate limited per IP like the socket). It can ring only its own user, and only for an agent that user saved for that computer; anyone else is 401/404. Arbitrary third parties cannot ring a user.
+- **Approvals from a computer (ADR-047):** only a paired, unshared connector can ask, for an agent its owner saved, never in a private chat. The card shows the computer's own title and description (plain text); the ring and push carry only "Needs your OK: <title>". Silence, expiry and restarts deny; only a single run is ever allowed.
 - **Owner control:** Do Not Disturb, quiet hours (IANA time zone), one ringing invite at a time, and at most 6 rings per agent per hour. No microphone before the owner answers.
 - **The reason** is 1–140 characters with control and bidi-override characters removed, shown as plain text and never rendered as HTML or markdown. Decline notes are sanitized the same way (≤ 60).
 - **Invites** have unguessable ids (`inv_` + 130 bits). Every phone route (`/v1/invites…`, `/v1/me/devices…`, `/v1/me/ring-settings`) is owner-scoped: another user's invite reads as 404. Exactly one answer can win.

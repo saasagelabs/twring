@@ -717,6 +717,7 @@ All of this is gateway-side (`conversation/presence.ts`, `ConversationController
 - ACP agents can request one pending approval during a live turn; other adapters do not emit approvals in v0.01. The owner decides by a short yes/no voice response or an owner-scoped phone tap. The first decision wins.
 - The gateway speaks only fixed phrases: change/delete/read files, run a command, open a web page, or do something that needs your OK. The agent's title and description are shown, never spoken. Unclear speech is not sent to the agent; Twring re-asks once.
 - At 120 seconds without an answer, the gateway denies. Call end and turn cancellation also deny. The connected agent remains responsible for executing any approved action.
+- **Amended by ADR-047 (2026-11-28):** "other adapters do not emit approvals" no longer holds for Hermes: a linked computer may also ask for an approval in the agent's chat outside a call.
 
 ## ADR-030: A call continues the agent's conversation; work outlives the call (2026-10-08)
 
@@ -1543,3 +1544,41 @@ Both phones need an app with this change: build 38 and earlier cannot read the n
 (`phoneApprovalSchema` is strict), so mixing versions fails closed with "update Twring".
 Computer pairing by QR or typed code is unchanged: it is keyed by the QR secret the server never
 sees. `safetyCode` itself is left unchanged.
+
+## ADR-047: Approvals outside a call (2026-11-28)
+
+**Status:** Accepted (owner: "go with step 1 and 2", 2026-11-28)
+**Amends:** ADR-029
+
+### Context
+ADR-029 lets an agent ask for one approval during a live turn, answered by voice or a phone tap,
+and only ACP agents could ask. Hermes asks for approvals wherever it runs: the terminal, Telegram,
+a scheduled job. Away from the computer the owner cannot answer, so the command waits or is denied.
+Hermes 0.21 lets a plugin replace its approval prompt (`register_approval_transport`), so the
+question can reach the owner's phone without Twring ever running the command.
+
+### Decision
+- A linked computer may ask its owner for an approval outside a call:
+  `POST /v1/connectors/approvals` (connector token, `Idempotency-Key` equal to `request_id`) with a
+  title (at most 80 characters), a description (at most 500), an optional origin label (at most
+  40, such as "from Telegram") and a lifetime of 10 to 600 seconds. It becomes an approval card in
+  that agent's chat, a push "Needs your OK: <title>", and a chat ring when ringing is allowed
+  (answering opens the chat, never a call). A refused ring leaves the push.
+- The phone answers with a tap only, on the existing decision route. There is no voice outside a
+  call. On a live call the agent's own call path still asks by voice (ADR-029).
+- The computer follows the answer by long-poll (`GET /v1/connectors/approvals/:id?wait=0..25`) and
+  may withdraw it (`DELETE`), which marks the card expired.
+- At most 3 approvals wait per agent; a fourth is refused (409 `approvals_full`) and the computer
+  falls back to its own prompt.
+- Silence, expiry, a withdrawn request, a server restart and a private chat never approve. A private
+  chat is refused (409 `approval_private_chat`) because the server would read the command. A
+  shared (team) computer is refused (403 `session_scoped`) so the owner never answers for someone
+  else's session.
+- Only "once" is ever granted. Twring never answers "for this session" or "always", and never runs
+  the command: the agent does (rule 2).
+
+### Consequences
+Approvals need no relay and no live connector channel: the decision is stored and the computer
+reads it. Hermes plugin 0.2.0 uses this as an opt-in approval transport and falls back to the
+desk prompt whenever the route is missing (an older server), full, private or unreachable. Other
+connectors (Claude Code, Codex) can use the same route later without a server change.
