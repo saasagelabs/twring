@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
+import { errorCodeSchema } from './errors';
 import {
+  CONNECTOR_APPROVALS_MAX_PENDING,
+  connectorApprovalCreateSchema,
+  connectorApprovalSchema,
   HANGUP_MARKERS,
   STAY_ON_CALL_RULE,
   answeredTurnText,
@@ -188,5 +192,57 @@ describe('device registration seal key', () => {
     expect(
       deviceRegistrationResponseSchema.safeParse({ seal_server_public_key: 'x' }).success,
     ).toBe(false);
+  });
+});
+
+describe('connector approvals', () => {
+  const ok = {
+    local_agent: 'hermes',
+    request_id: 'req-1',
+    title: 'Run a command',
+    description: 'rm -rf build',
+    origin_label: 'from Telegram',
+    expires_in_s: 300,
+  };
+
+  it('accepts a full request and one without an origin label', () => {
+    expect(connectorApprovalCreateSchema.parse(ok)).toEqual(ok);
+    const bare: Partial<typeof ok> = { ...ok };
+    delete bare.origin_label;
+    expect(connectorApprovalCreateSchema.safeParse(bare).success).toBe(true);
+    expect(connectorApprovalCreateSchema.safeParse({ ...ok, description: '' }).success).toBe(true);
+  });
+
+  it('refuses out-of-range fields and unknown keys', () => {
+    for (const bad of [
+      { ...ok, request_id: '' },
+      { ...ok, request_id: 'x'.repeat(129) },
+      { ...ok, request_id: 'tab\there' },
+      { ...ok, title: '' },
+      { ...ok, title: 't'.repeat(81) },
+      { ...ok, description: 'd'.repeat(501) },
+      { ...ok, origin_label: 'o'.repeat(41) },
+      { ...ok, expires_in_s: 9 },
+      { ...ok, expires_in_s: 601 },
+      { ...ok, expires_in_s: 30.5 },
+      { ...ok, session_scope: 'abc' },
+    ])
+      expect(connectorApprovalCreateSchema.safeParse(bad).success).toBe(false);
+  });
+
+  it('describes an approval and caps pending ones at 3', () => {
+    const view = {
+      approval_id: 'msg_aaaaaaaaaaaaaaaaaaaa',
+      status: 'pending',
+      expires_at: '2026-11-28T10:00:00.000Z',
+    };
+    expect(connectorApprovalSchema.parse(view)).toEqual(view);
+    expect(connectorApprovalSchema.safeParse({ ...view, status: 'approved' }).success).toBe(false);
+    expect(CONNECTOR_APPROVALS_MAX_PENDING).toBe(3);
+  });
+
+  it('knows the new refusal codes', () => {
+    for (const code of ['approval_private_chat', 'approvals_full', 'session_scoped'])
+      expect(errorCodeSchema.safeParse(code).success).toBe(true);
   });
 });

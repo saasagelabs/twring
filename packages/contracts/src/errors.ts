@@ -47,6 +47,12 @@ export const errorCodeSchema = z.enum([
    */
   'call_in_progress',
   'approval_already_decided',
+  /** A computer asked for an approval in a private chat: the server must not read it (409, ADR-047). */
+  'approval_private_chat',
+  /** The agent already has CONNECTOR_APPROVALS_MAX_PENDING approvals waiting (409, ADR-047). */
+  'approvals_full',
+  /** A shared (team) computer cannot ask the owner's phone for approvals (403, ADR-047). */
+  'session_scoped',
   /** A file is over 10 MB (413). */
   'file_too_large',
   /** A file's bytes are not one of the stored types (415). */

@@ -300,6 +300,36 @@ export const connectorWordsResponseSchema = z.object({
 });
 export type ConnectorWordsResponse = z.infer<typeof connectorWordsResponseSchema>;
 
+/** Pending phone approvals one agent may hold at once (ADR-047). */
+export const CONNECTOR_APPROVALS_MAX_PENDING = 3;
+/** Longest `wait` on `GET /v1/connectors/approvals/:approvalId`, like the ring invite wait. */
+export const CONNECTOR_APPROVAL_MAX_WAIT_S = 25;
+
+/**
+ * `POST /v1/connectors/approvals` (connector token, `Idempotency-Key` = `request_id`): a linked
+ * computer asks its owner to allow one action, outside a call (ADR-047). Shown as an approval card
+ * in the agent's chat; never spoken.
+ */
+export const connectorApprovalCreateSchema = z
+  .object({
+    local_agent: localAgentIdSchema,
+    request_id: z.string().regex(/^[ -~]{1,128}$/),
+    title: z.string().min(1).max(80),
+    description: z.string().max(500),
+    origin_label: z.string().min(1).max(40).optional(),
+    expires_in_s: z.number().int().min(10).max(600),
+  })
+  .strict();
+export type ConnectorApprovalCreate = z.infer<typeof connectorApprovalCreateSchema>;
+
+/** What the computer sees of its approval: never who answered or when. */
+export const connectorApprovalSchema = z.object({
+  approval_id: threadMessageIdSchema,
+  status: z.enum(['pending', 'allowed', 'denied', 'expired']),
+  expires_at: z.iso.datetime(),
+});
+export type ConnectorApproval = z.infer<typeof connectorApprovalSchema>;
+
 export const connectorMessageRequestSchema = z
   .object({
     local_agent: localAgentIdSchema,

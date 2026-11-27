@@ -101,6 +101,13 @@ type ThreadRow = {
   next_rev: number;
   private: number;
 };
+/** Where a connector's approval came from (ADR-047). Kept in meta; never sent to the phone. */
+export interface ConnectorApprovalMeta {
+  origin: 'connector';
+  request_id: string;
+  connector_id: string;
+}
+
 type AppendInput =
   | (Pick<
       Extract<ThreadMessage, { kind: 'agent_text' }>,
@@ -114,14 +121,22 @@ type AppendInput =
       Extract<ThreadMessage, { kind: 'ring' }>,
       'kind' | 'invite_id' | 'reason' | 'outcome' | 'note'
     >
-  | Pick<
+  | (Pick<
       Extract<ThreadMessage, { kind: 'approval' }>,
       'kind' | 'approval_id' | 'title' | 'description' | 'status' | 'expires_at'
-    >
+    > & {
+      /** Dedupes inside the thread (a computer's request id, ADR-047). */
+      clientId?: string;
+      meta?: ConnectorApprovalMeta;
+      /** Refuse with `approvals_full` when this many unexpired approvals already wait. */
+      maxPending?: number;
+    })
   | Pick<Extract<ThreadMessage, { kind: 'notice' }>, 'kind' | 'code'>;
 
 export class ThreadStoreError extends Error {
-  constructor(readonly code: 'queue_full' | 'message_unreadable' | 'reply_to_not_found') {
+  constructor(
+    readonly code: 'queue_full' | 'message_unreadable' | 'reply_to_not_found' | 'approvals_full',
+  ) {
     super(code);
     this.name = 'ThreadStoreError';
   }
@@ -908,6 +923,11 @@ export class SqliteThreadStore {
     agentId: string,
     input: Extract<AppendInput, { kind: 'agent_text' }> & { clientId: string },
   ): Promise<{ message: ThreadMessage; created: boolean }>;
+  async appendMessage(
+    userId: string,
+    agentId: string,
+    input: Extract<AppendInput, { kind: 'approval' }> & { clientId: string },
+  ): Promise<{ message: ThreadMessage; created: boolean }>;
   async appendMessage(userId: string, agentId: string, input: AppendInput): Promise<ThreadMessage>;
   async appendMessage(
     userId: string,
@@ -955,12 +975,39 @@ export class SqliteThreadStore {
         });
       }
       if (input.kind === 'approval') {
-        const { kind, title, description, status, ...meta } = input;
-        return this.insert(userId, thread, kind, {
+        const {
+          kind,
+          title,
+          description,
+          status,
+          clientId,
+          meta: origin,
+          maxPending,
+          ...meta
+        } = input;
+        if (clientId !== undefined) {
+          const existing = this.db
+            .prepare(
+              "SELECT * FROM messages WHERE thread_id=? AND user_id=? AND client_id=? AND kind='approval'",
+            )
+            .get(thread.id, userId, clientId) as Row | undefined;
+          if (existing) return { message: this.decode(existing, agentId), created: false };
+        }
+        if (maxPending !== undefined) {
+          const waiting = this.db
+            .prepare(
+              "SELECT count(*) AS n FROM messages WHERE thread_id=? AND user_id=? AND kind='approval' AND status='pending' AND json_extract(meta,'$.expires_at') > ?",
+            )
+            .get(thread.id, userId, this.now().toISOString()) as { n: number };
+          if (waiting.n >= maxPending) throw new ThreadStoreError('approvals_full');
+        }
+        const message = this.insert(userId, thread, kind, {
           text: JSON.stringify({ title, ...(description === undefined ? {} : { description }) }),
           status,
-          meta,
+          ...(clientId !== undefined && { clientId }),
+          meta: { ...meta, ...origin },
         });
+        return clientId === undefined ? message : { message, created: true };
       }
       const { kind, ...meta } = input;
       return this.insert(userId, thread, kind, { meta });
@@ -1047,6 +1094,42 @@ export class SqliteThreadStore {
         agentId,
       );
     });
+  }
+
+  /** A connector's approval card (ADR-047) of this person's, with where it came from. */
+  async findConnectorApproval(
+    userId: string,
+    messageId: string,
+  ): Promise<
+    | {
+        agentId: string;
+        message: Extract<ThreadMessage, { kind: 'approval' }>;
+        connectorId: string;
+        requestId: string;
+      }
+    | undefined
+  > {
+    const row = this.db
+      .prepare(
+        "SELECT m.*, t.agent_id AS agent_id FROM messages m JOIN threads t ON t.id=m.thread_id AND t.user_id=m.user_id WHERE m.id=? AND m.user_id=? AND m.kind='approval'",
+      )
+      .get(messageId, userId) as (Row & { agent_id: string }) | undefined;
+    if (!row) return undefined;
+    const meta = JSON.parse(row.meta) as Partial<Record<keyof ConnectorApprovalMeta, unknown>>;
+    if (
+      meta.origin !== 'connector' ||
+      typeof meta.connector_id !== 'string' ||
+      typeof meta.request_id !== 'string'
+    )
+      return undefined;
+    const message = this.tryDecode(row, row.agent_id);
+    if (message?.kind !== 'approval') return undefined;
+    return {
+      agentId: row.agent_id,
+      message,
+      connectorId: meta.connector_id,
+      requestId: meta.request_id,
+    };
   }
 
   /**

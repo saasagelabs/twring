@@ -1,5 +1,7 @@
 import {
   answeredTurnText,
+  CONNECTOR_APPROVAL_MAX_WAIT_S,
+  connectorApprovalCreateSchema,
   connectorEndpointUrl,
   connectorMessageRequestSchema,
   connectorWordsRequestSchema,
@@ -21,6 +23,8 @@ import {
   ringSettingsSchema,
   sessionRefSchema,
   stripHangupMarkers,
+  threadMessageIdSchema,
+  type ConnectorApproval,
   type CreateCallResponse,
   type ConnectorMessageResponse,
   type ConnectorWordsResponse,
@@ -58,6 +62,7 @@ import type { SharedAgents } from '../agents/shared';
 import type { RingRefusal, RingService } from './service';
 import type { InviteRecord, RingStores } from './store';
 import type { ThreadService } from '../threads/service';
+import { ThreadServiceError } from '../threads/service';
 
 export interface RingRoutesOptions {
   /** Undefined when saved agents are not configured (development without a key): 503. */
@@ -709,6 +714,124 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
       return invite === undefined
         ? sendError(reply, 404, 'not_found', INVITE_NOT_FOUND)
         : statusOf(invite);
+    },
+  );
+
+  // Connector: approvals outside a call (ADR-047). The owner's own computers only.
+
+  const approvalLimiter = new FixedWindowLimiter(30, 60_000);
+  const APPROVAL_NOT_FOUND = 'No such approval.';
+  /** The approving computer, or undefined once a refusal was sent. */
+  const approvalComputer = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<ConnectorRecord | undefined> => {
+    const connector = await connectorFor(request, reply);
+    if (connector === undefined) return undefined;
+    if (options.threads === undefined) {
+      sendError(reply, 404, 'not_found', 'Approvals are unavailable.');
+      return undefined;
+    }
+    if (!approvalLimiter.tryAcquire(connector.id)) {
+      tooMany(reply);
+      return undefined;
+    }
+    if (connector.shared === true) {
+      sendError(reply, 403, 'session_scoped', "A shared computer can't ask for approvals.");
+      return undefined;
+    }
+    return connector;
+  };
+
+  app.post(
+    '/v1/connectors/approvals',
+    async (request, reply): Promise<ConnectorApproval | FastifyReply> => {
+      const connector = await approvalComputer(request, reply);
+      if (connector === undefined) return reply;
+      const parsed = connectorApprovalCreateSchema.safeParse(request.body);
+      const key = request.headers['idempotency-key'];
+      if (!parsed.success || key !== parsed.data.request_id)
+        return sendError(reply, 400, 'bad_request', 'The approval or Idempotency-Key is invalid.');
+      const url = connectorEndpointUrl(connector.id, parsed.data.local_agent);
+      const agent = (await stores!.agents.list(connector.user_id)).find(
+        (a) => a.protocol === 'cord-connector' && a.endpoint_url === url,
+      );
+      if (agent === undefined) {
+        const [status, message] = REFUSALS.agent_not_saved;
+        return sendError(reply, status, 'agent_not_saved', message);
+      }
+      try {
+        const result = await options.threads!.createConnectorApproval(connector.user_id, agent.id, {
+          connectorId: connector.id,
+          agentName: agent.name,
+          requestId: parsed.data.request_id,
+          title: parsed.data.title,
+          description: parsed.data.description,
+          ...(parsed.data.origin_label !== undefined && { originLabel: parsed.data.origin_label }),
+          expiresInS: parsed.data.expires_in_s,
+        });
+        void reply.code(result.created ? 201 : 200);
+        return result.approval;
+      } catch (cause) {
+        if (cause instanceof ThreadServiceError && cause.code === 'private_thread')
+          return sendError(
+            reply,
+            409,
+            'approval_private_chat',
+            'This chat is private, so approvals stay on the computer.',
+          );
+        if (cause instanceof ThreadServiceError && cause.code === 'approvals_full')
+          return sendError(reply, 409, 'approvals_full', 'Three approvals are already waiting.');
+        throw cause;
+      }
+    },
+  );
+
+  app.get<{ Params: { approvalId: string }; Querystring: { wait?: string } }>(
+    '/v1/connectors/approvals/:approvalId',
+    async (request, reply): Promise<ConnectorApproval | FastifyReply> => {
+      // Listen before any await: a client that leaves during auth must not hold a waiter.
+      const gone = new AbortController();
+      const onClose = () => gone.abort();
+      reply.raw.once('close', onClose);
+      try {
+        const connector = await approvalComputer(request, reply);
+        if (connector === undefined) return reply;
+        if (!threadMessageIdSchema.safeParse(request.params.approvalId).success)
+          return sendError(reply, 404, 'not_found', APPROVAL_NOT_FOUND);
+        const requested = Number.parseInt(request.query.wait ?? '0', 10);
+        const waitS = Number.isFinite(requested)
+          ? Math.min(Math.max(requested, 0), CONNECTOR_APPROVAL_MAX_WAIT_S)
+          : 0;
+        const approval = await options.threads!.getConnectorApproval(
+          connector.user_id,
+          connector.id,
+          request.params.approvalId,
+          waitS * 1000,
+          gone.signal,
+        );
+        return approval ?? sendError(reply, 404, 'not_found', APPROVAL_NOT_FOUND);
+      } finally {
+        reply.raw.off('close', onClose);
+      }
+    },
+  );
+
+  app.delete<{ Params: { approvalId: string } }>(
+    '/v1/connectors/approvals/:approvalId',
+    async (request, reply): Promise<FastifyReply> => {
+      const connector = await approvalComputer(request, reply);
+      if (connector === undefined) return reply;
+      const approval = threadMessageIdSchema.safeParse(request.params.approvalId).success
+        ? await options.threads!.cancelConnectorApproval(
+            connector.user_id,
+            connector.id,
+            request.params.approvalId,
+          )
+        : undefined;
+      return approval === undefined
+        ? sendError(reply, 404, 'not_found', APPROVAL_NOT_FOUND)
+        : reply.code(204).send();
     },
   );
 
