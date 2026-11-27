@@ -2,6 +2,7 @@
 
 A ring is a real phone call to your owner's phone, with a full-screen incoming call and a ringtone. It interrupts whatever they're doing, so treat it as you would calling a busy person: ring when it's worth it, and say why in one breath.
 
+<!-- not:hermes -->
 ## The command
 
 ```
@@ -32,6 +33,23 @@ The phone rings for 30 seconds.
 - this agent has rung six times in the last hour.
 
 In every case, wait and try later only if it still matters, and leave the result somewhere they'll see it.
+<!-- /not -->
+<!-- only:hermes -->
+## The tool
+
+Call `twring_ring_owner` with:
+- `reason`: why you are ringing, at most 140 characters. It is spoken the moment they answer.
+- `details` (optional): the longer version. It goes to their Twring chat before the phone rings.
+
+The phone rings for 30 seconds. The tool answers at once:
+
+| Result | Meaning | What to do |
+| --- | --- | --- |
+| `{"delivered": "ring"}` | The phone is ringing | If they answer, you're on a call and your message was already spoken. Continue from there. |
+| `{"delivered": "chat", "ring": "refused", "why": "..."}` | Twring refused the ring; your news is in their chat | Don't ring again for it. |
+
+A refusal means do not disturb or quiet hours, another call, a ring already going, or six rings in the last hour. Never retry in a loop.
+<!-- /only -->
 
 ## Writing the ring message
 

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -14,15 +14,21 @@ import {
 import { describe, expect, it } from 'vitest';
 
 import { RING_EXIT } from './ring';
+import { HERMES_SKILL_FILES, SKILL_FILES } from './skill-files';
 import { withFilePaths } from './turn-files';
 
 /** The agent skill pack (skills/twring) must describe Twring as it behaves. */
 const skillDir = fileURLToPath(new URL('../../../skills/twring/', import.meta.url));
-const read = (path: string) => readFileSync(`${skillDir}${path}`, 'utf8');
-const skill = read('SKILL.md');
-const ringing = read('references/ringing.md');
-const longWork = read('references/approvals-and-long-work.md');
-const voice = read('references/voice.md');
+function fileOf(files: readonly { path: string; content: string }[], path: string): string {
+  const file = files.find((entry) => entry.path === path);
+  if (file === undefined) throw new Error(`${path} is missing from the build`);
+  return file.content;
+}
+const skill = fileOf(SKILL_FILES, 'SKILL.md');
+const ringing = fileOf(SKILL_FILES, 'references/ringing.md');
+const longWork = fileOf(SKILL_FILES, 'references/approvals-and-long-work.md');
+const voice = fileOf(SKILL_FILES, 'references/voice.md');
+const hermesSkill = fileOf(HERMES_SKILL_FILES, 'SKILL.md');
 
 function frontmatter(text: string): Record<string, string> {
   const block = /^---\n([\s\S]*?)\n---\n/.exec(text.replace(/\r\n/g, '\n'));
@@ -95,8 +101,24 @@ describe('twring agent skill', () => {
     );
   });
 
-  it('is version 0.6.3', () => {
-    expect(skill.replace(/\r\n/g, '\n')).toMatch(/\n {2}version: 0\.6\.3\n/);
+  it('is version 0.7.0 in both builds, and only the Hermes build says it is the Hermes build', () => {
+    expect(skill).toMatch(/\n {2}version: 0\.7\.0\n/);
+    expect(hermesSkill).toMatch(/\n {2}version: 0\.7\.0\n/);
+    expect(hermesSkill).toMatch(/\n {2}build: hermes\n/);
+    expect(skill).not.toContain('build: hermes');
+  });
+
+  it('leaves no agent markers in either build', () => {
+    for (const file of [...SKILL_FILES, ...HERMES_SKILL_FILES]) {
+      expect(file.content, file.path).not.toMatch(/<!-- \/?(only|not)/);
+    }
+  });
+
+  it('tells other agents what phone approvals exist today without promising them', () => {
+    expect(skill).toContain('such as Gemini CLI, and Hermes over ACP');
+    expect(skill).toContain(
+      'Outside a call, only Hermes with the Twring plugin can send an approval to the phone today.',
+    );
   });
 
   it('makes agents write down what the owner asks for on a call, in the same turn', () => {
@@ -139,5 +161,52 @@ describe('twring agent skill', () => {
     expect(skill).toContain('## Sound like a person');
     expect(voice).toContain('## Sounding human');
     expect(skill).toContain('[laughter]');
+  });
+});
+
+describe('twring skill, Hermes build', () => {
+  const all = HERMES_SKILL_FILES.map((file) => file.content).join('\n');
+
+  it('never sends Hermes to the shell, the connector or a timer', () => {
+    for (const file of HERMES_SKILL_FILES) {
+      for (const banned of ['twring-connect', 'nohup', 'curl', 'sleep 60', '--wait']) {
+        expect(file.content, `${file.path}: ${banned}`).not.toContain(banned);
+      }
+    }
+  });
+
+  it('names TWRING_TOKEN only to say never to use it', () => {
+    const sentences = all.split(/(?<=[.!?])\s+/).filter((s) => s.includes('TWRING_TOKEN'));
+    expect(sentences.length).toBeGreaterThan(0);
+    for (const sentence of sentences) expect(sentence).toMatch(/\bnever\b/i);
+  });
+
+  it('reaches the owner with the plugin tools', () => {
+    expect(hermesSkill).toContain('`twring_ring_owner`');
+    expect(hermesSkill).toContain('`twring_message_owner`');
+    expect(all).toContain('"delivered": "chat", "ring": "refused"');
+  });
+
+  it('says to install the plugin when the tools are missing, instead of improvising', () => {
+    expect(hermesSkill).toContain('hermes plugins install twring');
+  });
+
+  it('leaves approval rings to the plugin and never approves on silence', () => {
+    expect(hermesSkill).toContain('the plugin rings their phone once');
+    expect(hermesSkill).toContain("You don't run a timer");
+    expect(hermesSkill).toContain('A timeout is still not approval.');
+  });
+
+  it('keeps the voice rules of the generic build', () => {
+    expect(hermesSkill).toContain(HANGUP_MARKERS[0]);
+    expect(hermesSkill).toContain('Hang up only when your owner clearly says goodbye');
+    expect(hermesSkill).toContain('## Sound like a person');
+  });
+
+  it('starts with frontmatter and carries the generated note', () => {
+    expect(hermesSkill.startsWith('---\nname: twring\n')).toBe(true);
+    for (const file of HERMES_SKILL_FILES) {
+      expect(file.content, file.path).toContain('Generated from skills/twring');
+    }
   });
 });

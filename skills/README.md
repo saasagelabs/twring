@@ -16,15 +16,15 @@ Copy the whole `twring` folder (not just `SKILL.md`) into your agent's skills fo
 | --- | --- |
 | Claude Code | `~/.claude/skills/twring/` (all projects) or `<project>/.claude/skills/twring/` |
 | Codex CLI | `~/.codex/skills/twring/` |
-| Hermes Agent | `~/.hermes/skills/twring/`, or inside a category such as `~/.hermes/skills/communication/twring/` |
+| Hermes Agent | Bundled with the Twring Hermes plugin (`hermes plugins install twring`); the Twring connector also installs it into `~/.hermes/skills/twring/`. Don't copy this generic folder there: Hermes has its own build. |
 | OpenClaw | `<workspace>/skills/twring/`, or `~/.openclaw/skills/twring/` for all agents |
 | Other Agent Skills tools | Their user skills folder; many also read `~/.agents/skills/` |
 
-The pack is published as `https://twring.com/downloads/twring-skill.tar.gz`, built by `scripts/package-skill.sh`. On macOS or Linux, for example for Hermes:
+The pack is published as `https://twring.com/downloads/twring-skill.tar.gz`, built by `scripts/package-skill.sh`. On macOS or Linux, for example for Codex:
 
 ```bash
-mkdir -p ~/.hermes/skills
-curl -fsSL https://twring.com/downloads/twring-skill.tar.gz | tar -xz -C ~/.hermes/skills
+mkdir -p ~/.codex/skills
+curl -fsSL https://twring.com/downloads/twring-skill.tar.gz | tar -xz -C ~/.codex/skills
 ```
 
 Change the folder for other agents. An agent can also run this itself: send it the two lines and ask it to install the Twring skill.

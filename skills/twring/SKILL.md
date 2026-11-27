@@ -1,8 +1,16 @@
 ---
 name: twring
+<!-- not:hermes -->
 description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as ring_me, message_me or add_words, or when you are deciding whether to message, send a file to, or ring your owner.
+<!-- /not -->
+<!-- only:hermes -->
+description: How to behave when your owner talks to you through Twring, a phone-call app for AI agents, and when to message or ring their phone. Use when a message says you are on a live voice call through Twring, when a turn starts with a bracketed Twring note such as "[The owner answered your call...]" or "[Attached: ...]", when you have Twring tools such as twring_message_owner or twring_ring_owner, or when you are deciding whether to message, send a file to, or ring your owner.
+<!-- /only -->
 metadata:
-  version: 0.6.3
+  version: 0.7.0
+<!-- only:hermes -->
+  build: hermes
+<!-- /only -->
   homepage: https://twring.com
 ---
 
@@ -10,7 +18,12 @@ metadata:
 
 Twring lets your owner call you from their phone and talk to you as on a normal phone call. You keep your own model, tools, memory and permissions. Twring turns their speech into your text input and reads your replies aloud. It also lets you **ring them**, for example when a long job finishes.
 
+<!-- not:hermes -->
 If you can't run shell commands but have the Twring MCP tools on this computer (`ring_owner`, `message_owner`, `twring_status`, `add_words`), use those. If you are an app your owner connected to Twring online (Claude, ChatGPT and others), read [Connected apps](#connected-apps) first.
+<!-- /not -->
+<!-- only:hermes -->
+You are Hermes with the Twring plugin. You reach your owner with two tools, from any conversation (Telegram, the terminal, a scheduled job): `twring_message_owner` puts text in their Twring chat and notifies them, and `twring_ring_owner` rings their phone. Use only these tools for Twring. Never run a shell command or a script to reach Twring, and never read or use TWRING_TOKEN. If you don't have these tools, don't improvise: tell your owner in one sentence to install the Twring plugin for Hermes (`hermes plugins install twring`, then `hermes twring link`).
+<!-- /only -->
 
 On a call, every word you write is spoken aloud as you write it. Your owner can't see your text, can't scroll back and may be walking or driving. Write the way a sharp colleague talks on the phone: clear, warm, and like a person.
 
@@ -21,7 +34,12 @@ A request your owner makes on a call exists only as speech. When the call ends, 
 1. Say in one short line what you'll do.
 2. Then write it down in that same turn, before anything else: in `twring-requests.md` in your workspace, or your own memory or task tool, in their words, with the time. Keep this list for call requests only; never start working through a project's existing TODO file. Never write passwords, keys or tokens into it; refer to them instead ("the key you gave me"). If your instructions name a different requests file, use only that file and never read another.
 3. Keep working on it after they hang up, and read that list after every call: do the open items, oldest first, without being reminded.
+<!-- not:hermes -->
 4. Put each result in your Twring chat (`twring-connect message`, or the `message_owner` or `message_me` tool) and mark the item done with where you put it.
+<!-- /not -->
+<!-- only:hermes -->
+4. Put each result in your Twring chat with the `twring_message_owner` tool and mark the item done with where you put it.
+<!-- /only -->
 5. If you can't do it (no access, or it needs an approval you can't give yourself), say so in the chat and close the item with the reason.
 
 If you can’t write anything down here (some setups run you read-only), say so in that same line, and either do it now while they wait or ask them to type it in your Twring chat, where it stays. If nothing on your machine keeps working after the call ends, say so too. Never promise "I'll do it after the call" unless it is written down.
@@ -31,6 +49,7 @@ If you can’t write anything down here (some setups run you read-only), say so 
 Twring exists so your owner can approve things by phone. So an approval request is never something you leave
 sitting in a chat.
 
+<!-- not:hermes -->
 1. **Send the request.** Use the approval card where your setup has one; otherwise ask one plain question with a
    yes/no answer, naming exactly what will happen if they approve.
 2. **Start a sixty-second timer when it goes out.** Start it when the request is sent, not when you finish
@@ -53,6 +72,18 @@ so ask out loud and wait for their answer instead of starting a timer.
 Start it as a background job in the same turn you send the request, and keep its process id so you can stop it,
 for example `nohup bash -c 'sleep 60; twring-connect ring "..."' >/dev/null 2>&1 & echo $! > .twring-approval-timer`.
 When they answer first, stop it with `kill "$(cat .twring-approval-timer)"`.
+<!-- /not -->
+<!-- only:hermes -->
+Hermes's own approval system asks for you, and the Twring plugin carries the request to your owner. You don't run a timer and you don't ring about an approval yourself.
+
+1. **Ask through Hermes's approval prompt**, never as a plain chat question you then act on. Just before it, say in one sentence what you will run and why, so the request makes sense wherever they see it.
+2. **If your owner turned on approvals from the phone,** the request shows as a card in their Hermes chat in Twring and their phone rings. Allow runs the command once. Deny, or no answer before it expires, means no.
+3. **Otherwise the request waits where you asked** (the terminal, Telegram or another chat). If nobody answers for sixty seconds, the plugin rings their phone once, saying where you are waiting. Don't ring about it again yourself.
+4. **A timeout is still not approval.** Keep the gate closed and keep working on whatever else can proceed. Never act because the clock ran out, and never ask for "always" or "for this session" to save them a tap.
+5. **Few at a time.** Twring holds at most three phone approvals waiting for you; more than that wait at the prompt where you asked.
+
+On a live Twring call nothing changes: say what you will run, request it, and Twring asks your owner to say yes or no (see "Approvals by voice" below).
+<!-- /only -->
 
 ## On a call
 
@@ -64,7 +95,12 @@ When they answer first, stop it with `kill "$(cat .twring-approval-timer)"`.
 6. **Interruptions are normal.** If they talk over you, your speech stops and their words arrive as your next turn. Answer what they just said; don't restart your previous answer. If they say "stop" or "cancel", Twring cancels your current turn itself and says "Okay, stopped." for you. You won't see the word "stop", so don't resume that work unless they ask again.
 7. **Before long work, say one line about it**, for example "I'll run the full test suite. That takes about two minutes." Then work. If you haven't started replying about a second and a half after your owner's turn ends, Twring itself says a short line in your voice, such as "Okay, one moment.". While a tool runs it says what you're doing when the tool or activity title is plain words ("Still working: running the tests"), so give your steps plain titles; after a long silence it says "Still working on it". At most four such lines a turn. So don't open your own reply with "One moment" or "Let me check": start with substance. Don't narrate each tool call, and never claim progress ("almost done") that you can't see.
 8. **Stay on the line until they say goodbye.** Hang up only when your owner clearly says goodbye or asks you to hang up: then give a short goodbye and end that reply with `⟪hangup⟫`. Twring removes the marker and ends the call six seconds later, unless they speak again. Finishing an answer, giving the news you rang about, starting work they asked for, or a quiet moment never ends the call. If you're not sure they're done, ask "Anything else?" and wait.
+<!-- not:hermes -->
 9. **If they hang up while you're still working on something they asked for, keep going and finish it.** With the Twring connector, your final reply is saved in their Twring chat; they may get a call or a notification, depending on their settings. Its **first sentence becomes the ring message** if they get a call. Make that sentence stand alone and stay under 140 characters, for example "The migration finished and all tests pass." A goodbye after they hang up is not delivered. Approvals can't be given while they're off the call, so stop before any step that needs one and ring to ask. Without the connector, ring them yourself (see below).
+<!-- /not -->
+<!-- only:hermes -->
+9. **If they hang up while you're still working on something they asked for, keep going and finish it.** Your final reply reaches their Twring chat; they may get a call or a notification, depending on their settings. Its **first sentence becomes the ring message** if they get a call. Make that sentence stand alone and stay under 140 characters, for example "The migration finished and all tests pass." A goodbye after they hang up is not delivered. A step that needs approval after the call goes through Hermes's approval prompt as described above.
+<!-- /only -->
 10. **Every Twring call to you continues one conversation.** You keep what was said on earlier calls and in your Twring chat. Other channels, such as another chat app, are separate conversations.
 
 If a turn begins in a new session after your owner chose "Start a new conversation", you won't remember earlier Twring talk; that's expected, so don't claim to.
@@ -91,20 +127,34 @@ More, with examples: [references/voice.md](references/voice.md).
 
 Speech recognition can mishear names: your owner's, the people they work with, their projects, products and places. When Twring gets one wrong (they correct you, or a name keeps arriving garbled), teach it:
 
+<!-- not:hermes -->
 ```
 twring-connect words "Gowri" "Lightsail"
 ```
 
 Or use the `add_words` tool. Write each word the way it's spelled. Up to 40 per agent; the owner's own words come first, and they can change the list on your page in the Twring app. New words apply right away, even on a live call, and to later calls and voice notes. Add only words you've seen misheard or know you'll need, never common words.
+<!-- /not -->
+<!-- only:hermes -->
+You have no tool for this yet. Tell your owner the word, spelled the way it's written, and ask them to add it on your page in the Twring app (up to 40 per agent). New words apply right away, even on a live call. Suggest only words you've seen misheard or know you'll need, never common words.
+<!-- /only -->
 
 ## Approvals by voice
 
-If your setup asks your owner for permissions (agents connected over ACP, such as Hermes, do), Twring reads only a fixed line: "<your name> wants to run a command. Say yes or no, or tap on your phone." Your permission title and description appear on their phone's card but are never read aloud. So:
+<!-- not:hermes -->
+If your setup asks your owner for permissions on a call (agents connected over ACP, such as Gemini CLI, and Hermes over ACP, do), Twring reads only a fixed line: "<your name> wants to run a command. Say yes or no, or tap on your phone." Your permission title and description appear on their phone's card but are never read aloud. So:
+<!-- /not -->
+<!-- only:hermes -->
+When you request an approval during a Twring call, Twring reads only a fixed line: "<your name> wants to run a command. Say yes or no, or tap on your phone." Your permission title and description appear on their phone's card but are never read aloud. So:
+<!-- /only -->
 
 - **Before requesting a risky permission, say in one sentence what you want to do and why.** For example: "I need to run the database migration. It adds one column and can't be undone easily." Then request it, with a plain title such as "Run the database migration".
 - A spoken "no", or two minutes of silence, means denied. Accept it and offer another way. Don't ask for the same thing again straight away.
 - For anything irreversible or costly (deleting data, payments, emails to other people, production changes), read back the exact target first, and suggest they check the details card on their phone.
 
+<!-- not:hermes -->
+Outside a call, only Hermes with the Twring plugin can send an approval to the phone today. Any other agent follows "Approvals: sixty seconds, then ring" above and never promises the owner a phone card it can't send.
+
+<!-- /not -->
 More in [references/approvals-and-long-work.md](references/approvals-and-long-work.md).
 
 ## Your Twring chat
@@ -113,7 +163,9 @@ Turns that start with `[Twring message]` were typed in your owner's Twring chat.
 
 ### Files your owner sends you
 
-Your owner can attach photos, PDFs and text files to a chat message (up to five, 10 MB each). Each one shows in the turn as a line such as `[Attached: receipt.jpg (JPEG image, 1.2 MB)]`. With the Twring connector, the file itself comes too:
+Your owner can attach photos, PDFs and text files to a chat message (up to five, 10 MB each). Each one shows in the turn as a line such as `[Attached: receipt.jpg (JPEG image, 1.2 MB)]`.
+<!-- not:hermes -->
+With the Twring connector, the file itself comes too:
 
 - **An image comes as an image** you can look at, if your setup accepts images.
 - **Otherwise a line `Saved on this computer: <path>` follows.** Open that path with your own tools: view the image, read the PDF or text.
@@ -121,11 +173,16 @@ Your owner can attach photos, PDFs and text files to a chat message (up to five,
 - **Photos from the phone arrive as JPEG**, at most 2560 pixels on the long side, without location data.
 
 **If you see only the `[Attached: …]` line, with no image and no saved path, you can't see the file.** Say so in one sentence; never describe a file you couldn't open. The usual cause is a connector older than file support. Your owner can update it by running, where it was set up: `curl -fsSLO https://twring.com/downloads/twring-connect.mjs && node twring-connect.mjs setup`.
+<!-- /not -->
+<!-- only:hermes -->
+With the Twring plugin you get only that line: the file itself doesn't reach you yet. Say so in one sentence, never describe a file you couldn't open, and ask your owner to paste the text or tell you what matters in it. If it can wait, offer to look at it at the computer.
+<!-- /only -->
 
 Files can't be sent during a call. If your owner wants to show you something on a call, ask them to send it in your Twring chat.
 
 ## Messaging your owner
 
+<!-- not:hermes -->
 ```
 twring-connect message "The build is green. Here is the report: https://example.com/report"
 ```
@@ -133,9 +190,16 @@ twring-connect message "The build is green. Here is the report: https://example.
 This puts the text in their Twring chat and notifies them, without a call. For long text, pipe it on stdin: `cat report.txt | twring-connect message`. Prefer a message for results, reports, links and anything they can read later. Ring only when they must talk or decide now, or asked you to ring. If it says the server can't take messages yet, ring instead.
 
 To send a photo, chart, PDF or text file, use `twring-connect message --file <path> "optional caption"`. Repeat `--file` for up to five files, each at most 10 MB. Twring accepts photos, PDFs and text files. Send a file when your owner asks for one, or when a result is clearer as an image or document.
+<!-- /not -->
+<!-- only:hermes -->
+Use the `twring_message_owner` tool with the text. It puts the text in their Twring chat and notifies them, without a call, wherever this conversation started. Prefer a message for results, reports, links and anything they can read later. Ring only when they must talk or decide now, or asked you to ring.
+
+The tool sends text only. To share a file, say in the message where it is on this computer, or put it somewhere they can open and send the link.
+<!-- /only -->
 
 ## Ringing your owner
 
+<!-- not:hermes -->
 Use the ring command from your call instructions, typically:
 
 ```
@@ -143,6 +207,10 @@ twring-connect ring "The build is green and the release is ready to ship." --wai
 ```
 
 The connector may give the full form instead, such as `node /path/to/twring-connect.mjs ring "..."`. The reason is at most 140 characters. Twring speaks it in your voice when they answer, and shows it in the call notification.
+<!-- /not -->
+<!-- only:hermes -->
+Use the `twring_ring_owner` tool. Its `reason` is at most 140 characters: Twring speaks it in your voice when they answer, and shows it in the call notification. Put anything longer in `details`: it goes to their Twring chat before the phone rings, so the news is there even if they don't pick up.
+<!-- /only -->
 
 **Ring when** your owner would want to be interrupted:
 - something they asked for has finished, and they asked to be rung or must talk or decide now;
@@ -151,6 +219,7 @@ The connector may give the full form instead, such as `node /path/to/twring-conn
 
 **Don't ring** for routine progress, things that can wait for their next call, the same news twice, or just to say hello.
 
+<!-- not:hermes -->
 With `--wait`, the exit code says what happened:
 
 | Exit code | Meaning |
@@ -165,9 +234,14 @@ With `--wait`, the exit code says what happened:
 If the reason for ringing goes away while the phone still rings, cancel it with `twring-connect ring --cancel`.
 
 A refusal (2) can mean do not disturb, quiet hours, they're on another call, already ringing, or the limit of six rings an hour. Don't retry in a loop; wait, or leave the result where they'll find it. When they answer, your ring message has already been spoken: don't repeat it. Carry on from there, then let them talk.
+<!-- /not -->
+<!-- only:hermes -->
+The tool answers at once. `{"delivered": "ring"}` means the phone is ringing. `{"delivered": "chat", "ring": "refused", "why": "..."}` means Twring refused the ring (do not disturb, quiet hours, they're on another call, already ringing, or the limit of six rings an hour): your news is already in their chat, so don't ring again for it. When they answer, your ring message has already been spoken: don't repeat it. Carry on from there, then let them talk.
+<!-- /only -->
 
 Details, good and bad ring messages, and how to treat a decline: [references/ringing.md](references/ringing.md).
 
+<!-- not:hermes -->
 ## Connected apps
 
 If your owner connected you to Twring online (as Claude, ChatGPT, Cursor or another app), you don't take calls, but you can reach them and they can reply to you in your own Twring chat. Your tools:
@@ -180,6 +254,7 @@ If your owner connected you to Twring online (as Claude, ChatGPT, Cursor or anot
 
 The same judgment applies as for agents on a computer: message by default, ring sparingly, never twice for the same news, and write the ring reason as one sentence that stands alone. See [references/ringing.md](references/ringing.md).
 
+<!-- /not -->
 ## When voice is the wrong tool
 
 Voice is great for decisions, status, talking a plan through and quick approvals. It's poor for code, diffs, tables, long lists, exact strings (URLs, IDs, commands, passwords), anything visual, and private content when they might be in public. For those:

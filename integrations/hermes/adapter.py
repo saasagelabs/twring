@@ -16,6 +16,7 @@ TWRING_RING_ON_DELIVERY (ring for scheduled-job results, default true).
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import datetime
 import hashlib
@@ -36,6 +37,7 @@ try:  # loaded by Hermes as a package
         AGENT_ID,
         CHAT_ID,
         DEFAULT_SERVER,
+        PLUGIN_VERSION,
         MAX_FRAME_BYTES,
         MAX_TOOL_ID_CHARS,
         OWNER_ID,
@@ -54,11 +56,13 @@ try:  # loaded by Hermes as a package
         tool_status,
     )
     from .twring_link import LinkError, check_server, post_message, post_ring
+    from .twring_calls import register_asker, unregister_asker
 except ImportError:  # loaded directly (tests)
     from twring_core import (  # type: ignore[no-redef]
         AGENT_ID,
         CHAT_ID,
         DEFAULT_SERVER,
+        PLUGIN_VERSION,
         MAX_FRAME_BYTES,
         MAX_TOOL_ID_CHARS,
         OWNER_ID,
@@ -77,10 +81,10 @@ except ImportError:  # loaded directly (tests)
         tool_status,
     )
     from twring_link import LinkError, check_server, post_message, post_ring  # type: ignore[no-redef]
+    from twring_calls import register_asker, unregister_asker  # type: ignore[no-redef]
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_VERSION = "0.1.3"
 TEXT_TURN_TAG = "[Twring message]"
 #: Twring ends a quiet turn after 30 s; a working Hermes says so at least this often.
 ACTIVITY_EVERY_S = 10.0
@@ -119,9 +123,10 @@ CALL_HINT = (
     f"with {TEXT_TURN_TAG} was typed in the Twring chat: answer in normal written text; markdown, "
     "lists and code are fine there, and the call rules do not apply. If a call ends while you are "
     "still working on something your owner asked for, keep going and finish it: your final reply "
-    "reaches their Twring chat, and Twring may ring them with it. To call your owner back later, "
-    "schedule a cron job that delivers to twring; its result rings their phone. Never read or use "
-    "TWRING_TOKEN, and never call the Twring server yourself."
+    "reaches their Twring chat, and Twring may ring them with it. To reach your owner later, use "
+    "the twring_message_owner tool, or twring_ring_owner when they must act now; a cron job that "
+    "delivers to twring also rings them. Your full Twring instructions are in the skill "
+    "twring:twring. Never read or use TWRING_TOKEN, and never call the Twring server yourself."
 )
 
 
@@ -180,7 +185,9 @@ class TwringAdapter(BasePlatformAdapter):
         self._turns: dict[str, TurnState] = {}  # turn key -> turn still owed an answer
         self._current: Optional[TurnState] = None  # the turn Hermes is answering now
         self._last_activity: dict[str, float] = {}
-        self._approvals: dict[str, tuple[str, str]] = {}  # approval id -> (session key, turn key)
+        # approval id -> (session key, turn key, future): the future is set when the approval came
+        # from the phone-approval transport, which waits on it instead of Hermes's gateway card.
+        self._approvals: dict[str, tuple[str, str, Optional[concurrent.futures.Future]]] = {}
         self._orphan_text: dict[str, str] = {}  # turn key -> reply text after its call hung up
         self._started: set[str] = set()  # turn keys Hermes has begun working on
         self._stopped: set[str] = set()  # turn keys the owner cancelled, so Hermes was stopped
@@ -216,6 +223,7 @@ class TwringAdapter(BasePlatformAdapter):
         self._ready.clear()
         self._loop = asyncio.get_running_loop()
         _ADAPTERS.add(self)
+        register_asker(self._ask_in_call)
         self._http = platform_http_client(headers={"User-Agent": f"twring-hermes/{PLUGIN_VERSION}"}, follow_redirects=False)
         self._task = asyncio.create_task(self._run())
         try:
@@ -236,6 +244,8 @@ class TwringAdapter(BasePlatformAdapter):
     async def disconnect(self) -> None:
         self._stopping = True
         _ADAPTERS.discard(self)
+        unregister_asker(self._ask_in_call)
+        self._release_call_approvals()
         self._loop = None
         with contextlib.suppress(Exception):
             self._release_platform_lock()
@@ -354,6 +364,7 @@ class TwringAdapter(BasePlatformAdapter):
         for key, turn in list(self._turns.items()):
             if not turn.finished:
                 self._orphan_text.setdefault(key, "")
+        self._release_call_approvals()
         self._channels.clear()
 
     # ── Twring → Hermes ───────────────────────────────────────────────────────────────────────
@@ -480,17 +491,26 @@ class TwringAdapter(BasePlatformAdapter):
         entry = self._approvals.pop(approval_id, None)
         if entry is None:
             return
-        session_key, turn_key = entry
+        session_key, turn_key, waiting = entry
         decision = "approve" if message.get("decision") == "approve" else "deny"
-        from tools.approval import resolve_gateway_approval_card
+        if waiting is not None:
+            # Asked for the phone-approval transport: it hands the choice to Hermes itself.
+            try:
+                waiting.set_result(decision)
+            except concurrent.futures.InvalidStateError:
+                # Timed out or released first: that path owns the card's outcome, so say nothing.
+                return
+            resolved = True
+        else:
+            from tools.approval import resolve_gateway_approval_card
 
-        resolved = resolve_gateway_approval_card(
-            session_key,
-            approval_choice(decision),
-            approval_id,
-            actor_id=OWNER_ID,
-            extra=getattr(self.config, "extra", None),
-        )
+            resolved = resolve_gateway_approval_card(
+                session_key,
+                approval_choice(decision),
+                approval_id,
+                actor_id=OWNER_ID,
+                extra=getattr(self.config, "extra", None),
+            )
         turn = self._turns.get(turn_key)
         if turn is not None and not turn.finished:
             by = "owner" if resolved else "timeout"
@@ -769,9 +789,78 @@ class TwringAdapter(BasePlatformAdapter):
                 "declined from the phone. Approve it at the computer if you want it to run.",
             )
             return SendResult(success=True)
-        self._approvals[prompt.request_id] = (prompt.session_key, _turn_key(turn.channel, turn.turn_id))
+        self._approvals[prompt.request_id] = (prompt.session_key, _turn_key(turn.channel, turn.turn_id), None)
         await self._emit(turn, [approval_required(turn, prompt.request_id, prompt.command, prompt.description)])
         return SendResult(success=True, message_id=prompt.request_id)
+
+    _open_card_timeout_s = 5.0
+
+    def _ask_in_call(
+        self, session_key: str, request_id: str, command: str, description: str, timeout_s: float
+    ) -> Optional[str]:
+        """The phone-approval transport's asker (runs on Hermes's approval worker thread): asks on
+        the open Twring call for this session and waits for the answer. None means no live call."""
+        loop = self._loop
+        if loop is None or loop.is_closed() or "twring" not in str(session_key).split(":"):
+            return None
+        opening = asyncio.run_coroutine_threadsafe(
+            self._open_call_approval(session_key, request_id, command, description), loop
+        )
+        try:
+            waiting = opening.result(timeout=self._open_card_timeout_s)
+        except Exception:
+            # A late open must not leave a card nobody waits on: stop it, and close any card it sent.
+            opening.cancel()
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._spawn, self._expire_call_approval(request_id))
+            return None
+        if waiting is None:
+            return None
+        try:
+            return waiting.result(timeout=max(float(timeout_s), 0.0))
+        except concurrent.futures.TimeoutError:
+            if not waiting.cancel():
+                # The answer landed just as the wait ran out: it stands.
+                return waiting.result()
+            with contextlib.suppress(RuntimeError):
+                loop.call_soon_threadsafe(self._spawn, self._expire_call_approval(request_id))
+            return "deny"
+        except concurrent.futures.CancelledError:
+            return None
+
+    async def _open_call_approval(
+        self, session_key: str, request_id: str, command: str, description: str
+    ) -> Optional[concurrent.futures.Future]:
+        turn = self._turn_for()
+        if turn is None or turn.finished or turn.surface == "text":
+            return None
+        key = _turn_key(turn.channel, turn.turn_id)
+        if key in self._orphan_text:
+            return None
+        waiting: concurrent.futures.Future = concurrent.futures.Future()
+        self._approvals[request_id] = (session_key, key, waiting)
+        await self._emit(turn, [approval_required(turn, request_id, command, description)])
+        return waiting
+
+    async def _expire_call_approval(self, request_id: str) -> None:
+        """Nobody answered on the call in time: the card closes as denied."""
+        entry = self._approvals.pop(request_id, None)
+        if entry is None:
+            return
+        turn = self._turns.get(entry[1])
+        if turn is not None and not turn.finished:
+            await self._emit(
+                turn, [turn.event("approval.resolved", approval_id=request_id, decision="deny", by="timeout")]
+            )
+
+    def _release_call_approvals(self) -> None:
+        """The call dropped: transport approvals still waiting go back to the transport (None), which
+        asks on the phone card with the time left. Gateway approvals stay as they were."""
+        for approval_id, (_, _, waiting) in list(self._approvals.items()):
+            if waiting is not None:
+                self._approvals.pop(approval_id, None)
+                with contextlib.suppress(concurrent.futures.InvalidStateError):
+                    waiting.set_result(None)
 
     async def get_chat_info(self, chat_id: str) -> dict[str, Any]:
         return {"name": "Twring", "type": "dm", "chat_id": chat_id}

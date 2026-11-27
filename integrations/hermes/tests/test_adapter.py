@@ -4,6 +4,7 @@ Needs Hermes installed (run with Hermes's own Python); skipped elsewhere.
 """
 
 import asyncio
+import concurrent.futures
 import json
 
 import pytest
@@ -16,6 +17,7 @@ from gateway.platforms.event import ProcessingOutcome  # noqa: E402
 from websockets.asyncio.server import serve  # noqa: E402
 
 import adapter as twring  # noqa: E402
+import twring_calls  # noqa: E402
 
 TOKEN = "cct_" + "e" * 43
 
@@ -381,6 +383,8 @@ def test_call_instructions_keep_answers_short_and_keep_hermes_off_the_token():
     hint = twring.CALL_HINT
     assert "one to three short sentences" in hint
     assert "TWRING_TOKEN" in hint and "cron" in hint
+    assert "twring_message_owner" in hint and "twring_ring_owner" in hint
+    assert "twring:twring" in hint
     assert "\u2014" not in hint
 
 
@@ -689,3 +693,106 @@ async def test_a_message_folded_into_a_failed_run_is_closed_as_failed(linked):
     await fake.wait_for(lambda m: m["type"] == "done" and m["turn_id"] == "t34")
     folded = next(m for m in fake.agent_frames() if m["type"] == "done" and m["turn_id"] == "t34")
     assert folded["status"] == "failed"
+
+
+TWRING_SESSION = "agent:main:twring:dm:owner"
+
+
+async def test_a_phone_approval_during_a_call_is_asked_on_the_call_and_answered_there(linked, monkeypatch):
+    adapter, fake, events = linked
+    import tools.approval
+
+    def must_not_run(*args, **kwargs):
+        raise AssertionError("a transport approval is answered by the transport, not the gateway")
+
+    monkeypatch.setattr(tools.approval, "resolve_gateway_approval_card", must_not_run)
+    event = await turn(fake, events, "Clean the build folder", turn_id="t20")
+    await adapter.on_processing_start(event)
+    asking = asyncio.create_task(
+        asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req20", "rm -rf build", "Deletes files", 5)
+    )
+    await fake.wait_for(lambda m: m["type"] == "approval.required" and m["approval_id"] == "req20")
+    await fake.agent({"type": "approval.decision", "turn_id": "t20", "approval_id": "req20", "decision": "approve"})
+    assert await asking == "approve"
+    await fake.wait_for(lambda m: m["type"] == "approval.resolved" and m["decision"] == "approve")
+
+
+async def test_a_phone_approval_with_no_answer_on_the_call_is_denied(linked):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t21")
+    await adapter.on_processing_start(event)
+    answer = await asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req21", "rm x", "", 0.3)
+    assert answer == "deny"
+    await fake.wait_for(lambda m: m["type"] == "approval.resolved" and m.get("by") == "timeout")
+
+
+async def test_a_typed_chat_or_another_platform_is_not_asked_on_a_call(linked):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", surface="text", turn_id="t22")
+    await adapter.on_processing_start(event)
+    assert await asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req22", "rm x", "", 1) is None
+    assert await asyncio.to_thread(twring_calls.ask_in_call, "agent:main:telegram:dm:42", "req23", "rm x", "", 1) is None
+    assert not any(m["type"] == "approval.required" for m in fake.agent_frames())
+
+
+async def test_a_call_that_drops_while_asking_hands_the_approval_to_the_phone_card(linked):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t24")
+    await adapter.on_processing_start(event)
+    asking = asyncio.create_task(asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req24", "rm x", "", 5))
+    await fake.wait_for(lambda m: m["type"] == "approval.required" and m["approval_id"] == "req24")
+    adapter._drop_open_turns()
+    assert await asking is None
+
+
+async def test_an_answer_after_the_call_wait_ran_out_does_not_show_as_approved(linked):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t25")
+    await adapter.on_processing_start(event)
+    answer = await asyncio.to_thread(twring_calls.ask_in_call, TWRING_SESSION, "req25", "rm x", "", 0.2)
+    assert answer == "deny"
+    await fake.wait_for(lambda m: m["type"] == "approval.resolved" and m["approval_id"] == "req25")
+    waiting: concurrent.futures.Future = concurrent.futures.Future()
+    waiting.cancel()
+    adapter._approvals["req25b"] = (TWRING_SESSION, next(iter(adapter._turns)), waiting)
+    await adapter._on_approval_decision({"approval_id": "req25b", "decision": "approve"})
+    await asyncio.sleep(0.05)
+    assert not any(
+        m["type"] == "approval.resolved" and m.get("decision") == "approve" for m in fake.agent_frames()
+    )
+
+
+async def test_an_answer_that_lands_as_the_wait_runs_out_stands(linked, monkeypatch):
+    adapter, fake, events = linked
+
+    class LandsAtTheBuzzer(concurrent.futures.Future):
+        def result(self, timeout=None):
+            if timeout is not None and not self.done():
+                self.set_result("approve")
+                raise concurrent.futures.TimeoutError()
+            return super().result(timeout)
+
+    async def open_card(*args):
+        return LandsAtTheBuzzer()
+
+    monkeypatch.setattr(adapter, "_open_call_approval", open_card)
+    answer = await asyncio.to_thread(adapter._ask_in_call, TWRING_SESSION, "req26", "rm x", "", 1)
+    assert answer == "approve"
+
+
+async def test_a_card_that_opens_too_late_is_closed_not_left_waiting(linked, monkeypatch):
+    adapter, fake, events = linked
+    event = await turn(fake, events, "Clean up", turn_id="t27")
+    await adapter.on_processing_start(event)
+    real_open = adapter._open_call_approval
+
+    async def slow_open(*args):
+        await asyncio.sleep(0.3)
+        return await real_open(*args)
+
+    monkeypatch.setattr(adapter, "_open_call_approval", slow_open)
+    monkeypatch.setattr(adapter, "_open_card_timeout_s", 0.05)
+    assert await asyncio.to_thread(adapter._ask_in_call, TWRING_SESSION, "req27", "rm x", "", 1) is None
+    await asyncio.sleep(0.4)
+    assert "req27" not in adapter._approvals
+    assert not any(m["type"] == "approval.required" and m["approval_id"] == "req27" for m in fake.agent_frames())

@@ -14,7 +14,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUT="$ROOT/dist/twring-skill.tar.gz"
 mkdir -p "$ROOT/dist"
-tar -C "$ROOT/skills" -czf "$OUT" twring
+# The source carries agent markers (<!-- only:hermes -->); pack the generated generic build.
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+node "$ROOT/apps/connector/scripts/gen-skill.mjs" --out-generic "$stage"
+tar -C "$stage" -czf "$OUT" twring
 echo "Built $OUT ($(wc -c <"$OUT") bytes)"
 echo "SHA-256: $(sha256sum "$OUT" | cut -d' ' -f1)"
 
