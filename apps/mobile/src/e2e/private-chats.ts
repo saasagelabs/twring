@@ -101,6 +101,8 @@ const savedSchema = z.record(
 export const REWRAP_ASK_MS = 5 * 60_000;
 /** How often one chat may read the device list to learn whether this phone was removed. */
 export const REMOVED_CHECK_MS = 30_000;
+/** A sender lookup stops holding a chat on loading after this; a stalled read then shows what is known. */
+export const SENDER_LOOKUP_MS = 10_000;
 
 export class PrivateChats {
   private readonly contexts = new Map<string, PhoneSealContext>();
@@ -593,10 +595,16 @@ export class PrivateChats {
       if ([...unknown].every((id) => trusted.some((d) => d.id === id))) return;
       await this.readDevices(agentId, ctx.accountId, ctx.me, () => generation !== this.generation);
       if (!stale()) ctx.trusted = this.trusted;
-    })()
-      .catch(() => undefined)
-      .finally(() => this.senderLoading.delete(agentId));
-    this.senderLoading.set(agentId, work);
+    })().catch(() => undefined);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, SENDER_LOOKUP_MS);
+    });
+    const held: Promise<void> = Promise.race([work, deadline]).finally(() => {
+      clearTimeout(timer);
+      if (this.senderLoading.get(agentId) === held) this.senderLoading.delete(agentId);
+    });
+    this.senderLoading.set(agentId, held);
     return true;
   }
 

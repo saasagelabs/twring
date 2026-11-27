@@ -10,7 +10,7 @@ import {
   type RecoveryBackupRequest,
   type SealedEnvelopeV1,
 } from '@twring/contracts';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { DEVICE_KEY_NAME, loadDeviceKey } from './device-key';
 import {
@@ -22,7 +22,7 @@ import {
   PAIR_AGAIN_ACTION,
 } from './devices';
 import { loadTrusted, saveTrusted, type TrustedDevice } from './pairing';
-import { PrivateChats, SealError } from './private-chats';
+import { PrivateChats, SealError, SENDER_LOOKUP_MS } from './private-chats';
 import { PAIR_AGAIN } from './private-state';
 import { REWRAP_JOBS_KEY } from './rewrap';
 import {
@@ -587,6 +587,25 @@ describe('a phone approved after the chat loaded (device test 2026-11-27)', () =
     c.open(AGENT, [...messages]);
     await settle();
     expect(calls()).toBe(2);
+  });
+
+  it('a stalled lookup stops holding the chat on loading after a deadline', async () => {
+    let stall = false;
+    const { c } = await loaded(() =>
+      stall
+        ? (new Promise(() => undefined) as unknown as E2eDevice[])
+        : [listedPhone(phone.id), listed(computer)],
+    );
+    stall = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const messages = [fromPhone(keys(), 1)];
+      expect(c.open(AGENT, messages)).toBeUndefined();
+      await vi.advanceTimersByTimeAsync(SENDER_LOOKUP_MS);
+      expect(c.open(AGENT, messages)?.map((m) => m.state)).toEqual(['couldnt_open']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('a sender the server removed is not trusted again by the lookup', async () => {
