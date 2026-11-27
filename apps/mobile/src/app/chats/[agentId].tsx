@@ -495,6 +495,7 @@ export default function ChatScreen() {
             <View style={styles.status}>
               <Text
                 style={{
+                  flexShrink: 1,
                   color: palette.danger,
                   fontFamily: font.mono,
                   fontSize: type.microLabel.fontSize,
@@ -936,7 +937,13 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   list: { paddingHorizontal: 18, paddingVertical: 12 },
-  status: { alignSelf: 'flex-end', flexDirection: 'row', alignItems: 'center', gap: 4 },
+  status: {
+    alignSelf: 'flex-end',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   retry: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 8 },
   retryLabel: { fontFamily: font.bodyEmphasis, fontSize: type.caption.fontSize },
   empty: {

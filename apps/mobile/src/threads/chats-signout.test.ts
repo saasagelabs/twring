@@ -76,7 +76,11 @@ describe('sign-out', () => {
     expect(hooks.beforeSignOut).toHaveLength(1);
     await hooks.beforeSignOut[0]();
     expect(hooks.removed).toEqual(
-      expect.arrayContaining(['outbox-selfhost_s1_p1', 'agents-selfhost_s1_p1']),
+      expect.arrayContaining([
+        'outbox-selfhost_s1_p1',
+        'agents-selfhost_s1_p1',
+        'summaries-selfhost_s1_p1',
+      ]),
     );
   });
 });

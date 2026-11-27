@@ -1,4 +1,9 @@
-import type { ThreadMessage, ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
+import {
+  threadSummarySchema,
+  type ThreadMessage,
+  type ThreadSocketFrame,
+  type ThreadSummary,
+} from '@twring/contracts';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import NetInfo from '@react-native-community/netinfo';
@@ -13,6 +18,13 @@ import { STATUS_POLL_MS } from '@/hooks/useResource';
 import { ringPlatform } from '../platform/ring';
 
 import type { OpenedMessage } from '../e2e/sealed-thread';
+import {
+  forgetListPreview,
+  loadListPreviews,
+  previewText,
+  saveListPreview,
+  type ListPreview,
+} from '../e2e/list-previews';
 import { forgetPrivateDevice, PrivateChats } from '../e2e/private-chats';
 import { phoneQuote } from '../e2e/private-quote';
 import { undeliveredIds } from '../e2e/private-state';
@@ -64,6 +76,18 @@ export class ChatController {
   private availability: boolean | undefined;
   /** The chat list arrived since the last clear: each chat's privacy is known. */
   private listLoaded = false;
+  /** The saved list from last time is on screen until the server's arrives. */
+  private hydrated = false;
+  /** The last list load failed: the screen shows what it has instead of waiting. */
+  private listFailed = false;
+  private readonly summaryStore?: JsonStore;
+  /** The private keychain holding the Chats list's opened previews (`e2e/list-previews`). */
+  private readonly previewStore?: SecureKeyValue;
+  /** Opened previews of private chats' last messages, by chat; the saved ones load first. */
+  private readonly previews = new Map<string, ListPreview>();
+  private readonly previewing = new Set<string>();
+  /** Bumped when opened previews are dropped, so an open still running cannot put one back. */
+  private previewGeneration = 0;
   private filesAvailable = false;
   private socket?: ReturnType<typeof connectThreadSocket>;
   private appSubscription?: { remove(): void };
@@ -93,6 +117,10 @@ export class ChatController {
       shareHistory?: (privateAgentIds: string[]) => void;
       /** Reads and copies local files for sealing; the device's own when none. */
       sealedFiles?: SealedFiles;
+      /** The last chat list, shown on the next start until the server answers. */
+      summaries?: JsonStore;
+      /** The private keychain for the Chats list's short opened previews. */
+      previews?: SecureKeyValue;
     } = {},
     timers: OutboxTimers = systemTimers,
   ) {
@@ -100,6 +128,9 @@ export class ChatController {
     this.privacy?.onRemoved(() => void this.dropOpenedPrivate());
     this.shareHistory = stores.shareHistory;
     this.sealedFiles = stores.sealedFiles ?? deviceSealedFiles;
+    this.summaryStore = stores.summaries;
+    this.previewStore = stores.previews;
+    this.hydrate();
     this.outbox = new Outbox(
       async (agentId, message, signal) => {
         if (message.sealed !== undefined && !this.api.sendSealedMessage)
@@ -154,6 +185,62 @@ export class ChatController {
       this.listLoaded ? this.isPrivate(agentId) : undefined,
     );
   }
+
+  /** The saved list and previews from last time, before the server answers. */
+  private hydrate(): void {
+    const epoch = this.epoch;
+    void this.summaryStore
+      ?.load()
+      .then((saved) => {
+        if (epoch !== this.epoch || this.listLoaded || saved === undefined) return;
+        const parsed = threadSummarySchema.array().safeParse(saved);
+        if (!parsed.success) {
+          void this.summaryStore?.remove().catch(() => undefined);
+          return;
+        }
+        this.summaries = parsed.data;
+        this.hydrated = true;
+        this.emit();
+      })
+      .catch(() => undefined);
+    if (this.privacy && this.previewStore)
+      void loadListPreviews(this.previewStore).then((saved) => {
+        if (epoch !== this.epoch) return;
+        for (const [agentId, preview] of saved)
+          if (!this.previews.has(agentId)) this.previews.set(agentId, preview);
+        if (saved.size > 0) this.emit();
+      });
+  }
+
+  /**
+   * The opened text of a private chat's last message for the Chats list, or undefined (the list
+   * then says "Private message"). Opening runs in the background and saves a short preview.
+   */
+  getPreview = (agentId: string): string | undefined => {
+    const last = this.summaries.find((summary) => summary.agent_id === agentId)?.last_message;
+    if (last?.kind !== 'sealed') return undefined;
+    const known = this.previews.get(agentId);
+    if (known?.messageId === last.id) return known.text;
+    if (this.privacy && !this.previewing.has(last.id)) {
+      const privacy = this.privacy;
+      const epoch = this.epoch;
+      const generation = this.previewGeneration;
+      this.previewing.add(last.id);
+      void privacy
+        .openPreview(agentId, last)
+        .then((text) => {
+          if (epoch !== this.epoch || generation !== this.previewGeneration) return;
+          if (text === undefined || !text.trim()) return;
+          const preview = { messageId: last.id, text: previewText(text) };
+          this.previews.set(agentId, preview);
+          if (this.previewStore)
+            void saveListPreview(this.previewStore, agentId, preview).catch(() => undefined);
+          this.emit();
+        })
+        .finally(() => this.previewing.delete(last.id));
+    }
+    return undefined;
+  };
 
   /** Private chats never go out as text, even with no way to seal on this phone. */
   private sealer(): OutboxSealer {
@@ -309,9 +396,16 @@ export class ChatController {
       void this.privacy.checkRemoved(agentId);
   }
 
+  private dropPreviews(): void {
+    this.previews.clear();
+    this.previewGeneration++;
+    this.previewing.clear();
+  }
+
   /** After a restore, pairing or approval: private chats load the key and computers again. */
   resetPrivate(): void {
     this.opened.clear();
+    this.dropPreviews();
     this.privacy?.reset();
     this.emit();
   }
@@ -327,6 +421,7 @@ export class ChatController {
    */
   private async dropOpenedPrivate(): Promise<void> {
     this.opened.clear();
+    this.dropPreviews();
     this.search.forgetPrivate();
     await clearSealedFiles();
     this.emit();
@@ -340,6 +435,9 @@ export class ChatController {
   getFilesAvailable = (): boolean => this.filesAvailable;
   getRevision = (): number => this.revision;
   getSummaries = (): ThreadSummary[] => this.summaries;
+  /** The list on screen is worth showing: loaded, saved from last time, off, or failed to load. */
+  isListReady = (): boolean =>
+    this.listLoaded || this.hydrated || this.listFailed || this.availability === false;
 
   /** Private chats' agent ids once the list has loaded; undefined before (not an empty list). */
   loadedPrivateAgentIds = (): string[] | undefined =>
@@ -485,6 +583,9 @@ export class ChatController {
         this.filesAvailable = files;
         this.availability = true;
         this.listLoaded = true;
+        this.listFailed = false;
+        // Plain summaries only: a private chat's last message is still sealed here.
+        void this.summaryStore?.save(threads).catch(() => undefined);
         this.drafts.privacyChanged();
         // Older private messages for a phone approved here: once, when the app opens.
         const share = this.shareHistory;
@@ -505,6 +606,10 @@ export class ChatController {
           return;
         }
         // A transient failure does not mean the server disabled chats.
+        if (!this.listFailed) {
+          this.listFailed = true;
+          this.emit();
+        }
         if (this.availability === undefined) {
           this.availability = true;
           this.emit();
@@ -750,6 +855,8 @@ export class ChatController {
     this.focusCounts.clear();
     this.chats.clear();
     this.opened.clear();
+    this.previews.clear();
+    this.previewing.clear();
     // Opened files are plaintext on disk: they go on any clear, as the opened text does.
     const privacy = Promise.all([
       options.forget ? this.privacy?.forget() : undefined,
@@ -760,12 +867,15 @@ export class ChatController {
     this.search.forgetPrivate();
     const search = options.forget ? this.search.wipe() : Promise.resolve();
     const drafts = options.forget ? this.drafts.clear() : this.drafts.flush();
+    const summaries = options.forget ? this.summaryStore?.remove() : undefined;
     this.summaries = [];
     this.listLoaded = false;
+    this.hydrated = false;
+    this.listFailed = false;
     this.availability = undefined;
     this.filesAvailable = false;
     this.emit();
-    await Promise.all([outbox, drafts, search, privacy]);
+    await Promise.all([outbox, drafts, search, privacy, summaries?.catch(() => undefined)]);
   }
 
   getDraft(agentId: string): Promise<string> {
@@ -779,6 +889,11 @@ export class ChatController {
     void clearSealedFiles();
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);
+    this.previews.delete(agentId);
+    this.previewGeneration++;
+    this.previewing.clear();
+    if (this.previewStore)
+      void forgetListPreview(this.previewStore, agentId).catch(() => undefined);
   }
   /** Leaving a chat writes its draft now instead of after the debounce. */
   flushDrafts(): void {
@@ -837,6 +952,8 @@ export function chatController(): ChatController | undefined {
         ? {
             outbox: fileStore('outbox', scope),
             drafts: fileStore('drafts', scope),
+            summaries: fileStore('summaries', scope),
+            previews: privateKeychain(scope),
             search: new SearchIndex(sqliteSearchStore(scope)),
             privacy: new PrivateChats({
               store: privateKeychain(scope),
@@ -878,6 +995,7 @@ export function chatController(): ChatController | undefined {
             fileStore('drafts', signingOut).remove(),
             fileStore('private', signingOut).remove(),
             fileStore('agents', signingOut).remove(),
+            fileStore('summaries', signingOut).remove(),
             deleteSearchDatabase(signingOut),
             clearSealedFiles(),
             forgetPrivateDevice(privateKeychain(signingOut)),
@@ -979,6 +1097,10 @@ export function useChatList(): {
   available: boolean;
   /** The server said chats are off (404), as opposed to not known yet. */
   off: boolean;
+  /** Rows can be drawn: until then the list would show the wrong order and lines. */
+  ready: boolean;
+  /** A private chat's opened last-message preview, when this phone has one. */
+  preview(agentId: string): string | undefined;
   refresh(): void;
 } {
   // Reads a mutable controller after subscribing: the React Compiler must not cache those reads.
@@ -1000,6 +1122,8 @@ export function useChatList(): {
     threads,
     available: active?.getAvailability() ?? false,
     off: active?.getAvailability() === false,
+    ready: active?.isListReady() ?? true,
+    preview: (agentId) => active?.getPreview(agentId),
     refresh: () => {
       void active?.refreshList();
     },

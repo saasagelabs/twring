@@ -32,6 +32,7 @@ import { loadDeviceKey } from '@/e2e/device-key';
 import {
   devicesStateFrom,
   listDevices,
+  OLD_INSTALL,
   removeCopy,
   removeDevice,
   syncTrusted,
@@ -314,7 +315,7 @@ export default function PrivateDevicesScreen() {
                   label={row.thisPhone ? `${row.name} (This phone)` : row.name}
                   value={
                     row.connected
-                      ? `${row.kind}, added ${row.added}`
+                      ? `${row.kind}, added ${row.addedLabel ?? row.added}${row.oldInstall ? `. ${OLD_INSTALL}` : ''}`
                       : `${row.kind}, not connected to this phone`
                   }
                   layout="stacked"
