@@ -2,8 +2,9 @@ import UserNotifications
 
 /// Opens a sealed message push (C3 #10): Apple carries only the envelope and a fixed "New message"
 /// alert; this shows the agent's name and first line again. Anything that does not open, and
-/// running out of time, delivers the alert as sent. A message for an account not signed in here is
-/// delivered blank (hidden). Never logs names, previews, keys or envelopes.
+/// running out of time, delivers the alert as sent. A message for an account not signed in here
+/// shows only a neutral line (iOS shows an empty alert rather than none without Apple's filtering
+/// entitlement). Never logs names, previews, keys or envelopes.
 class NotificationService: UNNotificationServiceExtension {
   private static let maxTitle = 60
   private static let maxBody = 120
@@ -16,14 +17,15 @@ class NotificationService: UNNotificationServiceExtension {
     withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
   ) {
     self.contentHandler = contentHandler
-    // A message for another account, or after sign-out, is delivered blank: iOS shows nothing.
+    // A message for another account, or after sign-out, shows only a neutral line, never its text.
     let stored = CordAccountShare.stored()
     let info = request.content.userInfo
     if NotificationService.hidden(
       type: info["type"] as? String, pushRef: info["user_ref"] as? String, stored: stored)
     {
-      original = UNMutableNotificationContent()
-      deliver(UNMutableNotificationContent())
+      let neutral = NotificationService.neutral(stored: stored)
+      original = neutral
+      deliver(neutral)
       return
     }
     original = request.content
@@ -36,6 +38,17 @@ class NotificationService: UNNotificationServiceExtension {
   static func hidden(type: String?, pushRef: String?, stored: String?) -> Bool {
     guard type == "cord.message" else { return false }
     return !CordRingGate.shouldShow(stored: stored, pushRef: pushRef)
+  }
+
+  /// The alert for a message this phone may not show: no agent name, preview, sound or data, so a
+  /// tap only opens the app.
+  static func neutral(stored: String?) -> UNNotificationContent {
+    let content = UNMutableNotificationContent()
+    content.body =
+      (stored ?? "").isEmpty
+      ? "Sign in to see your messages."
+      : "New message for another Twring account."
+    return content
   }
 
   override func serviceExtensionTimeWillExpire() {
@@ -58,7 +71,7 @@ class NotificationService: UNNotificationServiceExtension {
       inner["type"] == "cord.message"
     else { return nil }
     if hidden(type: inner["type"], pushRef: inner["user_ref"], stored: stored) {
-      return UNMutableNotificationContent()
+      return neutral(stored: stored)
     }
     guard let mutable = content.mutableCopy() as? UNMutableNotificationContent else { return nil }
     let name = (inner["agent_name"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
