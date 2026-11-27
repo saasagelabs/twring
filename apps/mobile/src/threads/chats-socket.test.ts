@@ -1,3 +1,4 @@
+import type { NetInfoState } from '@react-native-community/netinfo';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError, type TwringApi } from '../api/client';
@@ -8,6 +9,20 @@ const handles: {
   retryNow: ReturnType<typeof vi.fn>;
 }[] = [];
 const appListeners: ((state: string) => void)[] = [];
+const netListeners: ((state: NetInfoState) => void)[] = [];
+const stopNet = vi.fn();
+// The library's own jest mock, with its addEventListener recording listeners.
+vi.mock('@react-native-community/netinfo', async () => {
+  vi.stubGlobal('jest', vi);
+  // @ts-expect-error The library ships its jest mock without types.
+  const imported: unknown = await import('@react-native-community/netinfo/jest/netinfo-mock.js');
+  const mock = (imported as { default: { addEventListener: ReturnType<typeof vi.fn> } }).default;
+  mock.addEventListener.mockImplementation((listener: (state: NetInfoState) => void) => {
+    netListeners.push(listener);
+    return stopNet;
+  });
+  return { default: mock };
+});
 vi.mock('./search-store', () => ({
   sqliteSearchStore: () => undefined,
   deleteSearchDatabase: () => Promise.resolve(),
@@ -74,5 +89,42 @@ describe('thread socket on return to the app', () => {
     expect(handles[0].reconnect).toHaveBeenCalledTimes(1);
     expect(handles[0].retryNow).toHaveBeenCalledTimes(1);
     expect(handles).toHaveLength(1);
+  });
+});
+
+const net = (type: string, isConnected: boolean, ipAddress?: string) =>
+  ({ type, isConnected, details: ipAddress ? { ipAddress } : null }) as unknown as NetInfoState;
+
+describe('thread socket on network changes', () => {
+  it('retries when the network returns or changes, and stops listening on sign-out', async () => {
+    handles.length = 0;
+    netListeners.length = 0;
+    const api = {
+      listMessages: vi.fn().mockResolvedValue({ messages: [], hasMore: false }),
+      listThreads: vi.fn().mockResolvedValue({ threads: [], files: false }),
+      markRead: vi.fn().mockResolvedValue(undefined),
+    } as unknown as TwringApi;
+    const controller = new ChatController(api, { url: 'wss://x', requireSecureMedia: true });
+    await controller.open(agent);
+    expect(netListeners).toHaveLength(1);
+    const emit = (state: NetInfoState) => netListeners.forEach((listener) => listener(state));
+    const { retryNow } = handles[0];
+    // The first report on subscribe is the starting point, not a change.
+    emit(net('wifi', true, '10.0.0.2'));
+    expect(retryNow).not.toHaveBeenCalled();
+    emit(net('none', false));
+    expect(retryNow).not.toHaveBeenCalled();
+    emit(net('wifi', true, '10.0.0.2'));
+    expect(retryNow).toHaveBeenLastCalledWith();
+    emit(net('cellular', true));
+    expect(retryNow).toHaveBeenLastCalledWith({ networkChanged: true });
+    emit(net('cellular', true));
+    expect(retryNow).toHaveBeenCalledTimes(2);
+    await controller.clear();
+    expect(stopNet).toHaveBeenCalled();
+    // A late event for the signed-out account does nothing.
+    emit(net('none', false));
+    emit(net('wifi', true, '10.0.0.3'));
+    expect(retryNow).toHaveBeenCalledTimes(2);
   });
 });

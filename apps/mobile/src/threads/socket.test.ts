@@ -53,6 +53,7 @@ describe('thread socket', () => {
       onFrame,
       onState: () => undefined,
       timers,
+      random: () => 0.5,
       WebSocketImpl: FakeSocket,
     });
     const first = FakeSocket.instances[0];
@@ -125,6 +126,7 @@ describe('thread socket', () => {
       onFrame: () => undefined,
       onState: () => undefined,
       timers,
+      random: () => 0.5,
       WebSocketImpl: FakeSocket,
     });
     const first = FakeSocket.instances[0];
@@ -191,6 +193,7 @@ describe('thread socket', () => {
       onFrame: () => undefined,
       onState: () => undefined,
       timers,
+      random: () => 0.5,
       WebSocketImpl: FakeSocket,
     });
     for (let i = 0; i < 5; i++) {
@@ -299,6 +302,65 @@ describe('thread socket', () => {
     expect(FakeSocket.instances).toHaveLength(2);
     expect(FakeSocket.instances[1].options?.headers.authorization).toBe('new');
     expect(refreshAuth).toHaveBeenCalledTimes(1);
+    socket.close();
+  });
+  it('a network change right after a foreground retry still replaces the socket', () => {
+    vi.useFakeTimers();
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: () => undefined,
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    FakeSocket.instances[0].end(1006);
+    socket.retryNow();
+    expect(FakeSocket.instances).toHaveLength(2);
+    socket.retryNow({ networkChanged: true });
+    expect(FakeSocket.instances).toHaveLength(3);
+    socket.close();
+  });
+  it('replacing an open socket reports it disconnected until the new one opens', () => {
+    vi.useFakeTimers();
+    const states: string[] = [];
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: (state) => states.push(state),
+      timers,
+      WebSocketImpl: FakeSocket,
+    });
+    FakeSocket.instances[0].open();
+    socket.retryNow({ networkChanged: true });
+    expect(states).toEqual(['connected', 'disconnected']);
+    FakeSocket.instances[1].open();
+    expect(states).toEqual(['connected', 'disconnected', 'connected']);
+    socket.close();
+  });
+  it.each([
+    [0, 800],
+    [1, 1_200],
+  ])('backoff waits carry +-20%% jitter (random %i)', async (r, wait) => {
+    vi.useFakeTimers();
+    const socket = connectThreadSocket({
+      url: 'http://localhost:3000',
+      requireSecureMedia: false,
+      headers: () => ({}),
+      onFrame: () => undefined,
+      onState: () => undefined,
+      timers,
+      random: () => r,
+      WebSocketImpl: FakeSocket,
+    });
+    FakeSocket.instances[0].end(1006);
+    await vi.advanceTimersByTimeAsync(wait - 1);
+    expect(FakeSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(FakeSocket.instances).toHaveLength(2);
     socket.close();
   });
 });

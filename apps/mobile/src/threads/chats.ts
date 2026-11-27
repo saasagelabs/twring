@@ -1,6 +1,7 @@
 import type { ThreadMessage, ThreadSocketFrame, ThreadSummary } from '@twring/contracts';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { AppState } from 'react-native';
 
 import { twringApi, ApiError, type TwringApi } from '@/api';
@@ -64,6 +65,7 @@ export class ChatController {
   private filesAvailable = false;
   private socket?: ReturnType<typeof connectThreadSocket>;
   private appSubscription?: { remove(): void };
+  private stopNetInfo?: () => void;
   private listPromise?: Promise<void>;
   private readonly search: SearchIndex;
   /** Aborted on clear(): a fill in progress stops when the person signs out or switches. */
@@ -410,6 +412,26 @@ export class ChatController {
       for (const agentId of this.focusCounts.keys()) void this.catchUp(agentId);
       this.reloadFocused();
     });
+    this.stopNetInfo?.();
+    const epoch = this.epoch;
+    // NetInfo reports the current network first: that one only sets what a change is measured from.
+    let last: { connected: boolean; network: string } | undefined;
+    this.stopNetInfo = NetInfo.addEventListener((net) => {
+      if (epoch !== this.epoch) return;
+      const connected = net.isConnected === true;
+      const details: unknown = net.details;
+      const ip =
+        typeof details === 'object' && details !== null && 'ipAddress' in details
+          ? String(details.ipAddress)
+          : '';
+      const network = `${net.type}|${ip}`;
+      const before = last;
+      last = { connected, network };
+      if (!before || !connected) return;
+      // Back online: skip the backoff wait. A new network: the open socket may sit on the old one.
+      if (!before.connected) this.socket?.retryNow();
+      else if (before.network !== network) this.socket?.retryNow({ networkChanged: true });
+    });
   }
 
   async refreshList(): Promise<void> {
@@ -438,6 +460,8 @@ export class ChatController {
           this.availability = false;
           this.socket?.close();
           this.socket = undefined;
+          this.stopNetInfo?.();
+          this.stopNetInfo = undefined;
           this.emit();
           return;
         }
@@ -673,6 +697,8 @@ export class ChatController {
     this.socketConnectedBefore = false;
     this.appSubscription?.remove();
     this.appSubscription = undefined;
+    this.stopNetInfo?.();
+    this.stopNetInfo = undefined;
     for (const timer of this.reads.values()) clearTimeout(timer);
     this.reads.clear();
     this.focusCounts.clear();

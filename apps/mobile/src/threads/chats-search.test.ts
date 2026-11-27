@@ -11,6 +11,9 @@ vi.mock('./socket', () => ({
   connectThreadSocket: () => ({ setFocus: () => undefined, close: () => undefined }),
 }));
 vi.mock('expo-router', () => ({ useFocusEffect: () => undefined }));
+vi.mock('@react-native-community/netinfo', () => ({
+  default: { addEventListener: () => () => undefined },
+}));
 vi.mock('react-native', () => ({
   AppState: { addEventListener: () => ({ remove: () => undefined }) },
 }));
