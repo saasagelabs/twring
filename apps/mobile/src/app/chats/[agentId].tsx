@@ -6,6 +6,7 @@ import * as Haptics from 'expo-haptics';
 import {
   AccessibilityInfo,
   Alert,
+  AppState,
   FlatList,
   Share,
   Pressable,
@@ -48,6 +49,7 @@ import {
   interruptedNotice,
   labelFor,
   MISSING_MESSAGE,
+  NOT_DELIVERED,
   sealedBubble,
   SERVER_READABLE_MARK,
 } from '@/e2e/private-state';
@@ -124,6 +126,19 @@ export default function ChatScreen() {
     useCallback(() => {
       if (id) ringPlatform.clearMessages(id);
       return () => stopMessageSpeech();
+    }, [id]),
+  );
+  // Native shows no notification for the chat on screen; a chat behind the home screen is not.
+  useFocusEffect(
+    useCallback(() => {
+      if (!id) return undefined;
+      const show = (state: string) => ringPlatform.setVisibleChat(state === 'active' ? id : null);
+      show(AppState.currentState);
+      const subscription = AppState.addEventListener('change', show);
+      return () => {
+        subscription.remove();
+        ringPlatform.setVisibleChat(null);
+      };
     }, [id]),
   );
   const palette = usePalette();
@@ -560,6 +575,18 @@ export default function ChatScreen() {
         </View>
       ) : null;
       const bubble = sealedBubble(message, openedById, name);
+      // Removed by another phone: what it sent since was never read; the rest stays hidden.
+      if (bubble === undefined && chat.undelivered.has(message.id))
+        return (
+          <Bubble
+            text={NOT_DELIVERED}
+            muted
+            time={timeOf(message.created_at)}
+            sender="You"
+            own
+            onLink={setUrl}
+          />
+        );
       if (bubble === undefined) return gapRow;
       const sealedTarget: ActionTarget = {
         id: message.id,

@@ -31,6 +31,8 @@ export interface RingPlatform {
   /** Clears the "Missed call from…" notifications (seen in the app). */
   clearMissedCalls(): void;
   clearMessages(agentId: string): void;
+  /** The chat on screen, or null: the phone shows no notification for that chat. */
+  setVisibleChat(agentId: string | null): void;
   onRing(listener: (data: unknown) => void): () => void;
   onRingCancel(listener: (data: unknown) => void): () => void;
   onRingDeclined(listener: () => void): () => void;
@@ -84,6 +86,7 @@ export const ringPlatform: RingPlatform = {
   setShowWhenLocked: () => undefined,
   clearMissedCalls: () => undefined,
   clearMessages: () => undefined,
+  setVisibleChat: () => undefined,
   onRing: off,
   onRingCancel: off,
   onRingDeclined: off,

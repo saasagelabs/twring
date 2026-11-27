@@ -181,6 +181,10 @@ class CordCallServiceModule : Module() {
       Messages.clearMessages(context, agentId)
     }
 
+    Function("setVisibleChat") { agentId: String? ->
+      Messages.setVisibleChat(agentId)
+    }
+
     /** Declines tapped on the notification that JS has not sent yet; clears the queue. */
     Function("takePendingDeclines") {
       Ring.takeDeclines(context)
