@@ -103,6 +103,8 @@ export const REWRAP_ASK_MS = 5 * 60_000;
 export const REMOVED_CHECK_MS = 30_000;
 /** A sender lookup stops holding a chat on loading after this; a stalled read then shows what is known. */
 export const SENDER_LOOKUP_MS = 10_000;
+/** A sender the server's list did not know: its lookup waits for the trusted list to change. */
+const GAVE_UP = Number.POSITIVE_INFINITY;
 
 /** A trusted list compared by what decides trust: ids, kinds and keys, in any order. */
 const trustKey = (list: readonly TrustedDevice[]): string =>
@@ -179,17 +181,17 @@ export class PrivateChats {
     connectorId: string,
     me: { deviceId: string; privateKey: Uint8Array },
     stale: () => boolean = () => false,
-  ): Promise<void> {
-    if (this.deps.devices === undefined) return;
+  ): Promise<boolean> {
+    if (this.deps.devices === undefined) return false;
     try {
       const server = await listDevices({ list: this.deps.devices });
       // A reset came while the list was read: it may hold a new key, never act on the old one.
-      if (stale()) return;
+      if (stale()) return false;
       const before = this.trusted;
       if (removedPhone(server, before, me.deviceId)) {
         const revokedAt = server.find((d) => d.id === me.deviceId)?.revoked_at;
         await this.forgetRemoved(me.deviceId, revokedAt);
-        return;
+        return true;
       }
       this.known = server.some(
         (d) => d.id === me.deviceId && d.kind === 'phone' && d.revoked_at === undefined,
@@ -199,8 +201,10 @@ export class PrivateChats {
       if (reinstalledFor(server, trusted, connectorId, before)) this.reinstalled.add(agentId);
       else this.reinstalled.delete(agentId);
       this.setTrusted(trusted, was !== this.reinstalled.has(agentId));
+      return true;
     } catch {
       // Offline or a bad answer: nothing changes.
+      return false;
     }
   }
 
@@ -258,6 +262,9 @@ export class PrivateChats {
     this.trusted = trusted;
     for (const ctx of this.contexts.values()) ctx.trusted = trusted;
     if (!changed) return;
+    // A sender no list knew may be known now: look it up again on the next open.
+    for (const asked of this.senderAsked.values())
+      for (const [id, at] of asked) if (at === GAVE_UP) asked.delete(id);
     const agentIds = [...this.contexts.keys()];
     for (const listener of this.trustListeners) listener(agentIds);
   }
@@ -591,7 +598,8 @@ export class PrivateChats {
   /**
    * Starts reading the trusted list again when a message comes from a device this chat does not
    * know: the keychain first, then the server's list through the usual trust rules. Each unknown
-   * device is looked up at most once per chat in `REMOVED_CHECK_MS`; true while a read runs.
+   * device is looked up at most once per chat in `REMOVED_CHECK_MS`, and not again once the
+   * server's list was read without it (until the trusted list changes); true while a read runs.
    */
   private askSenders(
     agentId: string,
@@ -619,8 +627,19 @@ export class PrivateChats {
       if (stale()) return;
       this.setTrusted(trusted);
       if ([...unknown].every((id) => trusted.some((d) => d.id === id))) return;
-      await this.readDevices(agentId, ctx.accountId, ctx.me, () => generation !== this.generation);
-      if (!stale()) ctx.trusted = this.trusted;
+      const read = await this.readDevices(
+        agentId,
+        ctx.accountId,
+        ctx.me,
+        () => generation !== this.generation,
+      );
+      if (stale()) return;
+      ctx.trusted = this.trusted;
+      // The server's list was read and still does not know it: a removed phone, or this phone
+      // before a reinstall. Never looked up again until the trusted list changes.
+      if (read)
+        for (const id of unknown)
+          if (!this.trusted.some((d) => d.id === id)) asked.set(id, GAVE_UP);
     })().catch(() => undefined);
     let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<void>((resolve) => {

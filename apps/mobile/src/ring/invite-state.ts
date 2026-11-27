@@ -108,9 +108,13 @@ export function reduceIncoming(state: IncomingState, event: IncomingEvent): Inco
   switch (event.type) {
     case 'LOADED':
       // The server's word only matters while nothing is in flight. A re-check that still says
-      // pending keeps a failed answer's message on screen.
+      // pending keeps a failed answer's message on screen. So does "answered": the failed answer
+      // may have reached the server, and Try again resumes this phone's own call (a ring answered
+      // on another phone gets "already handled" from that answer instead).
       if (state.phase === 'failed')
-        return event.status === 'pending' ? state : phaseForStatus(event.status);
+        return event.status === 'pending' || event.status === 'answered'
+          ? state
+          : phaseForStatus(event.status);
       if (state.phase !== 'loading' && state.phase !== 'ringing') return state;
       return phaseForStatus(event.status);
     case 'LOAD_FAILED': {

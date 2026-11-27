@@ -66,6 +66,12 @@ const OFF_RETRY_MAX_MS = 5 * 60_000;
 /** How long the server's echo of this phone's own Clear chat is recognised as that echo. */
 const OWN_CLEAR_ECHO_MS = 60_000;
 
+/** Every message of `before` is still in `after`: nothing was cleared or deleted between them. */
+function keepsAll(before: readonly ThreadMessage[], after: readonly ThreadMessage[]): boolean {
+  const ids = new Set(after.map((m) => m.id));
+  return before.every((m) => ids.has(m.id));
+}
+
 export class ChatController {
   private revision = 0;
   private epoch = 0;
@@ -326,7 +332,9 @@ export class ChatController {
       void this.privacy.context(agentId).then((ctx) => {
         if (ctx !== undefined) this.emit();
       });
-      return undefined;
+      // While keys or senders load, keep what was opened before rather than blank the chat, as
+      // long as no message left the chat since (a clear or delete never shows again).
+      return cached !== undefined && keepsAll(cached.from, messages) ? cached.list : undefined;
     }
     this.opened.set(agentId, { from: messages, list });
     // An unchanged message keeps its opened entry: only new or changed ones go to search again.
@@ -928,6 +936,7 @@ export class ChatController {
   }
   /** Unsent messages, draft and list preview of one chat: gone after a clear, here or elsewhere. */
   private dropChatData(agentId: string): void {
+    this.opened.delete(agentId);
     void clearSealedFiles();
     void this.outbox.forgetAgent(agentId);
     this.drafts.forget(agentId);

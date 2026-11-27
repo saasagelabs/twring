@@ -140,9 +140,15 @@ describe('invite state', () => {
         error: new ApiError('network'),
       },
     );
-    expect(reduceIncoming(failed, { type: 'LOADED', status: 'answered' })).toEqual({
+    // The failed answer may have reached the server: "answered" keeps Try again, which resumes it.
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'answered' })).toBe(failed);
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'declined' })).toEqual({
       phase: 'ended',
-      why: 'answered_elsewhere',
+      why: 'declined',
+    });
+    expect(reduceIncoming(failed, { type: 'LOADED', status: 'cancelled' })).toEqual({
+      phase: 'ended',
+      why: 'cancelled',
     });
   });
 
