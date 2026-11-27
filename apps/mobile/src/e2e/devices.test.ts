@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CAP_HINT,
   devicesState,
+  addedLabel,
   devicesStateFrom,
   listDevices,
   MAX_REMOVED_SEEN,
@@ -409,5 +410,44 @@ describe('a phone this phone removed stays removed (R3-1)', () => {
       { deviceId: a.id, privateKey: a.privateKey },
     );
     expect(out.map((d) => d.id)).not.toContain(b.id);
+  });
+});
+
+describe('phones with the same name (old installs)', () => {
+  const ph = (c: string, name: string, added_at: string): E2eDevice => ({
+    id: `dev_${c.repeat(20)}`,
+    kind: 'phone',
+    name,
+    public_key: 'k',
+    added_at,
+  });
+  const old = ph('a', 'Pixel', '2026-10-01T10:00:00.000Z');
+  const me = ph('b', 'Pixel', '2026-11-27T10:00:00.000Z');
+  const other = ph('c', 'iPhone', '2026-09-01T10:00:00.000Z');
+
+  it('marks an older same-name phone, never this phone, and shows the added day', () => {
+    const rows = devicesStateFrom([old, me, other], me.id).devices;
+    expect(rows.find((r) => r.id === old.id)?.oldInstall).toBe(true);
+    expect(rows.find((r) => r.id === me.id)?.oldInstall).toBe(false);
+    expect(rows.find((r) => r.id === other.id)?.oldInstall).toBe(false);
+    expect(rows.find((r) => r.id === me.id)?.addedLabel).toBe('27 Nov');
+    expect(rows).toHaveLength(3);
+  });
+
+  it('marks a same-name phone this phone shares a name with even if added later', () => {
+    const newer = ph('d', 'Pixel', '2026-11-28T10:00:00.000Z');
+    const rows = devicesStateFrom([me, newer], me.id).devices;
+    expect(rows.find((r) => r.id === newer.id)?.oldInstall).toBe(true);
+  });
+
+  it('marks only the older of two other same-name phones', () => {
+    const rows = devicesStateFrom([old, me], undefined).devices;
+    expect(rows.find((r) => r.id === old.id)?.oldInstall).toBe(true);
+    expect(rows.find((r) => r.id === me.id)?.oldInstall).toBe(false);
+  });
+
+  it('formats dates in plain words', () => {
+    expect(addedLabel('2026-01-05T12:00:00.000Z')).toBe('5 Jan');
+    expect(addedLabel('bad')).toBe('bad');
   });
 });
