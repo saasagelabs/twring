@@ -721,10 +721,10 @@ describe('answering', () => {
       clientId: 'bdc022a0-d9d0-4de9-8f70-9450a59e2d90',
       text: 'I saw it',
     });
-    expect(owner.message).toMatchObject({ kind: 'user_text', status: 'sent' });
+    expect(owner.message).toMatchObject({ kind: 'user_text', status: 'answered' });
     await g.threads!.service.sweep();
     expect(await g.threads!.store.findMessageById('alice', id, owner.message.id)).toMatchObject({
-      status: 'sent',
+      status: 'answered',
     });
     await device(g, 'alice', 'phone-0001', 'fcm-token-aaaaaaaaaaaaaaaa');
     await g.threads!.service.deliverResult('alice', id, {
