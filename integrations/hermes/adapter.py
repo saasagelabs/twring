@@ -36,6 +36,7 @@ try:  # loaded by Hermes as a package
         AGENT_ID,
         CHAT_ID,
         DEFAULT_SERVER,
+        PLUGIN_VERSION,
         MAX_FRAME_BYTES,
         MAX_TOOL_ID_CHARS,
         OWNER_ID,
@@ -59,6 +60,7 @@ except ImportError:  # loaded directly (tests)
         AGENT_ID,
         CHAT_ID,
         DEFAULT_SERVER,
+        PLUGIN_VERSION,
         MAX_FRAME_BYTES,
         MAX_TOOL_ID_CHARS,
         OWNER_ID,
@@ -80,7 +82,6 @@ except ImportError:  # loaded directly (tests)
 
 logger = logging.getLogger(__name__)
 
-PLUGIN_VERSION = "0.1.3"
 TEXT_TURN_TAG = "[Twring message]"
 #: Twring ends a quiet turn after 30 s; a working Hermes says so at least this often.
 ACTIVITY_EVERY_S = 10.0

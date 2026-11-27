@@ -32,7 +32,13 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 class LinkError(Exception):
-    """Something the person can act on, in plain words. Never carries a token."""
+    """Something the person can act on, in plain words. Never carries a token. `code` is Twring's
+    machine code for a refusal (for example `owner_unavailable`), or None when the server was not
+    reached or gave no code."""
+
+    def __init__(self, message: str = "", *, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -67,6 +73,14 @@ def _error_message(response: httpx.Response, fallback: str) -> str:
     except (ValueError, KeyError, TypeError):
         pass
     return fallback
+
+
+def _error_code(response: httpx.Response) -> str | None:
+    try:
+        code = response.json()["error"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    return code if isinstance(code, str) and code else None
 
 
 def start_link(client: httpx.Client, server: str, computer_name: str) -> LinkRequest:
@@ -163,7 +177,10 @@ async def post_message(
     except httpx.HTTPError as error:
         raise LinkError("Could not reach the Twring server.") from error
     if response.status_code not in (200, 201):
-        raise LinkError(_error_message(response, f"Twring refused the message (HTTP {response.status_code})."))
+        raise LinkError(
+            _error_message(response, f"Twring refused the message (HTTP {response.status_code})."),
+            code=_error_code(response),
+        )
     try:
         delivery = response.json().get("delivery")
     except (ValueError, AttributeError):
@@ -182,4 +199,7 @@ async def post_ring(client: httpx.AsyncClient, server: str, token: str, reason: 
     except httpx.HTTPError as error:
         raise LinkError("Could not reach the Twring server.") from error
     if response.status_code not in (200, 201):
-        raise LinkError(_error_message(response, f"Twring did not ring (HTTP {response.status_code})."))
+        raise LinkError(
+            _error_message(response, f"Twring did not ring (HTTP {response.status_code})."),
+            code=_error_code(response),
+        )

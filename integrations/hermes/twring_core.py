@@ -16,6 +16,8 @@ from typing import Any
 RELAY_PROTOCOL = "cord-relay/1"
 AGENT_PROTOCOL = "cord-agent/1"
 DEFAULT_SERVER = "https://api.twring.com"
+#: This plugin's version: the relay hello, the User-Agent and plugin.yaml all say the same.
+PLUGIN_VERSION = "0.1.3"
 
 #: The one agent this computer offers Twring. `acp` is the closest connector kind Twring knows.
 AGENT_ID = "hermes"

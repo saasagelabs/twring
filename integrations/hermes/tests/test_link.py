@@ -208,3 +208,31 @@ async def test_a_refused_ring_is_an_error_without_the_token():
         with pytest.raises(LinkError, match="Already ringing.") as caught:
             await post_ring(c, SERVER, TOKEN, "hi")
     assert TOKEN not in str(caught.value)
+
+
+def async_client(handler):
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler), follow_redirects=False)
+
+
+async def test_a_refused_ring_carries_twrings_reason_code():
+    def handler(request):
+        return httpx.Response(
+            409,
+            json={"error": {"code": "owner_unavailable", "message": "Do Not Disturb or quiet hours is on.", "request_id": "r"}},
+        )
+
+    async with async_client(handler) as c:
+        with pytest.raises(LinkError) as caught:
+            await post_ring(c, SERVER, TOKEN, "Build failed")
+    assert caught.value.code == "owner_unavailable"
+    assert str(caught.value) == "Do Not Disturb or quiet hours is on."
+
+
+async def test_an_unreachable_server_has_no_reason_code():
+    def handler(request):
+        raise httpx.ConnectError("down", request=request)
+
+    async with async_client(handler) as c:
+        with pytest.raises(LinkError) as caught:
+            await post_message(c, SERVER, TOKEN, "hi")
+    assert caught.value.code is None
