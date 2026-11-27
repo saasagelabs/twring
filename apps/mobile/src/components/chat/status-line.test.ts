@@ -39,7 +39,7 @@ it('is empty when there is nothing to say', () => {
 });
 
 it('uses the AI app reply copy', () => {
-  expect(statusLineContent({ ...base, aiApp: true, latest: { status: 'sent' } })).toMatchObject({
+  expect(statusLineContent({ ...base, aiApp: true, latest: { status: 'queued' } })).toMatchObject({
     kind: 'status',
     text: 'Hermes reads this when it checks',
     tone: 'tertiary',
@@ -92,12 +92,10 @@ it('a private message sent or working shows Working and Stop', () => {
   }
 });
 
-it('a stopped private message reads Stopped, and queued is not working', () => {
+it('a stopped private message clears the line, and queued is not working', () => {
   const stopped = latestOwn([sealedMine('stopped')]);
   expect(statusLineContent({ ...base, working: stopped!.working, latest: stopped })).toEqual({
-    kind: 'status',
-    tone: 'tertiary',
-    text: 'Stopped',
+    kind: 'empty',
   });
   expect(latestOwn([sealedMine('queued')])).toMatchObject({ working: false });
 });
@@ -109,7 +107,12 @@ it('a plain message works as before', () => {
     status: 'sent',
     text: 'hi',
   } as unknown as ThreadMessage;
-  expect(latestOwn([plain])).toEqual({ id: 'msg_p', status: 'sent', working: false });
+  expect(latestOwn([plain])).toEqual({
+    id: 'msg_p',
+    status: 'sent',
+    working: false,
+    awaitingReply: true,
+  });
 });
 
 it('a failure code with its own copy wins over the server text', () => {
@@ -179,4 +182,47 @@ it('a private_unsent failure offers Delete in the status line, not Retry', () =>
   });
   expect(content).toMatchObject({ kind: 'status', tone: 'danger', deleteClientId: 'c1' });
   expect(content).not.toHaveProperty('retryClientId');
+});
+
+it('a turn that has ended clears the line', () => {
+  for (const status of ['sent', 'answered', 'stopped', 'interrupted'] as const) {
+    expect(statusLineContent({ ...base, latest: { status } })).toEqual({ kind: 'empty' });
+    expect(statusLineContent({ ...base, aiApp: true, latest: { status } })).toEqual({
+      kind: 'empty',
+    });
+  }
+});
+
+it('an AI app keeps "reads this when it checks" until its reply arrives', () => {
+  for (const status of ['sent', 'answered'] as const) {
+    expect(
+      statusLineContent({ ...base, aiApp: true, latest: { status, awaitingReply: true } }),
+    ).toEqual({ kind: 'status', tone: 'tertiary', text: 'Hermes reads this when it checks' });
+    expect(
+      statusLineContent({ ...base, aiApp: true, latest: { status, awaitingReply: false } }),
+    ).toEqual({ kind: 'empty' });
+    expect(statusLineContent({ ...base, latest: { status, awaitingReply: true } })).toEqual({
+      kind: 'empty',
+    });
+  }
+});
+
+it('latestOwn says whether a reply has arrived after the newest own message', () => {
+  const mine = { kind: 'user_text', id: 'm1', status: 'answered' } as unknown as ThreadMessage;
+  const reply = { kind: 'agent_text', id: 'm2' } as unknown as ThreadMessage;
+  expect(latestOwn([mine])?.awaitingReply).toBe(true);
+  expect(latestOwn([mine, reply])?.awaitingReply).toBe(false);
+});
+
+it('queued, expired and failed still show', () => {
+  for (const status of ['queued', 'expired'] as const) {
+    expect(statusLineContent({ ...base, latest: { status } })).toMatchObject({
+      kind: 'status',
+      tone: 'tertiary',
+    });
+  }
+  expect(statusLineContent({ ...base, latest: { status: 'failed' } })).toMatchObject({
+    kind: 'status',
+    tone: 'danger',
+  });
 });
