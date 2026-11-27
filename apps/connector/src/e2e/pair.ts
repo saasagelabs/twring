@@ -362,3 +362,19 @@ async function refusal(res: Response): Promise<string> {
     ? body.data.error.message
     : `Twring could not pair your phone right now (${res.status}). Try again in a minute.`;
 }
+
+/**
+ * Asks until the answer is yes or no. A typo (a key next to "y") must not cancel a pairing the
+ * phone already confirmed: the phone would trust a computer that trusts no phone. After a few
+ * unclear answers it is no.
+ */
+export async function askSameNumber(ask: (question: string) => Promise<string>): Promise<boolean> {
+  let question = 'Same number? (y/n) ';
+  for (let tries = 0; tries < 5; tries += 1) {
+    const answer = (await ask(question)).trim().toLowerCase();
+    if (answer === 'y' || answer === 'yes') return true;
+    if (answer === 'n' || answer === 'no') return false;
+    question = 'Type y if the numbers match, or n if they do not: ';
+  }
+  return false;
+}

@@ -53,7 +53,7 @@ import { AgentPool } from './pool';
 import { ResultOutbox } from './outbox';
 import { RelayClient } from './relay';
 import { ensureDeviceKey } from './e2e/keys';
-import { pairPhone } from './e2e/pair';
+import { askSameNumber, pairPhone } from './e2e/pair';
 import {
   CAN_SEAL,
   hasTrustedPhone,
@@ -1425,7 +1425,7 @@ async function privateCommand(rest: string[]): Promise<number> {
         if (!process.stdin.isTTY) return false;
         const rl = createInterface({ input: process.stdin, output: process.stdout });
         try {
-          return /^y(es)?$/i.test((await rl.question('Same number? (y/n) ')).trim());
+          return await askSameNumber((question) => rl.question(question));
         } finally {
           rl.close();
         }
