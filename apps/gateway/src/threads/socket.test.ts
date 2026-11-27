@@ -271,6 +271,24 @@ describe('phone socket', () => {
     expect(hub.isFocused('bob', agentId)).toBe(false);
   });
 
+  it('waits as long as the heartbeat before cutting a slow focused socket', async () => {
+    const { connect, hub } = await setup({ pingMs: 60_000, unansweredMs: 400 });
+    const agentId = `agt_${'a'.repeat(20)}`;
+    const slow = await connect('alice', false);
+    slow.send(JSON.stringify({ type: 'focus', agent_id: agentId }));
+    await tick();
+    let settled = false;
+    const probe = hub.confirmFocused('alice', agentId).then((result) => {
+      settled = true;
+      return result;
+    });
+    // A pong the heartbeat would still accept may arrive here, so the socket stays open.
+    await tick(250);
+    expect(settled).toBe(false);
+    expect(slow.readyState).toBe(WebSocket.OPEN);
+    expect(await probe).toBe(false);
+  });
+
   it('terminates an unresponsive socket and expires a connection', async () => {
     const { connect } = await setup({ pingMs: 30, lifetimeMs: 200 });
     const idle = await connect('alice', false);

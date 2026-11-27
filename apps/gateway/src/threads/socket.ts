@@ -224,9 +224,14 @@ export class PhoneSocketHub {
    * Whether a phone showing this chat answers a ping within `timeoutMs`, checked just before a
    * push is skipped: a dead socket otherwise counts as focused until the heartbeat reaps it and
    * the reply never reaches the phone. Sockets that stay silent are terminated. Concurrent checks
-   * for one chat share a probe; with no focused socket it resolves false at once.
+   * for one chat share a probe; with no focused socket it resolves false at once. The timeout
+   * defaults to `unansweredPingMs`, so a slow link the heartbeat keeps is not cut here either.
    */
-  confirmFocused(userId: string, agentId: string, timeoutMs = 3_000): Promise<boolean> {
+  confirmFocused(
+    userId: string,
+    agentId: string,
+    timeoutMs = this.options.unansweredPingMs ?? 5_000,
+  ): Promise<boolean> {
     const connections = this.focusedConnections(userId, agentId);
     if (connections.length === 0) return Promise.resolve(false);
     const key = `${userId} ${agentId}`;
