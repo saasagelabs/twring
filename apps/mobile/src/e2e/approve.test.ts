@@ -17,8 +17,10 @@ import {
   denyWaiting,
   finishApproval,
   loadApprovalSecret,
+  PENDING_APPROVE_KEY_NAME,
   pollApproval,
   requestApproval,
+  resumePendingApprove,
   revealApproval,
   shownApprover,
   type ApproveApi,
@@ -608,6 +610,69 @@ describe('an approve whose answer was lost', () => {
     expect(waits).toEqual([1_000, 3_000]);
     expect((await loadTrusted(env.tStore)).map((d) => d.id)).not.toContain(env.n.deviceId);
     expect((await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).ok).toBe(true);
+  });
+
+  it('is finished later, once the connection is back, if the person left the screen', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    const accept = env.api.accept.bind(env.api);
+    let online = false;
+    env.api.accept = async (id, device, note) => {
+      // The server takes the first try; its answer, and every try after it, is lost.
+      const out = await accept(id, device, note);
+      if (!online) throw new Error('offline');
+      return out;
+    };
+    const wait = () => Promise.resolve();
+    expect((await approveWaiting({ api: env.api, store: env.tStore, wait }, checked)).ok).toBe(
+      false,
+    );
+    // Still offline the next time Devices opens: kept for later.
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('waiting');
+    online = true;
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('done');
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).toContain(env.n.deviceId);
+    expect(await hasRewrapWork(env.tStore)).toBe(true);
+    // Done once: nothing is left to finish.
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+  });
+
+  it('is dropped, not finished, when the person removed that phone in the meantime', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    let tries = 0;
+    env.api.accept = () => {
+      tries += 1;
+      return Promise.reject(new Error('offline'));
+    };
+    const wait = () => Promise.resolve();
+    await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+    await env.tStore.setItemAsync(REMOVED_KEY_NAME, JSON.stringify([env.n.deviceId]));
+    tries = 0;
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('ended');
+    expect(tries).toBe(0);
+    expect((await loadTrusted(env.tStore)).map((d) => d.id)).not.toContain(env.n.deviceId);
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+  });
+
+  it('ends a saved approve the server turned down, and a saved record it cannot read', async () => {
+    const env = await setup();
+    const { checked } = await toCodes(env);
+    env.api.accept = () => Promise.reject(new Error('offline'));
+    const wait = () => Promise.resolve();
+    await approveWaiting({ api: env.api, store: env.tStore, wait }, checked);
+    env.api.accept = () =>
+      Promise.resolve({ status: 410, body: { error: { code: 'expired', message: 'x' } } });
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('ended');
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+    // Its claim went with it: the same claim again would carry a nonce this phone no longer has.
+    expect(await claimWaiting({ api: env.api, store: env.tStore }, APPROVAL)).toEqual({
+      ok: false,
+      code: 'mismatch',
+    });
+    await env.tStore.setItemAsync(PENDING_APPROVE_KEY_NAME, '{not json');
+    expect(await resumePendingApprove({ api: env.api, store: env.tStore, wait })).toBe('none');
+    expect(await env.tStore.getItemAsync(PENDING_APPROVE_KEY_NAME)).toBe(null);
   });
 });
 

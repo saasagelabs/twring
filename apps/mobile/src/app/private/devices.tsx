@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { twringApi } from '@/api';
 import { ErrorNotice } from '@/components/ErrorNotice';
@@ -21,6 +21,7 @@ import {
   forgetApprovalSecrets,
   listWaiting,
   pollApproval,
+  resumePendingApprove,
   WAITING_TITLE,
   type CheckedApproval,
   type ClaimedApproval,
@@ -46,6 +47,8 @@ const REMOVE_FAILED = 'Twring could not remove that device. Check your connectio
 const APPROVE_FAILED =
   "Twring couldn't finish approving that phone. Ask again from the new phone and try once more.";
 const DECIDE_OFFLINE = 'Twring could not reach the server. Check your connection and tap again.';
+const APPROVE_UNFINISHED =
+  "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.";
 
 type Waiting = { id: string; name: string };
 /** Claimed and waiting for the new phone's reveal, or checked with the code to compare. */
@@ -108,16 +111,36 @@ export default function PrivateDevicesScreen() {
     setState(found.state);
   }, []);
   const load = useCallback(async () => apply(await fetchDevices()), [apply]);
+  /** An approve whose answer was lost: finished now if the connection is back. */
+  const finishLostApprove = useCallback(async () => {
+    const store = privateKeychain();
+    const out = await resumePendingApprove({ api: approveApi(), store }).catch(
+      () => 'waiting' as const,
+    );
+    const api = twringApi();
+    if (out === 'done' && api !== undefined)
+      void shareHistory(api, store, chatController()?.loadedPrivateAgentIds());
+    return out;
+  }, []);
 
   useEffect(() => {
     let current = true;
     void fetchDevices().then((found) => {
       if (current) apply(found);
     });
+    void finishLostApprove().then((out) => {
+      if (current && out === 'done') void load();
+    });
     return () => {
       current = false;
     };
-  }, [apply]);
+  }, [apply, finishLostApprove, load]);
+
+  /** An error inside the approve sheet, read out at once (focus stays on the button). */
+  const sayInSheet = (message: string) => {
+    setSheetError(message);
+    AccessibilityInfo.announceForAccessibility(message);
+  };
 
   const confirmRemove = async (row: DeviceRow) => {
     const api = twringApi();
@@ -148,6 +171,7 @@ export default function PrivateDevicesScreen() {
   /** Tapping a waiting phone takes it, so both phones show the same code. */
   const openWaiting = async (row: Waiting) => {
     setBusy(true);
+    setSheetError(undefined);
     try {
       const deps = { api: approveApi(), store: privateKeychain() };
       const out = await claimWaiting(deps, row.id);
@@ -176,6 +200,7 @@ export default function PrivateDevicesScreen() {
       if (!live) return;
       if (out.ok && 'checked' in out) {
         stop();
+        setSheetError(undefined);
         setApproving({ claimed: pendingClaim, checked: out.checked });
       } else if (!out.ok && out.code !== 'network') {
         stop();
@@ -183,6 +208,7 @@ export default function PrivateDevicesScreen() {
         await forgetApprovalSecrets(privateKeychain(), pendingClaim.approval.id);
         playCallFeedback('error');
         setError(APPROVE_FAILED);
+        setSheetError(undefined);
         setApproving(undefined);
       }
     }, REVEAL_POLL_MS);
@@ -208,7 +234,7 @@ export default function PrivateDevicesScreen() {
       // accept the server already took gets the same answer again). After an approve only Approve
       // stays: if it went through, a deny would be refused and this phone would never finish it.
       if (!out.ok && out.code === 'network') {
-        setSheetError(DECIDE_OFFLINE);
+        sayInSheet(DECIDE_OFFLINE);
         if (approve) setApproving({ ...approving, acceptSent: true });
         return;
       }
@@ -238,7 +264,10 @@ export default function PrivateDevicesScreen() {
           These phones and computers can read your private chats.
         </Text>
         {error !== undefined && (
-          <ErrorNotice error={{ message: error, retryable: true }} onRetry={() => void load()} />
+          <ErrorNotice
+            error={{ message: error, retryable: true }}
+            onRetry={() => void finishLostApprove().then(() => load())}
+          />
         )}
         {state === undefined && error === undefined && (
           <ActivityIndicator accessibilityLabel="Loading devices" />
@@ -322,6 +351,8 @@ export default function PrivateDevicesScreen() {
         title={approving?.claimed.approval.name ?? ''}
         onClose={() => {
           if (busy) return;
+          // It may have gone through: saved, and finished the next time Devices opens.
+          if (approving?.acceptSent === true) setError(APPROVE_UNFINISHED);
           setApproving(undefined);
           setSheetError(undefined);
         }}
@@ -333,7 +364,13 @@ export default function PrivateDevicesScreen() {
             </Text>
             <ActivityIndicator accessibilityLabel="Waiting for the new phone" />
             {sheetError !== undefined && (
-              <Text style={[type.body, { color: palette.textSecondary }]}>{sheetError}</Text>
+              <Text
+                accessibilityRole="alert"
+                accessibilityLiveRegion="polite"
+                style={[type.body, { color: palette.textSecondary }]}
+              >
+                {sheetError}
+              </Text>
             )}
             <GhostButton
               label={DENY_BUTTON}
@@ -355,7 +392,13 @@ export default function PrivateDevicesScreen() {
               {approveSheetCopy(approving.checked.approval.name)}
             </Text>
             {sheetError !== undefined && (
-              <Text style={[type.body, { color: palette.textSecondary }]}>{sheetError}</Text>
+              <Text
+                accessibilityRole="alert"
+                accessibilityLiveRegion="polite"
+                style={[type.body, { color: palette.textSecondary }]}
+              >
+                {sheetError}
+              </Text>
             )}
             <GhostButton label={APPROVE_BUTTON} disabled={busy} onPress={() => void decide(true)} />
             {approving.acceptSent !== true && (

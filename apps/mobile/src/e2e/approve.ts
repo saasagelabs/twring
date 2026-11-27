@@ -75,6 +75,11 @@ const SECRET_KEY_PREFIX = 'twring.e2e.approval_secret.v1.';
 const CLAIM_KEY_PREFIX = 'twring.e2e.approval_claim.v1.';
 /** New phone: the approver and nonce it revealed against, written before the reveal is sent. */
 const REVEAL_KEY_PREFIX = 'twring.e2e.approval_reveal.v1.';
+/**
+ * Approving phone: an approve whose answer was lost on the network, which the server may already
+ * have taken. Kept (one at a time) until it is finished or over (`resumePendingApprove`).
+ */
+export const PENDING_APPROVE_KEY_NAME = 'twring.e2e.approval_pending.v1';
 
 const claimRecordSchema = z
   .object({
@@ -85,6 +90,10 @@ const claimRecordSchema = z
   })
   .strict();
 type ClaimRecord = z.infer<typeof claimRecordSchema>;
+
+const pendingApproveSchema = z
+  .object({ approval: phoneApprovalSchema, code: z.string().min(1).max(16) })
+  .strict();
 
 const revealRecordSchema = z
   .object({
@@ -684,6 +693,13 @@ export async function approveWaiting(
       return { ok: true };
     },
   );
+  // A network failure may be an accept the server took, so it is kept to finish later; any other
+  // end (done, or refused for good) leaves nothing to finish.
+  if (!done.ok && done.code === 'network')
+    await deps.store
+      .setItemAsync(PENDING_APPROVE_KEY_NAME, JSON.stringify(checked))
+      .catch(() => undefined);
+  else await deps.store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
   if (!done.ok) return done;
   // Older private messages: this phone shares them next (`rewrap.ts`), now and on later opens.
   await queueRewrap(deps.store, { id: approval.device_id, public_key: approval.public_key }).catch(
@@ -692,6 +708,39 @@ export async function approveWaiting(
   await forgetApprovalSecrets(deps.store, approval.id);
   deps.log?.('e2e_phone_approved', { approval_id: approval.id });
   return { ok: true };
+}
+
+/**
+ * Finishes an approve whose answer was lost, when Devices opens again: the person already checked
+ * the codes and tapped Approve, and the server answers the same phone's repeat the same way. A
+ * phone the person removed since is dropped instead. 'waiting': still offline, kept for later.
+ */
+export async function resumePendingApprove(deps: {
+  api: Pick<ApproveApi, 'accept'>;
+  store: SecureKeyValue;
+  now?: () => number;
+  log?: Log;
+  wait?: (ms: number) => Promise<void>;
+}): Promise<'none' | 'done' | 'waiting' | 'ended'> {
+  const saved = await loadRecord(deps.store, PENDING_APPROVE_KEY_NAME, pendingApproveSchema);
+  if (saved === 'missing') return 'none';
+  const end = async (id?: string) => {
+    await deps.store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined);
+    if (id !== undefined) await forgetApprovalSecrets(deps.store, id);
+  };
+  if (saved === 'bad') {
+    await end();
+    return 'none';
+  }
+  if ((await removedIds(deps.store)).includes(saved.approval.device_id)) {
+    await end(saved.approval.id);
+    return 'ended';
+  }
+  const out = await approveWaiting(deps, saved);
+  if (out.ok) return 'done';
+  if (out.code === 'network') return 'waiting';
+  await end(saved.approval.id);
+  return 'ended';
 }
 
 export async function denyWaiting(

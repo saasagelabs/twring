@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   claimWaiting: vi.fn(),
   approveWaiting: vi.fn(),
   denyWaiting: vi.fn(),
+  announce: vi.fn(),
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -34,6 +35,7 @@ vi.mock('react', async (importOriginal) => {
   };
 });
 vi.mock('react-native', () => ({
+  AccessibilityInfo: { announceForAccessibility: mocks.announce },
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'Text',
   View: 'View',
@@ -258,8 +260,11 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(texts(shown)).toContain(
       'Twring could not reach the server. Check your connection and tap again.',
     );
-    // The error belongs to the sheet, not to the screen behind it.
+    // The error belongs to the sheet, not to the screen behind it, and is read out at once.
     expect(mocks.state[ERROR]).toBeUndefined();
+    expect(mocks.announce).toHaveBeenCalledWith(
+      'Twring could not reach the server. Check your connection and tap again.',
+    );
     // It may have gone through, so only Approve stays: a deny could no longer undo it.
     expect(shown.filter((e) => e.type === 'GhostButton').map((e) => e.props.label)).toEqual([
       'Codes match, approve',
@@ -270,6 +275,33 @@ describe('waiting for approval (C3 #11, Task 27)', () => {
     expect(mocks.approveWaiting).toHaveBeenCalledTimes(2);
     expect(mocks.state[APPROVING]).toBeUndefined();
     expect(mocks.state[SHEET_ERROR]).toBeUndefined();
+  });
+
+  it('says the approve finishes later when the sheet is closed after a network failure', () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[APPROVING] = { claimed, checked, acceptSent: true };
+    mocks.state[SHEET_ERROR] =
+      'Twring could not reach the server. Check your connection and tap again.';
+    const sheet = render().filter((e) => e.type === 'Sheet')[1];
+    (sheet.props.onClose as () => void)();
+    expect(mocks.state[APPROVING]).toBeUndefined();
+    expect(mocks.state[SHEET_ERROR]).toBeUndefined();
+    expect(mocks.state[ERROR]).toBe(
+      "Twring couldn't confirm that approval yet. It finishes the next time you open Devices with a connection.",
+    );
+  });
+
+  it('opens a waiting phone without an error left from another one', async () => {
+    mocks.state[STATE] = devicesStateFrom([dev(0, 'phone', 'Pixel')]);
+    mocks.state[WAITING] = [{ id: 'pap_x', name: 'New phone' }];
+    mocks.state[SHEET_ERROR] =
+      'Twring could not reach the server. Check your connection and tap again.';
+    mocks.claimWaiting.mockResolvedValueOnce({ ok: true, claimed });
+    const row = render().find((e) => e.type === 'SettingsRow' && e.props.label === 'New phone')!;
+    (row.props.onPress as () => void)();
+    await flush();
+    expect(mocks.state[SHEET_ERROR]).toBeUndefined();
+    expect(mocks.state[APPROVING]).toEqual({ claimed });
   });
 
   it('keeps the sheet after a deny that never got through, so tapping Deny again carries on', async () => {
