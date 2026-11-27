@@ -96,6 +96,14 @@ describe('updateE2e across processes', () => {
 });
 
 describe('updateConfig (R3-2)', () => {
+  it('saves the first link into a config folder that does not exist yet', async () => {
+    // A computer linked for the first time: nothing has made its config folder.
+    const fresh = join(dir, 'new', 'twring-connect', 'config.json');
+    const written = await updateConfig(fresh, () => baseConfig);
+    expect(await loadConfig(fresh)).toEqual(written);
+    await expect(stat(`${fresh}.lock`)).rejects.toThrow();
+  });
+
   const phone = (id: string) => ({
     id,
     kind: 'phone' as const,
