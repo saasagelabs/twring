@@ -2,11 +2,19 @@ import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/
 import { basename, join, relative, sep } from 'node:path';
 
 import type { LocalAgentConfig } from './agents';
-import { SKILL_FILES, SKILL_NAME } from './skill-files';
+import { HERMES_SKILL_FILES, SKILL_FILES, SKILL_NAME } from './skill-files';
+
+export type SkillBuild = 'generic' | 'hermes';
 
 export interface SkillTarget {
   agentLabels: string[];
+  /** Hermes gets its own build: plugin tools, no shell, no token (2026-11-11 lesson). */
+  build: SkillBuild;
   dir: string;
+}
+
+export function filesFor(build: SkillBuild): readonly { path: string; content: string }[] {
+  return build === 'hermes' ? HERMES_SKILL_FILES : SKILL_FILES;
 }
 
 export function skillTargets(
@@ -17,19 +25,23 @@ export function skillTargets(
   const targets: SkillTarget[] = [];
   for (const agent of agents) {
     let base: string | undefined;
+    let build: SkillBuild = 'generic';
     if (agent.kind === 'claude-code') base = env.CLAUDE_CONFIG_DIR || join(home, '.claude');
     else if (agent.kind === 'codex') base = env.CODEX_HOME || join(home, '.codex');
     else if (agent.kind === 'acp') {
       const commandName = basename(agent.command.replace(/\\/g, '/'))
         .replace(/\.(exe|cmd|bat)$/i, '')
         .toLowerCase();
-      if (commandName === 'hermes') base = env.HERMES_HOME || join(home, '.hermes');
+      if (commandName === 'hermes') {
+        base = env.HERMES_HOME || join(home, '.hermes');
+        build = 'hermes';
+      }
     }
     if (base === undefined) continue;
     const dir = join(base, 'skills', SKILL_NAME);
     const existing = targets.find((target) => target.dir === dir);
     if (existing) existing.agentLabels.push(agent.label);
-    else targets.push({ agentLabels: [agent.label], dir });
+    else targets.push({ agentLabels: [agent.label], build, dir });
   }
   return targets;
 }
@@ -63,6 +75,13 @@ function versionOf(content: string | undefined): string | undefined {
     : /^\s+version:\s*(\S+)\s*$/m.exec(content.replace(/\r/g, ''))?.[1];
 }
 
+/** `metadata.build` of a skill's frontmatter; the generic build has none. */
+function buildOf(content: string | undefined): SkillBuild {
+  return content !== undefined && /^\s+build:\s*hermes\s*$/m.test(content.replace(/\r/g, ''))
+    ? 'hermes'
+    : 'generic';
+}
+
 /** Negative when `a` is older than `b` (numeric parts, so 0.10 is newer than 0.9). */
 function compareVersions(a: string, b: string): number {
   const pa = a.split('.').map(Number);
@@ -86,7 +105,7 @@ async function listedFiles(dir: string, prefix = ''): Promise<string[]> {
 
 export async function installSkill(
   target: SkillTarget,
-  files: readonly { path: string; content: string }[] = SKILL_FILES,
+  files: readonly { path: string; content: string }[] = filesFor(target.build),
   /** Only bring an installed skill up to date; never add one (the owner may have chosen not to). */
   options: { onlyIfPresent?: boolean } = {},
 ): Promise<SkillResult> {
@@ -113,10 +132,13 @@ export async function installSkill(
         return { status: 'skipped', target, reason: 'not_ours' };
       }
       // A refresh only replaces an older version: a copy the owner edited keeps their edits.
+      // A copy of the other build (the generic pack in Hermes's folder) is always replaced.
       const installed = versionOf(manifest);
-      const bundled = versionOf(files.find((file) => file.path === 'SKILL.md')?.content);
+      const bundledManifest = files.find((file) => file.path === 'SKILL.md')?.content;
+      const bundled = versionOf(bundledManifest);
       if (
         options.onlyIfPresent === true &&
+        buildOf(manifest) === buildOf(bundledManifest) &&
         installed !== undefined &&
         bundled !== undefined &&
         compareVersions(installed, bundled) >= 0
@@ -219,7 +241,7 @@ export async function refreshInstalledSkills(
 ): Promise<SkillResult[]> {
   const results: SkillResult[] = [];
   for (const target of skillTargets(agents, env, home)) {
-    results.push(await installSkill(target, SKILL_FILES, { onlyIfPresent: true }));
+    results.push(await installSkill(target, filesFor(target.build), { onlyIfPresent: true }));
   }
   return results;
 }

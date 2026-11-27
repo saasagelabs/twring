@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import type { LocalAgentConfig } from './agents';
-import { SKILL_FILES } from './skill-files';
+import { HERMES_SKILL_FILES, SKILL_FILES } from './skill-files';
 import {
+  filesFor,
   installSkill,
   refreshInstalledSkills,
   skillLines,
@@ -34,8 +35,11 @@ function agent(kind: LocalAgentConfig['kind'], label: string, command = label): 
   };
 }
 
-function target(dir = join(home, 'skills', 'twring')): SkillTarget {
-  return { agentLabels: ['Claude Code'], dir };
+function target(
+  dir = join(home, 'skills', 'twring'),
+  build: SkillTarget['build'] = 'generic',
+): SkillTarget {
+  return { agentLabels: ['Claude Code'], build, dir };
 }
 
 async function filePaths(dir: string, prefix = ''): Promise<string[]> {
@@ -59,10 +63,15 @@ describe('skillTargets', () => {
       agent('command', 'Custom'),
     ];
     expect(skillTargets(agents, {}, home)).toEqual([
-      { agentLabels: ['Claude Code'], dir: join(home, '.claude', 'skills', 'twring') },
-      { agentLabels: ['Codex'], dir: join(home, '.codex', 'skills', 'twring') },
+      {
+        agentLabels: ['Claude Code'],
+        build: 'generic',
+        dir: join(home, '.claude', 'skills', 'twring'),
+      },
+      { agentLabels: ['Codex'], build: 'generic', dir: join(home, '.codex', 'skills', 'twring') },
       {
         agentLabels: ['Hermes', 'Hermes Windows'],
+        build: 'hermes',
         dir: join(home, '.hermes', 'skills', 'twring'),
       },
     ]);
@@ -100,7 +109,11 @@ describe('skillTargets', () => {
     expect(
       skillTargets([agent('claude-code', 'First'), agent('claude-code', 'Second')], {}, home),
     ).toEqual([
-      { agentLabels: ['First', 'Second'], dir: join(home, '.claude', 'skills', 'twring') },
+      {
+        agentLabels: ['First', 'Second'],
+        build: 'generic',
+        dir: join(home, '.claude', 'skills', 'twring'),
+      },
     ]);
   });
 });
@@ -196,6 +209,49 @@ describe('installSkill', () => {
     ).toMatch(/^Could not update the Twring skill for Claude Code/);
   });
 
+  it('installs the Hermes build for Hermes', async () => {
+    const hermes = target(join(home, '.hermes', 'skills', 'twring'), 'hermes');
+    expect(filesFor('hermes')).toBe(HERMES_SKILL_FILES);
+    expect(await installSkill(hermes)).toEqual({ status: 'installed', target: hermes });
+    const manifest = await readFile(join(hermes.dir, 'SKILL.md'), 'utf8');
+    expect(manifest).toContain('`twring_ring_owner`');
+    expect(manifest).not.toContain('twring-connect');
+  });
+
+  it('refreshing replaces a generic copy in the Hermes folder, even of the same version', async () => {
+    const hermes = target(join(home, '.hermes', 'skills', 'twring'), 'hermes');
+    await installSkill(hermes, SKILL_FILES);
+    expect(await installSkill(hermes, filesFor('hermes'), { onlyIfPresent: true })).toEqual({
+      status: 'updated',
+      target: hermes,
+    });
+    expect(await readFile(join(hermes.dir, 'SKILL.md'), 'utf8')).toBe(
+      HERMES_SKILL_FILES.find((file) => file.path === 'SKILL.md')!.content,
+    );
+  });
+
+  it('refreshing keeps a Hermes copy of the same version the owner edited', async () => {
+    const hermes = target(join(home, '.hermes', 'skills', 'twring'), 'hermes');
+    const version = /\n {2}version: (\S+)\n/.exec(SKILL_FILES[0]!.content)![1]!;
+    const mine = `---\nname: twring\nmetadata:\n  version: ${version}\n  build: hermes\n---\nmine\n`;
+    await installSkill(hermes, [{ path: 'SKILL.md', content: mine }]);
+    expect(await installSkill(hermes, filesFor('hermes'), { onlyIfPresent: true })).toEqual({
+      status: 'unchanged',
+      target: hermes,
+    });
+  });
+
+  it('refreshes Hermes with the Hermes build when the computer tool starts', async () => {
+    const env = { HERMES_HOME: join(home, 'hermes') };
+    const dir = join(home, 'hermes', 'skills', 'twring');
+    await installSkill(target(dir), [
+      { path: 'SKILL.md', content: '---\nname: twring\nmetadata:\n  version: 0.6.3\n---\nold\n' },
+    ]);
+    const results = await refreshInstalledSkills([agent('acp', 'Hermes', 'hermes')], env, home);
+    expect(results.map((r) => r.status)).toEqual(['updated']);
+    expect(await readFile(join(dir, 'SKILL.md'), 'utf8')).toContain('build: hermes');
+  });
+
   it('refreshes each agent that already has the skill when the computer tool starts', async () => {
     const env = { CLAUDE_CONFIG_DIR: join(home, 'claude'), CODEX_HOME: join(home, 'codex') };
     const agents = [
@@ -203,7 +259,7 @@ describe('installSkill', () => {
       agent('codex', 'Codex', 'codex'),
     ];
     const claude = join(home, 'claude', 'skills', 'twring');
-    await installSkill({ agentLabels: ['Claude Code'], dir: claude }, [
+    await installSkill({ agentLabels: ['Claude Code'], build: 'generic', dir: claude }, [
       { path: 'SKILL.md', content: '---\nname: twring\n---\nold\n' },
     ]);
     const results = await refreshInstalledSkills(agents, env, home);
@@ -258,7 +314,11 @@ describe('installSkill', () => {
 });
 
 it('formats a line for each visible status', () => {
-  const selected = { agentLabels: ['Claude Code', 'Codex'], dir: join(home, 'skills', 'twring') };
+  const selected = {
+    agentLabels: ['Claude Code', 'Codex'],
+    build: 'generic' as const,
+    dir: join(home, 'skills', 'twring'),
+  };
   const shown = join('~', 'skills', 'twring');
   expect(
     skillLines(
