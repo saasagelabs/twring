@@ -416,6 +416,8 @@ export class ChatController {
     const epoch = this.epoch;
     // NetInfo reports the current network first: that one only sets what a change is measured from.
     let last: { connected: boolean; network: string } | undefined;
+    // The last network seen connected, kept across offline spells.
+    let lastConnected: string | undefined;
     this.stopNetInfo = NetInfo.addEventListener((net) => {
       if (epoch !== this.epoch) return;
       const connected = net.isConnected === true;
@@ -426,11 +428,17 @@ export class ChatController {
           : '';
       const network = `${net.type}|${ip}`;
       const before = last;
+      const lastNetwork = lastConnected;
       last = { connected, network };
+      if (connected) lastConnected = network;
       if (!before || !connected) return;
-      // Back online: skip the backoff wait. A new network: the open socket may sit on the old one.
-      if (!before.connected) this.socket?.retryNow();
-      else if (before.network !== network) this.socket?.retryNow({ networkChanged: true });
+      // A new network (also one that returns after offline): the open socket may sit on the old one.
+      if (lastNetwork !== undefined && lastNetwork !== network) {
+        this.socket?.retryNow({ networkChanged: true });
+      } else if (!before.connected) {
+        // Back online on the same network: skip the backoff wait.
+        this.socket?.retryNow();
+      }
     });
   }
 
