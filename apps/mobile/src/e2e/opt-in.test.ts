@@ -9,6 +9,7 @@ import {
   turnOnPrivate,
   UPDATE_COMPUTER,
 } from './private-state';
+import { hasVoiceConsent, VOICE_CONSENT_KEY } from './voice-consent';
 
 const computerAgent = { protocol: 'cord-connector' as const };
 const mcpAgent = { protocol: 'mcp-app' as const };
@@ -56,6 +57,26 @@ describe('turning on private chats for one computer agent', () => {
     });
     expect(api.setPrivate).toHaveBeenCalledWith('a1');
     expect(res.status).toBe('on');
+  });
+
+  it('a chat made private again asks again before voice notes', async () => {
+    const map = new Map([[VOICE_CONSENT_KEY, JSON.stringify(['a1', 'a2'])]]);
+    const consent = {
+      getItemAsync: (key: string) => Promise.resolve(map.get(key) ?? null),
+      setItemAsync: (key: string, value: string) => Promise.resolve(void map.set(key, value)),
+      deleteItemAsync: (key: string) => Promise.resolve(void map.delete(key)),
+    };
+    const res = await turnOnPrivate({
+      agentId: 'a1',
+      endpointUrl,
+      trusted: [computer()],
+      nav: fakeNav(),
+      api: { setPrivate: vi.fn().mockResolvedValue(undefined) },
+      consent,
+    });
+    expect(res.status).toBe('on');
+    expect(await hasVoiceConsent(consent, 'a1')).toBe(false);
+    expect(await hasVoiceConsent(consent, 'a2')).toBe(true);
   });
 
   it('explains an old computer', async () => {

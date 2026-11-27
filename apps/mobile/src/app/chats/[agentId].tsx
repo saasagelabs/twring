@@ -56,6 +56,7 @@ import { GhostButton } from '@/components/GhostButton';
 import { IconButton } from '@/components/IconButton';
 import { Skeleton } from '@/components/Skeleton';
 import { useNow } from '@/hooks/useNow';
+import { useVoiceConsent } from '@/hooks/useVoiceConsent';
 import { ringPlatform } from '@/platform/ring';
 import { STATUS_POLL_MS, useResource } from '@/hooks/useResource';
 import { font } from '@/theme/fonts';
@@ -169,6 +170,7 @@ export default function ChatScreen() {
   /** A recorded voice note waiting for "Send anyway" in a private chat. */
   const [heldVoice, setHeldVoice] = useState<{ uri: string; durationMs: number }>();
   const heldUri = useRef<string>(undefined);
+  const voiceConsent = useVoiceConsent(id, !!chat.private);
   const discardHeld = () => {
     if (heldUri.current === undefined) return;
     try {
@@ -797,7 +799,9 @@ export default function ChatScreen() {
             {heldVoice && (
               <VoiceNoteWarning
                 onSend={() => {
-                  // The person's consent: the server may read this voice note.
+                  // The person's consent: the server may read this voice note, and this chat's
+                  // later ones.
+                  voiceConsent.give();
                   chat.sendVoice(heldVoice.uri, heldVoice.durationMs, replyTo?.id, {
                     serverReadable: true,
                   });
@@ -846,8 +850,16 @@ export default function ChatScreen() {
                   return current.filter((file) => file.clientId !== clientId);
                 })
               }
+              askBeforeVoice={!!chat.private && voiceConsent.given !== true}
+              onVoiceConsent={voiceConsent.give}
               onVoiceSend={(uri, durationMs) => {
-                // A voice note is turned into text on the server: ask first in a private chat.
+                // A voice note is turned into text on the server: in a private chat it goes once
+                // the person said yes for this chat, before recording or after it.
+                if (chat.private && voiceConsent.latest.current === true) {
+                  chat.sendVoice(uri, durationMs, replyTo?.id, { serverReadable: true });
+                  setReplyTo(undefined);
+                  return;
+                }
                 if (chat.private) {
                   discardHeld();
                   heldUri.current = uri;

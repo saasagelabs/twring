@@ -2,7 +2,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { GhostButton } from '@/components/GhostButton';
 import { PrimaryButton } from '@/components/PrimaryButton';
-import { SPEECH_NOTE, VOICE_WARNING } from '@/e2e/private-state';
+import { SPEECH_NOTE, VOICE_CONSENT_ASK, VOICE_WARNING } from '@/e2e/private-state';
 import { font } from '@/theme/fonts';
 import { type, usePalette } from '@/theme/tokens';
 
@@ -34,6 +34,28 @@ export function VoiceNoteWarning({
       <View style={styles.buttons}>
         <GhostButton label="Don't send" onPress={onCancel} />
         <PrimaryButton label="Send anyway" onPress={onSend} />
+      </View>
+    </View>
+  );
+}
+
+/** The mic's first tap in a private chat: asked once per chat, before recording. */
+export function VoiceConsentCard({
+  onRecord,
+  onCancel,
+}: {
+  onRecord: () => void;
+  onCancel: () => void;
+}) {
+  const palette = usePalette();
+  return (
+    <View style={styles.warning}>
+      <Text accessibilityLiveRegion="polite" style={[styles.body, { color: palette.textPrimary }]}>
+        {VOICE_CONSENT_ASK}
+      </Text>
+      <View style={styles.buttons}>
+        <GhostButton label="Not now" onPress={onCancel} />
+        <PrimaryButton label="Record" onPress={onRecord} />
       </View>
     </View>
   );

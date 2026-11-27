@@ -14,7 +14,12 @@ const mocks = vi.hoisted(() => {
     sendVoice: vi.fn(),
     send: vi.fn(),
   };
-  return { state: [] as unknown[], cursor: 0, deleted: [] as string[], chat };
+  const consent = {
+    given: undefined as boolean | undefined,
+    latest: { current: undefined as boolean | undefined },
+    give: vi.fn(),
+  };
+  return { state: [] as unknown[], cursor: 0, deleted: [] as string[], chat, consent };
 });
 
 vi.mock('react', async (importOriginal) => {
@@ -143,6 +148,7 @@ vi.mock('@/components/chat/status-line', () => ({
 }));
 vi.mock('@/e2e/private-state', () => import('../e2e/private-state'));
 vi.mock('@/e2e/devices', () => import('../e2e/devices'));
+vi.mock('@/hooks/useVoiceConsent', () => ({ useVoiceConsent: () => mocks.consent }));
 vi.mock('@/hooks/useNow', () => ({ useNow: () => Date.parse('2026-11-25T12:00:00Z') }));
 vi.mock('@/platform/ring', () => ({ ringPlatform: { clearMessages: vi.fn() } }));
 vi.mock('@/hooks/useResource', () => ({
@@ -242,9 +248,20 @@ const of = (all: ReactElement<Props>[], type: string) => all.filter((e) => e.typ
 const composer = (all: ReactElement<Props>[]) =>
   of(all, 'Composer')[0].props as { onVoiceSend: (uri: string, ms: number) => void };
 
+const gave = vi.fn(() => {
+  mocks.consent.given = true;
+  mocks.consent.latest.current = true;
+});
+function setConsent(given: boolean | undefined) {
+  mocks.consent.given = given;
+  mocks.consent.latest.current = given;
+  mocks.consent.give = gave;
+}
 beforeEach(() => {
   mocks.state = [];
   mocks.deleted = [];
+  setConsent(undefined);
+  gave.mockClear();
 });
 
 describe('an ordinary chat (flag on or off) is unchanged', () => {
@@ -273,6 +290,7 @@ describe('an ordinary chat (flag on or off) is unchanged', () => {
 
   it('sends a voice note at once, with no warning', () => {
     const first = render();
+    expect(of(first.all, 'Composer')[0]?.props.askBeforeVoice).toBe(false);
     composer(first.all).onVoiceSend('file:///v.m4a', 4000);
     expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 4000, undefined);
     expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
@@ -423,6 +441,50 @@ describe('a private chat', () => {
     expect(of(render().items, 'Notice')).toHaveLength(0);
   });
 
+  it('no consent: the mic asks, and after "Record" notes send at once', () => {
+    setConsent(false);
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    const first = of(render().all, 'Composer')[0]?.props ?? {};
+    expect(first.askBeforeVoice).toBe(true);
+    (first.onVoiceConsent as () => void)();
+    expect(mocks.consent.give).toHaveBeenCalledOnce();
+    const after = render().all;
+    expect(of(after, 'Composer')[0]?.props.askBeforeVoice).toBe(false);
+    composer(after).onVoiceSend('file:///v.m4a', 3000);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined, {
+      serverReadable: true,
+    });
+    expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
+    composer(render().all).onVoiceSend('file:///w.m4a', 2000);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledTimes(2);
+    expect(of(render().all, 'VoiceNoteWarning')).toHaveLength(0);
+  });
+
+  it('consent still loading: the mic asks', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    expect(of(render().all, 'Composer')[0]?.props.askBeforeVoice).toBe(true);
+  });
+
+  it('consent stored: no card, notes send at once', () => {
+    setConsent(true);
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    const all = render().all;
+    expect(of(all, 'Composer')[0]?.props.askBeforeVoice).toBe(false);
+    composer(all).onVoiceSend('file:///v.m4a', 3000);
+    expect(mocks.chat.sendVoice).toHaveBeenCalledWith('file:///v.m4a', 3000, undefined, {
+      serverReadable: true,
+    });
+  });
+
+  it('turned private mid-recording: asks after recording, and "Send anyway" stores consent', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
+    composer(render().all).onVoiceSend('file:///v.m4a', 3000);
+    expect(mocks.chat.sendVoice).not.toHaveBeenCalled();
+    (of(render().all, 'VoiceNoteWarning')[0]?.props.onSend as () => void)();
+    expect(mocks.consent.give).toHaveBeenCalledOnce();
+    expect(mocks.chat.sendVoice).toHaveBeenCalledOnce();
+  });
+
   it('holds a voice note until "Send anyway"', () => {
     setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
     composer(render().all).onVoiceSend('file:///v.m4a', 3000);
@@ -476,7 +538,7 @@ describe('a failed send', () => {
     ];
     const shown = texts(render().items);
     expect(shown).toContain(
-      "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+      "Didn't go through: this chat is private. Record the voice note again.",
     );
     expect(shown.join(' ')).not.toContain('Update Twring');
   });

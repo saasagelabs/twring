@@ -124,7 +124,7 @@ it('a failure code with its own copy wins over the server text', () => {
       },
     }),
   ).toMatchObject({
-    text: "Didn't go through: this chat is private. Record the voice note again and tap Send anyway.",
+    text: "Didn't go through: this chat is private. Record the voice note again.",
   });
 });
 
