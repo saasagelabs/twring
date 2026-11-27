@@ -12,12 +12,15 @@ import { GhostButton } from '@/components/GhostButton';
 import { goBack, Screen } from '@/components/Screen';
 import { font } from '@/theme/fonts';
 import { radius, space, type, usePalette } from '@/theme/tokens';
+import { useChatList } from '@/threads/chats';
 import { humanSize } from '@/threads/files';
 import { useMedia } from '@/threads/media';
 
 export const MEDIA_NOT_YET_COPY = 'Photos and files will show here once this server is updated.';
 export const MEDIA_GONE_COPY = 'This agent is no longer here.';
 export const MEDIA_EMPTY_COPY = 'No photos or files yet.';
+export const MEDIA_PRIVATE_COPY =
+  'Photos and files in your private chat stay in the chat itself. Open the chat to see them.';
 
 type Source = { uri: string; headers?: Record<string, string> };
 
@@ -47,6 +50,12 @@ export default function MediaScreen() {
   const agentName =
     typeof params.name === 'string' && params.name.trim() !== '' ? params.name : 'your agent';
   const media = useMedia(id);
+  // The server cannot see a private chat's files, so its list leaves them out; say so plainly.
+  const chats = useChatList();
+  const isPrivate = chats.threads.some((t) => t.agent_id === id && t.private === true);
+  const privateNote = (
+    <Text style={[type.body, { color: palette.textSecondary }]}>{MEDIA_PRIVATE_COPY}</Text>
+  );
   const [sources, setSources] = useState<Record<string, Source>>({});
   const [failed, setFailed] = useState<Record<string, boolean>>({});
   const [viewer, setViewer] = useState<MediaItem>();
@@ -112,11 +121,14 @@ export default function MediaScreen() {
     body = <Text style={[type.body, { color: palette.textSecondary }]}>{MEDIA_NOT_YET_COPY}</Text>;
   } else if (media.status === 'error' && media.error !== undefined) {
     body = <ErrorNotice error={media.error} onRetry={media.refresh} />;
+  } else if (media.items.length === 0 && isPrivate) {
+    body = privateNote;
   } else if (media.items.length === 0) {
     body = <Text style={[type.body, { color: palette.textSecondary }]}>{MEDIA_EMPTY_COPY}</Text>;
   } else {
     body = (
       <>
+        {isPrivate && privateNote}
         {photos.length > 0 && (
           <View style={styles.grid}>
             {photos.map((item) => {

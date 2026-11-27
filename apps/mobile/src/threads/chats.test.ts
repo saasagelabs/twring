@@ -15,6 +15,19 @@ vi.mock('@/api', () => ({ ApiError }));
 vi.mock('@/auth', () => ({ addBeforeSignOut: () => undefined, authHeaders: () => ({}) }));
 vi.mock('@/config/env', () => ({ mobileEnv: { ok: false } }));
 vi.mock('@/hooks/useResource', () => ({ STATUS_POLL_MS: 20_000 }));
+const sockets = vi.hoisted(() => ({ focus: [] as (string | null)[] }));
+vi.mock('./socket', () => ({
+  connectThreadSocket: () => ({
+    setFocus: (agentId: string | null) => sockets.focus.push(agentId),
+    close: () => undefined,
+    stopped: () => false,
+    reconnect: () => undefined,
+  }),
+}));
+const visible = vi.hoisted(() => ({ calls: [] as (string | null)[] }));
+vi.mock('../platform/ring', () => ({
+  ringPlatform: { setVisibleChat: (agentId: string | null) => visible.calls.push(agentId) },
+}));
 
 import { ChatController } from './chats';
 
@@ -74,5 +87,31 @@ describe('device test 2026-10-13', () => {
     controller.send(agent, 'hello');
     await vi.waitFor(() => expect(controller.getChat(agent).messages).toHaveLength(1));
     expect(controller.getPending(agent)).toEqual([]);
+  });
+
+  it('focuses the chat on the socket before its messages load', async () => {
+    sockets.focus.length = 0;
+    let resolve: (page: { messages: ThreadMessage[]; hasMore: boolean }) => void = () => undefined;
+    const listMessages = vi.fn(
+      () => new Promise<{ messages: ThreadMessage[]; hasMore: boolean }>((r) => (resolve = r)),
+    );
+    const listThreads = vi.fn(() => Promise.resolve({ threads: [], files: false }));
+    const controller = new ChatController(
+      { listMessages, listThreads, markRead: () => Promise.resolve() } as unknown as TwringApi,
+      { url: 'wss://example.test/threads', requireSecureMedia: true },
+    );
+    const opening = controller.open(agent);
+    expect(sockets.focus).toEqual([agent]);
+    await vi.waitFor(() => expect(listMessages).toHaveBeenCalled());
+    expect(sockets.focus).toEqual([agent]);
+    resolve({ messages: [], hasMore: false });
+    await opening;
+  });
+
+  it('clears the visible chat when the controller resets', async () => {
+    visible.calls.length = 0;
+    const controller = new ChatController({} as unknown as TwringApi);
+    await controller.clear();
+    expect(visible.calls).toEqual([null]);
   });
 });

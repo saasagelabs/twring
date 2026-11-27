@@ -128,5 +128,9 @@ public class CordRingModule: Module {
     Function("clearMessages") { (agentId: String) in
       CordRing.shared.removeDelivered(thread: agentId)
     }
+
+    Function("setVisibleChat") { (agentId: String?) in
+      CordRing.shared.setVisibleChat(agentId)
+    }
   }
 }
