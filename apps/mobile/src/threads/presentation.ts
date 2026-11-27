@@ -170,7 +170,7 @@ const KNOWN_ERRORS: Record<string, string> = {
   file_missing: 'this file is no longer on your phone. Attach it again.',
   voice_missing: 'this recording is no longer on your phone. Record it again.',
   private_files: "photos and files can't be sent in a private chat yet.",
-  private_thread: 'this chat is private. Record the voice note again and tap Send anyway.',
+  private_thread: 'this chat is private. Record the voice note again.',
   private_unsent: 'the app closed before this was sent. Send it again.',
   computer_update: 'update Twring on your computer to send photos and files in a private chat.',
 };

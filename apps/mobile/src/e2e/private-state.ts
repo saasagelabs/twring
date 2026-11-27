@@ -6,6 +6,8 @@ import { hasComputerFor } from './devices';
 import type { TrustedDevice } from './pairing';
 import type { SealedFileEntry } from './sealed-files';
 import { aadIdsFor, type OpenedMessage } from './sealed-thread';
+import { clearVoiceConsent } from './voice-consent';
+import type { SecureKeyValue } from '../auth/storage';
 
 /**
  * Turning private chats on for one computer agent (ADR-044, opt-in per agent). Only an agent on
@@ -58,6 +60,8 @@ export async function turnOnPrivate(deps: {
   trusted: readonly TrustedDevice[];
   nav: { push(to: string): unknown };
   api: { setPrivate(agentId: string): Promise<void> };
+  /** The private keychain: a chat made private anew asks again before voice notes. */
+  consent?: SecureKeyValue;
 }): Promise<TurnOnResult> {
   const ids = aadIdsFor(deps.endpointUrl);
   if (ids === undefined) return { status: 'failed', message: NO_COMPUTER };
@@ -67,6 +71,8 @@ export async function turnOnPrivate(deps: {
   }
   try {
     await deps.api.setPrivate(deps.agentId);
+    if (deps.consent !== undefined)
+      await clearVoiceConsent(deps.consent, deps.agentId).catch(() => undefined);
     return { status: 'on' };
   } catch (error) {
     if (error instanceof ApiError && error.code === 'private_unsupported')
@@ -80,6 +86,9 @@ export const PRIVATE_LABEL = 'Private: only your phone and your computer can rea
 export const PRIVATE_LABEL_EXCEPT = 'Private, except messages marked as sent through Twring';
 /** Under a message the server could read (a voice note, or one sent before the chat was private). */
 export const SERVER_READABLE_MARK = 'Sent through Twring';
+/** Before the first voice note in a private chat, asked once per chat on this phone. */
+export const VOICE_CONSENT_ASK =
+  "Voice notes are turned into text on Twring's server, so they won't be private. Use voice notes in this chat?";
 export const VOICE_WARNING =
   "Voice notes are turned into text on Twring's server, so this one won't be private. Send it anyway?";
 /** Calls and Listen stay; their speech goes through the server. */

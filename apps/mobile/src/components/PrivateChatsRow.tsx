@@ -82,6 +82,7 @@ export function PrivateChatsRow({
       trusted: await loadTrusted(privateKeychain()).catch(() => trusted),
       nav: router,
       api: { setPrivate: (id) => api.setPrivate!(id) },
+      consent: privateKeychain(),
     });
     setBusy(false);
     if (result.status === 'failed') {

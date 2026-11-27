@@ -16,7 +16,7 @@ vi.mock('@/components/GhostButton', () => ({ GhostButton: 'GhostButton' }));
 vi.mock('@/components/PrimaryButton', () => ({ PrimaryButton: 'PrimaryButton' }));
 vi.mock('@/e2e/private-state', () => import('./private-state'));
 
-import { PrivateBanner, VoiceNoteWarning } from '../components/chat/PrivateChat';
+import { PrivateBanner, VoiceConsentCard, VoiceNoteWarning } from '../components/chat/PrivateChat';
 import { sealedBubble } from './private-state';
 
 type Props = { children?: ReactNode; [key: string]: unknown };
@@ -57,6 +57,24 @@ describe('private chat screen pieces (Task 24)', () => {
     (send?.props.onPress as () => void)();
     (cancel?.props.onPress as () => void)();
     expect(onSend).toHaveBeenCalledOnce();
+    expect(onCancel).toHaveBeenCalledOnce();
+  });
+
+  it('asks once before recording the first voice note in a private chat', () => {
+    const onRecord = vi.fn();
+    const onCancel = vi.fn();
+    const all = elements(VoiceConsentCard({ onRecord, onCancel }));
+    expect(texts(all)).toEqual([
+      "Voice notes are turned into text on Twring's server, so they won't be private. Use voice notes in this chat?",
+    ]);
+    expect(all.find((item) => item.props.accessibilityLiveRegion === 'polite')).toBeDefined();
+    const record = all.find((item) => item.type === 'PrimaryButton');
+    const cancel = all.find((item) => item.type === 'GhostButton');
+    expect(record?.props.label).toBe('Record');
+    expect(cancel?.props.label).toBe('Not now');
+    (record?.props.onPress as () => void)();
+    (cancel?.props.onPress as () => void)();
+    expect(onRecord).toHaveBeenCalledOnce();
     expect(onCancel).toHaveBeenCalledOnce();
   });
 

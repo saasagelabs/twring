@@ -44,6 +44,7 @@ import {
 } from './devices';
 import { PAIR_AGAIN } from './private-state';
 import { readRewraps, REWRAP_JOBS_KEY, type RewrapApi } from './rewrap';
+import { VOICE_CONSENT_KEY } from './voice-consent';
 
 /**
  * Private chats in the chat data layer (ADR-044): seals what the phone sends and opens what it
@@ -523,6 +524,8 @@ export async function forgetPrivateDevice(store: SecureKeyValue): Promise<void> 
       // vouches for one: both go with the keys.
       store.deleteItemAsync(REWRAP_JOBS_KEY).catch(() => undefined),
       store.deleteItemAsync(PENDING_APPROVE_KEY_NAME).catch(() => undefined),
+      // Voice-note consent is asked again after signing back in.
+      store.deleteItemAsync(VOICE_CONSENT_KEY).catch(() => undefined),
     ]);
   });
 }

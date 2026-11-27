@@ -1404,6 +1404,7 @@ transcription, Listen and AI apps connected online are never labelled end-to-end
 - A voice note in a private chat is a server-readable message, marked on the bubble; the header
   label is replaced by "Private, except messages marked as sent through Twring" while such a
   message exists in the chat.
+- Voice-note warning (owner, 2026-11-27): asked once per private chat on this phone, before recording ("Use voice notes in this chat?"); after "Record" that chat's voice notes send at once, each still marked "Sent through Twring". The consent is cleared at sign-out and when the chat is made private again. If a chat turns private during a recording, the after-recording "Send anyway" prompt still asks.
 - Message sealing calls @noble directly with an AAD; `seal-core.ts` (push sealing) is unchanged.
 
 ### Amendment: the final flag of a streamed reply is sealed (2026-11-27)

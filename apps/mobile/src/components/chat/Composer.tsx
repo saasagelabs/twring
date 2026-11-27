@@ -8,14 +8,15 @@ import { Icon } from '@/components/Icon';
 import { font } from '@/theme/fonts';
 import { usePalette, radius, type } from '@/theme/tokens';
 import { callDuration } from '@/threads/presentation';
-import { canSend, composerAction, COMPOSER_LIMIT } from './composer-state';
+import { canSend, composerAction, COMPOSER_LIMIT, micPress } from './composer-state';
+import { VoiceConsentCard } from './PrivateChat';
 import { AttachSheet } from './AttachSheet';
 import { AttachmentTray } from './AttachmentTray';
 import type { PreparedFile } from '@/threads/files';
 import Svg, { Path } from 'react-native-svg';
 import { reportClientError } from '@/observability/sentry';
 
-export { canSend, composerAction, COMPOSER_LIMIT } from './composer-state';
+export { canSend, composerAction, COMPOSER_LIMIT, micPress } from './composer-state';
 /**
  * Speech, not music: AAC in .m4a, mono, 16 kHz, 32 kbps. Two minutes is about 0.5 MB, well under
  * the gateway's 2 MB limit (HIGH_QUALITY, stereo 128 kbps, would be about 1.9 MB).
@@ -45,6 +46,8 @@ export function Composer({
   onAddFiles,
   onRemoveFile,
   disabled,
+  askBeforeVoice,
+  onVoiceConsent,
 }: {
   name: string;
   value: string;
@@ -56,6 +59,10 @@ export function Composer({
   onAddFiles?: (files: PreparedFile[]) => void;
   onRemoveFile?: (clientId: string) => void;
   disabled?: boolean;
+  /** A private chat with no stored consent: the mic asks before recording. */
+  askBeforeVoice?: boolean;
+  /** "Record" on that card: the chat stores the consent. */
+  onVoiceConsent?: () => void;
 }) {
   const palette = usePalette();
   const [height, setHeight] = useState(24);
@@ -65,6 +72,7 @@ export function Composer({
   const [elapsed, setElapsed] = useState(0);
   const [note, setNote] = useState('');
   const [attachOpen, setAttachOpen] = useState(false);
+  const [asking, setAsking] = useState(false);
   const fileCount = files?.length ?? 0;
   const started = useRef(0);
   const stopped = useRef(false);
@@ -181,6 +189,16 @@ export function Composer({
       {filesAvailable && (
         <AttachmentTray files={files ?? []} onRemove={(clientId) => onRemoveFile?.(clientId)} />
       )}
+      {asking && !recording && (
+        <VoiceConsentCard
+          onCancel={() => setAsking(false)}
+          onRecord={() => {
+            onVoiceConsent?.();
+            setAsking(false);
+            void start();
+          }}
+        />
+      )}
       {recording ? (
         <View style={styles.recordRow}>
           <Animated.View style={[styles.dot, { opacity }]} />
@@ -260,7 +278,11 @@ export function Composer({
             <Pressable
               accessibilityRole="button"
               accessibilityLabel={canSend(value, fileCount) ? 'Send' : 'Record voice note'}
-              onPress={canSend(value, fileCount) ? onSend : () => void start()}
+              onPress={
+                canSend(value, fileCount)
+                  ? onSend
+                  : () => (micPress(!!askBeforeVoice) === 'ask' ? setAsking(true) : void start())
+              }
               style={[styles.send, { backgroundColor: palette.accent }]}
             >
               <Icon
