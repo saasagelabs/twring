@@ -91,7 +91,9 @@ export class LiveKitCallTransport implements CallTransport {
     // Echo cancellation stays on (Twring's voice must not reach STT). Noise suppression and auto gain
     // are off: on a moto g86 they muffled speech (1-4 kHz 8-12 dB lower, 418 clipped samples) and
     // Deepgram mis-heard 3 of 5 test sentences; without them 4 of 5 were exact. Re-check noisy
-    // rooms in the Milestone 8 device matrix.
+    // rooms in the Milestone 8 device matrix. These steer WebRTC's own audio processing. On
+    // Android a pnpm patch keeps the phone's built-in echo canceller and noise suppressor off, so
+    // WebRTC's echo canceller is the one that runs (ADR-048).
     audioCaptureDefaults: {
       echoCancellation: true,
       noiseSuppression: false,

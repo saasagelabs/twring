@@ -1,0 +1,27 @@
+diff --git a/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt b/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
+index a54aa27ea78b3c73fe38a0f1f75e75b699dd2e50..d779bf163a09aea41cf20db89087ec80bace284c 100644
+--- a/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
++++ b/android/src/main/java/com/livekit/reactnative/LiveKitReactNative.kt
+@@ -3,7 +3,7 @@ package com.livekit.reactnative
+ import android.annotation.SuppressLint
+ import android.app.Application
+ import android.content.Context
+-import android.os.Build
++import android.util.Log
+ import com.livekit.reactnative.audio.AudioType
+ import com.livekit.reactnative.audio.processing.AudioProcessingController
+ import com.livekit.reactnative.audio.processing.AudioRecordSamplesDispatcher
+@@ -78,7 +78,12 @@ object LiveKitReactNative {
+     }
+ 
+     private fun setupAdm(context: Context) {
+-        val useHardwareAudioProcessing = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
++        // Twring: the phone's built-in echo canceller silenced the caller on loudspeaker right
++        // after the agent spoke (half-duplex on a moto g86), and with it on WebRTC skips its own
++        // echo canceller. Use WebRTC's software echo canceller (AEC3, on through the JS
++        // echoCancellation constraint) and no built-in noise suppressor. See docs/DECISIONS.md.
++        val useHardwareAudioProcessing = false
++        Log.i("LiveKitReactNative", "Twring: built-in echo canceller and noise suppressor off, WebRTC echo cancelling on")
+ 
+         adm = JavaAudioDeviceModule.builder(context)
+             .setUseHardwareAcousticEchoCanceler(useHardwareAudioProcessing)
