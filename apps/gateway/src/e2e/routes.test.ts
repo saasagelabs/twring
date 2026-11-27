@@ -305,6 +305,23 @@ describe('private chat pairing routes', () => {
       expect((await lookup(g, 'u1', '7KQ2')).statusCode).toBe(404);
     });
 
+    it('keeps the connector commitment with the offer and answers it on lookup (R4-2)', async () => {
+      const g = await start();
+      const { token } = await g.pair('u1');
+      const created = await typedOffer(g, token, {
+        handle: '7KQ2',
+        key_mac: 'KM',
+        connector_mac: 'CM',
+      });
+      expect(created.statusCode).toBe(200);
+      expect((await lookup(g, 'u1', '7KQ2')).json()).toMatchObject({
+        key_mac: 'KM',
+        connector_mac: 'CM',
+      });
+      // Without a typed code it means nothing: refused.
+      expect((await typedOffer(g, token, { connector_mac: 'CM' })).statusCode).toBe(400);
+    });
+
     it('answers 404 alike for an unknown handle and another account handle', async () => {
       const g = await start();
       const { token } = await g.pair('u1');

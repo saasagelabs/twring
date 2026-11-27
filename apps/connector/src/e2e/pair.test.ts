@@ -4,6 +4,7 @@ import {
   deviceIdFor,
   generateSealKeyPair,
   normalizeTypedPairCode,
+  offerConnectorMacMatches,
   offerKeyMacMatches,
   pairingMac,
   safetyCode,
@@ -38,6 +39,8 @@ interface FakeServerOptions {
   handleTaken?: number;
   /** A server from before typed codes: the new offer fields are refused with 400. */
   oldServer?: boolean;
+  /** A server from before the connector commitment (R4-2): `connector_mac` is refused with 400. */
+  noConnectorMac?: boolean;
 }
 
 /** In-memory gateway pairing routes; the "phone" claims with the secret it read from the QR. */
@@ -46,7 +49,9 @@ function fakeServer(options: FakeServerOptions = {}) {
   const phoneId = deviceIdFor(phone.publicKey);
   const addedDevices: string[] = [];
   const requests: { method: string; path: string; auth?: string }[] = [];
-  let offered: { key: string; device: string; handle?: string; keyMac?: string } | undefined;
+  let offered:
+    | { key: string; device: string; handle?: string; keyMac?: string; connectorMac?: string }
+    | undefined;
   const handles: string[] = [];
   let taken = 0;
   let polls = 0;
@@ -67,6 +72,8 @@ function fakeServer(options: FakeServerOptions = {}) {
       if (body.handle !== undefined) handles.push(body.handle);
       if (options.oldServer && body.handle !== undefined)
         return json(400, { error: { code: 'bad_request', message: 'x' } });
+      if (options.noConnectorMac && body.connector_mac !== undefined)
+        return json(400, { error: { code: 'bad_request', message: 'x' } });
       if (taken++ < (options.handleTaken ?? 0))
         return json(409, { error: { code: 'handle_taken', message: 'x' } });
       offered = {
@@ -74,6 +81,7 @@ function fakeServer(options: FakeServerOptions = {}) {
         device: body.connector_device_id!,
         ...(body.handle !== undefined && { handle: body.handle }),
         ...(body.key_mac !== undefined && { keyMac: body.key_mac }),
+        ...(body.connector_mac !== undefined && { connectorMac: body.connector_mac }),
       };
       // Ten minutes from the real clock: pairing compares it with Date.now().
       return json(200, {
@@ -157,6 +165,7 @@ function fakeServer(options: FakeServerOptions = {}) {
     phone,
     phoneId,
     handles,
+    offered: () => offered,
     setQr: (text: string) => (qr = text),
     setTyped: (text: string) => (typedCode = text),
   };
@@ -410,6 +419,30 @@ describe('pairPhone', () => {
     expect(await pairPhone(flipped.options)).toBe('mismatch');
   });
 
+  it('commits the typed offer to this connector (R4-2), checkable with the typed code', async () => {
+    const server = fakeServer({ typed: true });
+    const run = deps(server);
+    expect(await pairPhone(run.options)).toBe('paired');
+    const offer = server.offered()!;
+    const shown = run.lines[run.lines.indexOf('Or type this code in the app:') + 1]!;
+    const key = typedPairKey(splitTypedPairCode(normalizeTypedPairCode(shown)!).secret);
+    const pub = base64urlDecode(offer.key);
+    const id = run.options.config.connector_id;
+    expect(offerConnectorMacMatches(key, pub, offer.device, id, offer.connectorMac!)).toBe(true);
+    expect(offerConnectorMacMatches(key, pub, offer.device, `${id}x`, offer.connectorMac!)).toBe(
+      false,
+    );
+  });
+
+  it('still offers the typed code to a server from before the connector commitment', async () => {
+    const server = fakeServer({ typed: true, noConnectorMac: true });
+    const run = deps(server);
+    expect(await pairPhone(run.options)).toBe('paired');
+    expect(run.lines).toContain('Or type this code in the app:');
+    expect(server.offered()!.connectorMac).toBeUndefined();
+    expect(server.offered()!.keyMac).toBeDefined();
+  });
+
   it('gives up after a few taken handles', async () => {
     const server = fakeServer({ handleTaken: 100 });
     await expect(pairPhone(deps(server).options)).rejects.toThrow();
@@ -449,7 +482,8 @@ describe('pairPhone', () => {
     await pairPhone(run.options);
     expect(link.startsWith('twring-pair:')).toBe(true);
     expect(parsePairLink(link)).toEqual({
-      s: 'https://api.twring.com',
+      // The connector id rides in the fragment: phones read only the origin (R4-2).
+      s: `https://api.twring.com/#c=${run.options.config.connector_id}`,
       o: OFFER,
       k: run.options.config.e2e!.public_key,
       // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- vitest matcher
