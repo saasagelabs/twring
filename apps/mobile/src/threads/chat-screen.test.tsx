@@ -223,6 +223,8 @@ function setChat(input: { private: boolean; messages: ThreadMessage[]; opened?: 
     opened: input.opened,
     pairAgain: false,
     privateNotice: undefined,
+    privateRemoved: false,
+    undelivered: new Set<string>(),
     filesAvailable: true,
     send: vi.fn(),
     sendFiles: vi.fn(),
@@ -310,6 +312,15 @@ describe('an ordinary chat (flag on or off) is unchanged', () => {
 });
 
 describe('a private chat', () => {
+  it('removed by another phone: an unanswered message says not delivered, the rest stays hidden', () => {
+    setChat({ private: true, messages: [sealed('s1', 1, 'user'), sealed('s2', 2, 'agent')] });
+    mocks.chat.privateRemoved = true;
+    mocks.chat.undelivered = new Set(['s1']);
+    const bubbles = of(render().items, 'Bubble');
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0].props).toMatchObject({ text: 'Not delivered', own: true, muted: true });
+  });
+
   it('a key notice offers "Pair again", which opens pairing, never "Try again"', () => {
     setChat({ private: true, messages: [sealed('s1', 1, 'agent')], opened: [] });
     mocks.chat.privateNotice = 'Your computer was set up again, scan to continue';

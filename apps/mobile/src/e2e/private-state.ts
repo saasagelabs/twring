@@ -147,6 +147,36 @@ export function interruptedNotice(
   };
 }
 
+/** A message this phone sent after another phone removed it: the computer never read it. */
+export const NOT_DELIVERED = 'Not delivered';
+
+/**
+ * This phone's own private messages with no reply after them, once another phone removed it. A
+ * reply sealed without this phone (the computer's "could not open") is not an answer. Only
+ * messages sent at or after `removedAt` count: earlier ones reached the computer. With no removal
+ * time nothing is marked, rather than a false "Not delivered".
+ */
+export function undeliveredIds(
+  messages: readonly ThreadMessage[],
+  sealedToMe: (message: Extract<ThreadMessage, { kind: 'sealed' }>) => boolean,
+  removedAt: string | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  const since = removedAt === undefined ? NaN : Date.parse(removedAt);
+  if (Number.isNaN(since)) return ids;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.kind !== 'sealed') {
+      if (message.kind === 'agent_text') break;
+      continue;
+    }
+    if (message.author === 'user') {
+      if (Date.parse(message.created_at) >= since) ids.add(message.id);
+    } else if (sealedToMe(message)) break;
+  }
+  return ids;
+}
+
 /** How a private message is drawn; undefined while the keys load (nothing is drawn yet). */
 export function sealedBubble(
   message: ThreadMessage,

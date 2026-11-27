@@ -387,7 +387,7 @@ function withKnownVoices(body: unknown): unknown {
   };
 }
 
-function withKnownAgentVoices(body: unknown): unknown {
+export function withKnownAgentVoices(body: unknown): unknown {
   if (!isRecord(body) || !Array.isArray(body.agents)) return body;
   return { ...body, agents: body.agents.map(withKnownVoice) };
 }

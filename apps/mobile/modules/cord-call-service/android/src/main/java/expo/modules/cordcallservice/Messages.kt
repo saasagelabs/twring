@@ -14,8 +14,17 @@ object Messages {
   private const val MESSAGE_NOTIFICATION_ID = 4714
   private const val TAG = "CordRing"
 
+  /** The chat on screen, set by JS on focus and cleared on blur and background. */
+  @Volatile private var visibleChat: String? = null
+
+  fun setVisibleChat(agentId: String?) {
+    visibleChat = agentId?.takeIf { Ring.AGENT_ID.matches(it) }
+  }
+
   fun show(context: Context, data: Map<String, String>) {
     val agentId = data["agent_id"]?.takeIf { Ring.AGENT_ID.matches(it) } ?: return
+    // The open chat already shows this message: no notification on top of it.
+    if (agentId == visibleChat) return
     data["message_id"]?.takeIf { it.isNotBlank() } ?: return
     val agentName = data["agent_name"]?.trim()?.take(60)?.ifEmpty { null } ?: "Your agent"
     val preview = data["preview"]?.trim()?.take(120) ?: ""
