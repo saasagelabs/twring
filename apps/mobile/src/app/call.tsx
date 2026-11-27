@@ -597,6 +597,8 @@ function FinishedCall({
         contentContainerStyle={styles.outcomeScrollContent}
         style={styles.outcomeScroll}
         keyboardShouldPersistTaps="handled"
+        // The rating makes the page a little taller than the screen: no bar sliding at the side.
+        showsVerticalScrollIndicator={false}
       >
         <Animated.View
           entering={FadeIn.duration(220)}
