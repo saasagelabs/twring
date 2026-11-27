@@ -168,7 +168,19 @@ async function setup(
     privacy,
   });
   await controller.refreshList();
-  return { controller, api, posts, seqAtPost, outbox, replay, drafts, searchStore, me, store };
+  return {
+    controller,
+    api,
+    posts,
+    seqAtPost,
+    outbox,
+    replay,
+    drafts,
+    searchStore,
+    me,
+    store,
+    privacy,
+  };
 }
 
 describe('private chats in the chat data layer', () => {
@@ -648,5 +660,33 @@ describe('private chats in the chat data layer', () => {
     } finally {
       recorded.mockRestore();
     }
+  });
+  it('keeps the opened chat while keys load for new messages, never once a message left', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    const before = t.controller.getOpened(privateAgent);
+    const first = t.controller.getChat(privateAgent).messages[0];
+    // Keys or senders still loading: open() has nothing yet.
+    vi.spyOn(t.privacy, 'open').mockReturnValue(undefined);
+    const next = sealedMsg(fromComputer(t.me.deviceId, t.me.publicKey, 'second reply', 2), 'agent');
+    t.controller.frame({ type: 'message.upserted', message: next });
+    expect(t.controller.getChat(privateAgent).messages).toHaveLength(2);
+    expect(t.controller.getOpened(privateAgent)).toBe(before);
+    // A message left the chat since: the old opened list never shows again.
+    t.controller.frame({ type: 'message.deleted', agent_id: privateAgent, message_id: first.id });
+    expect(t.controller.getOpened(privateAgent)).toBeUndefined();
+  });
+
+  it('shows nothing opened while keys load after the chat was cleared', async () => {
+    const t = await setup();
+    await t.controller.open(privateAgent);
+    await vi.waitFor(() => expect(t.controller.getOpened(privateAgent)).toBeDefined());
+    vi.spyOn(t.privacy, 'open').mockReturnValue(undefined);
+    t.controller.frame({ type: 'thread.cleared', agent_id: privateAgent });
+    expect(t.controller.getOpened(privateAgent)).toBeUndefined();
+    const next = sealedMsg(fromComputer(t.me.deviceId, t.me.publicKey, 'after clear', 3), 'agent');
+    t.controller.frame({ type: 'message.upserted', message: next });
+    expect(t.controller.getOpened(privateAgent)).toBeUndefined();
   });
 });
