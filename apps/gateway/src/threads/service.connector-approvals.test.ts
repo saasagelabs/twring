@@ -185,6 +185,28 @@ describe('connector approvals', () => {
     ).toBe('expired');
   });
 
+  it('a store error during the wait ends the wait and rejects, not an unhandled rejection', async () => {
+    const t = setup();
+    const { approval } = await ask(t);
+    const real = t.store.findConnectorApproval.bind(t.store);
+    let calls = 0;
+    vi.spyOn(t.store, 'findConnectorApproval').mockImplementation((...args) => {
+      calls += 1;
+      return calls === 1 ? real(...args) : Promise.reject(new Error('database closed'));
+    });
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    try {
+      await expect(
+        t.service.getConnectorApproval('u1', 'con_1', approval.approval_id, 20_000),
+      ).rejects.toThrow('database closed');
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).not.toHaveBeenCalled();
+    } finally {
+      process.off('unhandledRejection', unhandled);
+    }
+  });
+
   it('a waiter that leaves stops waiting', async () => {
     const t = setup();
     const { approval } = await ask(t);

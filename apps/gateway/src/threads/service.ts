@@ -728,9 +728,13 @@ export class ThreadService {
       set.add(done);
       signal?.addEventListener('abort', done, { once: true });
       // Settled between the first read and now: no wake-up will come for it.
-      void this.readConnectorApproval(userId, connectorId, approvalId).then((now) => {
-        if (now?.status !== 'pending') done();
-      });
+      // A store error here must not become an unhandled rejection (it would crash the
+      // gateway): end the wait and let the final read below surface it.
+      void this.readConnectorApproval(userId, connectorId, approvalId)
+        .then((now) => {
+          if (now?.status !== 'pending') done();
+        })
+        .catch(() => done());
     });
     return this.readConnectorApproval(userId, connectorId, approvalId);
   }
