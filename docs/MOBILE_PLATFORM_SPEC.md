@@ -78,6 +78,8 @@ Goals:
 
 Prefer LiveKit/platform-recommended configuration over custom low-level audio code.
 
+A phone call or another app's audio pauses the call (microphone muted, "Paused for your phone call") until the interruption ends. iOS may never send "ended", so on iOS the call also resumes when the app comes back to the front and no phone call is on.
+
 ## 7. Background behavior
 
 For V1 outgoing calls:

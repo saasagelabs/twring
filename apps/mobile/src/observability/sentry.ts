@@ -59,9 +59,10 @@ const CALL_AUDIO_CATEGORY = 'AVAudioSessionCategoryPlayAndRecord';
 
 /**
  * iOS: an audio route change or interruption during a call. Each becomes a breadcrumb; the kinds
- * that can silence a call are also reported: an interruption, no route, and a category change that
- * leaves the call's play-and-record session or leaves no output (a plain Speaker or Phone switch
- * keeps both, so it is only a breadcrumb).
+ * that can silence a call are also reported: no route, and a category change that leaves the call's
+ * play-and-record session or leaves no output (a plain Speaker or Phone switch keeps both, so it is
+ * only a breadcrumb). An interruption is only a breadcrumb: most recover, and one the call never
+ * recovered from is reported by reportInterruptionUnrecovered.
  */
 export function reportAudioEvent(event: Record<string, unknown>): void {
   if (!enabled) return;
@@ -71,7 +72,6 @@ export function reportAudioEvent(event: Record<string, unknown>): void {
   }
   Sentry.addBreadcrumb({ category: 'call', level: 'info', message: 'audio_event', data });
   const silencing =
-    (data.kind === 'interruption' && data.reason === 'began') ||
     (data.reason === 'category_change' &&
       (data.category !== CALL_AUDIO_CATEGORY || data.output === 'none')) ||
     data.reason === 'no_route';
@@ -81,6 +81,16 @@ export function reportAudioEvent(event: Record<string, unknown>): void {
       tags: { platform: Platform.OS, ...(data.output !== undefined && { output: data.output }) },
     });
   }
+}
+
+/** A call ended while still paused by an interruption that never ended or recovered. No user data. */
+export function reportInterruptionUnrecovered(): void {
+  if (!enabled) return;
+  Sentry.addBreadcrumb({ category: 'call', level: 'warning', message: 'interruption_unrecovered' });
+  Sentry.captureMessage('call_audio_interruption_unrecovered', {
+    level: 'warning',
+    tags: { platform: Platform.OS },
+  });
 }
 
 /** This phone's native seal code failed its self-test (sealed rings cannot open). No values. */

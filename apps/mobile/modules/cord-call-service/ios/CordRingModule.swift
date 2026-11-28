@@ -69,6 +69,10 @@ public class CordRingModule: Module {
       CordRing.shared.callAudioState()
     }.runOnQueue(.main)
 
+    AsyncFunction("otherCallActive") { () -> Bool in
+      CordRing.shared.otherCallActive()
+    }.runOnQueue(.main)
+
     Function("takePendingDeclines") { () -> [String] in
       CordRing.shared.takeDeclines()
     }

@@ -38,6 +38,7 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
   // Main-thread state.
   private var rings: [UUID: Ring] = [:]
   private var timers: [UUID: Timer] = [:]
+  private let callObserver = CXCallObserver()
 
   // Shared with the JS thread (under `lock`).
   private var voipToken: String?
@@ -141,6 +142,12 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
   /// whether CallKit has activated it yet. Main thread only (the bridge runs it there).
   func callAudioState() -> [String: Bool] {
     ["owned": rings.values.contains { $0.answered }, "active": audioActive]
+  }
+
+  /// A phone call (or another app's CallKit call) that is not one of Twring's own is still on.
+  /// Main thread only (the bridge runs it there).
+  func otherCallActive() -> Bool {
+    callObserver.calls.contains { !$0.hasEnded && rings[$0.uuid] == nil }
   }
 
   /// The server says this ring is over (JS checks it while the ring shows): close its call screen
@@ -384,10 +391,26 @@ final class CordRing: NSObject, PKPushRegistryDelegate, CXProviderDelegate,
           forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
         ) { [weak self] note in
           let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 0
-          self?.emit(
-            "onAudioEvent",
-            ["kind": "interruption", "reason": raw == 1 ? "began" : "ended"])
+          var body: [String: Any] = ["kind": "interruption", "reason": raw == 1 ? "began" : "ended"]
+          if raw == 1 { body["cause"] = Self.interruptionCause(note.userInfo) }
+          self?.emit("onAudioEvent", body)
         })
+    }
+  }
+
+  /// Why an interruption began, for the breadcrumb only.
+  private static func interruptionCause(_ info: [AnyHashable: Any]?) -> String {
+    guard #available(iOS 14.5, *) else { return "unknown" }
+    guard
+      let raw = info?[AVAudioSessionInterruptionReasonKey] as? UInt,
+      let reason = AVAudioSession.InterruptionReason(rawValue: raw)
+    else { return "unknown" }
+    if #available(iOS 17.0, *), reason == .routeDisconnected { return "route_gone" }
+    switch reason {
+    case .appWasSuspended: return "app_suspended"
+    case .builtInMicMuted: return "mic_muted"
+    case .default: return "default"
+    default: return "unknown"
     }
   }
 

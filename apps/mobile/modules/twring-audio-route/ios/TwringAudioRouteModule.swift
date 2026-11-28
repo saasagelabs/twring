@@ -6,6 +6,8 @@ import ExpoModulesCore
  * outputs through LiveKit and the system picker; this module only reports when the route changed
  * (AVAudioSession.routeChangeNotification) and when a phone call or another app took the audio
  * (AVAudioSession.interruptionNotification), so the app reacts with the screen off too.
+ * A "began" that is only a stale notice for an app that was suspended is not sent: no call took
+ * the audio, and iOS sends no "ended" for it.
  */
 public class TwringAudioRouteModule: Module {
   private var observers: [NSObjectProtocol] = []
@@ -44,8 +46,21 @@ public class TwringAudioRouteModule: Module {
           let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
           let type = AVAudioSession.InterruptionType(rawValue: raw)
         else { return }
+        if type == .began && TwringAudioRouteModule.wasSuspended(note.userInfo) { return }
         self?.sendEvent("onInterruption", ["phase": type == .began ? "began" : "ended"])
       })
+  }
+
+  /** True when a "began" only tells a suspended app that its audio was stopped while asleep. */
+  private static func wasSuspended(_ info: [AnyHashable: Any]?) -> Bool {
+    if #available(iOS 14.5, *) {
+      guard
+        let raw = info?[AVAudioSessionInterruptionReasonKey] as? UInt,
+        let reason = AVAudioSession.InterruptionReason(rawValue: raw)
+      else { return false }
+      return reason == .appWasSuspended
+    }
+    return (info?[AVAudioSessionInterruptionWasSuspendedKey] as? Bool) ?? false
   }
 
   private func stop() {

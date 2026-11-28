@@ -10,6 +10,8 @@ const state = vi.hoisted(() => ({
   calls: [] as string[],
   listeners: new Map<string, Set<(event: unknown) => void>>(),
   devices: ['bluetooth_a2dp', 'speaker', 'earpiece'] as string[] | null,
+  /** CordRing: absent, present without otherCallActive (an old build), or present with it. */
+  cordRing: 'none',
 }));
 
 function next<T>(values: T[], fallback: T): T {
@@ -17,27 +19,33 @@ function next<T>(values: T[], fallback: T): T {
 }
 
 vi.mock('expo', () => ({
-  requireOptionalNativeModule: () =>
-    state.present
-      ? {
-          listCallDevices: () => state.devices,
-          setCommunicationDevice: (output: string) => {
-            state.calls.push(`comm:${output}`);
-            return true;
-          },
-          currentCallDevice: () => next(state.readBack, null),
-          callModeActive: () => next(state.modeActive, true),
-          clearCommunicationDevice: () => state.calls.push('clear'),
-          startWatching: () => state.calls.push('start'),
-          stopWatching: () => state.calls.push('stop'),
-          addListener: (event: string, listener: (event: unknown) => void) => {
-            const set = state.listeners.get(event) ?? new Set();
-            set.add(listener);
-            state.listeners.set(event, set);
-            return { remove: () => set.delete(listener) };
-          },
-        }
-      : null,
+  requireOptionalNativeModule: (name: string) =>
+    name === 'CordRing'
+      ? state.cordRing === 'none'
+        ? null
+        : state.cordRing === 'new'
+          ? { otherCallActive: () => Promise.resolve(true) }
+          : {}
+      : state.present
+        ? {
+            listCallDevices: () => state.devices,
+            setCommunicationDevice: (output: string) => {
+              state.calls.push(`comm:${output}`);
+              return true;
+            },
+            currentCallDevice: () => next(state.readBack, null),
+            callModeActive: () => next(state.modeActive, true),
+            clearCommunicationDevice: () => state.calls.push('clear'),
+            startWatching: () => state.calls.push('start'),
+            stopWatching: () => state.calls.push('stop'),
+            addListener: (event: string, listener: (event: unknown) => void) => {
+              const set = state.listeners.get(event) ?? new Set();
+              set.add(listener);
+              state.listeners.set(event, set);
+              return { remove: () => set.delete(listener) };
+            },
+          }
+        : null,
 }));
 vi.mock('react-native', () => ({
   Platform: {
@@ -82,6 +90,7 @@ beforeEach(() => {
   state.calls = [];
   state.listeners = new Map();
   state.devices = ['bluetooth_a2dp', 'speaker', 'earpiece'];
+  state.cordRing = 'none';
   vi.resetModules();
   vi.spyOn(console, 'info').mockImplementation(() => undefined);
 });
@@ -91,6 +100,29 @@ afterEach(() => {
 });
 
 describe('audio route platform', () => {
+  it('checks for another phone call on iOS only, and only when CordRing can', async () => {
+    state.os = 'ios';
+    state.cordRing = 'new';
+    let mod = await import('./audio-route');
+    await expect(mod.callInterruptionPlatform.otherCallActive!()).resolves.toBe(true);
+
+    vi.resetModules();
+    state.cordRing = 'old';
+    mod = await import('./audio-route');
+    expect(mod.callInterruptionPlatform.otherCallActive).toBeUndefined();
+
+    vi.resetModules();
+    state.cordRing = 'none';
+    mod = await import('./audio-route');
+    expect(mod.callInterruptionPlatform.otherCallActive).toBeUndefined();
+
+    vi.resetModules();
+    state.os = 'android';
+    state.cordRing = 'new';
+    mod = await import('./audio-route');
+    expect(mod.callInterruptionPlatform.otherCallActive).toBeUndefined();
+  });
+
   it('falls back to LiveKit and offers no watchers when the native module is missing', async () => {
     state.present = false;
     const mod = await import('./audio-route');

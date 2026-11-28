@@ -7,7 +7,7 @@ import { twringApi } from '@/api';
 import { mobileEnv } from '@/config/env';
 import { activeServerUrl, onActiveServerChanged, useActiveServer } from '@/servers/active';
 import { profileStore } from '../servers/profiles';
-import { callBreadcrumb } from '@/observability/sentry';
+import { callBreadcrumb, reportInterruptionUnrecovered } from '@/observability/sentry';
 import { audioRoutePlatform, callInterruptionPlatform } from '@/platform/audio-route';
 import { deviceFacts } from '@/platform/device-facts';
 import {
@@ -80,11 +80,6 @@ export function callController(): CallController | undefined {
     else void callBackgroundService.stop().catch(() => undefined);
   });
   const offStartRefused = onBackgroundStartRefused(() => created.backgroundStartRefused());
-  // A start refused while backgrounded (Android 12+/14+) is retried once the app is visible.
-  const appState = AppState.addEventListener('change', (state) => {
-    if (state === 'active') created.retryBackground();
-  });
-
   // A phone call during the call: mute, show a notice, give route and mic back when it ends.
   const interruption = new CallInterruption(
     {
@@ -94,8 +89,20 @@ export function callController(): CallController | undefined {
       holdRoute: () => audioRoutes.hold(),
     },
     (detail) => callBreadcrumb({ event: 'audio_route_failed', detail }),
+    {
+      onRecovered: (via) => callBreadcrumb({ event: 'interruption_recovered', via }),
+      onUnrecovered: () => reportInterruptionUnrecovered(),
+    },
   );
   currentInterruption = interruption;
+  // A start refused while backgrounded (Android 12+/14+) is retried once the app is visible. iOS
+  // may never send "ended" for an interruption: back in front with no phone call on, it resumes.
+  const appState = AppState.addEventListener('change', (state) => {
+    if (state !== 'active') return;
+    created.retryBackground();
+    const otherCallActive = callInterruptionPlatform.otherCallActive;
+    if (otherCallActive !== undefined) void interruption.resumeWithoutEnd(otherCallActive);
+  });
   // Route and interruption events are watched for the whole call, screen off included.
   let stopWatching: (() => void) | undefined;
   const watch = (active: boolean) => {

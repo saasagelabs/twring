@@ -183,7 +183,7 @@ Do not log the transcript content by default.
 
 ## 11. Mobile observability
 
-Sentry captures crashes/native crashes/app hangs where supported, navigation breadcrumbs, call-state breadcrumbs, release/environment, and safe correlation IDs.
+Sentry captures crashes/native crashes/app hangs where supported, navigation breadcrumbs, call-state breadcrumbs, release/environment, and safe correlation IDs. An audio interruption is only a breadcrumb; Sentry reports one only when the call ended without ever recovering from it (`call_audio_interruption_unrecovered`).
 
 No raw audio/transcript.
 
