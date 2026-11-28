@@ -53,6 +53,7 @@ describe('phone requests are what the gateway accepts', () => {
     expect(gatewayRingSettingsSchema.parse(never.settings)).toEqual({
       dnd: true,
       quiet_hours: null,
+      call_transcripts: false,
     });
   });
 

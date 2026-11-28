@@ -22,6 +22,7 @@ import {
   normalizeClock,
   persistRingSettings,
   ringSummary,
+  sameForm,
   settingsFromForm,
 } from './settings';
 
@@ -639,11 +640,12 @@ describe('ring settings', () => {
       start: '22:00',
       end: '07:00',
       afterCallResult: 'ring',
+      callTranscripts: false,
     });
     // Never set: stays null.
     expect(settingsFromForm({ ...form, dnd: true }, 'Asia/Kolkata')).toEqual({
       ok: true,
-      settings: { dnd: true, quiet_hours: null },
+      settings: { dnd: true, quiet_hours: null, call_transcripts: false },
     });
     expect(settingsFromForm({ ...form, quietEnabled: true, start: '7:5' }, 'UTC')).toEqual({
       ok: false,
@@ -655,6 +657,7 @@ describe('ring settings', () => {
       ok: true,
       settings: {
         dnd: false,
+        call_transcripts: false,
         quiet_hours: { enabled: true, start: '23:30', end: '06:00', tz: 'UTC' },
       },
     });
@@ -670,6 +673,7 @@ describe('ring settings', () => {
       ok: true,
       settings: {
         dnd: false,
+        call_transcripts: false,
         quiet_hours: { enabled: false, start: '23:00', end: '06:30', tz: 'Asia/Kolkata' },
       },
     });
@@ -684,13 +688,34 @@ describe('ring settings', () => {
     const form = { ...formFromSettings(previous), afterCallResult: 'message' as const };
     expect(settingsFromForm(form, 'UTC', previous, true)).toEqual({
       ok: true,
-      settings: { ...previous, after_call_result: 'message' },
+      settings: { ...previous, after_call_result: 'message', call_transcripts: false },
     });
     expect(settingsFromForm(form, 'UTC', previous, false)).toEqual({
       ok: true,
-      settings: previous,
+      settings: { ...previous, call_transcripts: false },
     });
     expect(formFromSettings(previous).afterCallResult).toBe('ring');
+  });
+
+  it('carries call transcripts, off by default, and always sends them', () => {
+    const previous = { dnd: false, quiet_hours: null, call_transcripts: true };
+    const form = formFromSettings(previous);
+    expect(form.callTranscripts).toBe(true);
+    expect(formFromSettings({ dnd: false, quiet_hours: null }).callTranscripts).toBe(false);
+    expect(sameForm(form, { ...form, callTranscripts: false })).toBe(false);
+    expect(settingsFromForm({ ...form, callTranscripts: false }, 'UTC', previous, true)).toEqual({
+      ok: true,
+      settings: {
+        dnd: false,
+        quiet_hours: null,
+        after_call_result: 'ring',
+        call_transcripts: false,
+      },
+    });
+    expect(settingsFromForm(form, 'UTC', previous, false)).toEqual({
+      ok: true,
+      settings: { dnd: false, quiet_hours: null, call_transcripts: true },
+    });
   });
 
   it('restores the old after-call value after a failed save', async () => {
