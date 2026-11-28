@@ -526,7 +526,7 @@ Hermes appears in the app. Press Call.
 
 When Hermes needs your OK for a risky command, the request appears on your phone, wherever Hermes asked: the terminal, Telegram, a scheduled job or a call. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.
 
-`hermes twring link` asks whether to approve from your phone (press Enter for yes). A very long command, a private chat, or a Twring server that can't be reached goes back to Hermes's own prompt at the computer. Up to three approvals wait on your phone at once; more wait at the computer. An approval still waiting when you hang up a call is denied.
+`hermes twring link` asks whether to approve from your phone (press Enter for yes). A very long command, a Hermes chat you set to private in Twring, or a Twring server that can't be reached goes back to Hermes's own prompt at the computer. Up to three approvals wait on your phone at once; more wait at the computer. An approval still waiting when you hang up a call is denied.
 
 ### Hermes rings or messages you from anywhere
 
