@@ -19,6 +19,8 @@ export interface CallInterruptionTarget {
   isMuted(): boolean;
   setMuted(muted: boolean): Promise<void>;
   restoreRoute(): Promise<void>;
+  /** Stops route writes while the phone call holds the audio; restoreRoute() ends the hold. */
+  holdRoute?(): void;
 }
 
 export interface CallInterruptionState {
@@ -65,6 +67,7 @@ export class CallInterruption {
     if (this.state.paused) return;
     this.mutedBefore = this.target.isMuted();
     this.set({ paused: true });
+    this.target.holdRoute?.();
     if (!this.mutedBefore) await this.guard(() => this.target.setMuted(true));
   }
 

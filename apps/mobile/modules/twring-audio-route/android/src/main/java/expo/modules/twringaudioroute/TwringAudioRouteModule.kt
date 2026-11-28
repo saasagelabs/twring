@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.telephony.PhoneStateListener
 import android.telephony.TelephonyManager
 import androidx.annotation.RequiresApi
@@ -37,6 +38,9 @@ class TwringAudioRouteModule : Module() {
   private var phoneListener: PhoneStateListener? = null
   private var interrupted = false
 
+  /** The call token of the last setCommunicationDevice, so a call end never clears the next call. */
+  private var lastToken: Int? = null
+
   private val audio: AudioManager
     get() =
       requireNotNull(appContext.reactContext) { "React context is not available" }
@@ -53,10 +57,27 @@ class TwringAudioRouteModule : Module() {
       devices.mapNotNull { name(it.type) }.distinct()
     }
 
-    Function("setCommunicationDevice") { chosen: String ->
+    Function("setCommunicationDevice") { chosen: String, token: Int? ->
       if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@Function false
+      lastToken = token
       val device = audio.availableCommunicationDevices.firstOrNull { output(it.type) == chosen }
       device != null && audio.setCommunicationDevice(device)
+    }
+
+    /** Android 12+: the output the OS really routes the call to, or null (none or unknown type). */
+    Function("currentCallDevice") {
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@Function null
+      audio.communicationDevice?.let { callOutput(it.type) }
+    }
+
+    Function("callModeActive") { audio.mode == AudioManager.MODE_IN_COMMUNICATION }
+
+    /** Clears the device unless a newer call set it since (token mismatch). */
+    Function("clearCommunicationDevice") { token: Int? ->
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return@Function
+      if (token != null && token != lastToken) return@Function
+      audio.clearCommunicationDevice()
+      lastToken = null
     }
 
     Function("startWatching") { main.post { start() } }
@@ -170,4 +191,26 @@ class TwringAudioRouteModule : Module() {
       "earpiece" -> "earpiece"
       else -> null
     }
+
+  /** The JS output for a read-back communication device; an unknown type logs its raw number. */
+  private fun callOutput(type: Int): String? =
+    when (type) {
+      AudioDeviceInfo.TYPE_BLUETOOTH_SCO,
+      AudioDeviceInfo.TYPE_BLE_HEADSET,
+      AudioDeviceInfo.TYPE_BLE_SPEAKER,
+      AudioDeviceInfo.TYPE_HEARING_AID -> "bluetooth"
+      AudioDeviceInfo.TYPE_WIRED_HEADSET,
+      AudioDeviceInfo.TYPE_WIRED_HEADPHONES,
+      AudioDeviceInfo.TYPE_USB_HEADSET -> "headset"
+      AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+      AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
+      else -> {
+        Log.w(TAG, "unknown call device type $type")
+        null
+      }
+    }
+
+  private companion object {
+    const val TAG = "TwringAudioRoute"
+  }
 }
