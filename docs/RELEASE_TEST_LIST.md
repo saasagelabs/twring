@@ -77,7 +77,7 @@ Run these on staging first, then once on production. Link Hermes with `hermes tw
 - [ ] With phone approvals off, raise an approval in Telegram and leave it for 60 s. The phone rings once: "Hermes is waiting for your OK in Telegram." The command is not in the ring.
 - [ ] Raise four approvals at once. Three show on the phone; the fourth waits at Hermes's own prompt.
 - [ ] Raise an approval for a command over 500 characters. It goes to Hermes's own prompt at the computer, not the phone.
-- [ ] Raise an approval from a private chat. It goes to Hermes's own prompt at the computer.
+- [ ] In the Twring app, set the Hermes chat to private, then raise an approval. It goes to Hermes's own prompt at the computer, not the phone.
 - [ ] Block the Twring server from the computer and raise an approval. It goes to Hermes's own prompt at the computer.
 - [ ] On a call, have Hermes raise an approval and say "yes". The command runs. Repeat and say "no". It does not run.
 - [ ] On a call, have Hermes raise an approval and hang up before answering. The approval is denied; no card for it appears on the phone.
