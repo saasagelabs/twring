@@ -126,6 +126,9 @@ describe('CallRuntime with a Twring Native agent', () => {
     );
 
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'second question' });
+    await vi.waitFor(() => expect(tts.calls.at(-1)).toBe('flush gen_2'));
+    tts.send({ type: 'audio', generationId: 'gen_2', bytes: speech() });
+    tts.send({ type: 'done', generationId: 'gen_2' });
     await vi.waitFor(() =>
       expect(transport.reliableStatuses).toContainEqual(
         expect.objectContaining({ type: 'agent_text', turn_id: 'turn_2', final: true }),
@@ -133,8 +136,6 @@ describe('CallRuntime with a Twring Native agent', () => {
     );
     const spoken = tts.calls.flatMap((c) => (c.startsWith('speak gen_2 ') ? [c.slice(12)] : []));
     expect(spoken.join('')).toBe('Back again.');
-    tts.send({ type: 'audio', generationId: 'gen_2', bytes: speech() });
-    tts.send({ type: 'done', generationId: 'gen_2' });
     await vi.waitFor(() => expect(floors(transport).at(-1)).toBe('listening'));
     // Two sessions (the drop forced a fresh handshake); each turn was sent exactly once.
     expect(agent.received.filter((m) => m.type === 'session.hello')).toHaveLength(2);
@@ -187,6 +188,9 @@ describe('CallRuntime with a Twring Native agent', () => {
     await vi.waitFor(() => expect(tts.calls.some((c) => c.startsWith('speak gen_1 '))).toBe(true));
 
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'actually, something else' });
+    await vi.waitFor(() => expect(tts.calls.at(-1)).toBe('flush gen_2'));
+    tts.send({ type: 'audio', generationId: 'gen_2', bytes: speech() });
+    tts.send({ type: 'done', generationId: 'gen_2' });
     await vi.waitFor(() =>
       expect(transport.reliableStatuses).toContainEqual(
         expect.objectContaining({ type: 'agent_text', turn_id: 'turn_2', final: true }),

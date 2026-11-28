@@ -52,6 +52,8 @@ async function call(serverOptions: FakeNativeServerOptions) {
   return { server, transport, stt, tts, logger, ended, scheduler, runtime };
 }
 
+const speech = () => new Uint8Array(new Int16Array(960).fill(1000).buffer);
+
 /** Streams run.started + one delta, then waits for turn.cancel. */
 const streamUntilCancelled: FakeNativeServerOptions['script'] = async (turn, ctx) => {
   const base = { turn_id: turn.turn_id };
@@ -130,6 +132,7 @@ describe('CallRuntime + Twring Native agent: cancel reasons and cleanup (verifie
     const {
       server: agent,
       stt,
+      tts,
       transport,
     } = await call({
       script: async (turn, ctx) => {
@@ -144,6 +147,11 @@ describe('CallRuntime + Twring Native agent: cancel reasons and cleanup (verifie
     stt.send({ type: 'turn_ended', turnIndex: 0, text: 'first' });
     await vi.waitFor(() => expect(agent.received.some((m) => m.type === 'user.turn')).toBe(true));
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'second' });
+    // Play the answer out, as the caller would hear it, so its text is shown.
+    await vi.waitFor(() => expect(tts.calls.at(-1)).toMatch(/^flush gen_\d+$/));
+    const gen = tts.calls.at(-1)!.slice(6);
+    tts.send({ type: 'audio', generationId: gen, bytes: speech() });
+    tts.send({ type: 'done', generationId: gen });
     await vi.waitFor(() =>
       expect(transport.reliableStatuses).toContainEqual(
         expect.objectContaining({ type: 'agent_text', turn_id: 'turn_2', final: true }),
