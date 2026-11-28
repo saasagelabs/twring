@@ -58,6 +58,30 @@ If any of these three fails, the fix is to hold `startAudioSession` until CallKi
 - [ ] Take the agent's computer offline. The app shows it offline, and a call says the computer is offline.
 - [ ] Bring the computer back. The app shows it online again without pairing again, and calls work.
 
+## Hermes plugin 0.2 (when the release includes the Hermes plugin)
+
+Run these on staging first, then once on production. Link Hermes with `hermes twring link`, and run `hermes gateway` for the call checks.
+
+- [ ] In a Hermes chat (Telegram), ask Hermes to message you. The message arrives in Twring's Hermes chat.
+- [ ] In a Hermes chat, ask Hermes to ring you. The phone rings.
+- [ ] In the terminal (`hermes`), ask Hermes to message you, then to ring you. Both arrive.
+- [ ] Turn on Do Not Disturb (or quiet hours) in Twring and ask Hermes to ring you. The phone does not ring; the news is in Twring's Hermes chat, and Hermes does not retry.
+- [ ] Make a scheduled job stop on a model error. You get a ring (or, with `TWRING_RING_ON_DELIVERY=false`, a message): "A scheduled Hermes job stopped: <error type>." The error text is not in it.
+- [ ] Run `hermes twring link`. It asks "Approve Hermes's commands from your phone? [Y/n]", and pressing Enter turns phone approvals on.
+- [ ] Run `hermes twring approvals off`, then `status`, then `on`, then `status`. Each `status` reports the setting just made.
+- [ ] With phone approvals on, have Hermes raise an approval in the terminal. A card shows in the app and the phone rings.
+- [ ] Do the same from Telegram. The card says it came from Telegram, and the phone rings.
+- [ ] Tap Approve on a card. The command runs.
+- [ ] Tap Deny on a card. The command does not run.
+- [ ] Leave a card unanswered. When Hermes's approval timeout runs out (the plugin gives up 3 s before it), the command is denied and the card closes.
+- [ ] With phone approvals off, raise an approval in Telegram and leave it for 60 s. The phone rings once: "Hermes is waiting for your OK in Telegram." The command is not in the ring.
+- [ ] Raise four approvals at once. Three show on the phone; the fourth waits at Hermes's own prompt.
+- [ ] Raise an approval for a command over 500 characters. It goes to Hermes's own prompt at the computer, not the phone.
+- [ ] Raise an approval from a private chat. It goes to Hermes's own prompt at the computer.
+- [ ] Block the Twring server from the computer and raise an approval. It goes to Hermes's own prompt at the computer.
+- [ ] On a call, have Hermes raise an approval and say "yes". The command runs. Repeat and say "no". It does not run.
+- [ ] On a call, have Hermes raise an approval and hang up before answering. The approval is denied; no card for it appears on the phone.
+
 ## Server (when the release includes a server deploy)
 
 - [ ] Deploy with a call live. The deploy waits for the call to end before restarting.
