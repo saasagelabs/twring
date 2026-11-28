@@ -5520,19 +5520,25 @@ describe('captions in step with speech (ADR-050)', () => {
     expect(texts().at(-1)).toContain('const x = 1;');
   });
 
-  it('a barge-in shows the whole reply and stops the ticker', async () => {
+  it('a barge-in keeps what was heard, even once the agent finishes, and stops the ticker', async () => {
     const reply = 'one two three four five six seven eight nine ten ';
-    const { conversation, speech, scheduler, texts } = await speaking(reply);
+    const { conversation, speech, scheduler, texts, agent } = await speaking(reply);
     conversation.speechState('gen_1', 'playing');
     speech.played.set('gen_1', 1_000);
     scheduler.advance(150);
+    const heard = texts().at(-1);
+    expect(heard).toBe('one two three ');
     conversation.userSpeechStarted();
     conversation.userPartial('hang on a second please');
-    expect(texts().at(-1)).toBe(reply);
+    expect(texts().at(-1)).toBe(heard);
     const count = texts().length;
     speech.played.set('gen_1', 2_000);
     scheduler.advance(1_000);
     expect(texts()).toHaveLength(count);
+    // The rest was never said: it does not appear when the agent finishes either.
+    agent.done();
+    await flushMicrotasks();
+    expect(texts().at(-1)).toBe(heard);
   });
 
   it('close() leaves no caption timer behind', async () => {

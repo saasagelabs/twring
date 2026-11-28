@@ -1881,7 +1881,7 @@ export class ConversationController {
       this.options.speech.cancel('barge_in');
       return;
     }
-    // What the caller heard goes in the transcript, cut; the captions show the whole reply again.
+    // What the caller heard goes in the transcript, cut; the captions stay on what was heard.
     this.recordAgent(turn, true);
     this.stopCaptionTicker(turn);
     turn.muted = true;
@@ -1983,7 +1983,7 @@ export class ConversationController {
     this.clearTimers(turn);
     // Its answer plays on under the next turn: its captions and transcript line are whole now.
     this.stopCaptionTicker(turn);
-    this.sendText(turn, true, true);
+    this.sendText(turn, true, 'whole');
     this.recordAgent(turn, false);
     if (this.cue?.turnId === turn.id) this.cutCue('superseded');
     return undefined;
@@ -2010,7 +2010,8 @@ export class ConversationController {
     // Heard: what was heard goes in the transcript. Unheard: it is carried on, or was never said.
     if (turn.heard) this.recordAgent(turn, !turn.speechDone);
     this.stopTurn(turn, 'superseded');
-    this.sendText(turn, true, true);
+    // Heard: the captions stay on what was heard. Never heard: its whole text, as before.
+    this.sendText(turn, true, turn.heard ? 'heard' : 'whole');
     return turn;
   }
 
@@ -2247,13 +2248,13 @@ export class ConversationController {
 
   /**
    * Sends the reply text. While its speech plays, only what the caller has heard (captions in step
-   * with the voice, ADR-050); otherwise, or with `whole`, the whole visible text.
+   * with the voice, ADR-050); otherwise the whole visible text. `mode` forces one or the other.
    */
-  private sendText(turn: Turn, final: boolean, whole = false): void {
+  private sendText(turn: Turn, final: boolean, mode: 'auto' | 'whole' | 'heard' = 'auto'): void {
     turn.textTimer?.();
     turn.textTimer = undefined;
-    const text =
-      whole || this.captionsWhole(turn) ? wholeCaption(turn.visible) : this.caption(turn);
+    const whole = mode === 'whole' || (mode === 'auto' && this.captionsWhole(turn));
+    const text = whole ? wholeCaption(turn.visible) : this.caption(turn);
     if (text === undefined || (text === '' && !final)) return;
     if (text === turn.lastCaption && final === turn.lastCaptionFinal) return;
     turn.lastTextSentAt = this.options.scheduler.now();
@@ -2270,12 +2271,13 @@ export class ConversationController {
   }
 
   /**
-   * The whole reply is shown: the caller talked over it, its voice failed, it has played out, or it
-   * has nothing to speak.
+   * The whole reply is shown: its voice failed, it has played out, it has nothing to speak, or the
+   * caller's words over it turned out to be noise (it never resumes, so its text is all they get).
+   * While the caller talks over it, it keeps what they heard (ADR-050).
    */
   private captionsWhole(turn: Turn): boolean {
+    if (turn.muted) return !this.callerHasFloor;
     return (
-      turn.muted ||
       turn.captionsWhole ||
       turn.speechDone ||
       (turn.agentDone && !turn.heard && turn.spoken.trim() === '')
