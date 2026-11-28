@@ -33,6 +33,7 @@ import { routeFailureText, routeLabel, type AudioOutput } from '@/call/audio-rou
 import { callAgentLocation } from '@/agents/labels';
 import { twringApi } from '@/api';
 import type { CallView } from '@/call/controller';
+import { CAPTION_TAIL_CHARS, captionTail, readableReply, REPLY_TAIL_CHARS } from '@/call/captions';
 import {
   INBOUND_STALE_MS,
   SPEECH_FLOOR_DBFS,
@@ -58,6 +59,7 @@ import { CallControl } from '@/components/CallControl';
 import { CallBackButton } from '@/components/call/CallBackButton';
 import { CallFeedback } from '@/components/call/CallFeedback';
 import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
+import { TranscriptToChat } from '@/components/call/TranscriptToChat';
 import { ConnectionPill } from '@/components/ConnectionPill';
 import { playCallFeedback } from '@/platform/haptics';
 import { GhostButton } from '@/components/GhostButton';
@@ -124,12 +126,6 @@ function CallClock({ connectedAt }: { connectedAt: number }) {
   );
 }
 
-function latestWords(text: string, max = 220): string {
-  if (text.length <= max) return text;
-  const cut = text.indexOf(' ', text.length - max);
-  return `…${text.slice(cut === -1 ? text.length - max : cut + 1)}`;
-}
-
 function Caret() {
   const reducedMotion = useReducedMotion();
   const opacity = useSharedValue(1);
@@ -190,9 +186,13 @@ function useRouteFailure(): string | undefined {
 }
 /**
  * The reply and caption areas keep a fixed height (lines × line height, scaled with the phone's
- * text size): text growing or clearing must not re-center the panels and tilt the screen.
+ * text size): text growing or clearing must not re-center the panels and tilt the screen. Text is
+ * bottom-anchored, so earlier lines roll up and off the top like captions. A short window (under
+ * 700 dp, the same cut as the smaller avatar) gets one reply line fewer to keep the controls on
+ * screen at large text sizes.
  */
-const REPLY_LINES = 3;
+const REPLY_LINES = 4;
+const REPLY_LINES_COMPACT = 3;
 const REPLY_LINE_HEIGHT = 22;
 const CAPTION_LINES = 2;
 const CAPTION_LINE_HEIGHT = 19;
@@ -279,6 +279,7 @@ function ActiveCall({
 }) {
   const { fontScale, height: windowHeight } = useWindowDimensions();
   const compact = windowHeight < 700;
+  const replyLines = compact ? REPLY_LINES_COMPACT : REPLY_LINES;
   const avatarSize = compact ? 80 : 104;
   const waveHeight = compact ? 56 : 78;
   const connected = view.connectedAt !== undefined;
@@ -456,15 +457,11 @@ function ActiveCall({
           </Text>
           <View
             accessibilityLiveRegion="polite"
-            style={[styles.replyFrame, { height: REPLY_LINES * REPLY_LINE_HEIGHT * fontScale }]}
+            style={[styles.replyFrame, { height: replyLines * REPLY_LINE_HEIGHT * fontScale }]}
           >
             {view.reply !== undefined && (
-              <Text
-                accessibilityLabel={`Agent: ${view.reply.text}`}
-                numberOfLines={REPLY_LINES}
-                style={styles.reply}
-              >
-                {latestWords(view.reply.text)}
+              <Text accessibilityLabel={replyLabel(view.reply)} style={styles.reply}>
+                {captionTail(view.reply.text, REPLY_TAIL_CHARS)}
                 {status === 'AGENT_SPEAKING' && !reducedMotion && <Caret />}
               </Text>
             )}
@@ -483,12 +480,8 @@ function ActiveCall({
             ]}
           >
             {view.caption !== undefined && (
-              <Text
-                accessibilityLabel={`You: ${view.caption.text}`}
-                numberOfLines={CAPTION_LINES}
-                style={styles.caption}
-              >
-                “{latestWords(view.caption.text, 120)}”
+              <Text accessibilityLabel={`You: ${view.caption.text}`} style={styles.caption}>
+                “{captionTail(view.caption.text, CAPTION_TAIL_CHARS)}”
               </Text>
             )}
           </View>
@@ -691,6 +684,12 @@ function FinishedCall({
           connectedAt={view.connectedAt}
           agent={agent}
         />
+        <TranscriptToChat
+          key={`transcript-${('callId' in call ? call.callId : undefined) ?? 'none'}`}
+          call={call}
+          connectedAt={view.connectedAt}
+          agent={agent}
+        />
         {(call.status === 'ENDED' || call.status === 'FAILED') &&
           call.callId !== undefined &&
           view.connectedAt !== undefined &&
@@ -822,7 +821,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     overflow: 'hidden',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
   },
   reply: {
     ...type.body,
@@ -832,7 +831,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   notice: { color: palette.reconnecting, textAlign: 'center' },
-  captionFrame: { alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  captionFrame: { alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden' },
   caption: {
     color: palette.textTertiary,
     fontSize: type.caption.fontSize,
@@ -886,6 +885,12 @@ const styles = StyleSheet.create({
   outcomeCode: { color: palette.textTertiary, textAlign: 'center', marginTop: 10 },
   actions: { gap: 10, paddingBottom: space.xl },
 });
+
+/** The reply as a screen reader hears it: a sentence at a time, never word by word. */
+function replyLabel(reply: { text: string; final: boolean }): string {
+  const readable = readableReply(reply.text, reply.final);
+  return readable === '' ? 'Agent' : `Agent: ${readable}`;
+}
 
 /** The failure's code and server reference, for support. */
 function reference(failed: { code: string; correlationId?: string }): string {
