@@ -27,7 +27,7 @@ import { z } from 'zod';
 import { devUserResolver, type UserResolver } from '../auth';
 import { hashConnectorToken } from '../connectors/pairing';
 import type { ConnectorRecord, ConnectorRepository } from '../connectors/store';
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 import { E2eDeviceError, type E2eDeviceStore } from './devices-store';
 import type { GatewayErrorCode } from './guard';
 import { privateChatsAllowed } from './flag';
@@ -168,7 +168,7 @@ export function registerE2eRoutes(app: FastifyInstance, options: E2eRoutesOption
     request: FastifyRequest,
     reply: FastifyReply,
   ): Promise<ConnectorRecord | undefined> => {
-    if (!connectorLimiter.tryAcquire(request.ip)) {
+    if (!connectorLimiter.tryAcquire(ipKey(request.ip))) {
       sendError(reply, 429, 'rate_limited');
       return undefined;
     }

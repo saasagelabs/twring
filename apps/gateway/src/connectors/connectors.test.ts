@@ -270,6 +270,19 @@ describe('pairing', () => {
     expect(elsewhere.statusCode).toBe(400);
   });
 
+  it('rate limits claims per IPv6 /64: a new address in the same network does not reset it', async () => {
+    const g = await gateway({ claimRatePerMinute: 2 });
+    const claim = (ip: string) =>
+      g.send('POST', '/v1/connectors/claim', {
+        ip,
+        body: { code: 'AAAA-BBBB', name: 'Laptop', agents: FAKE_AGENTS },
+      });
+    expect((await claim('2001:db8:1:2::1')).statusCode).toBe(400);
+    expect((await claim('2001:db8:1:2::2')).statusCode).toBe(400);
+    expect((await claim('2001:db8:1:2:ffff::3')).statusCode).toBe(429);
+    expect((await claim('2001:db8:1:3::1')).statusCode).toBe(400);
+  });
+
   it('claim needs no sign-in, but every other connector route does', async () => {
     const g = await gateway();
     expect((await g.send('POST', '/v1/connectors/pairings')).statusCode).toBe(401);

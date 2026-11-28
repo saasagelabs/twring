@@ -6,7 +6,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 
 import type { RequestAuth } from '../auth';
 import { clientIp, rejectUpgrade, type TrustProxy } from '../connectors/routes';
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 
 export const PHONE_SOCKET_PATH = '/v1/me/socket';
 /** Frames are skipped for a socket with more than this still unsent. */
@@ -65,7 +65,7 @@ export class PhoneSocketHub {
 
   upgrade = (request: IncomingMessage, socket: Duplex, head: Buffer): void => {
     socket.on('error', () => undefined);
-    if (!this.limiter.tryAcquire(clientIp(request, this.options.trustProxy))) {
+    if (!this.limiter.tryAcquire(ipKey(clientIp(request, this.options.trustProxy)))) {
       rejectUpgrade(socket, 429, 'Too Many Requests');
       return;
     }

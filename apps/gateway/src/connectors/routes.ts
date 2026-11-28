@@ -35,20 +35,14 @@ import { WebSocketServer } from 'ws';
 import { devUserResolver, type ProfileResolver, type UserResolver } from '../auth';
 import { relinkConnectorContact, type RelinkDeps } from '../agents/relink';
 import { defaultVoiceId } from '../agents/voices';
-import { FixedWindowLimiter, rateKey } from '../rate-limit';
+import { FixedWindowLimiter, ipKey, rateKey } from '../rate-limit';
 import { newAgentId } from '../calls/ids';
 import type { ConnectorCallStatus } from '../calls/routes';
 import { RecordLimitError } from '../store/record-limits';
 import type { AgentRecord, Stores } from '../store/repositories';
 
 import type { ConnectorHub } from './hub';
-import {
-  FailureLimiter,
-  ipKey,
-  LinkBook,
-  ownerDisplayName,
-  type LinkRequest,
-} from './link-requests';
+import { FailureLimiter, LinkBook, ownerDisplayName, type LinkRequest } from './link-requests';
 import { hashConnectorToken, newConnectorId, newConnectorToken, type PairingBook } from './pairing';
 import type { ConnectorRecord } from './store';
 
@@ -290,7 +284,7 @@ export function registerConnectorRoutes(app: FastifyInstance, options: Connector
     '/v1/connectors/claim',
     async (request, reply): Promise<ClaimResponse | RelinkResponse | FastifyReply> => {
       if (stores === undefined) return unavailable(reply);
-      if (!claimLimiter.tryAcquire(request.ip)) return tooMany(reply);
+      if (!claimLimiter.tryAcquire(ipKey(request.ip))) return tooMany(reply);
       const parsed = claimRequestSchema.safeParse(request.body);
       if (!parsed.success) {
         return sendError(reply, 400, 'bad_request', 'The pairing details are not valid.');
@@ -706,7 +700,7 @@ export function registerConnectorSocket(
       return;
     }
     const address = clientIp(request, options.trustProxy ?? false);
-    if (!limiter.tryAcquire(address)) {
+    if (!limiter.tryAcquire(ipKey(address))) {
       rejectUpgrade(socket, 429, 'Too Many Requests');
       return;
     }
