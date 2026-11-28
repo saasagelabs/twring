@@ -18,8 +18,17 @@ import type { CallInterruptionPlatform, InterruptionPhase } from '@/call/call-in
 interface TwringAudioRouteModule {
   /** Android only: communication device names, or null before Android 12 without SCO info. */
   listCallDevices?(): string[] | null;
-  /** Android 12+: setCommunicationDevice for the output. False when it could not (older Android). */
-  setCommunicationDevice?(output: AudioOutput): boolean;
+  /**
+   * Android 12+: setCommunicationDevice for the output. False when it could not (older Android).
+   * The token records the call, so clearCommunicationDevice from an ended call leaves a newer one.
+   */
+  setCommunicationDevice?(output: AudioOutput, token?: number): boolean;
+  /** Android 12+: the device the OS routes the call to; null for none, unknown type or older Android. */
+  currentCallDevice?(): AudioOutput | null;
+  /** Whether the audio mode is MODE_IN_COMMUNICATION. */
+  callModeActive?(): boolean;
+  /** Android 12+: clears the communication device, only if the last set had this token. */
+  clearCommunicationDevice?(token?: number): void;
   startWatching(): void;
   stopWatching(): void;
   addListener(event: 'onRoutesChanged', listener: () => void): { remove(): void };
