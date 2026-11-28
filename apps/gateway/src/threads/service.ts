@@ -437,7 +437,8 @@ export class ThreadService {
         transcript !== undefined &&
         !(await this.options.store.isPrivate(userId, item.agent_id))
       ) {
-        const settings = await this.options.ring?.settings(userId);
+        // A settings read failing must not lose the call card: hold the transcript instead.
+        const settings = await this.options.ring?.settings(userId).catch(() => undefined);
         if (settings?.call_transcripts === true) attach = transcript;
         else
           this.heldTranscripts.put(item.call_id, {

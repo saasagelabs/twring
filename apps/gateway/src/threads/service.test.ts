@@ -453,6 +453,16 @@ describe('call transcripts in threads (ADR-050)', () => {
     expect((await card(t.store))?.transcript).toBeUndefined();
   });
 
+  it('ring settings failing still records the call card, and holds the transcript', async () => {
+    const failing = {
+      settings: () => Promise.reject(new Error('settings down')),
+    } as unknown as RingService;
+    const t = setup(undefined, { ring: failing });
+    await t.service.recordCall('owner', finished, transcript);
+    expect(await card(t.store)).toBeDefined();
+    expect(await t.service.sendCallTranscript('owner', callId)).toBe('sent');
+  });
+
   it('a private chat never gets one, and nothing is held for it', async () => {
     const t = setup(undefined, { ring: ringWith(true) });
     await t.store.setPrivate('owner', agent);
