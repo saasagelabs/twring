@@ -48,6 +48,8 @@ export class CallInterruption {
   private state: CallInterruptionState = { paused: false };
   /** The caller's own mute when the interruption began; restored as it was. */
   private mutedBefore = false;
+  /** True while the mic is muted by an interruption, not by the caller. */
+  private weMuted = false;
   /** Counts interruptions, so a resume never ends one that began after it started. */
   private epoch = 0;
   private readonly listeners = new Set<() => void>();
@@ -98,6 +100,7 @@ export class CallInterruption {
   /** Forget the interruption when the call ends; nothing is unmuted or rerouted. */
   reset(): void {
     this.mutedBefore = false;
+    this.weMuted = false;
     if (this.state.paused) {
       this.callHook(() => this.hooks.onUnrecovered?.());
       this.set({ paused: false });
@@ -107,19 +110,28 @@ export class CallInterruption {
   private async begin(): Promise<void> {
     if (this.state.paused) return;
     this.epoch += 1;
-    this.mutedBefore = this.target.isMuted();
+    // A mute left over from an end still in flight is ours, not the caller's.
+    this.mutedBefore = this.target.isMuted() && !this.weMuted;
     this.set({ paused: true });
     this.target.holdRoute?.();
-    if (!this.mutedBefore) await this.guard(() => this.target.setMuted(true));
+    if (!this.mutedBefore) {
+      this.weMuted = true;
+      await this.guard(() => this.target.setMuted(true));
+    }
   }
 
   private async end(via: InterruptionRecovery): Promise<void> {
     if (!this.state.paused) return;
+    const epoch = this.epoch;
+    const mutedBefore = this.mutedBefore;
     this.set({ paused: false });
     await this.guard(() => this.target.restoreRoute());
-    if (!this.mutedBefore && this.target.isMuted()) {
+    // A new interruption began meanwhile: it keeps the mic muted and its own end unmutes.
+    if (this.epoch !== epoch) return;
+    if (!mutedBefore && this.target.isMuted()) {
       await this.guard(() => this.target.setMuted(false));
     }
+    this.weMuted = false;
     this.callHook(() => this.hooks.onRecovered?.(via));
   }
 
