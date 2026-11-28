@@ -46,7 +46,9 @@ describe('readableReply', () => {
   it('ignores a decimal point and the clipped-start ellipsis', () => {
     expect(readableReply('It is 3.5 percent', false)).toBe('');
     expect(readableReply('…the build passed', false)).toBe('');
-    expect(readableReply('…the build passed. Next', false)).toBe('the build passed.');
+    // Clipped: the text before the only sentence end is the tail of a cut sentence.
+    expect(readableReply('…the build passed. Next', false)).toBe('');
+    expect(readableReply('…ing the file. The build passed. Next', false)).toBe('The build passed.');
   });
 
   it('gives the whole reply once it is final', () => {

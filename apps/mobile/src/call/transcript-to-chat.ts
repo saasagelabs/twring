@@ -58,8 +58,20 @@ export function transcriptSwitchOn(state: TranscriptState): boolean {
   }
 }
 
+/**
+ * Right after hang-up the server may still be closing the call, so its words are not held yet: a
+ * "not found" this soon after the call ended is tried again after these waits.
+ */
+export const TRANSCRIPT_RETRY_MS = [1500, 3000, 5000] as const;
+/** How long after the call ended a "not found" may still mean "not there yet". */
+export const TRANSCRIPT_SETTLE_MS = 30_000;
+
 export interface TranscriptDeps {
   callId: string;
+  /** When the call ended (the app's clock), to tell "not yet" from "gone". */
+  endedAt?: number;
+  now?: () => number;
+  wait?: (ms: number) => Promise<void>;
   ringSettings(): Promise<RingSettings>;
   updateRingSettings(settings: RingSettings): Promise<RingSettings>;
   sendCallTranscript(callId: string): Promise<CallTranscriptResult>;
@@ -82,7 +94,16 @@ export function createTranscriptToChat(deps: TranscriptDeps, onChange: () => voi
   async function send(id: number) {
     set({ kind: 'sending' });
     try {
-      const result = await deps.sendCallTranscript(deps.callId);
+      let result = await deps.sendCallTranscript(deps.callId);
+      const now = deps.now ?? Date.now;
+      const wait = deps.wait ?? ((ms: number) => new Promise<void>((done) => setTimeout(done, ms)));
+      for (const ms of TRANSCRIPT_RETRY_MS) {
+        if (result !== 'gone' || id !== action) break;
+        if (deps.endedAt === undefined || now() - deps.endedAt > TRANSCRIPT_SETTLE_MS) break;
+        await wait(ms);
+        if (id !== action) return;
+        result = await deps.sendCallTranscript(deps.callId);
+      }
       if (id !== action) return;
       set({ kind: result === 'sent' ? 'sent' : result === 'gone' ? 'gone' : 'private' });
     } catch (error) {
