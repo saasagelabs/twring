@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Call your Hermes agent from your phone | Twring</title>
-<meta name="description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.">
+<meta name="description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands from your phone wherever it asks, and let it ring or message you when it needs you.">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#000000">
 <link rel="canonical" href="https://twring.com/hermes/">
@@ -12,7 +12,7 @@
 <meta property="og:url" content="https://twring.com/hermes/">
 <meta property="og:site_name" content="Twring">
 <meta property="og:title" content="Call your Hermes agent from your phone | Twring">
-<meta property="og:description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.">
+<meta property="og:description" content="Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands from your phone wherever it asks, and let it ring or message you when it needs you.">
 <meta property="og:image" content="https://twring.com/media/twring-in-30-seconds.jpg">
 <meta property="og:image:width" content="1280">
 <meta property="og:image:height" content="720">
@@ -31,7 +31,7 @@
    "@id": "https://twring.com/hermes/",
    "url": "https://twring.com/hermes/",
    "name": "Call your Hermes agent from your phone | Twring",
-   "description": "Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands by voice, and let it ring you when a scheduled job finishes.",
+   "description": "Talk to your own Hermes agent in a live call from your iPhone or Android phone, approve its commands from your phone wherever it asks, and let it ring or message you when it needs you.",
    "isPartOf": {
     "@id": "https://twring.com/#site"
    },
@@ -73,7 +73,7 @@
      "name": "Can Twring approve commands for me?",
      "acceptedAnswer": {
       "@type": "Answer",
-      "text": "No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no."
+      "text": "No. Only you can approve, by voice or tap on your phone or at the computer, through Hermes's own approval system. If you don't answer, the answer is no."
      }
     },
     {
@@ -123,7 +123,7 @@
 <main id="main" class="page">
   <div class="wrap">
     <h1>Call your Hermes. Hermes calls you.</h1>
-    <p class="lead">Twring is in the <a href="https://hermes-agent.nousresearch.com/marketplace/twring">Hermes plugin catalog</a>. Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions by voice, and get a ring when a scheduled job is done.</p>
+    <p class="lead">Twring is in the <a href="https://hermes-agent.nousresearch.com/marketplace/twring">Hermes plugin catalog</a>. Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions from your phone, and get a ring or a message when it needs you.</p>
     <p class="hero-ctas"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
 
     <div class="prose prose-tight">
@@ -143,7 +143,11 @@ hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <
 </ul>
 
 <h2>Approvals by voice or tap</h2>
-<p>When Hermes needs your OK for a risky command, the request appears on your phone. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.</p>
+<p>When Hermes needs your OK for a risky command, the request appears on your phone, wherever Hermes asked: the terminal, Telegram, a scheduled job or a call. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.</p>
+<p><code>hermes twring link</code> asks whether to approve from your phone (press Enter for yes). A very long command, a Hermes chat you set to private in Twring, or a Twring server that can't be reached goes back to Hermes's own prompt at the computer. Up to three approvals wait on your phone at once; more wait at the computer. An approval still waiting when you hang up a call is denied.</p>
+
+<h2>Hermes rings or messages you from anywhere</h2>
+<p>From any chat, the terminal or a scheduled job, Hermes can send a message to your Twring chat or ring your phone when it is waiting on you, has finished something long, or hit a problem. If the ring can't get through (quiet hours, Do Not Disturb, the hourly limit), the news is still in your Twring chat. If Hermes asks for your OK at the computer and nobody answers for a minute, your phone rings once. A scheduled job that stops on an error tells you too.</p>
 
 <h2>It rings you</h2>
 <p>Deliver any Hermes scheduled job to <code>twring</code>. Its result lands in your Twring chat, and your phone rings with its first sentence. Set <code>TWRING_RING_ON_DELIVERY=false</code> to get a notification instead of a ring.</p>
@@ -151,6 +155,7 @@ hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <
 <h2>Handy commands</h2>
 <ul>
   <li><code>hermes twring status</code> shows whether this computer is linked.</li>
+  <li><code>hermes twring approvals on</code>, <code>off</code> or <code>status</code> turns approving from your phone on or off, or shows which is set.</li>
   <li><code>hermes twring unlink</code> forgets the link on this computer. Then delete Hermes in the app too.</li>
   <li><code>hermes twring link --server https://your-twring-server</code> links to <a href="/self-hosting/">your own Twring server</a> instead.</li>
 </ul>
@@ -162,7 +167,7 @@ hermes twring link</code></pre>In the app, tap <strong>Connect Agent</strong>, <
     </div>
     <div class="faq faq-tight">
       <details><summary>Does Twring replace Hermes's model?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions.</p></div></details>
-      <details><summary>Can Twring approve commands for me?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no.</p></div></details>
+      <details><summary>Can Twring approve commands for me?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Only you can approve, by voice or tap on your phone or at the computer, through Hermes's own approval system. If you don't answer, the answer is no.</p></div></details>
       <details><summary>Are my calls recorded?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>No. Twring listens only while a call is on, and never records or keeps your audio. The <a href="/privacy">privacy notice</a> lists everything it does keep.</p></div></details>
       <details><summary>Is Twring free?<svg width="14" height="14" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 1v10M1 6h10" stroke="#fff" stroke-width="1.2"/></svg></summary><div><p>Free while we launch. If that changes, you'll hear it from us first, and nothing is charged without your OK. <a href="/pricing/">Pricing</a> has the details.</p></div></details>
     </div>
