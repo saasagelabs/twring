@@ -460,7 +460,10 @@ function ActiveCall({
             style={[styles.replyFrame, { height: replyLines * REPLY_LINE_HEIGHT * fontScale }]}
           >
             {view.reply !== undefined && (
-              <Text accessibilityLabel={replyLabel(view.reply)} style={styles.reply}>
+              <Text
+                accessibilityLabel={replyLabel(view.reply, status === 'AGENT_SPEAKING')}
+                style={styles.reply}
+              >
                 {captionTail(view.reply.text, REPLY_TAIL_CHARS)}
                 {status === 'AGENT_SPEAKING' && !reducedMotion && <Caret />}
               </Text>
@@ -886,9 +889,12 @@ const styles = StyleSheet.create({
   actions: { gap: 10, paddingBottom: space.xl },
 });
 
-/** The reply as a screen reader hears it: a sentence at a time, never word by word. */
-function replyLabel(reply: { text: string; final: boolean }): string {
-  const readable = readableReply(reply.text, reply.final);
+/**
+ * The reply as a screen reader hears it: a sentence at a time, never word by word. The agent may
+ * finish writing long before it finishes speaking, so a reply still playing is not read whole.
+ */
+function replyLabel(reply: { text: string; final: boolean }, speaking: boolean): string {
+  const readable = readableReply(reply.text, reply.final && !speaking);
   return readable === '' ? 'Agent' : `Agent: ${readable}`;
 }
 

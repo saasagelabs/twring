@@ -303,15 +303,17 @@ export function RingSettings({
               Agents can't ring this phone. Their answers are saved in the chat.
             </Text>
           )}
-          {chatsAvailable && (
-            <LabeledSwitch
-              label="Call transcripts in chat"
-              hint="After each call, what you and your agent said appears on the call in its chat. Not in private chats."
-              value={form.callTranscripts ?? false}
-              disabled={saving}
-              onChange={(callTranscripts) => save({ ...form, callTranscripts })}
-            />
-          )}
+          {chatsAvailable &&
+            load.state === 'loaded' &&
+            load.settings.call_transcripts !== undefined && (
+              <LabeledSwitch
+                label="Call transcripts in chat"
+                hint="After each call, what you and your agent said appears on the call in its chat. Not in private chats."
+                value={form.callTranscripts ?? false}
+                disabled={saving}
+                onChange={(callTranscripts) => save({ ...form, callTranscripts })}
+              />
+            )}
           {ringPlatform.supported && (
             <LabeledSwitch
               label="Do not disturb"

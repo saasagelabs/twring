@@ -74,6 +74,8 @@ export function TranscriptToChat({
     return createTranscriptToChat(
       {
         callId,
+        // The row first renders on the call-ended screen: about when the call ended.
+        endedAt: Date.now(),
         ringSettings: () => api.ringSettings(),
         updateRingSettings: (settings) => api.updateRingSettings(settings),
         sendCallTranscript: (id) => api.sendCallTranscript(id),

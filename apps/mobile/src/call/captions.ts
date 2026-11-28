@@ -26,6 +26,7 @@ export function readableReply(text: string, final: boolean): string {
   const trimmed = text.trim();
   if (final) return trimmed;
   // A leading `…` only says the start was clipped; it ends no sentence.
+  const clipped = trimmed.startsWith('…');
   const body = trimmed.replace(/^…+/, '');
   let end = -1;
   for (let index = body.length - 1; index >= 0; index -= 1) {
@@ -45,5 +46,7 @@ export function readableReply(text: string, final: boolean): string {
       break;
     }
   }
+  // Clipped with one sentence end: what comes before it is the tail of a cut sentence.
+  if (start === -1 && clipped) return '';
   return body.slice(start + 1, end + 1).trim();
 }

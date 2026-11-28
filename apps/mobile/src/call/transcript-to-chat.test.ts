@@ -78,6 +78,48 @@ describe('createTranscriptToChat', () => {
     expect(hidden.model.getState().kind).toBe('private');
   });
 
+  it('tries again while the server may still be closing the call, then sends', async () => {
+    const answers = ['gone', 'gone', 'sent'] as const;
+    let calls = 0;
+    const waits: number[] = [];
+    const { model } = setup({
+      endedAt: 10_000,
+      now: () => 12_000,
+      wait: (ms) => {
+        waits.push(ms);
+        return Promise.resolve();
+      },
+      sendCallTranscript: () => Promise.resolve(answers[calls++] ?? 'sent'),
+    });
+    await model.load();
+    await model.setOn(true);
+    expect(model.getState().kind).toBe('sent');
+    expect(waits).toEqual([1500, 3000]);
+  });
+
+  it('says gone at once when the call ended long ago, and after the last try', async () => {
+    const late = setup({
+      endedAt: 0,
+      now: () => 60_000,
+      wait: () => Promise.reject(new Error('must not wait')),
+      sendCallTranscript: () => Promise.resolve('gone'),
+    });
+    await late.model.load();
+    await late.model.setOn(true);
+    expect(late.model.getState().kind).toBe('gone');
+    const send = vi.fn(() => Promise.resolve('gone' as const));
+    const soon = setup({
+      endedAt: 0,
+      now: () => 1_000,
+      wait: () => Promise.resolve(),
+      sendCallTranscript: send,
+    });
+    await soon.model.load();
+    await soon.model.setOn(true);
+    expect(soon.model.getState().kind).toBe('gone');
+    expect(send).toHaveBeenCalledTimes(4);
+  });
+
   it('puts the switch back when the save fails, and Retry saves again', async () => {
     const update = vi
       .fn<TranscriptDeps['updateRingSettings']>()
