@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   AudioRoutes,
@@ -6,6 +6,8 @@ import {
   nextRoute,
   outputsFromDevices,
   parseOutputs,
+  ROUTE_RETRY_MS,
+  routeFailureText,
   type AudioOutput,
   type RouteResult,
 } from './audio-routes';
@@ -393,5 +395,169 @@ describe('AudioRoutes races', () => {
     await restoring;
     expect(platform.selected.length).toBe(before);
     expect(routes.getState().outputs).toEqual([]);
+  });
+});
+
+/** A platform that verifies: `actual` is where the OS really put the sound. */
+function verifyingPlatform(initial: string[]) {
+  const platform = {
+    outputs: initial,
+    actual: null as AudioOutput | null,
+    stuck: null as AudioOutput | null,
+    selected: [] as AudioOutput[],
+    released: 0,
+    list: () => Promise.resolve(platform.outputs),
+    select: (output: AudioOutput): Promise<RouteResult> => {
+      platform.selected.push(output);
+      if (platform.stuck !== null && platform.stuck !== output) {
+        platform.actual = platform.stuck;
+        return Promise.resolve({ ok: false, actual: platform.stuck });
+      }
+      platform.actual = output;
+      return Promise.resolve({ ok: true });
+    },
+    current: () => Promise.resolve(platform.actual),
+    release: () => {
+      platform.released += 1;
+      return Promise.resolve();
+    },
+  };
+  return platform;
+}
+
+describe('AudioRoutes keeps the truth', () => {
+  it('a speaker tap the headset holds shows Bluetooth and the failed switch', async () => {
+    const platform = verifyingPlatform(['bluetooth', 'speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    platform.stuck = 'bluetooth';
+    await routes.choose('speaker');
+    expect(routes.getState()).toEqual({
+      outputs: ['bluetooth', 'speaker', 'earpiece'],
+      current: 'bluetooth',
+      failed: 'speaker',
+    });
+    platform.stuck = null;
+    await routes.choose('speaker');
+    expect(routes.getState().current).toBe('speaker');
+    expect(routes.getState().failed).toBeUndefined();
+  });
+
+  it('restore after an interruption selects once even when the read-back matches', async () => {
+    const platform = verifyingPlatform(['bluetooth', 'speaker']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    await routes.restore();
+    expect(platform.selected).toEqual(['bluetooth', 'bluetooth']);
+  });
+
+  it('refresh selects again when the OS read-back moved off the route', async () => {
+    const platform = verifyingPlatform(['speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    platform.actual = 'earpiece';
+    await routes.refresh();
+    expect(platform.selected).toEqual(['speaker', 'speaker']);
+    await routes.refresh();
+    expect(platform.selected).toEqual(['speaker', 'speaker']);
+  });
+
+  it('a headset disconnect during a failing tap is handled right after it', async () => {
+    const platform = verifyingPlatform(['bluetooth', 'speaker', 'earpiece']);
+    const routes = new AudioRoutes(platform);
+    await routes.refresh();
+    platform.stuck = 'bluetooth';
+    const select = platform.select;
+    platform.select = (output) => {
+      const result = select(output);
+      // The headset goes away while the tap is still being verified.
+      platform.outputs = ['speaker', 'earpiece'];
+      platform.stuck = null;
+      platform.select = select;
+      return result;
+    };
+    const tap = routes.choose('speaker');
+    const event = routes.refresh();
+    await Promise.all([tap, event]);
+    expect(routes.getState().current).toBe('speaker');
+    expect(platform.selected).toEqual(['bluetooth', 'speaker', 'speaker']);
+  });
+
+  it('an automatic switch that did not land is retried once after 500 ms, then shown', async () => {
+    vi.useFakeTimers();
+    try {
+      const platform = verifyingPlatform(['bluetooth', 'speaker', 'earpiece']);
+      const routes = new AudioRoutes(platform);
+      await routes.refresh();
+      platform.outputs = ['speaker', 'earpiece'];
+      platform.stuck = 'earpiece';
+      await routes.refresh();
+      expect(routes.getState()).toEqual({ outputs: ['speaker', 'earpiece'], current: 'earpiece' });
+      await vi.advanceTimersByTimeAsync(ROUTE_RETRY_MS);
+      expect(platform.selected).toEqual(['bluetooth', 'speaker', 'speaker']);
+      expect(routes.getState().failed).toBe('speaker');
+      await vi.advanceTimersByTimeAsync(ROUTE_RETRY_MS * 4);
+      expect(platform.selected).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reset() during the retry wait stops the retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const platform = verifyingPlatform(['speaker', 'earpiece']);
+      const routes = new AudioRoutes(platform);
+      platform.stuck = 'earpiece';
+      await routes.refresh();
+      routes.reset();
+      await vi.advanceTimersByTimeAsync(ROUTE_RETRY_MS * 2);
+      expect(platform.selected).toEqual(['speaker']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reset during an in-flight select releases after it, before the next call routes', async () => {
+    const { platform, next, pending } = heldPlatform();
+    const order: string[] = [];
+    const routes = new AudioRoutes({
+      ...platform,
+      select: (output) => {
+        order.push(`select ${output}`);
+        return platform.select(output);
+      },
+      release: () => {
+        order.push('release');
+        return Promise.resolve();
+      },
+    });
+    const first = routes.refresh();
+    await tick();
+    next().settle(['speaker', 'earpiece']);
+    await tick();
+    routes.reset(); // select('speaker') still in flight
+    const newCall = routes.refresh();
+    await tick();
+    expect(order).toEqual(['select speaker']);
+    next().settle();
+    await first;
+    await tick();
+    next().settle(['speaker', 'earpiece']);
+    await tick();
+    while (pending.length > 0) next().settle();
+    await newCall;
+    expect(order).toEqual(['select speaker', 'release', 'select speaker']);
+    expect(routes.getState().current).toBe('speaker');
+  });
+});
+
+describe('routeFailureText', () => {
+  it('names the route the caller wanted', () => {
+    expect(routeFailureText('speaker')).toBe(
+      "Couldn't switch to Speaker. Your headset is holding the sound, turn its Bluetooth off to switch.",
+    );
+    expect(routeFailureText('earpiece')).toMatch(/^Couldn't switch to Phone\./);
+    expect(routeFailureText('bluetooth')).toBe("Couldn't switch to Bluetooth.");
   });
 });

@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   AppState,
   BackHandler,
   KeyboardAvoidingView,
@@ -28,7 +29,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { routeLabel, type AudioOutput } from '@/call/audio-routes';
+import { routeFailureText, routeLabel, type AudioOutput } from '@/call/audio-routes';
 import { callAgentLocation } from '@/agents/labels';
 import { twringApi } from '@/api';
 import type { CallView } from '@/call/controller';
@@ -58,6 +59,7 @@ import { CallBackButton } from '@/components/call/CallBackButton';
 import { CallFeedback } from '@/components/call/CallFeedback';
 import { RingMeWhenDone } from '@/components/call/RingMeWhenDone';
 import { ConnectionPill } from '@/components/ConnectionPill';
+import { playCallFeedback } from '@/platform/haptics';
 import { GhostButton } from '@/components/GhostButton';
 import { Icon, type IconName } from '@/components/Icon';
 import { OfflineHelp } from '@/components/OfflineHelp';
@@ -157,6 +159,35 @@ function routeIcon(output: AudioOutput | undefined): IconName {
 }
 
 const ROUTE_POLL_MS = 2000;
+const ROUTE_FAILURE_MS = 4000;
+
+/**
+ * The line for a route switch that did not land: shown for 4 s or until that route does land,
+ * with the error haptic and the same words for the screen reader.
+ */
+function useRouteFailure(): string | undefined {
+  const [shown, setShown] = useState<{ target: AudioOutput; at: number }>();
+  useEffect(
+    () =>
+      audioRoutes.subscribe(() => {
+        const { current, failed } = audioRoutes.getState();
+        if (failed === undefined) {
+          setShown((line) => (line !== undefined && current === line.target ? undefined : line));
+          return;
+        }
+        setShown({ target: failed, at: Date.now() });
+        playCallFeedback('error');
+        AccessibilityInfo.announceForAccessibility(routeFailureText(failed));
+      }),
+    [],
+  );
+  useEffect(() => {
+    if (shown === undefined) return;
+    const timer = setTimeout(() => setShown(undefined), ROUTE_FAILURE_MS);
+    return () => clearTimeout(timer);
+  }, [shown]);
+  return shown === undefined ? undefined : routeFailureText(shown.target);
+}
 /**
  * The reply and caption areas keep a fixed height (lines × line height, scaled with the phone's
  * text size): text growing or clearing must not re-center the panels and tilt the screen.
@@ -254,6 +285,7 @@ function ActiveCall({
   const clockNow = useNow(connected);
   const timeLeft = useTimeLeftNotice(view.connectedAt, clockNow);
   const routes = useAudioRoutes();
+  const routeFailure = useRouteFailure();
   const [routesOpen, setRoutesOpen] = useState(false);
   const [waveWidth, setWaveWidth] = useState(0);
   const agentIntensity = useSharedValue(0.18);
@@ -539,7 +571,13 @@ function ActiveCall({
       </View>
 
       <View style={styles.hearingArea}>
-        {connected ? <HearingLabel view={view} /> : <Text style={styles.hearing}> </Text>}
+        {routeFailure !== undefined ? (
+          <Text style={[type.caption, styles.routeFailure]}>{routeFailure}</Text>
+        ) : connected ? (
+          <HearingLabel view={view} />
+        ) : (
+          <Text style={styles.hearing}> </Text>
+        )}
       </View>
 
       <RouteSheet visible={routesOpen} onClose={() => setRoutesOpen(false)} />
@@ -811,6 +849,7 @@ const styles = StyleSheet.create({
   sideSlot: { width: 72, alignItems: 'center' },
   hearingArea: { paddingTop: 2, paddingBottom: 6 },
   hearing: { color: palette.textTertiary, textAlign: 'center' },
+  routeFailure: { color: palette.reconnecting, textAlign: 'center', paddingHorizontal: 16 },
   routeRow: {
     minHeight: 56,
     paddingHorizontal: 2,
