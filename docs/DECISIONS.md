@@ -1582,3 +1582,39 @@ Approvals need no relay and no live connector channel: the decision is stored an
 reads it. Hermes plugin 0.2.0 uses this as an opt-in approval transport and falls back to the
 desk prompt whenever the route is missing (an older server), full, private or unreachable. Other
 connectors (Claude Code, Codex) can use the same route later without a server change.
+
+## ADR-048: Android uses WebRTC's echo canceller, not the phone's (2026-11-28)
+
+**Status:** Accepted for staging (owner: "yes, go ahead and build it", 2026-11-28). Production
+scope (every Android phone or a model list) is decided after the staging device test.
+
+### Context
+On a moto g86 on loudspeaker, words the owner said right after the agent stopped talking (or
+right after the waiting tone) were never heard: no caption, no turn, and they had to repeat
+themselves. Server logs showed no lost audio and no turn started; with headphones every word was
+heard. On Android 10 and later, @livekit/react-native 3.0.0 always builds its audio module with the
+phone's built-in echo canceller and noise suppressor on (`LiveKitReactNative.setupAdm`), and
+WebRTC then skips its own echo canceller. The built-in canceller on this phone behaves half duplex:
+while far-end audio plays and for a moment after, it silences the near-end talker. The app's
+`noiseSuppression: false` only switched off WebRTC's software suppressor, so the built-in one had
+been on all along.
+
+### Decision
+- A pnpm patch (`patches/@livekit__react-native@3.0.0.patch`) builds the audio module with the
+  built-in echo canceller and noise suppressor off on every Android phone. WebRTC's software echo
+  canceller (AEC3) runs instead, switched on by `echoCancellation: true` in the app's capture
+  defaults. Capture and playout stay on the voice-call path (communication audio type).
+- The phone still cancels echo: the agent must not hear itself (VOICE_ARCHITECTURE section 11).
+  The gateway's text echo guards (ADR-015, ADR-017) stay as they are.
+- iOS is unchanged (voiceChat session, ADR-019).
+- It ships in a staging Android build first. The device test covers loudspeaker at half and full
+  volume, earpiece, wired and Bluetooth headsets: talking right after the agent stops, barge-in,
+  and silence through long answers with no turn from the agent's own voice.
+
+### Consequences
+This is the usual fix for faulty built-in echo cancellers in react-native-webrtc, flutter-webrtc,
+Twilio and 100ms apps. Software AEC3 can leave more residual echo on a loud speaker than a good
+built-in canceller, and some providers switch only listed models for that reason; if the staging
+test shows echo on a phone that was fine before, production gets a model list instead. A LiveKit
+upgrade must remake the patch (`apps/mobile/scripts/livekit-react-native-patch.test.mjs` fails if
+it is missing).

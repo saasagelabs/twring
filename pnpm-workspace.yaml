@@ -86,5 +86,6 @@ auditConfig:
     - GHSA-fc5q-39xc-vjpf # picomatch 2.3.2 and 4.0.7 (via metro, @expo/cli, typescript-eslint)
 
 patchedDependencies:
+  '@livekit/react-native@3.0.0': patches/@livekit__react-native@3.0.0.patch
   livekit-client@2.22.3: patches/livekit-client@2.22.3.patch
   react-native-reanimated@4.5.1: patches/react-native-reanimated@4.5.1.patch
