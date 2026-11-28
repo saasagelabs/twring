@@ -459,20 +459,25 @@ function ActiveCall({
             accessibilityLiveRegion="polite"
             style={[styles.replyFrame, { height: replyLines * REPLY_LINE_HEIGHT * fontScale }]}
           >
-            {view.reply !== undefined && (
-              <Text
-                accessibilityLabel={replyLabel(view.reply, status === 'AGENT_SPEAKING')}
-                style={styles.reply}
-              >
-                {captionTail(view.reply.text, REPLY_TAIL_CHARS)}
-                {status === 'AGENT_SPEAKING' && !reducedMotion && <Caret />}
-              </Text>
-            )}
-            {view.notice !== undefined && (
-              <Text accessibilityRole="alert" style={[type.caption, styles.notice]}>
-                {noticeText(view.notice)}
-              </Text>
-            )}
+            {/* Pinned to the bottom and free to grow upward: the newest line stays in view and the
+                frame clips the oldest. Inside the frame's flow, the text would be measured to the
+                frame's height and lose its newest lines instead. */}
+            <View testID="reply-roll" style={styles.rollUp}>
+              {view.reply !== undefined && (
+                <Text
+                  accessibilityLabel={replyLabel(view.reply, status === 'AGENT_SPEAKING')}
+                  style={styles.reply}
+                >
+                  {captionTail(view.reply.text, REPLY_TAIL_CHARS)}
+                  {status === 'AGENT_SPEAKING' && !reducedMotion && <Caret />}
+                </Text>
+              )}
+              {view.notice !== undefined && (
+                <Text accessibilityRole="alert" style={[type.caption, styles.notice]}>
+                  {noticeText(view.notice)}
+                </Text>
+              )}
+            </View>
           </View>
           <Text style={[type.microLabel, styles.speakerLabel, styles.youName]}>YOU</Text>
           <View
@@ -482,11 +487,13 @@ function ActiveCall({
               { height: CAPTION_LINES * CAPTION_LINE_HEIGHT * fontScale },
             ]}
           >
-            {view.caption !== undefined && (
-              <Text accessibilityLabel={`You: ${view.caption.text}`} style={styles.caption}>
-                “{captionTail(view.caption.text, CAPTION_TAIL_CHARS)}”
-              </Text>
-            )}
+            <View testID="caption-roll" style={styles.rollUp}>
+              {view.caption !== undefined && (
+                <Text accessibilityLabel={`You: ${view.caption.text}`} style={styles.caption}>
+                  “{captionTail(view.caption.text, CAPTION_TAIL_CHARS)}”
+                </Text>
+              )}
+            </View>
           </View>
         </View>
       </View>
@@ -834,6 +841,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   notice: { color: palette.reconnecting, textAlign: 'center' },
+  rollUp: { position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center' },
   captionFrame: { alignItems: 'center', justifyContent: 'flex-end', overflow: 'hidden' },
   caption: {
     color: palette.textTertiary,
