@@ -1618,3 +1618,36 @@ built-in canceller, and some providers switch only listed models for that reason
 test shows echo on a phone that was fine before, production gets a model list instead. A LiveKit
 upgrade must remake the patch (`apps/mobile/scripts/livekit-react-native-patch.test.mjs` fails if
 it is missing).
+
+## ADR-049: On Android 12+ Twring is the only call audio route writer (2026-11-28)
+
+**Status:** Accepted for staging (owner: "yes, go ahead and build it", 2026-11-28). Production
+builds follow the staging device test and the owner's OK.
+
+### Context
+Two writers shared one Android communication route: Twring's audio route module
+(`setCommunicationDevice`) and LiveKit's AudioSwitch, which on its own handler called the
+deprecated `setSpeakerphoneOn` and `startBluetoothSco` / `stopBluetoothSco` on start, on every
+device change and on every selection. At call start with a Bluetooth headset on, that churn could
+make the late SCO connect count as external (SCO_STATE_ACTIVE_EXTERNAL); in that state the
+phone refuses to disconnect SCO, so Speaker and Phone taps did nothing until Bluetooth went off.
+Seen in production on a moto g86 with a HUAWEI FreeClip (builds 37 to 41). LiveKit's `start()`
+also posted to its handler, so `startAudioSession` resolved before the call mode was set.
+
+### Decision
+- The existing pnpm patch on `@livekit/react-native@3.0.0` (ADR-048, its echo canceller change is
+  kept) stops AudioSwitch from being created on Android 12 (API 31) and later. There,
+  `AudioSwitchManager.start()` synchronously saves the audio mode and mic mute, sets
+  MODE_IN_COMMUNICATION and, when LiveKit manages focus, requests audio focus with the same focus
+  mode, usage, content type and listener AudioSwitch used. `stop()` restores mic mute, then the
+  mode, then abandons that focus request. `selectAudioOutput` and `enableSpeakerphone` do nothing;
+  `getAudioOutputs` returns an empty list.
+- Twring's native module lists, sets, reads back and clears the call audio device on 12+.
+- Below Android 12 and on iOS nothing changes: AudioSwitch routes exactly as before.
+
+### Consequences
+On 12+ no LiveKit path reaches the deprecated speaker and SCO calls, and the mode is set before
+the first route write. The app must not rely on LiveKit's device list or selection there. A
+LiveKit upgrade must remake the patch (`apps/mobile/scripts/livekit-react-native-patch.test.mjs`
+checks it). Whether one writer fully prevents the stuck SCO state is proven only by the device
+test. Plan: `private/docs/superpowers/plans/2026-11-28-android-single-audio-route-writer.md`.
