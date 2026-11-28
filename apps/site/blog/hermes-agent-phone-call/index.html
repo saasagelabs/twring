@@ -34,7 +34,7 @@
    "headline": "Call your Hermes agent from your phone, and let its scheduled jobs ring you",
    "description": "Install the Twring plugin in Hermes to talk to it in a live call from your phone, approve its commands by voice, and get rung when a scheduled job ends.",
    "datePublished": "2026-11-24",
-   "dateModified": "2026-11-24",
+   "dateModified": "2026-11-28",
    "image": "https://twring.com/media/twring-in-30-seconds.jpg",
    "author": {
     "@id": "https://twring.com/#org"
@@ -187,6 +187,15 @@ hermes twring link</code></pre></li>
 </ol>
 <p>Prefer a quiet notification to a ring? Set <code>TWRING_RING_ON_DELIVERY=false</code> in Hermes's settings. Write the job so its first sentence stands alone, for example "The nightly backup finished and all checks passed." That sentence is what you hear.</p>
 
+<h2>New in plugin 0.2</h2>
+<ul>
+  <li>From any chat, the terminal or a scheduled job, Hermes can send a message to your Twring chat or ring your phone when it is waiting on you, has finished something long, or hit a problem.</li>
+  <li>If the ring can't get through (quiet hours, Do Not Disturb, the hourly limit), the news is still in your Twring chat.</li>
+  <li>Approve Hermes's commands from your phone wherever it asks: the terminal, Telegram, a scheduled job or a call. Yes or no, and silence means no. Turn it on or off with <code>hermes twring approvals on</code> or <code>off</code>.</li>
+  <li>If an approval at the computer waits a minute, your phone rings once.</li>
+  <li>A scheduled job that stops on an error tells you.</li>
+</ul>
+
 <h2>How it compares with Hermes's own voice features</h2>
 <p>Hermes has its own <a href="https://hermes-agent.nousresearch.com/docs/user-guide/features/voice-mode">voice mode</a>. As of November 2026, its docs describe push-to-talk in the Hermes command line, spoken replies in Telegram and Discord chats, and a bot that joins Discord voice channels, with a choice of speech providers, some of which run locally.</p>
 <p>If you mostly talk to Hermes at your desk, or you already live in Discord, its built-in voice may be all you need. Twring is for a different moment: you are away from the computer, you want a phone call with your own Hermes, and you want Hermes to be able to ring you when something is done or needs a decision.</p>
@@ -201,7 +210,7 @@ hermes twring link</code></pre></li>
 <p>Still stuck? The <a href="/support/">support page</a> has more, and the full plugin page is at <a href="/hermes/">twring.com/hermes</a>.</p>
 
 <h2>What the plugin sends, and what it doesn't</h2>
-<p>The plugin keeps one outbound connection to your Twring server while the gateway runs. It sends Hermes's replies, approval questions and scheduled-job results, plus the name of each tool Hermes starts and whether it succeeded (never the tool's arguments or output). It writes no files of its own, runs no shell commands and sends no telemetry. Twring never records or keeps call audio; the <a href="/privacy">privacy notice</a> lists what it does keep.</p>
+<p>The plugin keeps one outbound connection to your Twring server while the gateway runs. It sends Hermes's replies, approval questions (from any place Hermes asks, if you approve from your phone), messages and rings Hermes sends you, and scheduled-job results, plus the name of each tool Hermes starts and whether it succeeded (never the tool's arguments or output). It writes no files of its own, runs no shell commands and sends no telemetry. Twring never records or keeps call audio; the <a href="/privacy">privacy notice</a> lists what it does keep.</p>
 
 <p class="post-cta"><a class="btn btn-primary" href="/beta/">Get an invite</a></p>
 

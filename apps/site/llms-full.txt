@@ -222,9 +222,9 @@ Codex can ring you each time it finishes a turn, with the start of its reply as 
 
 That can be a lot of rings, so many people add `--message` to get a message in their Twring chat instead.
 
-#### Hermes: scheduled jobs ring you
+#### Hermes: rings from anywhere
 
-With the [Twring plugin for Hermes](https://twring.com/hermes/), deliver any scheduled Hermes job to `twring`. Its result is saved in your Twring chat, and your phone rings with its first sentence. Set `TWRING_RING_ON_DELIVERY=false` if you'd rather get a notification.
+With the [Twring plugin for Hermes](https://twring.com/hermes/), deliver any scheduled Hermes job to `twring`. Its result is saved in your Twring chat, and your phone rings with its first sentence. Set `TWRING_RING_ON_DELIVERY=false` if you'd rather get a notification. Hermes can also ring or message you from any chat or the terminal, and rings once if an approval at the computer waits a minute.
 
 #### Claude, ChatGPT and other AI apps
 
@@ -265,10 +265,10 @@ No. Your agent rings you through the Twring app, so there's no phone number to r
 Yes. On iPhone and Android the ring fills the screen, even when the phone is locked, as long as notifications are on for Twring.
 
 **Which agents can ring me?**
-Claude Code and Codex ring you when you ask them to in a Twring call or chat. Claude Code and Codex can also ring by themselves, through a hook you add once. Hermes rings you when a scheduled job delivers to Twring. Claude, ChatGPT, Grok Bot and other AI apps can ring you once you add Twring to them.
+Claude Code and Codex ring you when you ask them to in a Twring call or chat. Claude Code and Codex can also ring by themselves, through a hook you add once. Hermes can ring or message you from any chat, the terminal or a scheduled job, and rings when an approval at the computer waits a minute. Claude, ChatGPT, Grok Bot and other AI apps can ring you once you add Twring to them.
 
 **Can I approve a permission request by answering?**
-It depends on the agent. Hermes sends its approval requests to your phone, and you answer by voice or tap. A Claude Code prompt stays in your terminal: the ring tells you it's waiting, and you can talk it through on the call. Twring never approves or runs an agent's tools itself.
+It depends on the agent. Hermes sends its approval requests to your phone, wherever it asks, and you answer by voice or tap. A Claude Code prompt stays in your terminal: the ring tells you it's waiting, and you can talk it through on the call. Twring never approves or runs an agent's tools itself.
 
 **How often can an agent ring me?**
 At most 6 times an hour for each agent, one ring at a time. It can't ring you while you're on a call, or during your quiet hours.
@@ -493,7 +493,7 @@ Source: https://twring.com/hermes/
 
 ## Call your Hermes. Hermes calls you.
 
-Twring is in the [Hermes plugin catalog](https://hermes-agent.nousresearch.com/marketplace/twring). Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions by voice, and get a ring when a scheduled job is done.
+Twring is in the [Hermes plugin catalog](https://hermes-agent.nousresearch.com/marketplace/twring). Install it, and you can talk to your own Hermes in a live call from your phone, answer its approval questions from your phone, and get a ring or a message when it needs you.
 
 [Get an invite](https://twring.com/beta/)
 
@@ -524,7 +524,13 @@ Hermes appears in the app. Press Call.
 
 ### Approvals by voice or tap
 
-When Hermes needs your OK for a risky command, the request appears on your phone. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.
+When Hermes needs your OK for a risky command, the request appears on your phone, wherever Hermes asked: the terminal, Telegram, a scheduled job or a call. Say yes or no, or tap. The answer goes through Hermes's own approval system, and silence means no.
+
+`hermes twring link` asks whether to approve from your phone (press Enter for yes). A very long command, a private chat, or a Twring server that can't be reached goes back to Hermes's own prompt at the computer. Up to three approvals wait on your phone at once; more wait at the computer. An approval still waiting when you hang up a call is denied.
+
+### Hermes rings or messages you from anywhere
+
+From any chat, the terminal or a scheduled job, Hermes can send a message to your Twring chat or ring your phone when it is waiting on you, has finished something long, or hit a problem. If the ring can't get through (quiet hours, Do Not Disturb, the hourly limit), the news is still in your Twring chat. If Hermes asks for your OK at the computer and nobody answers for a minute, your phone rings once. A scheduled job that stops on an error tells you too.
 
 ### It rings you
 
@@ -535,6 +541,8 @@ Hang up while Hermes is still working, and the rest of its answer reaches your c
 ### Handy commands
 
 - `hermes twring status` shows whether this computer is linked.
+
+- `hermes twring approvals on`, `off` or `status` turns approving from your phone on or off, or shows which is set.
 
 - `hermes twring unlink` forgets the link on this computer. Then delete Hermes in the app too.
 
@@ -552,7 +560,7 @@ Twring also works with [Claude Code](https://twring.com/claude-code/) and [Codex
 No. Twring only handles the voice: it turns your speech into text for Hermes, and its reply into speech for you. Hermes keeps its own model, memory, tools and permissions.
 
 **Can Twring approve commands for me?**
-No. Only you can approve, by voice or tap, through Hermes's own approval system. If you don't answer, the answer is no.
+No. Only you can approve, by voice or tap on your phone or at the computer, through Hermes's own approval system. If you don't answer, the answer is no.
 
 **Are my calls recorded?**
 No. Twring listens only while a call is on, and never records or keeps your audio. The [privacy notice](https://twring.com/privacy) lists everything it does keep.
@@ -1044,7 +1052,7 @@ These hold back bursts of rings on purpose.
 
 - Rings by themselves need a hook. For [Claude Code](https://twring.com/blog/claude-code-call-me-when-done/) run `node twring-connect.mjs hooks install claude`; for [Codex](https://twring.com/codex/), `node twring-connect.mjs hooks install codex --on-turn-complete`. Run it in the folder where you downloaded `twring-connect.mjs`. A hook installed with `--message` sends a message instead of ringing.
 
-- Hermes rings for scheduled jobs delivered to `twring`, unless `TWRING_RING_ON_DELIVERY` is set to `false`. See [Hermes](https://twring.com/hermes/).
+- Hermes rings when it decides it needs you, when an approval at the computer waits a minute, and for scheduled jobs delivered to `twring`, unless `TWRING_RING_ON_DELIVERY` is set to `false`. See [Hermes](https://twring.com/hermes/).
 
 ### Missed it?
 
