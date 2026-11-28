@@ -174,8 +174,14 @@ export interface CallRuntimeOptions {
 
 /** Live (echo) audio older than this is dropped rather than let playback lag behind the caller. */
 const MAX_LIVE_BACKLOG_FRAMES = 50;
-/** Synthesized speech arrives faster than real time and is queued whole, up to a minute. */
-const MAX_SPEECH_BACKLOG_FRAMES = 3000;
+/**
+ * Synthesized speech arrives many times faster than real time (Cartesia about 13x) and is queued
+ * whole. This only bounds memory (a frame is about 2 KB, so about 60 MB at the cap): ten minutes,
+ * well past any spoken answer. Past it the newest audio is dropped, never the oldest: cutting the
+ * front of a full queue skipped what the caller was about to hear, and with a one-minute cap every
+ * long answer turned to garble a few seconds in (2026-11-28).
+ */
+export const MAX_SPEECH_BACKLOG_FRAMES = 30_000;
 /** Device reports handled per call; a phone flapping routes cannot flood the logs. */
 const MAX_DEVICE_REPORTS = 50;
 /** Longest an answered ring's opening waits for the caller's audio to start flowing. */
@@ -214,6 +220,7 @@ export class CallRuntime {
   private readonly drainedCallbacks: (() => void)[] = [];
   private pumping = false;
   private chimePlaying = false;
+  private speechBacklogFullLogged = false;
   private callerPresent = false;
   private everJoined = false;
   private firstCallerFrameLogged = false;
@@ -804,6 +811,13 @@ export class CallRuntime {
       onDrained?: () => void;
     },
   ): void {
+    // Speech past its cap loses its newest frames; their callbacks stay, as one marker, so the
+    // playout bookkeeping and the end of the answer still run in order.
+    const kept = options.live
+      ? frames.length
+      : Math.min(frames.length, Math.max(0, MAX_SPEECH_BACKLOG_FRAMES - this.output.length));
+    if (kept < frames.length) this.speechBacklogFull();
+    const droppedCallbacks: (() => void)[] = [];
     const last = frames.length - 1;
     frames.forEach((frame, index) => {
       const first = index === 0 ? options.onFirstPublished : undefined;
@@ -815,12 +829,38 @@ export class CallRuntime {
               end();
             }
           : (first ?? end);
-      this.output.push(onPublished === undefined ? { frame } : { frame, onPublished });
+      if (index < kept) {
+        this.output.push(onPublished === undefined ? { frame } : { frame, onPublished });
+      } else if (onPublished !== undefined) {
+        droppedCallbacks.push(onPublished);
+      }
     });
+    if (droppedCallbacks.length > 0) {
+      this.output.push({
+        onPublished: () => {
+          for (const callback of droppedCallbacks) callback();
+        },
+      });
+    }
     if (options.onDone !== undefined) this.output.push({ onPublished: options.onDone });
-    const cap = options.live ? MAX_LIVE_BACKLOG_FRAMES : MAX_SPEECH_BACKLOG_FRAMES;
-    if (this.output.length > cap) this.output.splice(0, this.output.length - cap);
+    // Live (echo) audio drops its oldest frames instead: it must stay close to the caller.
+    if (options.live && this.output.length > MAX_LIVE_BACKLOG_FRAMES) {
+      this.output.splice(0, this.output.length - MAX_LIVE_BACKLOG_FRAMES);
+    }
     void this.pump(options.onDrained);
+  }
+
+  private speechBacklogFull(): void {
+    if (this.speechBacklogFullLogged) return;
+    this.speechBacklogFullLogged = true;
+    this.options.logger.warn(
+      {
+        event: 'speech_backlog_full',
+        call_id: this.options.callId,
+        cap_ms: MAX_SPEECH_BACKLOG_FRAMES * FRAME_MS,
+      },
+      'speech queue full; the end of an answer was dropped',
+    );
   }
 
   /** Single consumer so frames reach the track in order and publishFrame is never re-entered. */
