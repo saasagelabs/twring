@@ -3,6 +3,7 @@
 import http.client
 from concurrent.futures import ThreadPoolExecutor
 import json
+import socket
 import threading
 import unittest
 from unittest.mock import patch
@@ -90,6 +91,36 @@ class EchoTests(unittest.TestCase):
         response = self.request()
         self.assertEqual(response.status, 409)
         self.assertEqual(response.read(), b"")
+
+    def refusal_wire(self, body, *, length=None, token="dev-token", content_type="application/json"):
+        with socket.create_connection(self.server.server_address, timeout=3) as peer:
+            headers = ("POST /cord/turns HTTP/1.1\r\nHost: localhost\r\n"
+                       f"Authorization: Bearer {token}\r\nContent-Type: {content_type}\r\n"
+                       f"Content-Length: {len(body) if length is None else length}\r\n\r\n")
+            peer.sendall(headers.encode() + body)
+            response = bytearray()
+            while chunk := peer.recv(8192):
+                response.extend(chunk)
+            return bytes(response)
+
+    def test_early_refusals_deliver_status_and_orderly_eof_with_a_body(self):
+        for options, size, status in (({"token": "wrong"}, 65536, 401),
+                                      ({"content_type": "text/plain"}, 65536, 415),
+                                      ({}, 65537, 413)):
+            with self.subTest(status=status):
+                response = self.refusal_wire(b"x" * size, **options)
+                self.assertTrue(response.startswith(f"HTTP/1.1 {status} ".encode()))
+                self.assertTrue(response.endswith(b"\r\n\r\n"))
+        self.assertEqual(self.server.seen, set())
+
+    def test_early_refusal_does_not_wait_for_a_slow_body_to_finish(self):
+        # Withhold almost all of the body. Both the response and EOF must arrive
+        # within the client's three-second timeout, rather than the read timeout.
+        for options, length, status in (({"token": "wrong"}, 65536, 401),
+                                        ({}, 1000000, 413)):
+            with self.subTest(status=status):
+                response = self.refusal_wire(b"x", length=length, **options)
+                self.assertTrue(response.startswith(f"HTTP/1.1 {status} ".encode()))
 
     def test_unicode_round_trip(self):
         turn = self.turn()

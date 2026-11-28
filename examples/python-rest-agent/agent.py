@@ -6,7 +6,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 import select
+import socket
 import threading
+import time
 import uuid
 
 
@@ -54,6 +56,22 @@ class EchoHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", "0")
         self.send_header("Connection", "close")
         self.end_headers()
+        self.wfile.flush()
+        # Closing with unread request data can reset the socket and lose the
+        # response on Windows. Send EOF first, then briefly discard input. Keep
+        # early auth refusals: a slow unauthenticated body must not delay them.
+        try:
+            self.connection.shutdown(socket.SHUT_WR)
+            deadline = time.monotonic() + 0.1
+            remaining = 128 * 1024
+            while remaining and (timeout := deadline - time.monotonic()) > 0:
+                self.connection.settimeout(timeout)
+                chunk = self.connection.recv(min(8192, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        except OSError:
+            pass  # The peer may already have closed or reset its side.
 
     def do_POST(self):
         self.close_connection = True
