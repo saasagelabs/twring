@@ -7,6 +7,7 @@ import {
   outputsFromDevices,
   type AudioOutput,
   type AudioRoutePlatform,
+  type RouteResult,
 } from '@/call/audio-routes';
 import type { CallInterruptionPlatform, InterruptionPhase } from '@/call/call-interruption';
 
@@ -55,13 +56,94 @@ function watching(): () => void {
 }
 
 /**
- * AudioRouteService (MOBILE_PLATFORM_SPEC §3). Android lists and selects outputs through LiveKit;
+ * AudioRouteService (MOBILE_PLATFORM_SPEC §3). Android lists call devices natively; before Android
+ * 12 it selects through LiveKit. On Android 12+ Twring is the only route writer (ADR-049): it sets
+ * the communication device and reads it back, so the UI never shows a route the OS did not take.
  * iOS only exposes the system route picker (AVRoutePickerView), which shows the live route itself.
  */
 export const audioRouteMode = 'list';
 
+/** Android 12 (API 31) added setCommunicationDevice. Decided by version, never by a null read-back. */
+function singleWriter(): boolean {
+  return Platform.OS === 'android' && Number(Platform.Version) >= 31;
+}
+
+/** Waits behind a testable clock (fake timers in tests). */
+export const routeClock = {
+  sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+  now: () => Date.now(),
+};
+
+const POLL_MS = 50;
+const MODE_WAIT_MS = 500;
+/** Speaker, earpiece and wired move at once; each attempt gets this long. */
+const ATTEMPT_MS = 300;
+/** Bluetooth SCO takes about 0.5 to 3 s to open: no clear or second request inside this window. */
+const BLUETOOTH_MS = 4000;
+
+const OUTPUTS: ReadonlySet<string> = new Set<AudioOutput>([
+  'bluetooth',
+  'headset',
+  'speaker',
+  'earpiece',
+]);
+
+/** Polls `check` every 50 ms, true as soon as it holds, false once `limitMs` has passed. */
+async function within(limitMs: number, check: () => boolean): Promise<boolean> {
+  for (let waited = 0; ; waited += POLL_MS) {
+    if (check()) return true;
+    if (waited >= limitMs) return false;
+    await routeClock.sleep(POLL_MS);
+  }
+}
+
+function readBack(): AudioOutput | null {
+  const device = native?.currentCallDevice?.() ?? null;
+  return device !== null && OUTPUTS.has(device) ? device : null;
+}
+
+function log(line: Record<string, unknown>): void {
+  console.info(JSON.stringify({ ev: 'audio_route', ...line, sdk: Number(Platform.Version) }));
+}
+
+/** Tags this call's sets, so clearing at call end leaves a newer call's device alone. */
+let callToken = 1;
+
+async function selectVerified(output: AudioOutput): Promise<RouteResult> {
+  const started = routeClock.now();
+  log({ phase: 'request', want: output });
+  const token = callToken;
+  if (native?.callModeActive !== undefined) {
+    await within(MODE_WAIT_MS, () => native?.callModeActive?.() ?? true);
+  }
+  const set = () => native?.setCommunicationDevice?.(output, token);
+  const landed = () => readBack() === output;
+  set();
+  let retry = 0;
+  let ok: boolean;
+  if (output === 'bluetooth') {
+    ok = await within(BLUETOOTH_MS, landed);
+  } else {
+    ok = await within(ATTEMPT_MS, landed);
+    if (!ok) {
+      retry = 1;
+      native?.clearCommunicationDevice?.(token);
+      set();
+      ok = await within(ATTEMPT_MS, landed);
+    }
+  }
+  const actual = ok ? output : readBack();
+  log({ phase: 'result', want: output, got: actual, ok, ms: routeClock.now() - started, retry });
+  return ok ? { ok: true } : { ok: false, actual };
+}
+
 export const audioRoutePlatform: AudioRoutePlatform = {
   list: async () => {
+    if (singleWriter()) {
+      const devices = native?.listCallDevices?.();
+      if (devices === null || devices === undefined) throw new Error('call devices unavailable');
+      return outputsFromDevices(devices);
+    }
     const devices = Platform.OS === 'android' ? native?.listCallDevices?.() : null;
     if (devices !== null && devices !== undefined) return outputsFromDevices(devices);
     return AudioSession.getAudioOutputs();
@@ -69,15 +151,24 @@ export const audioRoutePlatform: AudioRoutePlatform = {
   // iOS: switch the session mode instead of forcing a port, so AirPods or a headset still win;
   // 'default' clears any earlier speaker override.
   select: async (output) => {
+    if (singleWriter()) return selectVerified(output);
     if (Platform.OS !== 'ios') {
-      // LiveKit first keeps its own idea of the device; Android 12+ then pins the communication
-      // device, which replaces the deprecated SCO and speakerphone calls.
+      // Before Android 12 LiveKit routes; the native set is a no-op there.
       await AudioSession.selectAudioOutput(output);
       native?.setCommunicationDevice?.(output);
-      return;
+      return { ok: true };
     }
     await AudioSession.setAppleAudioConfiguration(iosAudioConfiguration(output));
     await AudioSession.selectAudioOutput('default');
+    return { ok: true };
+  },
+  current: () => Promise.resolve(singleWriter() ? readBack() : null),
+  release: () => {
+    if (singleWriter()) {
+      native?.clearCommunicationDevice?.(callToken);
+      callToken += 1;
+    }
+    return Promise.resolve();
   },
   ...(native !== null && {
     watch: (onChange: () => void) => {

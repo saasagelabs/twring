@@ -103,10 +103,17 @@ export function routeLabel(output: AudioOutput): string {
   }
 }
 
+/** Whether the sound really moved; `actual` is the OS read-back (null = none or unknown). */
+export type RouteResult = { ok: true } | { ok: false; actual: AudioOutput | null };
+
 export interface AudioRoutePlatform {
   /** Available outputs. Requires a started audio session. */
   list(): Promise<readonly string[]>;
-  select(output: AudioOutput): Promise<void>;
+  select(output: AudioOutput): Promise<RouteResult>;
+  /** The route the OS reports now; null when unknown (then always select). */
+  current?(): Promise<AudioOutput | null>;
+  /** Call end: drops the route this call set, unless a newer call has set one since. */
+  release?(): Promise<void>;
   /**
    * Calls `onChange` whenever the platform's routes change (Android AudioDeviceCallback, iOS
    * routeChangeNotification), screen off included. Undefined when the native module is missing:

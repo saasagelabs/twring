@@ -7,6 +7,7 @@ import {
   outputsFromDevices,
   parseOutputs,
   type AudioOutput,
+  type RouteResult,
 } from './audio-routes';
 
 describe('route policy', () => {
@@ -93,7 +94,7 @@ function fakePlatform(initial: string[]) {
     select: (output: AudioOutput) => {
       if (platform.failSelect) return Promise.reject(new Error('boom'));
       platform.selected.push(output);
-      return Promise.resolve();
+      return Promise.resolve({ ok: true as const });
     },
   };
   return platform;
@@ -210,9 +211,14 @@ function heldPlatform() {
         pending.push({ kind: 'list', settle: (v) => resolve(v as string[]), fail: reject });
       }),
     select: (output: AudioOutput) =>
-      new Promise<void>((resolve, reject) => {
+      new Promise<RouteResult>((resolve, reject) => {
         platform.selected.push(output);
-        pending.push({ kind: 'select', arg: output, settle: () => resolve(), fail: reject });
+        pending.push({
+          kind: 'select',
+          arg: output,
+          settle: () => resolve({ ok: true }),
+          fail: reject,
+        });
       }),
   };
   const next = () => {
@@ -266,7 +272,7 @@ describe('AudioRoutes edge cases (milestone 8 verifier)', () => {
     const errors: string[] = [];
     const routes = new AudioRoutes(
       // eslint-disable-next-line @typescript-eslint/prefer-promise-reject-errors -- a native bridge can reject with a non-Error
-      { list: () => Promise.reject('nope'), select: () => Promise.resolve() },
+      { list: () => Promise.reject('nope'), select: () => Promise.resolve({ ok: true as const }) },
       (detail) => errors.push(detail),
     );
     await routes.refresh();
