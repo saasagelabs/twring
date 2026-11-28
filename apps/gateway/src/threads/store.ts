@@ -17,6 +17,7 @@ import {
   type SealedEnvelopeV1,
   type ThreadSummary,
   type UserMessageStatus,
+  type CallTranscript,
 } from '@twring/contracts';
 
 import { messageAad, sealedSecretSchema, type CredentialCipher } from '../store/cipher';
@@ -115,7 +116,7 @@ type AppendInput =
     > & { cut?: boolean; clientId?: string; attachmentIds?: string[] })
   | Pick<
       Extract<ThreadMessage, { kind: 'call' }>,
-      'kind' | 'call_id' | 'duration_s' | 'outcome' | 'end_reason'
+      'kind' | 'call_id' | 'duration_s' | 'outcome' | 'end_reason' | 'transcript'
     >
   | Pick<
       Extract<ThreadMessage, { kind: 'ring' }>,
@@ -332,7 +333,8 @@ export class SqliteThreadStore {
     try {
       // Ring text (reason, decline note) is sealed as JSON in the body, never left in meta.
       const sealedFields =
-        (row.kind === 'ring' || row.kind === 'approval') && text !== undefined
+        (row.kind === 'ring' || row.kind === 'approval' || row.kind === 'call') &&
+        text !== undefined
           ? (JSON.parse(text) as Record<string, unknown>)
           : row.kind === 'sealed' && text !== undefined
             ? { sealed: envelopeList(text) }
@@ -371,6 +373,7 @@ export class SqliteThreadStore {
         ...(text === undefined ||
         row.kind === 'ring' ||
         row.kind === 'approval' ||
+        row.kind === 'call' ||
         row.kind === 'sealed'
           ? {}
           : { text }),
@@ -1009,9 +1012,66 @@ export class SqliteThreadStore {
         });
         return clientId === undefined ? message : { message, created: true };
       }
+      if (input.kind === 'call') {
+        // A call's transcript (ADR-050) is sealed in the body, like ring text; never in meta.
+        const { kind, transcript, ...meta } = input;
+        return this.insert(userId, thread, kind, {
+          ...(transcript !== undefined && { text: JSON.stringify({ transcript }) }),
+          meta,
+        });
+      }
       const { kind, ...meta } = input;
       return this.insert(userId, thread, kind, { meta });
     });
+  }
+
+  /** This user's card for call `callId`, and whose chat it is in. */
+  async findCall(
+    userId: string,
+    callId: string,
+  ): Promise<{ agentId: string; message: Extract<ThreadMessage, { kind: 'call' }> } | undefined> {
+    const row = this.callRow(userId, callId);
+    if (!row) return undefined;
+    const message = this.decode(row);
+    return message.kind === 'call' ? { agentId: message.agent_id, message } : undefined;
+  }
+
+  /**
+   * Puts `transcript` on the card of call `callId` (ADR-050). A card that already has one is left
+   * as it is. Undefined when there is no such card.
+   */
+  async setCallTranscript(
+    userId: string,
+    callId: string,
+    transcript: CallTranscript,
+  ): Promise<{ message: ThreadMessage; changed: boolean } | undefined> {
+    return this.transaction(() => {
+      const row = this.callRow(userId, callId);
+      if (!row) return undefined;
+      if (row.body !== null) return { message: this.decode(row), changed: false };
+      const thread = this.db
+        .prepare('SELECT * FROM threads WHERE id=? AND user_id=?')
+        .get(row.thread_id, userId) as ThreadRow;
+      const body = JSON.stringify(
+        this.cipher.seal(JSON.stringify({ transcript }), messageAad(userId, thread.id, row.id)),
+      );
+      this.db
+        .prepare('UPDATE messages SET body=?,rev=?,updated_at=? WHERE id=? AND user_id=?')
+        .run(body, thread.next_rev, this.now().toISOString(), row.id, userId);
+      this.db
+        .prepare('UPDATE threads SET next_rev=next_rev+1 WHERE id=? AND user_id=?')
+        .run(thread.id, userId);
+      const updated = this.callRow(userId, callId)!;
+      return { message: this.decode(updated, thread.agent_id), changed: true };
+    });
+  }
+
+  private callRow(userId: string, callId: string): Row | undefined {
+    return this.db
+      .prepare(
+        "SELECT * FROM messages WHERE user_id=? AND kind='call' AND json_extract(meta,'$.call_id')=? ORDER BY seq DESC LIMIT 1",
+      )
+      .get(userId, callId) as Row | undefined;
   }
 
   async updateUserMessage(

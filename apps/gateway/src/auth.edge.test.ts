@@ -398,6 +398,7 @@ describe('route gating', () => {
       ['GET', '/v1/calls/c1'],
       ['POST', '/v1/calls/c1/end'],
       ['POST', '/v1/calls/c1/feedback'],
+      ['POST', '/v1/calls/c1/transcript'],
       ['DELETE', '/v1/me/data'],
       ['GET', '/v1/me/speech-keys'],
       ['PUT', '/v1/me/speech-keys/deepgram'],

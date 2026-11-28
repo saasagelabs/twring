@@ -179,6 +179,7 @@ export class RingSettingsRepository {
       dnd: row.dnd,
       quiet_hours: row.quiet_hours,
       after_call_result: row.after_call_result ?? 'ring',
+      call_transcripts: row.call_transcripts ?? false,
     };
   }
 
@@ -188,6 +189,8 @@ export class RingSettingsRepository {
       const merged = {
         ...settings,
         after_call_result: settings.after_call_result ?? previous?.after_call_result ?? 'ring',
+        // An older app never sends it: changing Do Not Disturb must not turn transcripts off.
+        call_transcripts: settings.call_transcripts ?? previous?.call_transcripts ?? false,
       };
       return {
         items: [...items.filter((r) => r.user_id !== userId), { ...merged, user_id: userId }],

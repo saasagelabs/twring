@@ -109,7 +109,7 @@ Call ratings and optional notes are stored in `call-feedback.json` and removed b
 
 Voice-note audio is sent to Deepgram for transcription and is not kept by Twring. Its transcript is kept as a chat message until the user clears it.
 
-Calls keep no transcript. Chats (text threads, ADR-031) are the one place Twring stores conversation text:
+Calls keep a transcript only when the person asks (ADR-050): the `call_transcripts` setting, or a send from the call-ended screen. It goes on the call's card in the chat, sealed like chat text; never in a private chat, never in logs (lengths and counts only), never to the agent. Until it is sent, a finished call's transcript is held in gateway memory for 10 minutes (at most about 1,000 calls), never on disk, and dropped on shutdown, chat deletion or account deletion. Chats (text threads, ADR-031) are the one place Twring stores conversation text:
 
 - disclosed in `docs/PRIVACY.md` (§2, §3, §4, Data safety);
 - user-scoped: every store query and route is scoped by the signed-in user; another user's agent or message is 404;

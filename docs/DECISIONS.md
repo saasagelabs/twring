@@ -797,7 +797,7 @@ Twring becomes a permanent channel per agent: you type to an agent, call it from
 ### Decision
 
 - One chat (thread) per user and saved agent. Typed messages and the agent's written replies are stored, sealed with AES-256-GCM under a key derived from the credential key, in `threads.db` (SQLite through `node:sqlite`) on the gateway host.
-- Calls appear in the chat as a card only (length, outcome): no call transcript and no audio are stored (owner decision).
+- Calls appear in the chat as a card only (length, outcome): no call transcript and no audio are stored (owner decision). Amended by ADR-050: a person who turns call transcripts on gets what was said on the card.
 - Messages are kept until the owner clears the chat, deletes the agent, or deletes their data; at most 2,000 per agent.
 - A typed message runs as one turn with `surface: 'text'` in the same agent session calls use (the connector pool, ADR-030). The gateway is the only entry for typed turns, at most one turn per agent; a turn that may have reached the agent is never resent (a restart marks it interrupted).
 - Behind `THREADS_ENABLED` (default off) until the owner turns it on in production.
@@ -1651,3 +1651,42 @@ the first route write. The app must not rely on LiveKit's device list or selecti
 LiveKit upgrade must remake the patch (`apps/mobile/scripts/livekit-react-native-patch.test.mjs`
 checks it). Whether one writer fully prevents the stuck SCO state is proven only by the device
 test. Plan: `private/docs/superpowers/plans/2026-11-28-android-single-audio-route-writer.md`.
+
+## ADR-050: Call transcripts in chat, and captions in step with speech (2026-11-28)
+
+### Context
+
+Owner request, 2026-11-28. Long answers on the call screen could not be read: the agent writes much
+faster than it speaks, so the reply band showed words well ahead of the voice and the words being
+heard had already scrolled away. And after a call there was no way to keep what was said: ADR-031
+left only a card (length, outcome) in the chat.
+
+### Decision
+
+- **Captions show only what has been heard.** While a reply is spoken, `agent_text` carries the
+  visible text up to the point the caller has heard, at most 400 characters ending there (starting
+  on a word, with an ellipsis when cut). The heard point is the playout position times the
+  speaking rate: a standard rate until TTS reports the audio length, then the exact one (the
+  approach of LiveKit Agents' transcription synchronizer). It never moves back. A barge-in, a TTS
+  failure, a reply with nothing to speak, and a reply that has played out show the whole text as
+  before. The phone's reply band rolls up and shows the last lines of what has been heard.
+- **Call transcripts are opt-in, per account.** A switch under "Ring me when it's done" on the
+  call-ended screen (`call_transcripts` in the ring settings, off by default). When it is on,
+  every call's transcript goes on that call's card in the agent's chat, sealed like other chat
+  text.
+- **The call-ended screen can still send one.** With the setting off, the gateway holds a call's
+  transcript in memory for 10 minutes (`CALL_TRANSCRIPT_HOLD_MS`), never on disk or in logs, so
+  `POST /v1/calls/:callId/transcript` can put it on the card.
+- **What a transcript holds:** the caller's committed turns as sent to the agent, and what the
+  agent said aloud (cut where the caller talked over it). Twring's own lines (acknowledgements,
+  progress lines, "Okay, stopped.", approval prompts) and approval yes/no answers are left out.
+  At most 20,000 characters and 400 lines; past that it is marked truncated.
+- **Never in private chats.** A private chat's card never gets a transcript, nothing is held for
+  it, and the send route answers 409.
+- **Never to the agent.** A call card is not a turn: the transcript is not sent to the agent or
+  its computer.
+
+### Consequences
+
+This reverses ADR-031's "card only" for people who turn transcripts on. Privacy and security docs
+describe the stored transcript; deleting the chat, the agent or the account deletes it.

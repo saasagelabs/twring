@@ -20,6 +20,7 @@ import {
   type UserMessageStatus,
   type CallHistoryItem,
   type TurnAttachment,
+  type CallTranscript,
 } from '@twring/contracts';
 
 import type { AgentFactory } from '../calls/agents';
@@ -32,6 +33,7 @@ import { sniffFile } from '../files/sniff';
 import { withQuote } from './quote';
 import { PRIVATE_PUSH_TEXT, PRIVATE_RING_REASON } from '../e2e/guard';
 import { PrivateIdle } from './private-idle';
+import { CallTranscriptHold } from './call-transcripts';
 
 export interface ThreadTurnTimeouts {
   connectMs: number;
@@ -69,6 +71,8 @@ export interface ThreadServiceOptions {
   };
   timeouts?: Partial<ThreadTurnTimeouts>;
   sweepIntervalMs?: number;
+  /** Clock for held call transcripts (ADR-050); default Date.now. */
+  now?: () => number;
   /** Silence after which a private turn is interrupted (default `SEALED_TURN_IDLE_MS`, ADR-045). */
   privateIdleMs?: number;
   /**
@@ -195,6 +199,8 @@ export class ThreadService {
   private readonly sendLocks = new Map<string, Promise<void>>();
   private readonly timeouts: ThreadTurnTimeouts;
   private readonly idle: PrivateIdle;
+  /** Transcripts of calls that just ended, memory only (ADR-050). */
+  private readonly heldTranscripts: CallTranscriptHold;
   private timer?: ReturnType<typeof setInterval>;
   private starting?: Promise<void>;
   private epoch = 0;
@@ -203,6 +209,7 @@ export class ThreadService {
   constructor(private readonly options: ThreadServiceOptions) {
     this.timeouts = { ...THREAD_TURN_TIMEOUTS, ...options.timeouts };
     this.idle = new PrivateIdle(options.privateIdleMs ?? SEALED_TURN_IDLE_MS);
+    this.heldTranscripts = new CallTranscriptHold(options.now);
   }
 
   async noteNewSession(userId: string, agentId: string): Promise<void> {
@@ -413,15 +420,40 @@ export class ThreadService {
     this.upsert(invite.user_id, message);
   }
 
-  async recordCall(userId: string, item: CallHistoryItem): Promise<void> {
+  /**
+   * The call's card in the agent's chat. Its transcript (ADR-050) goes on the card when the owner
+   * turned call transcripts on; otherwise it is held in memory for a while, so the call-ended screen
+   * can still send it. Never in a private chat, and never to the agent: a card is not a turn.
+   */
+  async recordCall(
+    userId: string,
+    item: CallHistoryItem,
+    transcript?: CallTranscript,
+  ): Promise<void> {
     if (item.kind === 'missed_invite') return;
     try {
+      let attach: CallTranscript | undefined;
+      if (
+        transcript !== undefined &&
+        !(await this.options.store.isPrivate(userId, item.agent_id))
+      ) {
+        // A settings read failing must not lose the call card: hold the transcript instead.
+        const settings = await this.options.ring?.settings(userId).catch(() => undefined);
+        if (settings?.call_transcripts === true) attach = transcript;
+        else
+          this.heldTranscripts.put(item.call_id, {
+            userId,
+            agentId: item.agent_id,
+            transcript,
+          });
+      }
       const message = await this.options.store.appendMessage(userId, item.agent_id, {
         kind: 'call',
         call_id: item.call_id,
         duration_s: item.duration_s,
         outcome: item.outcome,
         end_reason: item.end_reason,
+        ...(attach !== undefined && { transcript: attach }),
       });
       this.upsert(userId, message);
     } catch (error) {
@@ -433,6 +465,38 @@ export class ThreadService {
         'thread_call_record_failed',
       );
     }
+  }
+
+  /**
+   * `POST /v1/calls/:callId/transcript` (ADR-050): puts the held transcript on the call's card.
+   * `sent` again for a card that already has one; `not_found` once nothing is held for this user;
+   * `not_supported` for a private chat (nothing is ever held for one).
+   */
+  async sendCallTranscript(
+    userId: string,
+    callId: string,
+  ): Promise<'sent' | 'not_found' | 'not_supported'> {
+    const card = await this.options.store.findCall(userId, callId);
+    const held = this.heldTranscripts.get(userId, callId);
+    const agentId = card?.agentId ?? held?.agentId;
+    if (agentId !== undefined && (await this.options.store.isPrivate(userId, agentId))) {
+      this.heldTranscripts.delete(callId);
+      return 'not_supported';
+    }
+    if (card?.message.transcript !== undefined) {
+      if (held !== undefined) this.heldTranscripts.delete(callId);
+      return 'sent';
+    }
+    if (held === undefined || card === undefined) return 'not_found';
+    const result = await this.options.store.setCallTranscript(userId, callId, held.transcript);
+    this.heldTranscripts.delete(callId);
+    if (result === undefined) return 'not_found';
+    if (result.changed) this.upsert(userId, result.message);
+    this.options.log?.info(
+      { event: 'call_transcript_sent', lines: held.transcript.lines.length },
+      'call_transcript_sent',
+    );
+    return 'sent';
   }
 
   async pushSettledResult(invite: {
@@ -491,6 +555,7 @@ export class ThreadService {
   stop(userId?: string, messageId?: string): void | Promise<ThreadMessage | undefined> {
     if (userId === undefined || messageId === undefined) {
       this.epoch++;
+      this.heldTranscripts.clear();
       clearInterval(this.timer);
       this.timer = undefined;
       for (const timer of this.connectorApprovalTimers.values()) clearTimeout(timer);
@@ -1529,12 +1594,14 @@ export class ThreadService {
 
   async deleteAgent(userId: string, agentId: string): Promise<number> {
     this.discard(userId, agentId);
+    this.heldTranscripts.deleteFor(userId, agentId);
     const result = await this.options.store.deleteThread(userId, agentId);
     await this.options.files?.deleteBlobs(result.fileIds);
     return result.messages;
   }
 
   async deleteAllForUser(userId: string): Promise<number> {
+    this.heldTranscripts.deleteFor(userId);
     for (const [key, run] of this.running) if (key.startsWith(`${userId}\0`)) this.discardRun(run);
     const result = await this.options.store.deleteAllForUser(userId);
     await this.options.files?.deleteBlobs(result.fileIds);
