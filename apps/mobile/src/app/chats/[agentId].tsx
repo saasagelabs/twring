@@ -32,6 +32,7 @@ import { SealedAttachments } from '@/components/chat/SealedAttachments';
 import { Bubble } from '@/components/chat/Bubble';
 import { ChatApproval, ChatSealedApproval } from '@/components/chat/ChatApproval';
 import { CallCard } from '@/components/chat/CallCard';
+import { CallTranscript } from '@/components/chat/CallTranscript';
 import { Composer } from '@/components/chat/Composer';
 import { DateSeparator } from '@/components/chat/DateSeparator';
 import { NewReplyPill, UnreadDivider } from '@/components/chat/NewReplyPill';
@@ -539,8 +540,8 @@ export default function ChatScreen() {
       );
     }
     const message = item.message;
-    if (message.kind === 'call' || message.kind === 'ring')
-      return (
+    if (message.kind === 'call' || message.kind === 'ring') {
+      const card = (
         <CallCard
           message={message}
           name={name}
@@ -549,6 +550,14 @@ export default function ChatScreen() {
           callBackDisabled={offline}
         />
       );
+      if (message.kind !== 'call' || message.transcript === undefined) return card;
+      return (
+        <View>
+          {card}
+          <CallTranscript transcript={message.transcript} name={name} />
+        </View>
+      );
+    }
     if (message.kind === 'approval')
       return (
         <ChatApproval
