@@ -222,6 +222,16 @@ describe('audio route platform', () => {
       expect(state.calls).toEqual(['comm:earpiece']);
     });
 
+    it('does not write the device when communication mode never comes', async () => {
+      state.modeActive = Array<boolean>(30).fill(false);
+      state.readBack = ['earpiece'];
+      const mod = await import('./audio-route');
+      const pending = mod.audioRoutePlatform.select('speaker');
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(settle(pending)).resolves.toEqual({ ok: false, actual: 'earpiece' });
+      expect(state.calls).toEqual([]);
+    });
+
     it('an unknown native type reads back as null', async () => {
       state.readBack = ['something_else'];
       const mod = await import('./audio-route');

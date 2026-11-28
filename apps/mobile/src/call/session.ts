@@ -91,6 +91,7 @@ export function callController(): CallController | undefined {
       isMuted: () => created.getView().muted,
       setMuted: (muted) => created.setMuted(muted),
       restoreRoute: () => audioRoutes.restore(),
+      holdRoute: () => audioRoutes.hold(),
     },
     (detail) => callBreadcrumb({ event: 'audio_route_failed', detail }),
   );

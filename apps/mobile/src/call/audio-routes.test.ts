@@ -503,6 +503,49 @@ describe('AudioRoutes keeps the truth', () => {
     }
   });
 
+  it('route events during a phone call neither select nor adopt Telecom, restore brings the route back', async () => {
+    vi.useFakeTimers();
+    try {
+      const platform = verifyingPlatform(['speaker', 'earpiece']);
+      const routes = new AudioRoutes(platform);
+      await routes.refresh();
+      routes.hold();
+      platform.actual = 'earpiece';
+      platform.stuck = 'earpiece';
+      await routes.refresh();
+      await vi.advanceTimersByTimeAsync(ROUTE_RETRY_MS * 2);
+      expect(platform.selected).toEqual(['speaker']);
+      expect(routes.getState()).toEqual({ outputs: ['speaker', 'earpiece'], current: 'speaker' });
+      platform.stuck = null;
+      await routes.restore();
+      expect(platform.selected).toEqual(['speaker', 'speaker']);
+      expect(routes.getState().current).toBe('speaker');
+      await routes.refresh();
+      expect(platform.selected).toEqual(['speaker', 'speaker']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a manual tap during the retry wait is not undone by the retry', async () => {
+    vi.useFakeTimers();
+    try {
+      const platform = verifyingPlatform(['speaker', 'earpiece']);
+      const routes = new AudioRoutes(platform);
+      await routes.refresh();
+      platform.outputs = ['headset', 'speaker', 'earpiece'];
+      platform.stuck = 'speaker';
+      await routes.refresh();
+      platform.stuck = null;
+      await routes.choose('earpiece');
+      await vi.advanceTimersByTimeAsync(ROUTE_RETRY_MS * 2);
+      expect(platform.selected).toEqual(['speaker', 'headset', 'earpiece']);
+      expect(routes.getState().current).toBe('earpiece');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('reset() during the retry wait stops the retry', async () => {
     vi.useFakeTimers();
     try {

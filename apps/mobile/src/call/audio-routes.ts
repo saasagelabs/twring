@@ -154,6 +154,11 @@ export class AudioRoutes {
   /** Bumped by reset(); work queued or in flight from an older call never selects or sets state. */
   private generation = 0;
   private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * A phone call holds the audio (hold() until restore()). Route events then report Telecom's
+   * device, so refreshes neither select nor adopt it; restore() applies the route afterwards.
+   */
+  private held = false;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -170,11 +175,18 @@ export class AudioRoutes {
 
   /** Re-reads the outputs and applies the automatic policy. */
   refresh(): Promise<void> {
-    return this.enqueue((live) => this.apply(live));
+    return this.enqueue((live) => (this.held ? Promise.resolve() : this.apply(live)));
+  }
+
+  /** A phone call took the audio: stop route writes and retries until restore(). */
+  hold(): void {
+    this.held = true;
+    this.cancelRetry();
   }
 
   /** The caller picked an output. */
   choose(output: AudioOutput): Promise<void> {
+    this.cancelRetry();
     return this.enqueue(async (live) => {
       if (!this.state.outputs.includes(output)) return;
       const result = await this.platform.select(output);
@@ -183,6 +195,7 @@ export class AudioRoutes {
         this.fail(output, result.actual);
         return;
       }
+      this.cancelRetry();
       this.manual = true;
       this.set({ outputs: this.state.outputs, current: output });
     });
@@ -194,6 +207,8 @@ export class AudioRoutes {
    * even when the OS reads back the same route: Telecom may have closed the link underneath it.
    */
   restore(): Promise<void> {
+    this.held = false;
+    this.cancelRetry();
     return this.enqueue(async (live) => {
       const outputs = parseOutputs(await this.platform.list());
       if (!live()) return;
@@ -221,8 +236,8 @@ export class AudioRoutes {
   reset(): void {
     this.generation += 1;
     this.manual = false;
-    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
-    this.retryTimer = undefined;
+    this.held = false;
+    this.cancelRetry();
     this.set({ outputs: [] });
     if (this.platform.release === undefined) return;
     this.queue = this.queue
@@ -235,10 +250,11 @@ export class AudioRoutes {
   /** One refresh; `retry` is the target of a switch that did not land, tried once more. */
   private async apply(live: () => boolean, retry?: AudioOutput): Promise<void> {
     const listed = await this.platform.list();
-    if (!live()) return;
+    if (!live() || this.held) return;
     const outputs = parseOutputs(listed);
+    // A manual choice made after the retry was scheduled wins over it.
     const current =
-      retry !== undefined && outputs.includes(retry)
+      retry !== undefined && !this.manual && outputs.includes(retry)
         ? retry
         : nextRoute(this.state.outputs, outputs, this.state.current, this.manual);
     if (current === undefined) {
@@ -256,6 +272,7 @@ export class AudioRoutes {
     if (!live()) return;
     if (current !== this.state.current) this.manual = false;
     if (result.ok) {
+      this.cancelRetry();
       this.set({ outputs, current });
       return;
     }
@@ -273,8 +290,13 @@ export class AudioRoutes {
     return actual !== null && actual !== wanted;
   }
 
-  private scheduleRetry(target: AudioOutput): void {
+  private cancelRetry(): void {
     if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+  }
+
+  private scheduleRetry(target: AudioOutput): void {
+    this.cancelRetry();
     const generation = this.generation;
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;

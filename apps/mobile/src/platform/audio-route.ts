@@ -113,8 +113,21 @@ async function selectVerified(output: AudioOutput): Promise<RouteResult> {
   const started = routeClock.now();
   log({ phase: 'request', want: output });
   const token = callToken;
+  // Never write before MODE_IN_COMMUNICATION: during a phone call the mode is Telecom's.
   if (native?.callModeActive !== undefined) {
-    await within(MODE_WAIT_MS, () => native?.callModeActive?.() ?? true);
+    const inCall = await within(MODE_WAIT_MS, () => native?.callModeActive?.() ?? true);
+    if (!inCall) {
+      const actual = readBack();
+      log({
+        phase: 'result',
+        want: output,
+        got: actual,
+        ok: false,
+        ms: routeClock.now() - started,
+        mode: false,
+      });
+      return { ok: false, actual };
+    }
   }
   const set = () => native?.setCommunicationDevice?.(output, token);
   const landed = () => readBack() === output;
