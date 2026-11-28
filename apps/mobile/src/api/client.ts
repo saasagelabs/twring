@@ -13,6 +13,7 @@ import {
   type ConnectedApp,
   callFeedbackRequestSchema,
   callFeedbackResponseSchema,
+  sendCallTranscriptResponseSchema,
   appFeedbackRequestSchema,
   appFeedbackResponseSchema,
   type CallFeedbackRequest,
@@ -223,6 +224,11 @@ export interface TwringApi {
   /** Completed and failed calls only (what an agent's page lists). */
   callHistory(signal?: AbortSignal): Promise<CallHistoryItem[]>;
   sendCallFeedback(callId: string, body: CallFeedbackRequest, signal?: AbortSignal): Promise<void>;
+  /**
+   * Puts this call's transcript on its card in the agent's chat (ADR-050). `gone` once the call's
+   * words are no longer kept, `private` for a private chat (no transcripts there).
+   */
+  sendCallTranscript(callId: string, signal?: AbortSignal): Promise<CallTranscriptResult>;
   /** A note from Settings (Send feedback), at any time. */
   sendAppFeedback(note: string, signal?: AbortSignal): Promise<void>;
   /** Calls and missed rings, newest first. */
@@ -297,6 +303,9 @@ type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
 export type PeopleList = z.infer<typeof peopleListResponseSchema>['people'];
 export type MemberCode = z.infer<typeof memberCodeResponseSchema>;
+
+/** What sending a call's transcript to its chat did. */
+export type CallTranscriptResult = 'sent' | 'gone' | 'private';
 
 export type InviteAnswer =
   { mode: 'call'; session: CreateCallResponse } | { mode: 'chat'; agentId: string };
@@ -602,6 +611,23 @@ export function createTwringApi(options: TwringApiOptions): TwringApi {
           signal,
         }),
       );
+    },
+    async sendCallTranscript(callId, signal) {
+      try {
+        parse(
+          sendCallTranscriptResponseSchema,
+          await request('POST', `/v1/calls/${encodeURIComponent(callId)}/transcript`, {
+            signal,
+          }),
+        );
+        return 'sent';
+      } catch (error) {
+        if (error instanceof ApiError && error.kind === 'http') {
+          if (error.status === 404) return 'gone';
+          if (error.status === 409) return 'private';
+        }
+        throw error;
+      }
     },
     async sendAppFeedback(note, signal) {
       parse(

@@ -30,5 +30,5 @@ onActiveServerChanged(() => {
   api = undefined;
 });
 
-export { ApiError, type TwringApi } from './client';
+export { ApiError, type CallTranscriptResult, type TwringApi } from './client';
 export { AGENT_OFFLINE_COPY, apiErrorCopy, isServiceUnavailable, type ErrorCopy } from './errors';
