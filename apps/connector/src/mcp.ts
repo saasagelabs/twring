@@ -14,7 +14,7 @@ const tools = [
   {
     name: 'ring_owner',
     description:
-      "Ring your owner's phone through Twring, like a phone call. Use it only when they must talk or decide now, or asked you to ring: a finished task they want to hear about, or a decision only they can make. 'reason' is spoken to them when they answer (at most 140 characters, one standalone sentence). With 'wait', returns the outcome: answered, declined, missed, refused or cancelled. Don't retry a refusal in a loop. For results they can read later, use message_owner instead.",
+      "Ring your owner's phone through Twring, like a phone call. Use it only when they must talk or decide now, or asked you to ring: a finished task they want to hear about, or a decision only they can make. 'reason' is spoken to them when they answer (at most 140 characters, one standalone sentence). Without 'wait' it returns ringing. With 'wait' it returns answered, declined, missed, refused (with the reason) or cancelled. A refusal means Do Not Disturb, quiet hours, already ringing or the limit of six rings an hour: put the news in message_owner instead and don't retry in a loop. For results they can read later, use message_owner.",
     inputSchema: {
       type: 'object',
       properties: { reason: { type: 'string', maxLength: 140 }, wait: { type: 'boolean' } },
