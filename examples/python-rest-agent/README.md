@@ -22,7 +22,8 @@ Set `PYTHON_AGENT_TOKEN` to your own secret before exposing it beyond this machi
 
 1. In Twring, choose **Connect Agent** and **Web service**.
 2. Enter the endpoint ending in `/cord/turns` and the bearer token.
-3. Run the connection test, then call the agent. It streams back `Echo: ` and your words.
+3. Tap **Continue**. Twring tests the connection. Then call the agent; it streams back
+   `Echo: ` and your words.
 
 The production gateway requires a reachable **HTTPS** URL. Put this example behind
 a TLS reverse proxy and use that public URL in the app; the phone's `localhost`
