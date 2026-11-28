@@ -7,6 +7,8 @@ export interface RingSettingsForm {
   start: string;
   end: string;
   afterCallResult?: 'ring' | 'message';
+  /** Each call's transcript goes to the agent's chat. Off unless turned on. */
+  callTranscripts?: boolean;
 }
 
 export const DEFAULT_QUIET_START = '22:00';
@@ -19,7 +21,8 @@ export function sameForm(a: RingSettingsForm, b: RingSettingsForm): boolean {
     a.quietEnabled === b.quietEnabled &&
     a.start === b.start &&
     a.end === b.end &&
-    (a.afterCallResult ?? 'ring') === (b.afterCallResult ?? 'ring')
+    (a.afterCallResult ?? 'ring') === (b.afterCallResult ?? 'ring') &&
+    (a.callTranscripts ?? false) === (b.callTranscripts ?? false)
   );
 }
 
@@ -30,6 +33,7 @@ export function formFromSettings(settings: RingSettings): RingSettingsForm {
     start: settings.quiet_hours?.start ?? DEFAULT_QUIET_START,
     end: settings.quiet_hours?.end ?? DEFAULT_QUIET_END,
     afterCallResult: settings.after_call_result ?? 'ring',
+    callTranscripts: settings.call_transcripts ?? false,
   };
 }
 
@@ -62,7 +66,18 @@ export function settingsFromForm(
     : previous?.after_call_result === undefined
       ? {}
       : { after_call_result: previous.after_call_result };
-  if (!everSet) return { ok: true, settings: { dnd: form.dnd, quiet_hours: null, ...afterCall } };
+  // A server from before call transcripts refuses the field (its schema is strict): send it only
+  // once the server has reported it, or when the person turns transcripts on.
+  const transcripts =
+    previous?.call_transcripts !== undefined || form.callTranscripts === true
+      ? { call_transcripts: form.callTranscripts ?? false }
+      : {};
+  if (!everSet) {
+    return {
+      ok: true,
+      settings: { dnd: form.dnd, quiet_hours: null, ...afterCall, ...transcripts },
+    };
+  }
   const start = normalizeClock(form.start);
   if (start === undefined) return { ok: false, field: 'start' };
   const end = normalizeClock(form.end);
@@ -72,6 +87,7 @@ export function settingsFromForm(
     settings: {
       dnd: form.dnd,
       ...afterCall,
+      ...transcripts,
       quiet_hours: { enabled: form.quietEnabled, start, end, tz: timeZone },
     },
   };

@@ -44,6 +44,8 @@ export type QuietHours = z.infer<typeof quietHoursSchema>;
 export const ringSettingsSchema = z.object({
   dnd: z.boolean(),
   after_call_result: z.enum(['ring', 'message']).optional(),
+  /** Each call's transcript goes on its card in the agent's chat (ADR-050). Off when absent. */
+  call_transcripts: z.boolean().optional(),
   quiet_hours: quietHoursSchema.nullable(),
 });
 export type RingSettings = z.infer<typeof ringSettingsSchema>;

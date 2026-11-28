@@ -256,6 +256,25 @@ describe('cord api client', () => {
     expect(calls[0]?.init.body).toBe(JSON.stringify({ rating: 2, issues: ['slow'], note: 'late' }));
   });
 
+  it('sends a call transcript and maps a gone or private call', async () => {
+    const answers = [
+      json(200, { sent: true }),
+      json(404, { error: { code: 'not_found', message: 'gone', request_id: 'r1' } }),
+      json(409, { error: { code: 'not_supported', message: 'private', request_id: 'r2' } }),
+      json(500, { error: { code: 'internal', message: 'oops', request_id: 'r3' } }),
+    ];
+    const { api, calls } = client(() => Promise.resolve(answers.shift() ?? json(500, {})));
+    expect(await api.sendCallTranscript('call_abcdefghij0123456789')).toBe('sent');
+    expect(calls[0]?.url).toBe(
+      'https://api.cord.invalid/v1/calls/call_abcdefghij0123456789/transcript',
+    );
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(calls[0]?.init.body).toBeUndefined();
+    expect(await api.sendCallTranscript('call_abcdefghij0123456789')).toBe('gone');
+    expect(await api.sendCallTranscript('call_abcdefghij0123456789')).toBe('private');
+    await expect(api.sendCallTranscript('call_abcdefghij0123456789')).rejects.toThrow();
+  });
+
   it('sends the app version with each request, so feedback says which build it came from', async () => {
     const calls: { init: RequestInit }[] = [];
     const api = createTwringApi({
