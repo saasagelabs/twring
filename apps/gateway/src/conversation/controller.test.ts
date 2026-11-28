@@ -5539,6 +5539,48 @@ describe('captions in step with speech (ADR-050)', () => {
     agent.done();
     await flushMicrotasks();
     expect(texts().at(-1)).toBe(heard);
+    // The caller commits a turn: the cut answer stays on what they heard.
+    conversation.userTurn('what about tomorrow');
+    await flushMicrotasks();
+    expect(texts()).not.toContain(reply);
+  });
+
+  it('noise over a finished answer shows the whole answer, since it never resumes', async () => {
+    const reply = 'one two three four five six seven eight nine ten ';
+    const { conversation, speech, scheduler, texts, of, agent } = await speaking(reply);
+    agent.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000);
+    scheduler.advance(150);
+    conversation.userSpeechStarted();
+    conversation.userPartial('hang on a second please');
+    expect(texts().at(-1)).toBe('one two three ');
+    conversation.userSpeechDiscarded(); // it was only noise
+    expect(of('agent_text').at(-1)).toMatchObject({ text: reply, final: true });
+    // Once only: later noise sends nothing more.
+    const count = texts().length;
+    conversation.userSpeechStarted();
+    conversation.userSpeechDiscarded();
+    expect(texts()).toHaveLength(count);
+    expect(scheduler.pending).toBe(0);
+  });
+
+  it('real words over a finished answer keep it on what was heard', async () => {
+    const reply = 'one two three four five six seven eight nine ten ';
+    const { conversation, speech, scheduler, texts, agent } = await speaking(reply);
+    agent.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000);
+    scheduler.advance(150);
+    conversation.userSpeechStarted();
+    conversation.userPartial('hang on a second please');
+    conversation.userTurn('hang on a second please');
+    await flushMicrotasks();
+    conversation.userSpeechStarted();
+    conversation.userSpeechDiscarded();
+    expect(texts()).not.toContain(reply);
   });
 
   it('close() leaves no caption timer behind', async () => {

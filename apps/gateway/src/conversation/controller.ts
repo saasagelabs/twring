@@ -527,6 +527,11 @@ export class ConversationController {
   private pendingBargeIn: { startedAt: number; onsetAt: number | undefined } | undefined;
   private utterance: Utterance | undefined;
   private heldShort: HeldShortTurn | undefined;
+  /**
+   * A finished turn the caller talked over, still captioned with what they heard. If their speech
+   * proves to be noise, its whole text follows: it never resumes, so its text is all they get.
+   */
+  private cutReply: Turn | undefined;
   /** Generations still playing, or still in their echo tail (echo window). */
   private generations: SpokenGeneration[] = [];
   /** The last answer that played out in full, for the after-tail echo evidence. */
@@ -689,6 +694,9 @@ export class ConversationController {
     this.userSpeaking = false;
     if (this.turn !== undefined) this.releaseHeldSpeech(this.turn);
     this.updateFloor();
+    const cut = this.cutReply;
+    this.cutReply = undefined;
+    if (cut !== undefined && !this.closed) this.sendText(cut, true, 'whole');
   }
 
   /** The caller holds the floor: talking, and not a barge-in still waiting to prove it is not echo. */
@@ -817,6 +825,7 @@ export class ConversationController {
       this.pendingBargeIn = undefined;
       this.speechStartedAt = undefined;
       this.userSpeaking = false;
+      this.cutReply = undefined;
       this.handleApprovalSpeech(text, spokenFrom);
       this.updateFloor();
       return;
@@ -826,6 +835,8 @@ export class ConversationController {
     const startedAt = this.speechStartedAt ?? this.wallClock();
     this.speechStartedAt = undefined;
     this.userSpeaking = false;
+    // The caller said something: the answer they cut stays on what they heard.
+    this.cutReply = undefined;
     const held = this.heldShort;
     if (held === undefined && cut) {
       // ADR-017: a barge-in is often only "stop", or a clipped first word; the cut is done already.
@@ -1374,6 +1385,7 @@ export class ConversationController {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.cutReply = undefined;
     this.clearHeldShort();
     this.clearHangup();
     this.dropQueued('call_ended');
@@ -1919,6 +1931,7 @@ export class ConversationController {
     // Played out (or never spoken): the whole reply, for good, and in the transcript.
     this.sendText(turn, true);
     this.recordAgent(turn, false);
+    this.cutReply = turn.muted && this.callerHasFloor ? turn : undefined;
     const queued = this.queued;
     if (queued !== undefined && !this.closed) {
       // ADR-026: what the owner said while the agent worked goes now (or with their next words, if
