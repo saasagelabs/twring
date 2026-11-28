@@ -103,10 +103,25 @@ export function routeLabel(output: AudioOutput): string {
   }
 }
 
+/** The one line the call screen shows when a switch did not land (the sound stayed elsewhere). */
+export function routeFailureText(failed: AudioOutput): string {
+  if (failed === 'speaker' || failed === 'earpiece') {
+    return `Couldn't switch to ${routeLabel(failed)}. Your headset is holding the sound, turn its Bluetooth off to switch.`;
+  }
+  return `Couldn't switch to ${routeLabel(failed)}.`;
+}
+
+/** Whether the sound really moved; `actual` is the OS read-back (null = none or unknown). */
+export type RouteResult = { ok: true } | { ok: false; actual: AudioOutput | null };
+
 export interface AudioRoutePlatform {
   /** Available outputs. Requires a started audio session. */
   list(): Promise<readonly string[]>;
-  select(output: AudioOutput): Promise<void>;
+  select(output: AudioOutput): Promise<RouteResult>;
+  /** The route the OS reports now; null when unknown (then always select). */
+  current?(): Promise<AudioOutput | null>;
+  /** Call end: drops the route this call set, unless a newer call has set one since. */
+  release?(): Promise<void>;
   /**
    * Calls `onChange` whenever the platform's routes change (Android AudioDeviceCallback, iOS
    * routeChangeNotification), screen off included. Undefined when the native module is missing:
@@ -117,12 +132,19 @@ export interface AudioRoutePlatform {
 
 export interface AudioRouteState {
   outputs: readonly AudioOutput[];
+  /** The route the sound is really on, as far as Twring knows (verified on Android 12+). */
   current?: AudioOutput;
+  /** The last switch that did not land; cleared by the next one that does. */
+  failed?: AudioOutput;
 }
+
+/** Wait before the one retry of an automatic switch to speaker, phone or wired that did not land. */
+export const ROUTE_RETRY_MS = 500;
 
 /**
  * Tracks and switches the call's audio output. Route changes never touch the call itself (no
  * reconnect): only the audio session's output moves. Calls are serialized so a poll can't undo a tap.
+ * The state shows the route the platform confirmed, never one it only asked for.
  */
 export class AudioRoutes {
   private state: AudioRouteState = { outputs: [] };
@@ -131,6 +153,12 @@ export class AudioRoutes {
   private queue: Promise<void> = Promise.resolve();
   /** Bumped by reset(); work queued or in flight from an older call never selects or sets state. */
   private generation = 0;
+  private retryTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
+   * A phone call holds the audio (hold() until restore()). Route events then report Telecom's
+   * device, so refreshes neither select nor adopt it; restore() applies the route afterwards.
+   */
+  private held = false;
   private readonly listeners = new Set<() => void>();
 
   constructor(
@@ -147,52 +175,143 @@ export class AudioRoutes {
 
   /** Re-reads the outputs and applies the automatic policy. */
   refresh(): Promise<void> {
-    return this.enqueue(async (live) => {
-      const listed = await this.platform.list();
-      if (!live()) return;
-      const outputs = parseOutputs(listed);
-      const current = nextRoute(this.state.outputs, outputs, this.state.current, this.manual);
-      if (current !== undefined && current !== this.state.current) {
-        await this.platform.select(current);
-      }
-      if (!live()) return;
-      if (current !== this.state.current) this.manual = false;
-      this.set({ outputs, ...(current !== undefined && { current }) });
-    });
+    return this.enqueue((live) => (this.held ? Promise.resolve() : this.apply(live)));
+  }
+
+  /** A phone call took the audio: stop route writes and retries until restore(). */
+  hold(): void {
+    this.held = true;
+    this.cancelRetry();
   }
 
   /** The caller picked an output. */
   choose(output: AudioOutput): Promise<void> {
+    this.cancelRetry();
     return this.enqueue(async (live) => {
       if (!this.state.outputs.includes(output)) return;
-      await this.platform.select(output);
+      const result = await this.platform.select(output);
       if (!live()) return;
+      if (!result.ok) {
+        this.fail(output, result.actual);
+        return;
+      }
+      this.cancelRetry();
       this.manual = true;
-      this.set({ ...this.state, current: output });
+      this.set({ outputs: this.state.outputs, current: output });
     });
   }
 
   /**
    * Applies the current output again, e.g. after a phone call took the audio away. Re-reads the
-   * outputs first so a device that left meanwhile falls back like any other change.
+   * outputs first so a device that left meanwhile falls back like any other change. Always selects,
+   * even when the OS reads back the same route: Telecom may have closed the link underneath it.
    */
   restore(): Promise<void> {
+    this.held = false;
+    this.cancelRetry();
     return this.enqueue(async (live) => {
       const outputs = parseOutputs(await this.platform.list());
       if (!live()) return;
       const current = nextRoute(this.state.outputs, outputs, this.state.current, this.manual);
-      if (current !== undefined) await this.platform.select(current);
+      if (current === undefined) {
+        this.set({ outputs });
+        return;
+      }
+      const result = await this.platform.select(current);
       if (!live()) return;
       if (current !== this.state.current) this.manual = false;
-      this.set({ outputs, ...(current !== undefined && { current }) });
+      if (!result.ok) {
+        const actual = result.actual ?? this.state.current;
+        this.set({ outputs, ...(actual !== undefined && { current: actual }) });
+        return;
+      }
+      this.set({ outputs, current });
     });
   }
 
-  /** Forget everything when the call ends. */
+  /**
+   * Forget everything when the call ends. The platform release runs after any select still in
+   * flight, so the ending call's device is cleared and the next call's first refresh is never undone.
+   */
   reset(): void {
     this.generation += 1;
     this.manual = false;
+    this.held = false;
+    this.cancelRetry();
     this.set({ outputs: [] });
+    if (this.platform.release === undefined) return;
+    this.queue = this.queue
+      .then(() => this.platform.release?.())
+      .catch((error: unknown) => {
+        this.onError(error instanceof Error ? error.message : 'route release failed');
+      });
+  }
+
+  /** One refresh; `retry` is the target of a switch that did not land, tried once more. */
+  private async apply(live: () => boolean, retry?: AudioOutput): Promise<void> {
+    const listed = await this.platform.list();
+    if (!live() || this.held) return;
+    const outputs = parseOutputs(listed);
+    // A manual choice made after the retry was scheduled wins over it.
+    const current =
+      retry !== undefined && !this.manual && outputs.includes(retry)
+        ? retry
+        : nextRoute(this.state.outputs, outputs, this.state.current, this.manual);
+    if (current === undefined) {
+      if (this.state.current !== undefined) this.manual = false;
+      this.set({ outputs });
+      return;
+    }
+    if (current === this.state.current && !(await this.offRoute(current))) {
+      if (!live()) return;
+      this.set({ outputs, current });
+      return;
+    }
+    if (!live()) return;
+    const result = await this.platform.select(current);
+    if (!live()) return;
+    if (current !== this.state.current) this.manual = false;
+    if (result.ok) {
+      this.cancelRetry();
+      this.set({ outputs, current });
+      return;
+    }
+    const actual = result.actual ?? this.state.current;
+    this.set({ outputs, ...(actual !== undefined && { current: actual }) });
+    if (current === 'bluetooth') return;
+    if (retry === undefined) this.scheduleRetry(current);
+    else this.fail(current, result.actual);
+  }
+
+  /** The OS reads back another route than `wanted`. Unknown (null) trusts the JS state. */
+  private async offRoute(wanted: AudioOutput): Promise<boolean> {
+    if (this.platform.current === undefined) return false;
+    const actual = await this.platform.current();
+    return actual !== null && actual !== wanted;
+  }
+
+  private cancelRetry(): void {
+    if (this.retryTimer !== undefined) clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
+  }
+
+  private scheduleRetry(target: AudioOutput): void {
+    this.cancelRetry();
+    const generation = this.generation;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (generation !== this.generation) return;
+      void this.enqueue((live) => this.apply(live, target));
+    }, ROUTE_RETRY_MS);
+  }
+
+  private fail(output: AudioOutput, actual: AudioOutput | null): void {
+    const current = actual ?? this.state.current;
+    this.set({
+      outputs: this.state.outputs,
+      ...(current !== undefined && { current }),
+      failed: output,
+    });
   }
 
   private enqueue(task: (live: () => boolean) => Promise<void>): Promise<void> {

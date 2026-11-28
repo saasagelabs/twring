@@ -76,7 +76,7 @@ describe('CallRuntime with a failing REST agent', () => {
     ['a 404 (wrong path)', 'status404'],
   ])('%s fails the turn but never ends the call; the next turn is answered', async (_n, kind) => {
     let turns = 0;
-    const { transport, stt, ended } = await call({
+    const { transport, stt, tts, ended } = await call({
       script: async (_turn, ctx) => {
         turns += 1;
         if (turns === 1) {
@@ -100,6 +100,11 @@ describe('CallRuntime with a failing REST agent', () => {
     stt.send({ type: 'turn_ended', turnIndex: 0, text: 'first' });
     await vi.waitFor(() => expect(notices(transport)).toContain('agent_failed'));
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'second' });
+    // Play the answer out, as the caller would hear it, so its text is shown.
+    await vi.waitFor(() => expect(tts.calls.at(-1)).toMatch(/^flush gen_\d+$/));
+    const gen = tts.calls.at(-1)!.slice(6);
+    tts.send({ type: 'audio', generationId: gen, bytes: speech() });
+    tts.send({ type: 'done', generationId: gen });
     await vi.waitFor(() => expect(finalTexts(transport)).toContain('turn_2'));
     expect(ended).toEqual([]);
     expect(notices(transport)).not.toContain('agent_not_streaming');

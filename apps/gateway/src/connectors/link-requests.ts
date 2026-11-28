@@ -1,5 +1,4 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { isIPv4, isIPv6 } from 'node:net';
 
 import type { LinkAgent, LinkApproveResponse, LinkPollResponse } from '@twring/contracts';
 
@@ -15,34 +14,6 @@ export const MAX_OPEN_LINKS_PER_IP = 5;
 const FINISHED_RETENTION_MS = 10 * 60_000;
 /** An approval may go to the same poll token again this long (its first delivery was lost). */
 export const REDELIVERY_MS = 60_000;
-
-/**
- * The key per-address limits count under: the whole address for IPv4 (IPv4-mapped IPv6 included),
- * the /64 for IPv6, since one host is usually handed a whole /64 to pick addresses from.
- */
-export function ipKey(ip: string): string {
-  const address = ip.trim().replace(/%.*$/, '').toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(address)?.[1];
-  if (mapped !== undefined && isIPv4(mapped)) return mapped;
-  if (!isIPv6(address)) return address;
-  let text = address;
-  // A dotted tail (`::1.2.3.4`) is the last two groups.
-  const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(text);
-  if (dotted !== null) {
-    const [a = 0, b = 0, c = 0, d = 0] = dotted.slice(1).map(Number);
-    const hex = (hi: number, lo: number) => ((hi << 8) | lo).toString(16);
-    text = `${text.slice(0, dotted.index)}${hex(a, b)}:${hex(c, d)}`;
-  }
-  const [head = '', tail] = text.split('::');
-  const left = head === '' ? [] : head.split(':');
-  const right = tail === undefined || tail === '' ? [] : tail.split(':');
-  const groups =
-    tail === undefined
-      ? left
-      : [...left, ...Array<string>(8 - left.length - right.length).fill('0'), ...right];
-  const prefix = groups.slice(0, 4).map((g) => Number.parseInt(g, 16).toString(16));
-  return `${prefix.join(':')}::/64`;
-}
 
 // eslint-disable-next-line no-control-regex -- stripping control characters is the point
 const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069\u2028\u2029]/g;

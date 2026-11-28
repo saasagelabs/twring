@@ -106,6 +106,9 @@ describe('CallRuntime with a REST + SSE agent', () => {
 
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'and again' });
     await vi.waitFor(() => expect(tts.calls.at(-1)).toBe('flush gen_2'));
+    tts.send({ type: 'audio', generationId: 'gen_2', bytes: speech() });
+    tts.send({ type: 'done', generationId: 'gen_2' });
+    await vi.waitFor(() => expect(floors(transport).at(-1)).toBe('listening'));
     expect(notices(transport)).toEqual(['agent_not_streaming']);
     const texts = transport.reliableStatuses.filter((m) => m.type === 'agent_text');
     expect(texts.at(-1)).toMatchObject({ turn_id: 'turn_2', final: true });
@@ -141,6 +144,9 @@ describe('CallRuntime with a REST + SSE agent', () => {
     await vi.waitFor(() => expect(tts.calls.some((c) => c.startsWith('speak gen_1 '))).toBe(true));
 
     stt.send({ type: 'turn_ended', turnIndex: 1, text: 'actually, something else' });
+    await vi.waitFor(() => expect(tts.calls.at(-1)).toBe('flush gen_2'));
+    tts.send({ type: 'audio', generationId: 'gen_2', bytes: speech() });
+    tts.send({ type: 'done', generationId: 'gen_2' });
     await vi.waitFor(() =>
       expect(transport.reliableStatuses).toContainEqual(
         expect.objectContaining({ type: 'agent_text', turn_id: 'turn_2', final: true }),

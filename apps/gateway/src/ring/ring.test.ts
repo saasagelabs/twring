@@ -274,7 +274,12 @@ describe('ringing', () => {
     const g = await gateway();
     const { token } = await setupAgent(g);
     const defaults = await g.send('GET', '/v1/me/ring-settings', { user: 'alice' });
-    expect(defaults.json()).toEqual({ dnd: false, quiet_hours: null, after_call_result: 'ring' });
+    expect(defaults.json()).toEqual({
+      dnd: false,
+      quiet_hours: null,
+      after_call_result: 'ring',
+      call_transcripts: false,
+    });
 
     await g.send('PUT', '/v1/me/ring-settings', {
       user: 'alice',

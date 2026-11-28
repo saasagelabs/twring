@@ -8,7 +8,12 @@ import { FakeSttProvider, FakeTtsProvider, fakeSocketFactory } from '../voice/te
 
 import { builtInAgentFactory } from './agents';
 import { CALL_TIMEOUTS } from './limits';
-import { CallRuntime, type CallRuntimeOptions, type EndReason } from './runtime';
+import {
+  CallRuntime,
+  MAX_SPEECH_BACKLOG_FRAMES,
+  type CallRuntimeOptions,
+  type EndReason,
+} from './runtime';
 import {
   FakeTransport,
   ManualScheduler,
@@ -44,6 +49,29 @@ function setup(ownKeyProviders?: CallRuntimeOptions['ownKeyProviders']) {
     onEnded: ({ reason, failed }) => ended.push({ reason, failed }),
   });
   return { runtime, transport, scheduler, logger, stt, tts, ended };
+}
+
+/** One second of 48 kHz audio whose samples all carry `value`, to check order after playout. */
+const secondOf = (value: number) => new Uint8Array(new Int16Array(48_000).fill(value).buffer);
+
+/**
+ * Holds the first published frame, as real-time playout does while the rest of an answer
+ * arrives. Every later frame publishes at once. Returns the release.
+ */
+function holdFirstPublish(transport: FakeTransport): () => void {
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const publish = transport.publishFrame.bind(transport);
+  let first = true;
+  transport.publishFrame = (samples: Int16Array) => {
+    if (!first) return publish(samples);
+    first = false;
+    transport.published.push(samples);
+    return held;
+  };
+  return () => release();
 }
 
 /** A factory that hands the runtime this exact adapter. */
@@ -153,13 +181,8 @@ describe('CallRuntime conversation (repeat agent)', () => {
       { ...base, type: 'caption', turn_index: 0, text: 'hello', final: false },
       { ...base, type: 'caption', turn_index: 0, text: 'hello world', final: true },
       { ...base, type: 'floor', seq: 2, floor: 'agent_working', turn_id: 'turn_1' },
-      {
-        ...base,
-        type: 'agent_text',
-        turn_id: 'turn_1',
-        text: 'You said: hello world',
-        final: false,
-      },
+      { ...base, type: 'floor', seq: 3, floor: 'agent_speaking', turn_id: 'turn_1' },
+      // Captions follow the voice (ADR-050): the reply shows once heard, whole once played out.
       {
         ...base,
         type: 'agent_text',
@@ -167,7 +190,6 @@ describe('CallRuntime conversation (repeat agent)', () => {
         text: 'You said: hello world',
         final: true,
       },
-      { ...base, type: 'floor', seq: 3, floor: 'agent_speaking', turn_id: 'turn_1' },
       { ...base, type: 'floor', seq: 4, floor: 'listening' },
     ]);
     const names = logger.names();
@@ -198,6 +220,51 @@ describe('CallRuntime conversation (repeat agent)', () => {
     tts.send({ type: 'done', generationId: 'gen_1' });
     await flushMicrotasks();
     expect(transport.published).toHaveLength(150);
+  });
+
+  it('an answer longer than a minute plays whole and in order, though it arrives far faster than playout', async () => {
+    const { transport, stt, tts } = await started();
+    stt.send({ type: 'turn_ended', turnIndex: 0, text: 'long' });
+    await flushMicrotasks();
+    // Real playout holds the first frame while the rest arrives: Cartesia streams about 13 times
+    // faster than real time, so a long answer is queued within seconds. Cutting the oldest audio
+    // off a full queue skipped what the caller was about to hear (garbled answers, 2026-11-28).
+    const release = holdFirstPublish(transport);
+    const seconds = 90;
+    for (let second = 1; second <= seconds; second += 1) {
+      tts.send({ type: 'audio', generationId: 'gen_1', bytes: secondOf(second) });
+    }
+    tts.send({ type: 'done', generationId: 'gen_1' });
+    await flushMicrotasks();
+    release();
+    await flushMicrotasks();
+    const heard = transport.published.map((frame) => frame[0]);
+    expect(heard).toEqual(Array.from({ length: seconds * 50 }, (_, i) => Math.floor(i / 50) + 1));
+  });
+
+  it('past the speech cap the newest audio is dropped, never the start, and the answer still ends', async () => {
+    const { transport, stt, tts, logger } = await started();
+    stt.send({ type: 'turn_ended', turnIndex: 0, text: 'runaway' });
+    await flushMicrotasks();
+    const release = holdFirstPublish(transport);
+    const capSeconds = MAX_SPEECH_BACKLOG_FRAMES / 50;
+    for (let second = 1; second <= capSeconds + 30; second += 1) {
+      tts.send({ type: 'audio', generationId: 'gen_1', bytes: secondOf(second) });
+    }
+    tts.send({ type: 'done', generationId: 'gen_1' });
+    await flushMicrotasks();
+    release();
+    await flushMicrotasks();
+    const heard = transport.published.map((frame) => frame[0]);
+    // Everything up to the cap plays in order from the very first second; only the end is lost.
+    expect(heard.length).toBeGreaterThanOrEqual(MAX_SPEECH_BACKLOG_FRAMES - 1);
+    expect(heard.length).toBeLessThanOrEqual(MAX_SPEECH_BACKLOG_FRAMES + 1);
+    expect(heard).toEqual(Array.from({ length: heard.length }, (_, i) => Math.floor(i / 50) + 1));
+    const full = logger.events.filter((e) => e.fields.event === 'speech_backlog_full');
+    expect(full).toHaveLength(1);
+    expect(full[0]?.level).toBe('warn');
+    // The answer's end-of-playback marker survived: the floor goes back to the caller.
+    expect(floorsOf(transport).at(-1)).toBe('listening');
   });
 
   it('drops late audio from a replaced generation', async () => {

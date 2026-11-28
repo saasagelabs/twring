@@ -82,6 +82,7 @@ function fakeApi() {
     deleteAgent: vi.fn<TwringApi['deleteAgent']>(),
     callHistory: vi.fn<TwringApi['callHistory']>(),
     sendCallFeedback: vi.fn<TwringApi['sendCallFeedback']>(),
+    sendCallTranscript: vi.fn<TwringApi['sendCallTranscript']>(),
     sendAppFeedback: vi.fn(() => Promise.resolve()),
     deleteMyData: vi.fn<TwringApi['deleteMyData']>(),
     usage: vi.fn<TwringApi['usage']>(),

@@ -37,6 +37,7 @@ import {
   RING_EXIT,
   MESSAGE_EXIT,
   cancelLastRing,
+  ringForTool,
   ringOwner,
   sendMessage,
   type FetchFn,
@@ -563,6 +564,24 @@ describe('cord-connect ring', () => {
     const out = await ring(gw.fetch, true);
     expect(out.lines).toEqual([message]);
     expect(out.code).toBe(RING_EXIT.refused);
+  });
+
+  it('the MCP tool keeps the refusal reason and says ringing without wait', async () => {
+    const message = "Do Not Disturb or quiet hours is on, so your phone won't ring.";
+    const refused = gateway(
+      json(409, { error: { code: 'owner_unavailable', message, request_id: 'r' } }),
+    );
+    expect(
+      await ringForTool(config(), { reason: 'Hi', wait: true }, { fetch: refused.fetch }),
+    ).toBe(`refused: ${message}`);
+    const ok = gateway(created());
+    expect(await ringForTool(config(), { reason: 'Hi', wait: false }, { fetch: ok.fetch })).toBe(
+      'ringing',
+    );
+    const missed = gateway(created(), [json(200, { status: 'missed' })]);
+    expect(await ringForTool(config(), { reason: 'Hi', wait: true }, { fetch: missed.fetch })).toBe(
+      'missed',
+    );
   });
 
   it('an unknown --agent is an error before any request', async () => {

@@ -2,7 +2,7 @@ import { accessResponseSchema, inviteRedeemRequestSchema, type ErrorCode } from 
 import type { FastifyInstance, FastifyReply } from 'fastify';
 
 import type { ProfileResolver, UserResolver } from '../auth';
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 import { addToWaitlist, type WaitlistRoutesOptions } from '../waitlist/routes';
 import type { InviteService } from './invites';
 
@@ -82,7 +82,7 @@ export function registerInviteRoutes(app: FastifyInstance, options: InviteRoutes
 
   app.post('/v1/me/invite', async (request, reply) => {
     const userId = options.userFor(request);
-    if (!userLimiter.tryAcquire(userId) || !ipLimiter.tryAcquire(request.ip))
+    if (!userLimiter.tryAcquire(userId) || !ipLimiter.tryAcquire(ipKey(request.ip)))
       return error(reply, 429, 'rate_limited', 'Too many requests. Try again later.');
     const parsed = inviteRedeemRequestSchema.safeParse(request.body);
     if (!parsed.success) return error(reply, 400, 'bad_request', 'The request was not valid.');

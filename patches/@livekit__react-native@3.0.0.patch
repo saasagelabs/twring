@@ -25,3 +25,123 @@ index a54aa27ea78b3c73fe38a0f1f75e75b699dd2e50..d779bf163a09aea41cf20db89087ec80
  
          adm = JavaAudioDeviceModule.builder(context)
              .setUseHardwareAcousticEchoCanceler(useHardwareAudioProcessing)
+diff --git a/android/src/main/java/com/livekit/reactnative/audio/AudioSwitchManager.java b/android/src/main/java/com/livekit/reactnative/audio/AudioSwitchManager.java
+index 0e96a261a7c67b485d0e0994b49e4327ede5b070..2dd7d1f5e1ca11f786563562c0bb8578355b34a8 100644
+--- a/android/src/main/java/com/livekit/reactnative/audio/AudioSwitchManager.java
++++ b/android/src/main/java/com/livekit/reactnative/audio/AudioSwitchManager.java
+@@ -2,7 +2,9 @@ package com.livekit.reactnative.audio;
+ 
+ import android.content.Context;
+ import android.media.AudioAttributes;
++import android.media.AudioFocusRequest;
+ import android.media.AudioManager;
++import android.os.Build;
+ import android.os.Handler;
+ import android.os.Looper;
+ 
+@@ -113,6 +115,21 @@ public class AudioSwitchManager {
+      */
+     private boolean forceHandleAudioRouting = false;
+ 
++    // Twring: on Android 12+ (API 31) Twring's own audio route module is the only writer of the
++    // call audio route (setCommunicationDevice). AudioSwitch's setSpeakerphoneOn and
++    // start/stopBluetoothSco raced it and could leave Bluetooth SCO stuck, so on S+ AudioSwitch is
++    // never created: this class keeps audio focus, call mode and mic mute only. See ADR-049 in
++    // Twring's docs/DECISIONS.md.
++    private int savedAudioMode = AudioManager.MODE_NORMAL;
++    private boolean savedMicrophoneMute = false;
++    private boolean twringSessionActive = false;
++    @Nullable
++    private AudioFocusRequest twringFocusRequest;
++
++    private static boolean twringRoutesAudio() {
++        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S;
++    }
++
+     public AudioSwitchManager(@NonNull Context context) {
+         this.context = context;
+         this.audioManager = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+@@ -125,6 +142,10 @@ public class AudioSwitchManager {
+     }
+ 
+     public void start() {
++        if (twringRoutesAudio()) {
++            startWithoutRouting();
++            return;
++        }
+         if (audioSwitch == null) {
+             handler.removeCallbacksAndMessages(null);
+             handler.postAtFrontOfQueue(() -> {
+@@ -148,6 +169,10 @@ public class AudioSwitchManager {
+     }
+ 
+     public void stop() {
++        if (twringRoutesAudio()) {
++            stopWithoutRouting();
++            return;
++        }
+         handler.removeCallbacksAndMessages(null);
+         handler.postAtFrontOfQueue(() -> {
+             if (audioSwitch != null) {
+@@ -157,6 +182,41 @@ public class AudioSwitchManager {
+         });
+     }
+ 
++    // Runs on the caller's thread so startAudioSession resolves only after the call mode is set.
++    private synchronized void startWithoutRouting() {
++        if (twringSessionActive) {
++            return;
++        }
++        twringSessionActive = true;
++        savedAudioMode = audioManager.getMode();
++        savedMicrophoneMute = audioManager.isMicrophoneMute();
++        audioManager.setMode(audioMode);
++        if (manageAudioFocus) {
++            AudioAttributes attributes = new AudioAttributes.Builder()
++                    .setUsage(audioAttributeUsageType)
++                    .setContentType(audioAttributeContentType)
++                    .build();
++            twringFocusRequest = new AudioFocusRequest.Builder(focusMode)
++                    .setAudioAttributes(attributes)
++                    .setOnAudioFocusChangeListener(audioFocusChangeListener)
++                    .build();
++            audioManager.requestAudioFocus(twringFocusRequest);
++        }
++    }
++
++    private synchronized void stopWithoutRouting() {
++        if (!twringSessionActive) {
++            return;
++        }
++        twringSessionActive = false;
++        audioManager.setMicrophoneMute(savedMicrophoneMute);
++        audioManager.setMode(savedAudioMode);
++        if (twringFocusRequest != null) {
++            audioManager.abandonAudioFocusRequest(twringFocusRequest);
++            twringFocusRequest = null;
++        }
++    }
++
+     public void setMicrophoneMute(boolean mute) {
+         audioManager.setMicrophoneMute(mute);
+     }
+@@ -182,6 +242,9 @@ public class AudioSwitchManager {
+     }
+ 
+     public void selectAudioOutput(@NonNull Class<? extends AudioDevice> audioDeviceClass) {
++        if (twringRoutesAudio()) {
++            return;
++        }
+         handler.post(() -> {
+             if (audioSwitch != null) {
+                 List<AudioDevice> devices = availableAudioDevices();
+@@ -202,6 +265,9 @@ public class AudioSwitchManager {
+     }
+ 
+     public void enableSpeakerphone(boolean enable) {
++        if (twringRoutesAudio()) {
++            return;
++        }
+         if (enable) {
+             audioManager.setSpeakerphoneOn(true);
+         } else {

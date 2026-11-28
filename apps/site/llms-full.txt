@@ -750,7 +750,7 @@ Twring handles the voice between you and your agent, and nothing more. It doesn'
 
 ### Your calls
 
-- No recordings. Twring listens only while a call is on, and never records or keeps your audio. It keeps no transcript of what was said on a call either: a call shows in your chat as a card with its time, length and outcome.
+- No recordings. Twring listens only while a call is on, and never records or keeps your audio. A call shows in your chat as a card with its time, length and outcome. A transcript of what was said is kept only if you turn it on, and never in a private chat.
 
 - Speech services. Call audio goes to a speech service (Deepgram) to become text, and your agent's reply goes to it to become speech. If you add your own xAI key, xAI does this for your calls only.
 

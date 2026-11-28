@@ -123,6 +123,7 @@ for (const [path, name] of [
   ['chat/Bubble', 'Bubble'],
   ['chat/ChatApproval', 'ChatApproval'],
   ['chat/CallCard', 'CallCard'],
+  ['chat/CallTranscript', 'CallTranscript'],
   ['chat/Composer', 'Composer'],
   ['chat/DateSeparator', 'DateSeparator'],
   ['chat/LinkSheet', 'LinkSheet'],

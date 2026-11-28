@@ -2,7 +2,7 @@ import { WAITLIST_MAX_ENTRIES, waitlistRequestSchema, type ErrorCode } from '@tw
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { z } from 'zod';
 
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 import type { Collection } from '../store/collection';
 import type { NewSignup } from './notify';
 
@@ -117,7 +117,7 @@ export function registerWaitlistRoutes(app: FastifyInstance, options: WaitlistRo
       },
     },
     async (request, reply) => {
-      if (!limiter.tryAcquire(request.ip)) {
+      if (!limiter.tryAcquire(ipKey(request.ip))) {
         return sendError(reply, 429, 'rate_limited', 'Too many requests. Try again later.');
       }
       const parsed = waitlistRequestSchema.safeParse(request.body);

@@ -7,6 +7,7 @@ import {
   type ConnectorEndpoint,
   callIdSchema,
   callFeedbackRequestSchema,
+  type SendCallTranscriptResponse,
   createCallRequestSchema,
   type CallSummary,
   type CreateCallResponse,
@@ -42,6 +43,13 @@ export interface CallRoutesOptions {
   /** Undefined when LiveKit is not configured (development only): call routes answer 503. */
   registry: CallRegistry | undefined;
   feedback?: FeedbackStore;
+  /** Sends a held call transcript to the chat (ADR-050). Absent: the route answers 404. */
+  transcripts?: {
+    sendCallTranscript(
+      userId: string,
+      callId: string,
+    ): Promise<'sent' | 'not_found' | 'not_supported'>;
+  };
   /** Counts calls refused before they start, for the daily report. */
   refusals?: Pick<RefusalCounter, 'count'>;
   /** Finds a finished call for feedback once the registry has dropped it (restart, pruning). */
@@ -438,6 +446,35 @@ export function registerCallRoutes(app: FastifyInstance, options: CallRoutesOpti
     });
     return { ok: true as const };
   });
+  app.post<{ Params: { callId: string } }>(
+    '/v1/calls/:callId/transcript',
+    async (request, reply): Promise<SendCallTranscriptResponse | FastifyReply> => {
+      const userId = userFor(request);
+      // Before any lookup: probing unknown call ids counts against the limit too.
+      if (!feedbackLimiter.tryAcquire(userId))
+        return sendError(
+          reply,
+          429,
+          'rate_limited',
+          'Too many requests. Wait a minute and try again.',
+        );
+      const callId = request.params.callId;
+      const result =
+        parseCallId(callId) && options.transcripts !== undefined
+          ? await options.transcripts.sendCallTranscript(userId, callId)
+          : 'not_found';
+      if (result === 'not_supported')
+        return sendError(
+          reply,
+          409,
+          'not_supported',
+          'Private chats do not keep call transcripts.',
+        );
+      if (result === 'not_found')
+        return sendError(reply, 404, 'not_found', 'That call transcript is no longer available.');
+      return { sent: true as const };
+    },
+  );
   app.post<{ Params: { callId: string; approvalId: string } }>(
     '/v1/calls/:callId/approvals/:approvalId',
     (request, reply): FastifyReply => {

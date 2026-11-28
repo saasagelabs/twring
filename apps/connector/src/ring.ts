@@ -684,3 +684,32 @@ export async function cancelLastRing(
   deps.print(outcomeLine(status === 'pending' ? 'cancelled' : status, note));
   return 0;
 }
+
+const TOOL_OUTCOMES: Partial<Record<number, string>> = {
+  [RING_EXIT.declined]: 'declined',
+  [RING_EXIT.missed]: 'missed',
+  [RING_EXIT.cancelled]: 'cancelled',
+};
+
+/**
+ * Rings for the local MCP tool and returns its one-line result. A refusal keeps the reason the
+ * server gave (Do Not Disturb, quiet hours, already ringing, the hourly limit) so the agent can
+ * tell the owner another way instead of retrying.
+ */
+export async function ringForTool(
+  config: ConnectorConfig,
+  options: RingOptions,
+  deps: Omit<RingDeps, 'print'> = {},
+): Promise<string> {
+  const lines: string[] = [];
+  const code = await ringOwner(config, options, { ...deps, print: (line) => lines.push(line) });
+  if (code === RING_EXIT.answered) return options.wait ? 'answered' : 'ringing';
+  if (code === RING_EXIT.refused) {
+    const reason = lines.at(-1)?.trim();
+    return reason ? `refused: ${reason}` : 'refused';
+  }
+  const outcome = TOOL_OUTCOMES[code];
+  if (outcome === undefined)
+    throw new Error('Could not ring your phone. Check the Twring connection.');
+  return outcome;
+}

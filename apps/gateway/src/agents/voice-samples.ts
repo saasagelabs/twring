@@ -6,7 +6,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { SAMPLE_RATE } from '../audio/pcm';
 import { devUserResolver, type UserResolver } from '../auth';
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 import { toSafeError } from '../redact';
 import { StoreCorruptError } from '../store/collection';
 import {
@@ -277,7 +277,7 @@ export function registerVoiceSampleRoutes(
     if (!isAllowedVoice(id) || (!offered && options.ownKeySample === undefined)) {
       return sendError(reply, 404, 'not_found', 'No such voice.');
     }
-    if (!limiter.tryAcquire(request.ip)) {
+    if (!limiter.tryAcquire(ipKey(request.ip))) {
       return sendError(
         reply,
         429,

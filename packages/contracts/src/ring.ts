@@ -245,6 +245,11 @@ export const ringSettingsSchema = z
   .object({
     dnd: z.boolean(),
     after_call_result: z.enum(['ring', 'message']).optional(),
+    /**
+     * Each call's transcript goes to the agent's chat, on the call's card (ADR-050). Off unless the
+     * person turns it on. A `PUT` without it keeps the stored value (older apps never send it).
+     */
+    call_transcripts: z.boolean().optional(),
     quiet_hours: z
       .object({
         enabled: z.boolean(),
@@ -262,6 +267,7 @@ export const DEFAULT_RING_SETTINGS: RingSettings = {
   dnd: false,
   quiet_hours: null,
   after_call_result: 'ring',
+  call_transcripts: false,
 };
 
 // Connector side

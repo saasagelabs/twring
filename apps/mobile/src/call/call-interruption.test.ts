@@ -33,6 +33,15 @@ describe('CallInterruption', () => {
     expect(target.calls).toEqual(['mute', 'route', 'unmute']);
   });
 
+  it('holds the route while the phone call has the audio', async () => {
+    const calls: string[] = [];
+    const target = { ...fakeTarget(), holdRoute: () => calls.push('hold') };
+    const interruption = new CallInterruption(target);
+    await interruption.handle('began');
+    await interruption.handle('began');
+    expect(calls).toEqual(['hold']);
+  });
+
   it('keeps the microphone muted afterwards when the caller had muted it', async () => {
     const target = fakeTarget(true);
     const interruption = new CallInterruption(target);
