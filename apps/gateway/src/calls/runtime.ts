@@ -6,6 +6,7 @@ import type {
   GatewayEndReason,
   ListeningProvider,
   SpeechProvider,
+  CallTranscript,
 } from '@twring/contracts';
 
 import {
@@ -152,7 +153,13 @@ export interface CallRuntimeOptions {
   agentTurnMaxMs?: number;
   /** USD rates for the usage cost estimate; absent or all 0 leaves the estimate out. */
   usageRates?: UsageRates;
-  onEnded?: (outcome: { reason: EndReason; failed: boolean; usage: CallUsage }) => void;
+  onEnded?: (outcome: {
+    reason: EndReason;
+    failed: boolean;
+    usage: CallUsage;
+    /** What was said (ADR-050), memory only: for the chat, never logged. */
+    transcript?: CallTranscript;
+  }) => void;
   /**
    * The call's first agent turn (an answered ring, ADR-024): sent once the gateway is ready and the
    * caller is in the room, so the agent speaks first.
@@ -372,7 +379,8 @@ export class CallRuntime {
     const usage = this.usage();
     // One line per call, counts and durations only (OBSERVABILITY_AND_SLOS §16): no transcript.
     this.log('call_usage', { reason, ...usage, ...this.diagnostics() });
-    this.options.onEnded?.({ reason, failed, usage });
+    const transcript = this.conversation?.transcript();
+    this.options.onEnded?.({ reason, failed, usage, ...(transcript && { transcript }) });
   }
 
   /** Sends the opening turn once: gateway ready, conversation up, and the caller in the room. */

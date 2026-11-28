@@ -640,6 +640,7 @@ export function buildApp(options: BuildAppOptions): FastifyInstance {
       onError,
       feedback,
       ...(agents?.stores !== undefined && { history: agents.stores.history }),
+      ...(threads && { transcripts: threads.service }),
     });
   }
   if (ring !== undefined) {

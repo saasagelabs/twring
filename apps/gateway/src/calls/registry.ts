@@ -7,6 +7,7 @@ import type {
   CallUsage,
   CallSummary,
   CreateCallResponse,
+  CallTranscript,
 } from '@twring/contracts';
 
 import { toSafeError } from '../redact';
@@ -86,7 +87,10 @@ export interface CallRegistryOptions {
    */
   speaksServerXai?: boolean;
   /** Where saved-agent calls leave their summary when they end. */
-  history?: CallHistoryRepository;
+  history?: Omit<CallHistoryRepository, 'record'> & {
+    /** `transcript` (ADR-050) is for the chat only; the history store never keeps it. */
+    record(userId: string, item: CallHistoryItem, transcript?: CallTranscript): Promise<void>;
+  };
   /**
    * Told when a call with an owner finishes, with its length, for the daily allowance. Shutdown
    * waits (bounded) for the returned promise, as for history.
@@ -667,10 +671,10 @@ export class CallRegistry {
           );
         });
       },
-      onEnded: ({ failed, reason, usage }) => {
+      onEnded: ({ failed, reason, usage, transcript }) => {
         record.status = failed ? 'failed' : 'ended';
         record.endedAt = this.now();
-        this.recordHistory(record, failed, reason, usage);
+        this.recordHistory(record, failed, reason, usage, transcript);
         this.recordFinished(record);
         delete record.answer;
         // A replaced call nobody ever joined was never had: its daily count goes back, so the
@@ -703,25 +707,30 @@ export class CallRegistry {
     failed: boolean,
     reason: EndReason,
     usage: CallUsage,
+    transcript?: CallTranscript,
   ): void {
     const { agent, endedAt } = record;
     const { history, logger } = this.options;
     if (agent === undefined || history === undefined || endedAt === undefined) return;
     const write = history
-      .record(agent.userId, {
-        call_id: record.ids.callId,
-        agent_id: agent.agentId,
-        agent_name: agent.agentName,
-        started_at: record.createdAt.toISOString(),
-        duration_s: Math.max(
-          0,
-          Math.round((endedAt.getTime() - record.createdAt.getTime()) / 1000),
-        ),
-        outcome: failed ? 'failed' : 'completed',
-        end_reason: publicEndReason(reason),
-        usage,
-        ...(record.speechSource && { speech_source: record.speechSource }),
-      })
+      .record(
+        agent.userId,
+        {
+          call_id: record.ids.callId,
+          agent_id: agent.agentId,
+          agent_name: agent.agentName,
+          started_at: record.createdAt.toISOString(),
+          duration_s: Math.max(
+            0,
+            Math.round((endedAt.getTime() - record.createdAt.getTime()) / 1000),
+          ),
+          outcome: failed ? 'failed' : 'completed',
+          end_reason: publicEndReason(reason),
+          usage,
+          ...(record.speechSource && { speech_source: record.speechSource }),
+        },
+        transcript,
+      )
       .catch((error: unknown) => {
         logger.warn(
           { event: 'call_history_failed', call_id: record.ids.callId, err: toSafeError(error) },

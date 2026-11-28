@@ -12,6 +12,7 @@ import {
   SEALED_CHAT_FEATURE,
   SEALED_FILES_FEATURE,
   SEALED_WORKING_FEATURE,
+  type CallTranscript,
 } from '@twring/contracts';
 
 import { statfs, writeFile } from 'node:fs/promises';
@@ -365,9 +366,13 @@ const calls: LiveKitCalls | undefined =
     ...xaiCallVoice,
     ...(stores && {
       history: {
-        record: async (userId: string, item: Parameters<typeof stores.history.record>[1]) => {
+        record: async (
+          userId: string,
+          item: Parameters<typeof stores.history.record>[1],
+          transcript?: CallTranscript,
+        ) => {
           await stores.history.record(userId, item);
-          if (threadService) await threadService.recordCall(userId, item);
+          if (threadService) await threadService.recordCall(userId, item, transcript);
         },
         list: (userId: string, limit: number) => stores.history.list(userId, limit),
         usageRollup: (userId: string, sinceDay?: string) =>

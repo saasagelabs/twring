@@ -8,6 +8,7 @@ import {
   type MessagePush,
   type ThreadSocketFrame,
   type UserTurn,
+  CALL_TRANSCRIPT_HOLD_MS,
 } from '@twring/contracts';
 import { apnsRequestFor, redactMessagePush } from '@twring/push';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -386,6 +387,82 @@ describe('call history in threads', () => {
     await service.recordCall('owner', { ...finished, kind: 'missed_invite' });
     expect((await store.listMessages('owner', agent, { limit: 10 })).messages).toEqual([]);
     expect(frames).toEqual([]);
+  });
+});
+describe('call transcripts in threads (ADR-050)', () => {
+  const callId = `call_${'b'.repeat(20)}`;
+  const finished: CallHistoryItem = {
+    call_id: callId,
+    agent_id: agent,
+    agent_name: 'Agent',
+    started_at: '2026-10-13T10:00:00.000Z',
+    duration_s: 30,
+    outcome: 'completed',
+    end_reason: 'hangup',
+  };
+  const transcript = {
+    lines: [
+      { who: 'you' as const, text: 'is the build green' },
+      { who: 'agent' as const, text: 'Yes, all green.' },
+    ],
+  };
+  const ringWith = (callTranscripts: boolean) =>
+    ({
+      settings: () =>
+        Promise.resolve({ dnd: false, quiet_hours: null, call_transcripts: callTranscripts }),
+    }) as unknown as RingService;
+  const card = async (store: SqliteThreadStore) => {
+    const rows = (await store.listMessages('owner', agent, { limit: 10 })).messages;
+    const found = rows.find((row) => row.kind === 'call');
+    return found?.kind === 'call' ? found : undefined;
+  };
+
+  it('setting on: the transcript goes on the call card at the end', async () => {
+    const t = setup(undefined, { ring: ringWith(true) });
+    await t.service.recordCall('owner', finished, transcript);
+    expect((await card(t.store))?.transcript).toEqual(transcript);
+    expect(t.frames).toMatchObject([{ type: 'message.upserted', message: { transcript } }]);
+    // A card is not a turn: nothing goes to the agent.
+    expect(t.adapters).toHaveLength(0);
+    expect(JSON.stringify(t.logs)).not.toContain('green');
+  });
+
+  it('setting off: held, sent once on request, and a second send changes nothing', async () => {
+    const t = setup(undefined, { ring: ringWith(false) });
+    await t.service.recordCall('owner', finished, transcript);
+    expect((await card(t.store))?.transcript).toBeUndefined();
+    expect(await t.service.sendCallTranscript('owner', callId)).toBe('sent');
+    const sent = await card(t.store);
+    expect(sent?.transcript).toEqual(transcript);
+    expect(t.frames.at(-1)).toMatchObject({ type: 'message.upserted', message: { transcript } });
+    const frames = t.frames.length;
+    expect(await t.service.sendCallTranscript('owner', callId)).toBe('sent');
+    expect(t.frames).toHaveLength(frames);
+    expect((await card(t.store))?.rev).toBe(sent?.rev);
+    expect(t.adapters).toHaveLength(0);
+    expect(JSON.stringify(t.logs)).not.toContain('green');
+  });
+
+  it('expired, or another person call: not found', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const t = setup(undefined, { ring: ringWith(false) });
+    await t.service.recordCall('owner', finished, transcript);
+    expect(await t.service.sendCallTranscript('someone_else', callId)).toBe('not_found');
+    vi.setSystemTime(Date.now() + CALL_TRANSCRIPT_HOLD_MS + 1);
+    expect(await t.service.sendCallTranscript('owner', callId)).toBe('not_found');
+    expect((await card(t.store))?.transcript).toBeUndefined();
+  });
+
+  it('a private chat never gets one, and nothing is held for it', async () => {
+    const t = setup(undefined, { ring: ringWith(true) });
+    await t.store.setPrivate('owner', agent);
+    await t.service.recordCall('owner', finished, transcript);
+    const message = (await t.store.listMessages('owner', agent, { limit: 10 })).messages.find(
+      (row) => row.kind === 'call',
+    );
+    expect(message).toBeDefined();
+    expect(message?.kind === 'call' && message.transcript).toBeFalsy();
+    expect(await t.service.sendCallTranscript('owner', callId)).toBe('not_supported');
   });
 });
 describe('detached results', () => {
