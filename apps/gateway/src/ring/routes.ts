@@ -44,7 +44,7 @@ import { devUserResolver, type UserResolver } from '../auth';
 import type { CallStarter } from '../calls/routes';
 import { hashConnectorToken } from '../connectors/pairing';
 import type { ConnectorRecord } from '../connectors/store';
-import { FixedWindowLimiter, rateKey } from '../rate-limit';
+import { FixedWindowLimiter, ipKey, rateKey } from '../rate-limit';
 import {
   parseUploadQuery,
   sealedSizeRefusal,
@@ -196,7 +196,7 @@ export function registerRingRoutes(app: FastifyInstance, options: RingRoutesOpti
       unavailable(reply);
       return undefined;
     }
-    if (!connectorLimiter.tryAcquire(request.ip)) {
+    if (!connectorLimiter.tryAcquire(ipKey(request.ip))) {
       tooMany(reply);
       return undefined;
     }

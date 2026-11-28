@@ -10,7 +10,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createRequestAuth } from '../auth';
 
 import { startConnectorGateway, type ConnectorGateway } from './harness';
-import { ipKey, LINK_TTL_MS, LinkBook, ownerDisplayName, REDELIVERY_MS } from './link-requests';
+import { ipKey } from '../rate-limit';
+
+import { LINK_TTL_MS, LinkBook, ownerDisplayName, REDELIVERY_MS } from './link-requests';
 
 /** Follow-ups to computer-first linking (ADR-025): owner name, redelivery, cancel, limits. */
 

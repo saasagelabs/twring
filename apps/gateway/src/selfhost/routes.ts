@@ -15,8 +15,7 @@ import {
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 
 import { bearerToken, type UserResolver } from '../auth';
-import { ipKey } from '../connectors/link-requests';
-import { FixedWindowLimiter } from '../rate-limit';
+import { FixedWindowLimiter, ipKey } from '../rate-limit';
 
 import type { ServerIdentity } from './identity';
 import type { PairedDeviceRecord, PersonRecord, SelfhostStores } from './people';
