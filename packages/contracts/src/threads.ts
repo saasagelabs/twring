@@ -48,6 +48,37 @@ const textOrFiles = (message: { text: string; attachments?: unknown[] | undefine
   message.text.length > 0 || (message.attachments?.length ?? 0) > 0;
 const textOrFilesError = { message: 'text or attachments required', path: ['text'] };
 
+/** Most a call transcript keeps, in UTF-16 units over all its lines (ADR-050). */
+export const MAX_CALL_TRANSCRIPT_CHARS = 20_000;
+export const MAX_CALL_TRANSCRIPT_LINES = 400;
+
+/** One turn of a call: what the caller said, or what the agent said aloud. */
+export const callTranscriptLineSchema = z.object({
+  who: z.enum(['you', 'agent']),
+  text: z.string().min(1).max(MAX_CALL_TRANSCRIPT_CHARS),
+  /** The caller talked over this answer: `text` is what played before it stopped. */
+  cut: z.boolean().optional(),
+});
+export type CallTranscriptLine = z.infer<typeof callTranscriptLineSchema>;
+
+/**
+ * What was said on a call, in order (ADR-050). Twring's own lines ("Okay, one moment.") are not in
+ * it. Only on a call card in a chat that is not private, and only if the person asked for it.
+ */
+export const callTranscriptSchema = z
+  .object({
+    lines: z.array(callTranscriptLineSchema).min(1).max(MAX_CALL_TRANSCRIPT_LINES),
+    /** The call said more than a transcript keeps: its end is missing. */
+    truncated: z.boolean().optional(),
+  })
+  .refine(
+    (transcript) =>
+      transcript.lines.reduce((sum, line) => sum + line.text.length, 0) <=
+      MAX_CALL_TRANSCRIPT_CHARS,
+    { message: 'transcript too long', path: ['lines'] },
+  );
+export type CallTranscript = z.infer<typeof callTranscriptSchema>;
+
 export const threadMessageSchema = z.discriminatedUnion('kind', [
   z
     .object({
@@ -98,6 +129,7 @@ export const threadMessageSchema = z.discriminatedUnion('kind', [
     duration_s: z.number().int().nonnegative(),
     outcome: z.enum(['completed', 'failed', 'missed']),
     end_reason: z.string().max(64).optional(),
+    transcript: callTranscriptSchema.optional(),
   }),
   z.object({
     ...common,
