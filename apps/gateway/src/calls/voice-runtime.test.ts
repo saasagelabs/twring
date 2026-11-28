@@ -181,13 +181,8 @@ describe('CallRuntime conversation (repeat agent)', () => {
       { ...base, type: 'caption', turn_index: 0, text: 'hello', final: false },
       { ...base, type: 'caption', turn_index: 0, text: 'hello world', final: true },
       { ...base, type: 'floor', seq: 2, floor: 'agent_working', turn_id: 'turn_1' },
-      {
-        ...base,
-        type: 'agent_text',
-        turn_id: 'turn_1',
-        text: 'You said: hello world',
-        final: false,
-      },
+      { ...base, type: 'floor', seq: 3, floor: 'agent_speaking', turn_id: 'turn_1' },
+      // Captions follow the voice (ADR-050): the reply shows once heard, whole once played out.
       {
         ...base,
         type: 'agent_text',
@@ -195,7 +190,6 @@ describe('CallRuntime conversation (repeat agent)', () => {
         text: 'You said: hello world',
         final: true,
       },
-      { ...base, type: 'floor', seq: 3, floor: 'agent_speaking', turn_id: 'turn_1' },
       { ...base, type: 'floor', seq: 4, floor: 'listening' },
     ]);
     const names = logger.names();
