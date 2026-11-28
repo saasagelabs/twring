@@ -519,15 +519,24 @@ describe('ConversationController', () => {
   });
 
   it('throttles visible text updates while the reply streams', async () => {
-    const { adapter, conversation, scheduler, of } = setup();
+    const { adapter, conversation, scheduler, of, speech: recording } = setup();
+    const played = recording.played;
     conversation.userTurn('hi');
     await flushMicrotasks();
     for (let i = 0; i < 10; i += 1) adapter.channels[0]!.text(`w${i} `);
     await flushMicrotasks();
+    // Nothing is shown before the reply's first audio plays (ADR-050).
+    expect(of('agent_text')).toHaveLength(0);
+    conversation.speechState('gen_1', 'playing');
+    played.set('gen_1', 60_000);
+    for (let i = 10; i < 20; i += 1) adapter.channels[0]!.text(`w${i} `);
+    await flushMicrotasks();
     expect(of('agent_text')).toHaveLength(1);
-    scheduler.advance(150);
+    scheduler.advance(149);
+    expect(of('agent_text')).toHaveLength(1);
+    scheduler.advance(1);
     expect(of('agent_text')).toHaveLength(2);
-    expect(of('agent_text')[1]?.text).toBe('w0 w1 w2 w3 w4 w5 w6 w7 w8 w9 ');
+    expect(of('agent_text')[1]?.text).toBe(Array.from({ length: 20 }, (_, i) => `w${i} `).join(''));
   });
 
   it('closing mid-turn aborts the agent run and closes the adapter', async () => {
@@ -913,7 +922,8 @@ describe('ConversationController caller talking over a working agent (ADR-015)',
     agent.text('It is sunny ');
     await flushMicrotasks();
     expect(speech.calls).toEqual([]);
-    expect(of('agent_text').at(-1)?.text).toBe('It is sunny ');
+    // Held, so not heard yet: nothing on screen until it plays (ADR-050).
+    expect(of('agent_text')).toEqual([]);
     conversation.userSpeechDiscarded();
     expect(speech.calls).toEqual(['begin gen_1', 'append gen_1 It is sunny ']);
     expect(floors().at(-1)).toBe('agent_working');
@@ -2712,7 +2722,9 @@ describe('answered-ring opening line', () => {
     });
     expect(logger.names()).not.toContain('agent_first_event');
     expect(adapter.channels[0]!.turn.text).toBe(prompt);
-    scheduler.advance(100);
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 60_000);
+    scheduler.advance(150);
     expect(of('agent_text').at(-1)).toMatchObject({ text: 'The build failed ', final: false });
     conversation.openingTurn('[again]', 'again');
     expect(adapter.channels).toHaveLength(1);
@@ -5416,5 +5428,291 @@ describe('ConversationController an answer that breaks off', () => {
     p.conversation.speechState('gen_1', 'failed', true);
     p.scheduler.advance(10_000);
     expect(broken(p.speech)).toEqual([]);
+  });
+});
+
+describe('captions in step with speech (ADR-050)', () => {
+  const appended = (speech: RecordingSpeech, id: string) =>
+    speech.calls
+      .filter((c) => c.startsWith(`append ${id} `))
+      .map((c) => c.slice(`append ${id} `.length))
+      .join('');
+
+  async function speaking(reply: string) {
+    const ctx = setup();
+    ctx.conversation.userTurn('tell me');
+    await flushMicrotasks();
+    const agent = ctx.adapter.channels[0]!;
+    agent.text(reply);
+    await flushMicrotasks();
+    return { ...ctx, agent, texts: () => ctx.of('agent_text').map((m) => m.text) };
+  }
+
+  it('sends nothing before the first audio has played', async () => {
+    const { scheduler, texts } = await speaking('Hello there, my friend. ');
+    scheduler.advance(2_000);
+    expect(texts()).toEqual([]);
+  });
+
+  it('grows with the playout, even when the agent sends nothing new', async () => {
+    const { conversation, speech, scheduler, texts } = await speaking(
+      'one two three four five six seven eight nine ten ',
+    );
+    conversation.speechState('gen_1', 'playing');
+    scheduler.advance(150);
+    expect(texts()).toEqual([]); // nothing heard yet
+    speech.played.set('gen_1', 300); // 14 chars a second: "one "
+    scheduler.advance(150);
+    expect(texts().at(-1)).toBe('one ');
+    speech.played.set('gen_1', 1_000); // 14 chars: "one two three "
+    scheduler.advance(150);
+    expect(texts().at(-1)).toBe('one two three ');
+    const count = texts().length;
+    scheduler.advance(600);
+    expect(texts()).toHaveLength(count); // unchanged: nothing sent
+  });
+
+  it('uses the exact rate once TTS reports the audio length, and never moves back', async () => {
+    const reply = 'one two three four five six seven eight nine ten ';
+    const { conversation, speech, scheduler, texts } = await speaking(reply);
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000);
+    scheduler.advance(150);
+    expect(texts().at(-1)).not.toContain('four');
+    speech.totals.set('gen_1', 2_000); // 50 chars in 2 s
+    speech.played.set('gen_1', 1_100); // mid "six"
+    scheduler.advance(150);
+    expect(texts().at(-1)).toBe('one two three four five six');
+    speech.totals.set('gen_1', 20_000); // slower: would be 5 chars, but captions never go back
+    scheduler.advance(150);
+    expect(texts().at(-1)).toBe('one two three four five six');
+  });
+
+  it('shows at most a window of the heard text, ending where the voice is', async () => {
+    const words = Array.from({ length: 600 }, (_, i) => `w${String(i).padStart(3, '0')}`);
+    const reply = `${words.join(' ')} `;
+    expect(reply.length).toBe(3_000);
+    const { conversation, speech, scheduler, texts } = await speaking(reply);
+    conversation.speechState('gen_1', 'playing');
+    speech.totals.set('gen_1', 3_000); // one char a ms
+    speech.played.set('gen_1', 2_002); // in the middle of w400
+    scheduler.advance(150);
+    const caption = texts().at(-1)!;
+    expect(caption.length).toBeLessThanOrEqual(400);
+    expect(caption.startsWith('…')).toBe(true);
+    expect(caption.endsWith('w400')).toBe(true);
+    expect(caption.slice(1)).toMatch(/^w\d{3} /); // starts on a word
+    expect(reply.includes(caption.slice(1))).toBe(true);
+  });
+
+  it('passes a code block once the speech reaches its end', async () => {
+    const { conversation, speech, scheduler, agent, texts } = await speaking('Look at this: ');
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 500);
+    scheduler.advance(150);
+    expect(texts().at(-1)).not.toContain('const');
+    agent.text('```\nconst x = 1;\n```\n');
+    await flushMicrotasks();
+    const said = appended(speech, 'gen_1');
+    speech.totals.set('gen_1', said.length); // one char a ms
+    speech.played.set('gen_1', said.length);
+    scheduler.advance(150);
+    expect(texts().at(-1)).toContain('const x = 1;');
+  });
+
+  it('a barge-in shows the whole reply and stops the ticker', async () => {
+    const reply = 'one two three four five six seven eight nine ten ';
+    const { conversation, speech, scheduler, texts } = await speaking(reply);
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000);
+    scheduler.advance(150);
+    conversation.userSpeechStarted();
+    conversation.userPartial('hang on a second please');
+    expect(texts().at(-1)).toBe(reply);
+    const count = texts().length;
+    speech.played.set('gen_1', 2_000);
+    scheduler.advance(1_000);
+    expect(texts()).toHaveLength(count);
+  });
+
+  it('close() leaves no caption timer behind', async () => {
+    const { conversation, speech, scheduler } = await speaking('one two three four ');
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 200);
+    scheduler.advance(150);
+    conversation.close();
+    expect(scheduler.pending).toBe(0);
+  });
+
+  it('final while speaking keeps the window; played out, the whole reply is final', async () => {
+    const reply = 'one two three four five six seven eight nine ten ';
+    const { conversation, speech, scheduler, agent, of } = await speaking(reply);
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000);
+    agent.done();
+    await flushMicrotasks();
+    expect(of('agent_text').at(-1)).toMatchObject({ text: 'one two three ', final: true });
+    speech.played.set('gen_1', 2_000);
+    scheduler.advance(150);
+    expect(of('agent_text').at(-1)).toMatchObject({ final: true });
+    expect(of('agent_text').at(-1)?.text).toContain('five');
+    conversation.speechState('gen_1', 'finished');
+    expect(of('agent_text').at(-1)).toMatchObject({ text: reply, final: true });
+    expect(scheduler.pending).toBe(0);
+  });
+
+  it('falls back to the whole reply when TTS fails', async () => {
+    const { conversation, agent, of } = await speaking('One thing first. ');
+    conversation.speechState('gen_1', 'failed');
+    expect(of('agent_text').at(-1)?.text).toBe('One thing first. ');
+    agent.done();
+    await flushMicrotasks();
+    expect(of('agent_text').at(-1)).toMatchObject({ text: 'One thing first. ', final: true });
+  });
+
+  it('a carried unheard answer does not show the new turn words early', async () => {
+    const ctx = setup();
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    ctx.adapter.channels[0]!.text('It is sunny.');
+    ctx.adapter.channels[0]!.done();
+    await flushMicrotasks();
+    ctx.conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    ctx.adapter.channels[1]!.text('Rain tomorrow, heavy in the evening.');
+    await flushMicrotasks();
+    ctx.conversation.speechState('gen_1', 'playing');
+    ctx.speech.played.set('gen_1', 600); // inside "It is sunny. "
+    ctx.scheduler.advance(300);
+    const turn2 = ctx.of('agent_text').filter((m) => m.turn_id === 'turn_2');
+    expect(turn2.every((m) => !m.text.includes('Rain'))).toBe(true);
+    ctx.speech.played.set('gen_1', 1_500); // past the carried answer, into "Rain"
+    ctx.scheduler.advance(150);
+    expect(ctx.of('agent_text').at(-1)).toMatchObject({ turn_id: 'turn_2' });
+    expect(ctx.of('agent_text').at(-1)?.text).toMatch(/^Rain/);
+  });
+});
+
+describe('call transcript (ADR-050)', () => {
+  it('records turns in order, agent lines once their speech ends', async () => {
+    const { adapter, conversation } = setup();
+    expect(conversation.transcript()).toBeUndefined();
+    conversation.userTurn('what is the weather');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('It is sunny.');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    expect(conversation.transcript()?.lines).toEqual([{ who: 'you', text: 'what is the weather' }]);
+    conversation.speechState('gen_1', 'finished');
+    conversation.userTurn('thanks');
+    await flushMicrotasks();
+    expect(conversation.transcript()).toEqual({
+      lines: [
+        { who: 'you', text: 'what is the weather' },
+        { who: 'agent', text: 'It is sunny.' },
+        { who: 'you', text: 'thanks' },
+      ],
+    });
+  });
+
+  it('a merged turn replaces the line of the turn it took in', async () => {
+    const { conversation } = setup();
+    conversation.userTurn('book a table');
+    await flushMicrotasks();
+    conversation.userSpeechStarted();
+    conversation.userTurn('for two at eight');
+    await flushMicrotasks();
+    expect(conversation.transcript()?.lines).toEqual([
+      { who: 'you', text: 'book a table for two at eight' },
+    ]);
+  });
+
+  it('a barge-in records only what was heard, marked cut', async () => {
+    const { adapter, conversation, speech } = setup();
+    conversation.userTurn('count');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('one two three four five six seven eight nine ten');
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 1_000); // "one two three "
+    conversation.userSpeechStarted();
+    conversation.userPartial('that is enough thanks');
+    expect(conversation.transcript()?.lines).toEqual([
+      { who: 'you', text: 'count' },
+      { who: 'agent', text: 'one two three', cut: true },
+    ]);
+  });
+
+  it('a carried answer is recorded once, where it is spoken', async () => {
+    const ctx = setup();
+    ctx.conversation.userTurn('check the weather');
+    await flushMicrotasks();
+    ctx.conversation.userSpeechStarted();
+    ctx.adapter.channels[0]!.text('It is sunny.');
+    ctx.adapter.channels[0]!.done();
+    await flushMicrotasks();
+    ctx.conversation.userTurn('and tomorrow?');
+    await flushMicrotasks();
+    ctx.adapter.channels[1]!.text('Rain tomorrow.');
+    ctx.adapter.channels[1]!.done();
+    await flushMicrotasks();
+    ctx.conversation.speechState('gen_1', 'playing');
+    ctx.conversation.speechState('gen_1', 'finished');
+    expect(ctx.conversation.transcript()?.lines).toEqual([
+      { who: 'you', text: 'check the weather' },
+      { who: 'you', text: 'and tomorrow?' },
+      { who: 'agent', text: 'It is sunny. Rain tomorrow.' },
+    ]);
+  });
+
+  it('leaves out Twring lines, stop requests and approval answers', async () => {
+    const { adapter, conversation } = setup(undefined, undefined, undefined, {
+      agentName: 'Hermes',
+      presenceCues: true,
+    });
+    conversation.userTurn('delete the logs');
+    await flushMicrotasks();
+    adapter.channels[0]!.push({
+      type: 'approval.required',
+      approval_id: 'apr_1',
+      action: 'delete_files',
+      title: 'Delete logs',
+    });
+    await flushMicrotasks();
+    conversation.userTurn('yes');
+    adapter.channels[0]!.push({ type: 'tool.start', tool_call_id: 't1', tool_name: 'rm' });
+    await flushMicrotasks();
+    conversation.userTurn('stop');
+    await flushMicrotasks();
+    expect(conversation.transcript()).toEqual({
+      lines: [{ who: 'you', text: 'delete the logs' }],
+    });
+  });
+
+  it('an answered ring prompt is not the owner line; its spoken line is the agent line', () => {
+    const { conversation, speech } = setup();
+    conversation.openingTurn('[The owner answered your call.]', 'The build failed.');
+    conversation.speechState('gen_1', 'playing');
+    speech.played.set('gen_1', 600);
+    conversation.close();
+    expect(conversation.transcript()?.lines).toEqual([
+      { who: 'agent', text: 'The build', cut: true },
+    ]);
+  });
+
+  it('never logs the transcript', async () => {
+    const { adapter, conversation, logger } = setup();
+    conversation.userTurn('my secret plan');
+    await flushMicrotasks();
+    adapter.channels[0]!.text('Hidden words here.');
+    adapter.channels[0]!.done();
+    await flushMicrotasks();
+    conversation.speechState('gen_1', 'playing');
+    conversation.speechState('gen_1', 'finished');
+    conversation.close();
+    expect(conversation.transcript()?.lines).toHaveLength(2);
+    expect(JSON.stringify(logger.events)).not.toMatch(/secret|Hidden/);
   });
 });

@@ -4,6 +4,7 @@ import {
   AGENT_HANGUP_LINGER_MS,
   HANGUP_MARKERS,
   type AgentEvent,
+  type CallTranscript,
   type FloorMessage,
   type StatusMessage,
   type UserTurn,
@@ -22,8 +23,10 @@ import {
   echoWords,
   judgeTail,
   newWords,
+  spokenChars,
   type EchoWindow,
 } from './echo';
+import { CallTranscriptBuffer } from './transcript';
 import {
   ACK_EXPECTED_WAIT_MS,
   ACK_LATENCY_SAMPLES,
@@ -68,6 +71,15 @@ export const AGENT_TIMEOUTS = {
 const TEXT_UPDATE_MS = 150;
 /** Longest reply text shown on the phone; status packets are size-capped. */
 const MAX_VISIBLE_CHARS = 1500;
+/**
+ * While a reply is spoken, the phone gets only what the caller has heard, at most this many
+ * characters ending at the spoken position (ADR-050): captions in step with the voice.
+ */
+export const SPOKEN_WINDOW_CHARS = 400;
+/** Bound on a turn's speech-to-text checkpoints; past it, every other one is dropped. */
+export const MAX_CAPTION_CHECKPOINTS = 256;
+/** Letters, marks, digits and joiners: inside a word for caption clipping. */
+const WORD_CHAR = /[\p{L}\p{M}\p{N}'’_-]/u;
 /** C0 controls other than tab and newline: meaningless on screen, 6 bytes each once JSON-escaped. */
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F]/g;
@@ -448,6 +460,30 @@ interface Turn {
   totalBudgetRemaining: number;
   totalBudgetStartedAt: number;
   approval?: PendingApproval;
+  /** Where this turn's own generation starts in `spoken`, and how much went into it. */
+  genStart: number;
+  genChars: number;
+  /** Characters of `spoken` the caller has heard (never moves back). */
+  heardSpeech: number;
+  /** (`spoken` length, `visible` length) as text arrived: maps heard speech onto visible text. */
+  checkpoints: [number, number][];
+  /** Visible characters the captions have reached (never moves back). */
+  captionPos: number;
+  /** The playout ticker that moves the captions on while speech plays. */
+  captionTimer?: () => void;
+  /** Captions show the whole visible text again (TTS failed). */
+  captionsWhole: boolean;
+  lastCaption?: string;
+  lastCaptionFinal?: boolean;
+  /** An unheard answer this turn speaks first: its visible text, and its length in `spoken`. */
+  carriedVisible: string;
+  carriedSpeech: number;
+  /** What the owner said in this turn, merged turns included, for the transcript. */
+  youText: string;
+  /** This turn's line in the call transcript. */
+  youLine?: number;
+  /** What the agent said in this turn is in the transcript (or was carried on, or never heard). */
+  agentRecorded: boolean;
 }
 
 /** The one approval a turn may be waiting on (ADR-029). */
@@ -508,6 +544,8 @@ export class ConversationController {
   /** Committed turn to the agent's first text, for the call's latest turns (ADR-032 amendment). */
   private firstTextLatencies: number[] = [];
   private readonly counts = { completed: 0, failed: 0, bargeIns: 0 };
+  /** What was said on the call (ADR-050). Memory only; never logged. */
+  private readonly transcriptLines = new CallTranscriptBuffer();
   /** Cancels the lingering window after the agent's hang-up (ADR-024). */
   private cancelHangup: (() => void) | undefined;
   /** The hang-up reply ended while the owner was talking: the window waits for their speech. */
@@ -1075,6 +1113,18 @@ export class ConversationController {
       carried !== undefined && carried !== '' && carried.length <= MAX_CARRIED_SPEECH_CHARS
         ? carried
         : undefined;
+    const carriedVisible =
+      carry === undefined || superseded === undefined
+        ? ''
+        : superseded.answered
+          ? joinText(superseded.carriedVisible, superseded.visible)
+          : superseded.carriedVisible;
+    const youText =
+      source === 'opening'
+        ? ''
+        : merged && superseded !== undefined
+          ? joinText(superseded.youText, text)
+          : text;
     if (userText.length > MAX_USER_TURN_CHARS) {
       const originalChars = userText.length;
       userText = keepRecent(userText, MAX_USER_TURN_CHARS);
@@ -1123,7 +1173,26 @@ export class ConversationController {
       replyBroken: false,
       totalBudgetRemaining: this.timeouts.totalMs,
       totalBudgetStartedAt: this.options.scheduler.now(),
+      genStart: 0,
+      genChars: 0,
+      heardSpeech: 0,
+      checkpoints: [[0, 0]],
+      captionPos: 0,
+      captionsWhole: false,
+      carriedVisible,
+      carriedSpeech: 0,
+      youText,
+      agentRecorded: false,
     };
+    // The owner's words, as sent: a merged turn replaces the line of the turn it took in.
+    if (youText !== '') {
+      if (merged && superseded?.youLine !== undefined) {
+        this.transcriptLines.replace(superseded.youLine, youText);
+        turn.youLine = superseded.youLine;
+      } else {
+        turn.youLine = this.transcriptLines.add('you', youText);
+      }
+    }
     if (inherit?.generationId !== undefined) {
       // The previous answer keeps playing; this turn's speech is held behind it (speak()).
       turn.generationId = inherit.generationId;
@@ -1141,6 +1210,8 @@ export class ConversationController {
         text_chars: carry.length,
       });
       this.speak(turn, `${carry} `);
+      turn.carriedSpeech = turn.spoken.length;
+      this.checkpoint(turn);
     }
     if (openingLine !== undefined) {
       const line = openingLine.trim();
@@ -1206,11 +1277,19 @@ export class ConversationController {
       case 'playing':
         turn.speaking = true;
         // The previous answer playing is not this turn's: it still counts as unheard.
-        if (!turn.inherited) turn.heard = true;
+        if (!turn.inherited) {
+          turn.heard = true;
+          this.startCaptionTicker(turn);
+        }
         this.updateFloor();
         return;
       case 'finished':
+        if (!turn.inherited) {
+          turn.heardSpeech = Math.max(turn.heardSpeech, turn.genStart + turn.genChars);
+          this.stopCaptionTicker(turn);
+        }
         this.clearGeneration(turn);
+        if (!turn.agentDone) this.sendText(turn, false);
         if (!turn.agentDone) {
           // Silence is counted from the end of what the owner heard, not from its text.
           turn.lastTextAt = this.options.scheduler.now();
@@ -1241,7 +1320,14 @@ export class ConversationController {
           turn.replyBroken = true;
           this.log('voice_reply_broken', { turn_id: turn.id });
         }
+        if (!inherited) {
+          // What was heard before the voice failed still counts; the captions show it all again.
+          this.updateHeard(turn);
+          this.stopCaptionTicker(turn);
+          turn.captionsWhole = true;
+        }
         this.clearGeneration(turn);
+        if (!inherited) this.sendText(turn, turn.agentDone);
         // With the agent still answering, nothing is audible now, and its later text (with anything
         // held) starts a fresh generation once TTS is back. Text held behind the previous turn's
         // answer (inherited) never reached the failed generation: it is tried now, not after a tool.
@@ -1261,6 +1347,11 @@ export class ConversationController {
       failed: this.counts.failed,
       bargeIns: this.counts.bargeIns,
     };
+  }
+
+  /** What was said on the call (ADR-050), or undefined when nothing was. Never logged. */
+  transcript(): CallTranscript | undefined {
+    return this.transcriptLines.transcript();
   }
 
   /** Test/diagnostic view of per-call state that must stay bounded however long the call runs. */
@@ -1611,8 +1702,9 @@ export class ConversationController {
     turn.lastTextAt = this.options.scheduler.now();
     this.scheduleProgress(turn);
     turn.visible += delta;
-    this.scheduleText(turn);
     this.speak(turn, turn.filter.push(delta));
+    this.checkpoint(turn);
+    this.scheduleText(turn);
   }
 
   /**
@@ -1641,12 +1733,15 @@ export class ConversationController {
       // The agent's own words win over Twring's line: it is cut, never overlapped (ADR-028).
       this.cutCue('superseded');
       turn.generationId = this.options.speech.begin(turn.committedAt);
+      turn.genStart = turn.spoken.length - pending.length;
+      turn.genChars = 0;
       this.audibleGenerations(); // prunes generations no longer audible
       this.generations.push({ id: turn.generationId, text: '', played: false, finished: false });
     }
     // The held text now belongs to a generation: its boundary must not end a later one.
     if (held !== '') turn.heldBoundary = false;
     this.options.speech.append(turn.generationId, pending);
+    if (!turn.inherited) turn.genChars += pending.length;
     const generation = this.generations.find((g) => g.id === turn.generationId);
     if (generation !== undefined) generation.text += pending;
   }
@@ -1658,6 +1753,7 @@ export class ConversationController {
    */
   private closeGeneration(turn: Turn): void {
     this.speak(turn, turn.filter.end());
+    this.checkpoint(turn);
     if (
       (turn.generationId === undefined || turn.generationEnded) &&
       turn.heldSpeech.trim() !== ''
@@ -1737,6 +1833,7 @@ export class ConversationController {
       this.speak(turn, turn.filter.push(rest));
     }
     this.speak(turn, turn.filter.end());
+    this.checkpoint(turn);
     this.sendText(turn, true);
     this.log('agent_turn_done', { turn_id: turn.id, outcome, duration_ms: this.since(turn) });
     if (outcome !== 'completed') {
@@ -1784,6 +1881,9 @@ export class ConversationController {
       this.options.speech.cancel('barge_in');
       return;
     }
+    // What the caller heard goes in the transcript, cut; the captions show the whole reply again.
+    this.recordAgent(turn, true);
+    this.stopCaptionTicker(turn);
     turn.muted = true;
     this.counts.bargeIns += 1;
     this.generationEnded(turn.generationId, false);
@@ -1791,6 +1891,7 @@ export class ConversationController {
     turn.heldSpeech = '';
     turn.heldBoundary = false;
     this.options.speech.cancel('barge_in');
+    this.sendText(turn, turn.agentDone);
     this.maybeComplete(turn);
   }
 
@@ -1814,6 +1915,10 @@ export class ConversationController {
   private maybeComplete(turn: Turn): void {
     if (this.turn !== turn || !turn.agentDone || !(turn.speechDone || turn.muted)) return;
     this.turn = undefined;
+    this.stopCaptionTicker(turn);
+    // Played out (or never spoken): the whole reply, for good, and in the transcript.
+    this.sendText(turn, true);
+    this.recordAgent(turn, false);
     const queued = this.queued;
     if (queued !== undefined && !this.closed) {
       // ADR-026: what the owner said while the agent worked goes now (or with their next words, if
@@ -1876,6 +1981,10 @@ export class ConversationController {
   private handOver(turn: Turn): undefined {
     this.turn = undefined;
     this.clearTimers(turn);
+    // Its answer plays on under the next turn: its captions and transcript line are whole now.
+    this.stopCaptionTicker(turn);
+    this.sendText(turn, true, true);
+    this.recordAgent(turn, false);
     if (this.cue?.turnId === turn.id) this.cutCue('superseded');
     return undefined;
   }
@@ -1898,13 +2007,17 @@ export class ConversationController {
     if (turn === undefined) return undefined;
     this.turn = undefined;
     this.log('agent_turn_superseded', { turn_id: turn.id });
+    // Heard: what was heard goes in the transcript. Unheard: it is carried on, or was never said.
+    if (turn.heard) this.recordAgent(turn, !turn.speechDone);
     this.stopTurn(turn, 'superseded');
-    this.sendText(turn, true);
+    this.sendText(turn, true, true);
     return turn;
   }
 
   private stopTurn(turn: Turn, reason: 'superseded' | 'call_ended'): void {
     if (turn.approval !== undefined) this.resolveApproval(turn.approval.id, 'deny', 'call_end');
+    if (reason === 'call_ended' && turn.heard) this.recordAgent(turn, true);
+    this.stopCaptionTicker(turn);
     this.clearTimers(turn);
     if (this.cue?.turnId === turn.id) this.cutCue(reason);
     this.generationEnded(turn.generationId, false);
@@ -2132,21 +2245,20 @@ export class ConversationController {
     }, wait);
   }
 
-  private sendText(turn: Turn, final: boolean): void {
+  /**
+   * Sends the reply text. While its speech plays, only what the caller has heard (captions in step
+   * with the voice, ADR-050); otherwise, or with `whole`, the whole visible text.
+   */
+  private sendText(turn: Turn, final: boolean, whole = false): void {
     turn.textTimer?.();
     turn.textTimer = undefined;
-    if (turn.visible === '' && !final) return;
+    const text =
+      whole || this.captionsWhole(turn) ? wholeCaption(turn.visible) : this.caption(turn);
+    if (text === undefined || (text === '' && !final)) return;
+    if (text === turn.lastCaption && final === turn.lastCaptionFinal) return;
     turn.lastTextSentAt = this.options.scheduler.now();
-    // With controls gone and lone surrogates replaced, every UTF-16 unit is at most 3 bytes in
-    // JSON, so a full-length caption fits one status packet (MAX_STATUS_MESSAGE_BYTES).
-    const visible = turn.visible.replace(CONTROL_CHARS, '').replace(LONE_SURROGATE, '�');
-    let text = visible;
-    if (visible.length > MAX_VISIBLE_CHARS) {
-      let start = visible.length - MAX_VISIBLE_CHARS + 1;
-      // Clip on a code-point boundary: never start with the low half of a surrogate pair.
-      if (/[\uDC00-\uDFFF]/.test(visible[start] ?? '')) start += 1;
-      text = `…${visible.slice(start)}`;
-    }
+    turn.lastCaption = text;
+    turn.lastCaptionFinal = final;
     this.options.send({
       v: 1,
       type: 'agent_text',
@@ -2155,6 +2267,105 @@ export class ConversationController {
       text,
       final,
     });
+  }
+
+  /**
+   * The whole reply is shown: the caller talked over it, its voice failed, it has played out, or it
+   * has nothing to speak.
+   */
+  private captionsWhole(turn: Turn): boolean {
+    return (
+      turn.muted ||
+      turn.captionsWhole ||
+      turn.speechDone ||
+      (turn.agentDone && !turn.heard && turn.spoken.trim() === '')
+    );
+  }
+
+  /** The heard window of the reply; undefined until its first audio has played. */
+  private caption(turn: Turn): string | undefined {
+    if (!turn.heard) return undefined;
+    return spokenWindow(turn.visible, this.captionEnd(turn));
+  }
+
+  /** How far into `visible` the caller has heard, to the end of the word in progress. */
+  private captionEnd(turn: Turn): number {
+    const heard = this.updateHeard(turn);
+    const pos = wordEnd(turn.visible, Math.min(turn.visible.length, visibleAt(turn, heard)));
+    turn.captionPos = Math.max(turn.captionPos, pos);
+    return turn.captionPos;
+  }
+
+  /** Moves the turn's heard position on to the playout of its own generation, if it plays. */
+  private updateHeard(turn: Turn): number {
+    const id = turn.generationId;
+    if (id !== undefined && !turn.inherited) {
+      const generation = this.generations.find((g) => g.id === id);
+      if (generation?.played === true) {
+        const { speech } = this.options;
+        const chars = spokenChars(turn.genChars, speech.playedMs(id), speech.totalAudioMs(id));
+        turn.heardSpeech = Math.max(turn.heardSpeech, turn.genStart + chars);
+      }
+    }
+    return turn.heardSpeech;
+  }
+
+  /** Records where the turn's speech stands against its visible text. */
+  private checkpoint(turn: Turn): void {
+    const points = turn.checkpoints;
+    const last = points[points.length - 1];
+    const next: [number, number] = [turn.spoken.length, turn.visible.length];
+    if (last !== undefined && last[0] === next[0] && last[1] === next[1]) return;
+    points.push(next);
+    if (points.length > MAX_CAPTION_CHECKPOINTS) {
+      // Coarser, but bounded: keep the first, the last, and every other one between.
+      turn.checkpoints = points.filter((_, i) => i === 0 || i === points.length - 1 || i % 2 === 0);
+    }
+  }
+
+  /** Moves the captions on as the speech plays, even while the agent sends nothing new. */
+  private startCaptionTicker(turn: Turn): void {
+    if (turn.captionTimer !== undefined) return;
+    const tick = (): void => {
+      turn.captionTimer = undefined;
+      if (this.closed || this.turn !== turn || this.captionsWhole(turn)) return;
+      if (turn.generationId === undefined || turn.inherited) return;
+      if (this.options.scheduler.now() - turn.lastTextSentAt >= TEXT_UPDATE_MS) {
+        const text = this.caption(turn);
+        if (text !== undefined && text !== '' && text !== turn.lastCaption)
+          this.sendText(turn, turn.agentDone);
+      }
+      turn.captionTimer = this.options.scheduler.setTimeout(tick, TEXT_UPDATE_MS);
+    };
+    turn.captionTimer = this.options.scheduler.setTimeout(tick, TEXT_UPDATE_MS);
+  }
+
+  private stopCaptionTicker(turn: Turn): void {
+    turn.captionTimer?.();
+    turn.captionTimer = undefined;
+  }
+
+  /**
+   * Puts what the agent said in this turn in the call transcript, once: all of it, or with `cut`
+   * only what the caller heard (ADR-050). An unheard answer carried into this turn comes first.
+   */
+  private recordAgent(turn: Turn, cut: boolean): void {
+    if (turn.agentRecorded) return;
+    turn.agentRecorded = true;
+    const whole = joinText(turn.carriedVisible, turn.visible);
+    if (!cut) {
+      this.transcriptLines.add('agent', whole);
+      return;
+    }
+    const heard = this.updateHeard(turn);
+    let carried = turn.carriedVisible;
+    if (turn.carriedSpeech > 0 && heard < turn.carriedSpeech) {
+      const share = heard / turn.carriedSpeech;
+      carried = carried.slice(0, wordEnd(carried, Math.round(share * carried.length)));
+    }
+    const own = heard > turn.carriedSpeech ? turn.visible.slice(0, this.captionEnd(turn)) : '';
+    const text = joinText(carried, own);
+    this.transcriptLines.add('agent', text, text !== whole);
   }
 
   private updateFloor(): void {
@@ -2225,6 +2436,76 @@ export class ConversationController {
   private log(event: string, fields: Record<string, unknown> = {}): void {
     this.options.logger.info({ event, call_id: this.options.callId, ...fields });
   }
+}
+
+/** Two pieces of text, with one space between them when both are there. */
+function joinText(a: string, b: string): string {
+  const left = a.trim();
+  const right = b.trim();
+  return left === '' ? right : right === '' ? left : `${left} ${right}`;
+}
+
+/** Controls dropped and lone surrogates replaced: every UTF-16 unit is then at most 3 JSON bytes. */
+function cleanCaption(text: string): string {
+  return text.replace(CONTROL_CHARS, '').replace(LONE_SURROGATE, '\uFFFD');
+}
+
+/** The whole visible reply, its start clipped to MAX_VISIBLE_CHARS (one status packet). */
+function wholeCaption(raw: string): string {
+  // With controls gone and lone surrogates replaced, every UTF-16 unit is at most 3 bytes in
+  // JSON, so a full-length caption fits one status packet (MAX_STATUS_MESSAGE_BYTES).
+  const visible = cleanCaption(raw);
+  if (visible.length <= MAX_VISIBLE_CHARS) return visible;
+  let start = visible.length - MAX_VISIBLE_CHARS + 1;
+  // Clip on a code-point boundary: never start with the low half of a surrogate pair.
+  if (/[\uDC00-\uDFFF]/.test(visible[start] ?? '')) start += 1;
+  return `…${visible.slice(start)}`;
+}
+
+/**
+ * At most SPOKEN_WINDOW_CHARS of `visible` ending at `end`, starting on a word, with an ellipsis
+ * when it does not start at the beginning.
+ */
+function spokenWindow(visible: string, end: number): string {
+  if (end <= SPOKEN_WINDOW_CHARS) return cleanCaption(visible.slice(0, end));
+  const earliest = end - SPOKEN_WINDOW_CHARS + 1;
+  let start = earliest;
+  while (start < end && !/\s/.test(visible[start - 1] ?? '')) start += 1;
+  while (start < end && /\s/.test(visible[start] ?? '')) start += 1;
+  // One word longer than the window: cut inside it.
+  if (start >= end) start = earliest;
+  if (/[\uDC00-\uDFFF]/.test(visible[start] ?? '')) start += 1;
+  return `…${cleanCaption(visible.slice(start, end))}`;
+}
+
+/** `pos` moved on to the end of the word it falls in (and never onto half a surrogate pair). */
+function wordEnd(text: string, pos: number): number {
+  let end = Math.max(0, Math.floor(pos));
+  if (end > 0) {
+    while (
+      end < text.length &&
+      WORD_CHAR.test(text[end - 1] ?? '') &&
+      WORD_CHAR.test(text[end] ?? '')
+    )
+      end += 1;
+  }
+  if (end < text.length && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end += 1;
+  return Math.min(end, text.length);
+}
+
+/**
+ * The visible length the turn's speech reached at `heard` speech characters: interpolated inside a
+ * checkpoint interval; a stretch of text with no speech (code, a link) is passed once speech
+ * reaches its end.
+ */
+function visibleAt(turn: Turn, heard: number): number {
+  const points = turn.checkpoints;
+  let i = 0;
+  while (i + 1 < points.length && points[i + 1]![0] <= heard) i += 1;
+  const [s0, v0] = points[i]!;
+  const next = points[i + 1];
+  if (next === undefined || next[0] <= s0) return v0;
+  return v0 + ((next[1] - v0) * (heard - s0)) / (next[0] - s0);
 }
 
 function round2(value: number): number {

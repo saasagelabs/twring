@@ -117,6 +117,25 @@ function splitUnspaced(token: string): string[] {
   return parts;
 }
 
+/**
+ * Speaking rate of a generation, in characters per ms of audio: exact once TTS has reported its
+ * whole audio length, DEFAULT_SPEECH_CHARS_PER_S until then.
+ */
+export function speechCharsPerMs(textLength: number, totalAudioMs?: number): number {
+  return totalAudioMs !== undefined && totalAudioMs > 0 && textLength > 0
+    ? textLength / totalAudioMs
+    : DEFAULT_SPEECH_CHARS_PER_S / 1000;
+}
+
+/**
+ * How many characters of a generation's `textLength` have been spoken after `playedMs` of its
+ * audio (Infinity once it played out in full).
+ */
+export function spokenChars(textLength: number, playedMs: number, totalAudioMs?: number): number {
+  if (playedMs === Number.POSITIVE_INFINITY) return textLength;
+  return Math.min(textLength, Math.max(0, playedMs) * speechCharsPerMs(textLength, totalAudioMs));
+}
+
 /** Character offsets [start, end) of a generation's text. */
 export interface TextSpan {
   start: number;
@@ -130,10 +149,7 @@ export interface TextSpan {
  */
 export function audibleSpan(text: string, playedMs: number, totalAudioMs?: number): TextSpan {
   if (text === '') return { start: 0, end: 0 };
-  const perMs =
-    totalAudioMs !== undefined && totalAudioMs > 0
-      ? text.length / totalAudioMs
-      : DEFAULT_SPEECH_CHARS_PER_S / 1000;
+  const perMs = speechCharsPerMs(text.length, totalAudioMs);
   const finished = playedMs === Number.POSITIVE_INFINITY;
   const position = Math.min(text.length, playedMs * perMs);
   const slack = finished ? 0 : Math.min(position * ECHO_RATE_SLACK, ECHO_MAX_SLACK_MS * perMs);

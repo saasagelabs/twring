@@ -210,9 +210,9 @@ describe('hang-up marker', () => {
     const t = setup();
     await hangupReply(t, ['Talk soon. [[hang', 'up]]']);
     expect(t.speech.calls.join('|')).not.toContain('hangup');
-    expect(t.of('agent_text').at(-1)?.text).not.toContain('hangup');
     t.conversation.speechState('gen_1', 'playing');
     t.conversation.speechState('gen_1', 'finished');
+    expect(t.of('agent_text').at(-1)?.text).not.toContain('hangup');
     t.scheduler.advance(AGENT_HANGUP_LINGER_MS - 1);
     expect(t.hangups).toEqual([]);
     t.scheduler.advance(1);
@@ -328,9 +328,9 @@ describe('hang-up marker edge cases (verifier)', () => {
     const t = setup();
     await hangupReply(t, ['See [[', 'b]] and ⟪h', 'ello⟫']);
     expect(spokenText(t)).toContain('[[b]]');
-    expect(t.of('agent_text').at(-1)?.text).toContain('⟪hello⟫');
     t.conversation.speechState('gen_1', 'playing');
     t.conversation.speechState('gen_1', 'finished');
+    expect(t.of('agent_text').at(-1)?.text).toContain('⟪hello⟫');
     t.scheduler.advance(AGENT_HANGUP_LINGER_MS * 2);
     expect(t.hangups).toEqual([]);
   });
