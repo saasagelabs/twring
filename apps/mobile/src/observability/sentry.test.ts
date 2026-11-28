@@ -17,7 +17,12 @@ vi.mock('@sentry/react-native', () => ({
 vi.mock('expo-constants', () => ({ default: { expoConfig: { version: '1.0.0' } } }));
 vi.mock('react-native', () => ({ Platform: { OS: 'ios' } }));
 
-import { initSentry, reportAudioEvent, reportClientError } from './sentry';
+import {
+  initSentry,
+  reportAudioEvent,
+  reportClientError,
+  reportInterruptionUnrecovered,
+} from './sentry';
 
 describe('reportClientError', () => {
   beforeEach(() => sentry.captureException.mockClear());
@@ -87,9 +92,24 @@ describe('reportAudioEvent', () => {
     );
   });
 
-  it('interruptions and a missing route are still reported', () => {
-    reportAudioEvent({ kind: 'interruption', reason: 'began' });
+  it('an interruption is only a breadcrumb; a missing route is still reported', () => {
+    reportAudioEvent({ kind: 'interruption', reason: 'began', cause: 'default' });
+    expect(sentry.captureMessage).not.toHaveBeenCalled();
+    expect(sentry.addBreadcrumb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'audio_event',
+        data: { kind: 'interruption', reason: 'began', cause: 'default' },
+      }),
+    );
     reportAudioEvent({ kind: 'route', reason: 'no_route' });
-    expect(sentry.captureMessage).toHaveBeenCalledTimes(2);
+    expect(sentry.captureMessage).toHaveBeenCalledOnce();
+  });
+
+  it('reports an interruption the call never recovered from', () => {
+    reportInterruptionUnrecovered();
+    expect(sentry.captureMessage).toHaveBeenCalledWith('call_audio_interruption_unrecovered', {
+      level: 'warning',
+      tags: { platform: 'ios' },
+    });
   });
 });

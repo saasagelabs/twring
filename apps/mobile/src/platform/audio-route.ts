@@ -195,7 +195,27 @@ export const audioRoutePlatform: AudioRoutePlatform = {
   }),
 };
 
+interface CordRingCallsModule {
+  otherCallActive?: () => Promise<boolean>;
+}
+
+/**
+ * iOS only: whether a phone call that is not Twring's is still on (CordRing.swift). iOS may never
+ * send "ended" for an interruption, so the call resumes on foreground when this says no. Android's
+ * "ended" is reliable, and resuming on foreground there could unmute during a phone call.
+ */
+function iosOtherCallActive(): (() => Promise<boolean>) | undefined {
+  if (Platform.OS !== 'ios') return undefined;
+  const ring = requireOptionalNativeModule<CordRingCallsModule>('CordRing');
+  const check = ring?.otherCallActive;
+  if (typeof check !== 'function') return undefined;
+  return () => check.call(ring);
+}
+
+const otherCallActive = iosOtherCallActive();
+
 export const callInterruptionPlatform: CallInterruptionPlatform = {
+  ...(otherCallActive !== undefined && { otherCallActive }),
   ...(native !== null && {
     watch: (listener: (phase: InterruptionPhase) => void) => {
       const subscription = native.addListener('onInterruption', (event) => listener(event.phase));

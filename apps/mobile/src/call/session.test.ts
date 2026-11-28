@@ -2,9 +2,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const h = vi.hoisted(() => {
   const listeners = new Set<() => void>();
+  const platform: { otherCallActive?: () => Promise<boolean> } = {};
   return {
     listeners,
     removeAppState: vi.fn(),
+    appState: [] as ((state: string) => void)[],
+    platform,
     offEnd: vi.fn(),
     offRefused: vi.fn(),
     signOutHooks: [] as (() => Promise<void>)[],
@@ -18,7 +21,12 @@ const h = vi.hoisted(() => {
 
 vi.mock('react', () => ({ useSyncExternalStore: vi.fn() }));
 vi.mock('react-native', () => ({
-  AppState: { addEventListener: () => ({ remove: h.removeAppState }) },
+  AppState: {
+    addEventListener: (_event: string, listener: (state: string) => void) => {
+      h.appState.push(listener);
+      return { remove: h.removeAppState };
+    },
+  },
 }));
 vi.mock('@twring/contracts', () => ({
   isActive: (c: { status: string }) => c.status === 'ACTIVE',
@@ -39,8 +47,14 @@ vi.mock('@/servers/active', () => ({
   },
   useActiveServer: () => ({ kind: 'hosted' }),
 }));
-vi.mock('@/observability/sentry', () => ({ callBreadcrumb: () => undefined }));
-vi.mock('@/platform/audio-route', () => ({ audioRoutePlatform: {} }));
+vi.mock('@/observability/sentry', () => ({
+  callBreadcrumb: () => undefined,
+  reportInterruptionUnrecovered: () => undefined,
+}));
+vi.mock('@/platform/audio-route', () => ({
+  audioRoutePlatform: {},
+  callInterruptionPlatform: h.platform,
+}));
 vi.mock('@/platform/device-facts', () => ({ deviceFacts: () => ({}) }));
 vi.mock('@/platform/call-service', () => ({
   callBackgroundService: { stop: () => Promise.resolve() },
@@ -74,6 +88,7 @@ vi.mock('./controller', () => ({
   },
 }));
 
+import { CallInterruption } from './call-interruption';
 import { callController } from './session';
 
 const switchServer = () => {
@@ -85,6 +100,8 @@ describe('callController across a server switch', () => {
     switchServer(); // drop whatever an earlier test left cached
     h.controllers.length = 0;
     h.signOutHooks.length = 0;
+    h.appState.length = 0;
+    delete h.platform.otherCallActive;
     vi.clearAllMocks();
   });
 
@@ -127,5 +144,22 @@ describe('callController across a server switch', () => {
     old.view = { call: { status: 'ACTIVE' }, muted: false };
     await hook();
     expect(old.hangUp).not.toHaveBeenCalled();
+  });
+
+  it('back in front, resumes an interruption only where the platform can check for a phone call', () => {
+    const resume = vi.spyOn(CallInterruption.prototype, 'resumeWithoutEnd').mockResolvedValue();
+    callController();
+    h.appState.at(-1)!('active');
+    expect(resume).not.toHaveBeenCalled();
+
+    switchServer();
+    const check = () => Promise.resolve(false);
+    h.platform.otherCallActive = check;
+    callController();
+    h.appState.at(-1)!('background');
+    expect(resume).not.toHaveBeenCalled();
+    h.appState.at(-1)!('active');
+    expect(resume).toHaveBeenCalledWith(check);
+    resume.mockRestore();
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CallInterruption } from './call-interruption';
+import { CallInterruption, RESUME_DELAY_MS, type InterruptionRecovery } from './call-interruption';
 
 function fakeTarget(muted = false) {
   const target = {
@@ -114,5 +114,147 @@ describe('CallInterruption edge cases', () => {
     await interruption.handle('began');
     await interruption.handle('ended');
     expect(target.muted).toBe(false);
+  });
+});
+
+function manualWait() {
+  const pending: Array<() => void> = [];
+  const waits: number[] = [];
+  return {
+    waits,
+    wait: (ms: number) =>
+      new Promise<void>((resolve) => {
+        waits.push(ms);
+        pending.push(resolve);
+      }),
+    release: () => {
+      for (const resolve of pending.splice(0)) resolve();
+    },
+  };
+}
+
+function setup(muted = false) {
+  const target = fakeTarget(muted);
+  const timer = manualWait();
+  const recovered: InterruptionRecovery[] = [];
+  let unrecovered = 0;
+  const interruption = new CallInterruption(target, undefined, {
+    wait: timer.wait,
+    onRecovered: (via) => recovered.push(via),
+    onUnrecovered: () => {
+      unrecovered += 1;
+    },
+  });
+  return { target, timer, recovered, interruption, unrecovered: () => unrecovered };
+}
+
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+describe('CallInterruption.resumeWithoutEnd', () => {
+  it('resumes on foreground when no phone call is on', async () => {
+    const { target, timer, recovered, interruption } = setup();
+    await interruption.handle('began');
+    const resumed = interruption.resumeWithoutEnd(() => Promise.resolve(false));
+    expect(timer.waits).toEqual([RESUME_DELAY_MS]);
+    timer.release();
+    await resumed;
+    expect(interruption.getState().paused).toBe(false);
+    expect(target.calls).toEqual(['mute', 'route', 'unmute']);
+    expect(recovered).toEqual(['foreground']);
+  });
+
+  it('stays paused while a phone call is on', async () => {
+    const { target, timer, recovered, interruption } = setup();
+    await interruption.handle('began');
+    const resumed = interruption.resumeWithoutEnd(() => Promise.resolve(true));
+    timer.release();
+    await resumed;
+    expect(interruption.getState().paused).toBe(true);
+    expect(target.calls).toEqual(['mute']);
+    expect(recovered).toEqual([]);
+  });
+
+  it('stays paused when the phone call check fails', async () => {
+    const { target, timer, interruption } = setup();
+    await interruption.handle('began');
+    const resumed = interruption.resumeWithoutEnd(() => Promise.reject(new Error('no module')));
+    timer.release();
+    await resumed;
+    expect(interruption.getState().paused).toBe(true);
+    expect(target.calls).toEqual(['mute']);
+  });
+
+  it('unmutes once when "ended" arrives during the wait', async () => {
+    const { target, timer, recovered, interruption } = setup();
+    await interruption.handle('began');
+    let checked = false;
+    const resumed = interruption.resumeWithoutEnd(() => {
+      checked = true;
+      return Promise.resolve(false);
+    });
+    await interruption.handle('ended');
+    timer.release();
+    await resumed;
+    expect(checked).toBe(false);
+    expect(target.calls).toEqual(['mute', 'route', 'unmute']);
+    expect(recovered).toEqual(['ended']);
+  });
+
+  it('does nothing when not paused', async () => {
+    const { target, timer, interruption } = setup();
+    let checked = false;
+    await interruption.resumeWithoutEnd(() => {
+      checked = true;
+      return Promise.resolve(false);
+    });
+    expect(checked).toBe(false);
+    expect(timer.waits).toEqual([]);
+    expect(target.calls).toEqual([]);
+  });
+
+  it('keeps the microphone muted when the caller had muted it', async () => {
+    const { target, timer, interruption } = setup(true);
+    await interruption.handle('began');
+    const resumed = interruption.resumeWithoutEnd(() => Promise.resolve(false));
+    timer.release();
+    await resumed;
+    expect(interruption.getState().paused).toBe(false);
+    expect(target.muted).toBe(true);
+    expect(target.calls).toEqual(['route']);
+  });
+
+  it('unmutes once for two resumes at the same time', async () => {
+    const { target, timer, recovered, interruption } = setup();
+    await interruption.handle('began');
+    const first = interruption.resumeWithoutEnd(() => Promise.resolve(false));
+    const second = interruption.resumeWithoutEnd(() => Promise.resolve(false));
+    timer.release();
+    await Promise.all([first, second]);
+    await flush();
+    expect(target.calls).toEqual(['mute', 'route', 'unmute']);
+    expect(recovered).toEqual(['foreground']);
+  });
+
+  it('reports a call that ended while still paused, once', async () => {
+    const { interruption, unrecovered } = setup();
+    interruption.reset();
+    expect(unrecovered()).toBe(0);
+    await interruption.handle('began');
+    interruption.reset();
+    interruption.reset();
+    expect(unrecovered()).toBe(1);
+    expect(interruption.getState().paused).toBe(false);
+  });
+
+  it('never lets a failing hook break the call', async () => {
+    const target = fakeTarget();
+    const interruption = new CallInterruption(target, undefined, {
+      onRecovered: () => {
+        throw new Error('telemetry down');
+      },
+    });
+    await interruption.handle('began');
+    await interruption.handle('ended');
+    expect(target.calls).toEqual(['mute', 'route', 'unmute']);
   });
 });

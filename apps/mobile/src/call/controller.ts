@@ -80,6 +80,8 @@ export interface CallTelemetryEvent {
   detail?: string;
   /** Gateway → phone audio received in one sampling window. */
   downlink?: DownlinkWindow;
+  /** How a paused call came back from an interruption ('interruption_recovered'). */
+  via?: 'ended' | 'foreground';
 }
 
 export interface CallControllerDeps {
