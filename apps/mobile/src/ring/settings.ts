@@ -66,7 +66,12 @@ export function settingsFromForm(
     : previous?.after_call_result === undefined
       ? {}
       : { after_call_result: previous.after_call_result };
-  const transcripts = { call_transcripts: form.callTranscripts ?? false };
+  // A server from before call transcripts refuses the field (its schema is strict): send it only
+  // once the server has reported it, or when the person turns transcripts on.
+  const transcripts =
+    previous?.call_transcripts !== undefined || form.callTranscripts === true
+      ? { call_transcripts: form.callTranscripts ?? false }
+      : {};
   if (!everSet) {
     return {
       ok: true,

@@ -645,7 +645,7 @@ describe('ring settings', () => {
     // Never set: stays null.
     expect(settingsFromForm({ ...form, dnd: true }, 'Asia/Kolkata')).toEqual({
       ok: true,
-      settings: { dnd: true, quiet_hours: null, call_transcripts: false },
+      settings: { dnd: true, quiet_hours: null },
     });
     expect(settingsFromForm({ ...form, quietEnabled: true, start: '7:5' }, 'UTC')).toEqual({
       ok: false,
@@ -657,7 +657,6 @@ describe('ring settings', () => {
       ok: true,
       settings: {
         dnd: false,
-        call_transcripts: false,
         quiet_hours: { enabled: true, start: '23:30', end: '06:00', tz: 'UTC' },
       },
     });
@@ -673,7 +672,6 @@ describe('ring settings', () => {
       ok: true,
       settings: {
         dnd: false,
-        call_transcripts: false,
         quiet_hours: { enabled: false, start: '23:00', end: '06:30', tz: 'Asia/Kolkata' },
       },
     });
@@ -688,16 +686,33 @@ describe('ring settings', () => {
     const form = { ...formFromSettings(previous), afterCallResult: 'message' as const };
     expect(settingsFromForm(form, 'UTC', previous, true)).toEqual({
       ok: true,
-      settings: { ...previous, after_call_result: 'message', call_transcripts: false },
+      settings: { ...previous, after_call_result: 'message' },
     });
     expect(settingsFromForm(form, 'UTC', previous, false)).toEqual({
       ok: true,
-      settings: { ...previous, call_transcripts: false },
+      settings: previous,
     });
     expect(formFromSettings(previous).afterCallResult).toBe('ring');
   });
 
-  it('carries call transcripts, off by default, and always sends them', () => {
+  it('sends call transcripts only once the server knows them, or when turned on', () => {
+    // A server from before transcripts refuses the field: an older gateway must keep saving DND.
+    const old = { dnd: false, quiet_hours: null };
+    expect(settingsFromForm(formFromSettings(old), 'UTC', old)).toEqual({
+      ok: true,
+      settings: { dnd: false, quiet_hours: null },
+    });
+    expect(
+      settingsFromForm({ ...formFromSettings(old), callTranscripts: true }, 'UTC', old),
+    ).toEqual({ ok: true, settings: { dnd: false, quiet_hours: null, call_transcripts: true } });
+    const known = { ...old, call_transcripts: false };
+    expect(settingsFromForm(formFromSettings(known), 'UTC', known)).toEqual({
+      ok: true,
+      settings: { dnd: false, quiet_hours: null, call_transcripts: false },
+    });
+  });
+
+  it('carries call transcripts, off by default, and sends them once known', () => {
     const previous = { dnd: false, quiet_hours: null, call_transcripts: true };
     const form = formFromSettings(previous);
     expect(form.callTranscripts).toBe(true);
