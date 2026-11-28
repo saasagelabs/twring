@@ -73,6 +73,7 @@ import {
   deliverBackgroundResult,
   MESSAGE_EXIT,
   envSessionScope,
+  ringForTool,
   ringOwner,
   RING_EXIT,
   sendMessage,
@@ -1244,25 +1245,7 @@ async function main(): Promise<void> {
       process.stdin,
       process.stdout,
       {
-        ring: async (reason, wait) => {
-          const code = await ringOwner(
-            await linked(),
-            { reason, wait },
-            { print: () => undefined },
-          );
-          const outcome = (
-            {
-              0: wait ? 'answered' : 'ringing',
-              2: 'refused',
-              3: 'declined',
-              4: 'missed',
-              5: 'cancelled',
-            } as Record<number, string>
-          )[code];
-          if (outcome === undefined)
-            throw new Error('Could not ring your phone. Check the Twring connection.');
-          return outcome;
-        },
+        ring: async (reason, wait) => ringForTool(await linked(), { reason, wait }),
         message: async (message, files) => {
           await linked();
           const result = await messageCommand({}, [message], files, () => undefined);
