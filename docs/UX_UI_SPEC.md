@@ -204,7 +204,7 @@ Keep the surface calm. Portrait, like a phone call; every band keeps its height:
 
      [one visualizer: whoever has the floor]
 
-   CLAUDE CODE   last 3 lines of the reply
+   CLAUDE CODE   last 4 lines of what you have heard
    YOU           last 2 lines of what you said
 
      Mute      ( End )      Audio
@@ -214,6 +214,10 @@ Keep the surface calm. Portrait, like a phone call; every band keeps its height:
 End is bottom centre and larger than Mute and Audio. Mute and Audio appear once. "Say something"
 shows only while Twring is listening; otherwise the line says the mic is on (or muted, or waiting
 for audio). Transcript opens as a sheet rather than dominating by default.
+
+The reply band shows only what the caller has heard, in step with the voice (ADR-050): it rolls up
+as the agent speaks and shows the last 4 lines. When the caller talks over the reply, or the reply
+has played out, it shows the whole reply.
 
 ## 11. Voice visualization
 
@@ -299,9 +303,14 @@ Operator
 
 [ Call again ]
 
-Transcript      (if enabled)
+Ring me when it's done           [switch]
+Put call transcripts in chat     [switch]
 Activity
 ```
+
+The transcripts switch is the `call_transcripts` ring setting (ADR-050): on, every call's
+transcript goes on its card in the agent's chat. The app can also send the call just
+ended, while the gateway still holds it (10 minutes). Not shown for private chats.
 
 Do not auto-generate a separate Twring AI summary in V1 unless product scope explicitly adds it.
 
@@ -310,8 +319,8 @@ Do not auto-generate a separate Twring AI summary in V1 unless product scope exp
 Recents: one header row (title and Twring lockup), a one-line summary caption, then rows grouped
 by day. Each row shows the agent, then "{outcome} · {time} · {duration}" (red when the call
 failed). A missed ring shows "Missed · {time}" in red with the agent's reason underneath, and a
-round Call button to call back (an AI app gets a chat button instead). No transcript is kept or
-previewed.
+round Call button to call back (an AI app gets a chat button instead). Recents keep no transcript and
+preview none (a transcript, if asked for, is on the call's card in the chat).
 
 Long-press a row (or use the screen reader action "Delete from Recents") to delete that entry;
 "Clear all" on the summary line deletes the whole list. Both ask first, and neither touches chats
